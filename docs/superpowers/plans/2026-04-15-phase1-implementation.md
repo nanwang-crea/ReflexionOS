@@ -1723,6 +1723,1071 @@ git commit -m "feat: 实现工具注册中心
 
 ---
 
+## 模块三-B: MVP 核心补充组件 (Week 3-4) ✨ 新增
+
+> **重要:** 这些是MVP必须实现的组件,优先级为 P0
+
+### 任务 3.5: 实现 Patch 工具 🔴 P0
+
+**优先级:** 🔴 高 - MVP 核心
+
+**问题:** 没有Patch工具,Agent无法进行精确的代码修改,会退化为全文替换
+
+**文件:**
+- 创建: `backend/app/tools/patch_tool.py`
+- 创建: `backend/app/tools/diff_parser.py`
+- 创建: `backend/tests/test_tools/test_patch_tool.py`
+
+- [ ] **步骤 1: 创建 Patch 工具测试**
+
+```python
+import pytest
+import tempfile
+import os
+from pathlib import Path
+from app.tools.patch_tool import PatchTool
+from app.security.path_security import PathSecurity
+
+
+class TestPatchTool:
+    
+    @pytest.fixture
+    def temp_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield os.path.realpath(tmpdir)
+    
+    @pytest.fixture
+    def patch_tool(self, temp_dir):
+        security = PathSecurity([temp_dir])
+        return PatchTool(security)
+    
+    @pytest.mark.asyncio
+    async def test_apply_simple_patch(self, patch_tool, temp_dir):
+        # 创建测试文件
+        test_file = Path(temp_dir) / "test.py"
+        test_file.write_text("def hello():\n    print('hello')\n")
+        
+        # 创建 patch
+        patch = f"""--- a/{test_file}
++++ b/{test_file}
+@@ -1,2 +1,2 @@
+ def hello():
+-    print('hello')
++    print('hello world')
+"""
+        
+        result = await patch_tool.execute({"patch": patch})
+        
+        assert result.success is True
+        assert "hello world" in test_file.read_text()
+    
+    @pytest.mark.asyncio
+    async def test_patch_with_multiple_hunks(self, patch_tool, temp_dir):
+        # 测试多个 Hunk
+        pass
+    
+    @pytest.mark.asyncio
+    async def test_patch_conflict_detection(self, patch_tool, temp_dir):
+        # 测试冲突检测
+        pass
+```
+
+- [ ] **步骤 2: 实现 Diff 解析器 backend/app/tools/diff_parser.py**
+
+```python
+import re
+from typing import List
+from dataclasses import dataclass
+
+
+@dataclass
+class Hunk:
+    """Diff Hunk"""
+    old_start: int
+    old_count: int
+    new_start: int
+    new_count: int
+    lines: List[str]
+
+
+class DiffParser:
+    """Unified Diff 解析器"""
+    
+    def parse(self, diff_text: str) -> List[Hunk]:
+        """解析 Unified Diff"""
+        hunks = []
+        lines = diff_text.split('\n')
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            
+            # 查找 hunk 头: @@ -old_start,old_count +new_start,new_count @@
+            if line.startswith('@@'):
+                match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', line)
+                if match:
+                    hunk = Hunk(
+                        old_start=int(match.group(1)),
+                        old_count=int(match.group(2) or 1),
+                        new_start=int(match.group(3)),
+                        new_count=int(match.group(4) or 1),
+                        lines=[]
+                    )
+                    
+                    # 收集 hunk 内容
+                    i += 1
+                    while i < len(lines) and not lines[i].startswith('@@'):
+                        if lines[i].startswith(('+', '-', ' ')):
+                            hunk.lines.append(lines[i])
+                        i += 1
+                    
+                    hunks.append(hunk)
+                else:
+                    i += 1
+            else:
+                i += 1
+        
+        return hunks
+    
+    def extract_file_path(self, diff_text: str) -> str:
+        """从 Diff 中提取文件路径"""
+        lines = diff_text.split('\n')
+        
+        for line in lines:
+            if line.startswith('+++ '):
+                path = line[4:].strip()
+                # 移除 b/ 前缀
+                if path.startswith('b/'):
+                    path = path[2:]
+                return path
+        
+        return None
+```
+
+- [ ] **步骤 3: 实现 Patch 工具 backend/app/tools/patch_tool.py**
+
+```python
+from typing import Dict, Any
+from app.tools.base import BaseTool, ToolResult
+from app.security.path_security import PathSecurity
+from app.tools.diff_parser import DiffParser
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class PatchTool(BaseTool):
+    """Patch 工具 - 应用 Unified Diff"""
+    
+    def __init__(self, security: PathSecurity):
+        self.security = security
+        self.parser = DiffParser()
+    
+    @property
+    def name(self) -> str:
+        return "patch"
+    
+    @property
+    def description(self) -> str:
+        return "应用 Unified Diff 格式的代码补丁"
+    
+    async def execute(self, args: Dict[str, Any]) -> ToolResult:
+        """执行 Patch"""
+        patch_text = args.get("patch")
+        
+        if not patch_text:
+            return ToolResult(success=False, error="缺少 patch 参数")
+        
+        try:
+            # 解析 diff
+            hunks = self.parser.parse(patch_text)
+            
+            if not hunks:
+                return ToolResult(success=False, error="无法解析 Diff 格式")
+            
+            # 提取文件路径
+            file_path = self.parser.extract_file_path(patch_text)
+            if not file_path:
+                return ToolResult(success=False, error="无法从 Diff 中提取文件路径")
+            
+            # 验证路径安全性
+            file_path = self.security.validate_write_path(file_path)
+            
+            # 读取原文件
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    original_lines = f.readlines()
+            except FileNotFoundError:
+                original_lines = []
+            
+            # 应用 Patch
+            result_lines, applied, rejected = self._apply_hunks(original_lines, hunks)
+            
+            if rejected == 0:
+                # 写入修改后的文件
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.writelines(result_lines)
+                
+                logger.info(f"成功应用 Patch: {file_path}, {applied} 个 Hunk")
+                return ToolResult(
+                    success=True,
+                    output=f"成功应用 {applied} 个修改",
+                    data={"file": file_path, "hunks_applied": applied}
+                )
+            else:
+                logger.warning(f"Patch 部分失败: {rejected} 个 Hunk 被拒绝")
+                return ToolResult(
+                    success=False,
+                    error=f"Patch 冲突: {rejected} 个修改无法应用"
+                )
+        
+        except Exception as e:
+            logger.error(f"Patch 执行失败: {str(e)}")
+            return ToolResult(success=False, error=str(e))
+    
+    def _apply_hunks(self, original_lines: list, hunks: list) -> tuple:
+        """应用所有 Hunk"""
+        result_lines = original_lines[:]
+        applied = 0
+        rejected = 0
+        
+        # 从后往前应用,避免行号偏移
+        for hunk in reversed(hunks):
+            if self._apply_hunk(result_lines, hunk):
+                applied += 1
+            else:
+                rejected += 1
+        
+        return result_lines, applied, rejected
+    
+    def _apply_hunk(self, lines: list, hunk: Hunk) -> bool:
+        """应用单个 Hunk"""
+        # 简化实现: 直接替换
+        # TODO: 添加上下文验证
+        
+        start = hunk.old_start - 1  # 转为 0-based
+        delete_count = hunk.old_count
+        new_lines = []
+        
+        for line in hunk.lines:
+            if line.startswith('+'):
+                new_lines.append(line[1:] + '\n')
+        
+        # 执行替换
+        if start >= 0 and start <= len(lines):
+            lines[start:start + delete_count] = new_lines
+            return True
+        
+        return False
+```
+
+- [ ] **步骤 4: 运行测试**
+
+运行: `cd backend && pytest tests/test_tools/test_patch_tool.py -v`
+预期: PASS
+
+- [ ] **步骤 5: 更新 requirements.txt**
+
+添加依赖:
+```txt
+# 已有依赖
+```
+
+- [ ] **步骤 6: 提交代码**
+
+```bash
+git add backend/app/tools/patch_tool.py backend/app/tools/diff_parser.py backend/tests/test_tools/test_patch_tool.py
+git commit -m "feat: 实现 Patch 工具
+
+- 实现 Unified Diff 解析器
+- 支持 Hunk 应用
+- 支持冲突检测
+- 为 Agent 提供精确代码修改能力"
+```
+
+---
+
+### 任务 3.6: 实现持久化存储层 🔴 P0
+
+**优先级:** 🔴 高 - MVP 基础设施
+
+**问题:** 数据重启丢失,无法追溯执行历史
+
+**技术选型:** SQLite + SQLAlchemy
+
+**文件:**
+- 创建: `backend/app/storage/`
+- 创建: `backend/app/storage/__init__.py`
+- 创建: `backend/app/storage/database.py`
+- 创建: `backend/app/storage/models.py`
+- 创建: `backend/app/storage/repositories/__init__.py`
+- 创建: `backend/app/storage/repositories/project_repo.py`
+- 创建: `backend/app/storage/repositories/execution_repo.py`
+- 创建: `backend/tests/test_storage/`
+
+- [ ] **步骤 1: 更新 requirements.txt 添加数据库依赖**
+
+```txt
+sqlalchemy==2.0.25
+alembic==1.13.1
+```
+
+- [ ] **步骤 2: 创建数据库模型 backend/app/storage/models.py**
+
+```python
+from sqlalchemy import Column, String, DateTime, JSON, Integer, Text
+from sqlalchemy.ext.declarative import declarative_base
+from datetime import datetime
+
+Base = declarative_base()
+
+
+class ProjectModel(Base):
+    """项目数据模型"""
+    __tablename__ = "projects"
+    
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    path = Column(String, nullable=False, unique=True)
+    language = Column(String)
+    config = Column(JSON, default={})
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+class ExecutionModel(Base):
+    """执行记录模型"""
+    __tablename__ = "executions"
+    
+    id = Column(String, primary_key=True)
+    project_id = Column(String, nullable=False, index=True)
+    task = Column(Text, nullable=False)
+    status = Column(String, default="pending", index=True)
+    steps = Column(JSON, default=[])
+    result = Column(Text)
+    total_duration = Column(Integer)  # 毫秒
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    completed_at = Column(DateTime)
+
+
+class ConversationModel(Base):
+    """对话记录模型"""
+    __tablename__ = "conversations"
+    
+    id = Column(String, primary_key=True)
+    execution_id = Column(String, nullable=False, index=True)
+    role = Column(String, nullable=False)  # user, assistant, system
+    content = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.now)
+
+
+class LLMUsageModel(Base):
+    """LLM 使用统计模型"""
+    __tablename__ = "llm_usage"
+    
+    id = Column(String, primary_key=True)
+    execution_id = Column(String, nullable=False, index=True)
+    provider = Column(String, nullable=False)
+    model = Column(String, nullable=False)
+    prompt_tokens = Column(Integer, default=0)
+    completion_tokens = Column(Integer, default=0)
+    total_tokens = Column(Integer, default=0)
+    cost = Column(Integer, default=0)  # 单位: 分
+    timestamp = Column(DateTime, default=datetime.now)
+```
+
+- [ ] **步骤 3: 创建数据库连接 backend/app/storage/database.py**
+
+```python
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
+from contextlib import contextmanager
+from pathlib import Path
+from app.storage.models import Base
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class Database:
+    """SQLite 数据库管理"""
+    
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            # 默认在用户目录下创建数据库
+            db_dir = Path.home() / ".reflexion"
+            db_dir.mkdir(exist_ok=True)
+            db_path = str(db_dir / "reflexion.db")
+        
+        self.db_path = db_path
+        self.engine = create_engine(
+            f"sqlite:///{db_path}",
+            echo=False,
+            connect_args={"check_same_thread": False}
+        )
+        
+        # 创建表
+        Base.metadata.create_all(self.engine)
+        
+        # 创建会话工厂
+        self.SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=self.engine
+        )
+        
+        logger.info(f"数据库初始化完成: {db_path}")
+    
+    @contextmanager
+    def get_session(self) -> Session:
+        """获取数据库会话"""
+        session = self.SessionLocal()
+        try:
+            yield session
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+    
+    def create_session(self) -> Session:
+        """创建数据库会话"""
+        return self.SessionLocal()
+
+
+# 全局数据库实例
+db = Database()
+```
+
+- [ ] **步骤 4: 创建项目仓储 backend/app/storage/repositories/project_repo.py**
+
+```python
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from app.storage.models import ProjectModel
+from app.models.project import Project, ProjectCreate
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ProjectRepository:
+    """项目数据仓储"""
+    
+    def __init__(self, db):
+        self.db = db
+    
+    def save(self, project: Project) -> Project:
+        """保存项目"""
+        with self.db.get_session() as session:
+            # 检查是否已存在
+            existing = session.query(ProjectModel).filter_by(
+                path=project.path
+            ).first()
+            
+            if existing:
+                # 更新
+                existing.name = project.name
+                existing.language = project.language
+                existing.config = project.config or {}
+            else:
+                # 新建
+                model = ProjectModel(
+                    id=project.id,
+                    name=project.name,
+                    path=project.path,
+                    language=project.language,
+                    config={}
+                )
+                session.add(model)
+            
+            logger.info(f"保存项目: {project.id}")
+            return project
+    
+    def get(self, project_id: str) -> Optional[Project]:
+        """获取项目"""
+        with self.db.get_session() as session:
+            model = session.query(ProjectModel).filter_by(id=project_id).first()
+            if model:
+                return Project(
+                    id=model.id,
+                    name=model.name,
+                    path=model.path,
+                    language=model.language,
+                    created_at=model.created_at,
+                    updated_at=model.updated_at
+                )
+            return None
+    
+    def get_by_path(self, path: str) -> Optional[Project]:
+        """根据路径获取项目"""
+        with self.db.get_session() as session:
+            model = session.query(ProjectModel).filter_by(path=path).first()
+            if model:
+                return Project(
+                    id=model.id,
+                    name=model.name,
+                    path=model.path,
+                    language=model.language,
+                    created_at=model.created_at,
+                    updated_at=model.updated_at
+                )
+            return None
+    
+    def list_all(self) -> List[Project]:
+        """列出所有项目"""
+        with self.db.get_session() as session:
+            models = session.query(ProjectModel).order_by(
+                ProjectModel.updated_at.desc()
+            ).all()
+            
+            return [
+                Project(
+                    id=m.id,
+                    name=m.name,
+                    path=m.path,
+                    language=m.language,
+                    created_at=m.created_at,
+                    updated_at=m.updated_at
+                )
+                for m in models
+            ]
+    
+    def delete(self, project_id: str) -> bool:
+        """删除项目"""
+        with self.db.get_session() as session:
+            model = session.query(ProjectModel).filter_by(id=project_id).first()
+            if model:
+                session.delete(model)
+                logger.info(f"删除项目: {project_id}")
+                return True
+            return False
+```
+
+- [ ] **步骤 5: 创建执行记录仓储 backend/app/storage/repositories/execution_repo.py**
+
+```python
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from app.storage.models import ExecutionModel
+from app.models.execution import Execution, ExecutionCreate
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ExecutionRepository:
+    """执行记录仓储"""
+    
+    def __init__(self, db):
+        self.db = db
+    
+    def save(self, execution: Execution) -> Execution:
+        """保存执行记录"""
+        with self.db.get_session() as session:
+            model = ExecutionModel(
+                id=execution.id,
+                project_id=execution.project_id,
+                task=execution.task,
+                status=execution.status.value,
+                steps=[step.dict() for step in execution.steps],
+                result=execution.result,
+                total_duration=int(execution.total_duration * 1000) if execution.total_duration else None,
+                created_at=execution.created_at,
+                completed_at=execution.completed_at
+            )
+            session.add(model)
+            logger.info(f"保存执行记录: {execution.id}")
+            return execution
+    
+    def get(self, execution_id: str) -> Optional[Execution]:
+        """获取执行记录"""
+        with self.db.get_session() as session:
+            model = session.query(ExecutionModel).filter_by(id=execution_id).first()
+            if model:
+                from app.models.execution import ExecutionStep, ExecutionStatus
+                
+                return Execution(
+                    id=model.id,
+                    project_id=model.project_id,
+                    task=model.task,
+                    status=ExecutionStatus(model.status),
+                    steps=[ExecutionStep(**s) for s in model.steps],
+                    result=model.result,
+                    total_duration=model.total_duration / 1000 if model.total_duration else None,
+                    created_at=model.created_at,
+                    completed_at=model.completed_at
+                )
+            return None
+    
+    def list_by_project(self, project_id: str, limit: int = 10) -> List[Execution]:
+        """获取项目的执行历史"""
+        with self.db.get_session() as session:
+            models = session.query(ExecutionModel).filter_by(
+                project_id=project_id
+            ).order_by(
+                ExecutionModel.created_at.desc()
+            ).limit(limit).all()
+            
+            from app.models.execution import ExecutionStep, ExecutionStatus
+            
+            return [
+                Execution(
+                    id=m.id,
+                    project_id=m.project_id,
+                    task=m.task,
+                    status=ExecutionStatus(m.status),
+                    steps=[ExecutionStep(**s) for s in m.steps],
+                    result=m.result,
+                    total_duration=m.total_duration / 1000 if m.total_duration else None,
+                    created_at=m.created_at,
+                    completed_at=m.completed_at
+                )
+                for m in models
+            ]
+```
+
+- [ ] **步骤 6: 创建存储层测试**
+
+```python
+import pytest
+from app.storage.database import Database
+from app.storage.repositories.project_repo import ProjectRepository
+from app.models.project import Project, ProjectCreate
+
+
+class TestProjectRepository:
+    
+    @pytest.fixture
+    def db(self, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        return Database(db_path)
+    
+    @pytest.fixture
+    def repo(self, db):
+        return ProjectRepository(db)
+    
+    def test_save_project(self, repo):
+        project = Project(
+            id="proj-123",
+            name="TestProject",
+            path="/tmp/test"
+        )
+        
+        result = repo.save(project)
+        
+        assert result.id == "proj-123"
+        assert result.name == "TestProject"
+    
+    def test_get_project(self, repo):
+        project = Project(
+            id="proj-456",
+            name="TestProject2",
+            path="/tmp/test2"
+        )
+        repo.save(project)
+        
+        result = repo.get("proj-456")
+        
+        assert result is not None
+        assert result.name == "TestProject2"
+    
+    def test_list_all(self, repo):
+        for i in range(3):
+            project = Project(
+                id=f"proj-{i}",
+                name=f"Project{i}",
+                path=f"/tmp/test{i}"
+            )
+            repo.save(project)
+        
+        result = repo.list_all()
+        
+        assert len(result) == 3
+```
+
+- [ ] **步骤 7: 运行测试**
+
+运行: `cd backend && pytest tests/test_storage/ -v`
+预期: PASS
+
+- [ ] **步骤 8: 提交代码**
+
+```bash
+git add backend/app/storage/ backend/tests/test_storage/ backend/requirements.txt
+git commit -m "feat: 实现持久化存储层
+
+- 使用 SQLite 作为数据库
+- 实现 SQLAlchemy ORM 模型
+- 创建项目和执行记录仓储
+- 支持数据持久化和查询"
+```
+
+---
+
+### 任务 3.7: 完善配置管理系统 🔴 P0
+
+**优先级:** 🔴 高 - 用户体验
+
+**文件:**
+- 创建: `backend/app/config/settings.py`
+- 创建: `backend/app/config/llm_config.py`
+- 创建: `backend/tests/test_config/`
+
+- [ ] **步骤 1: 创建配置管理 backend/app/config/settings.py**
+
+```python
+from pydantic import BaseModel, Field
+from typing import Optional
+from pathlib import Path
+import json
+
+
+class LLMSettings(BaseModel):
+    """LLM 配置"""
+    provider: str = "openai"
+    model: str = "gpt-4-turbo-preview"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    max_tokens: int = Field(default=4096, ge=1)
+
+
+class ExecutionSettings(BaseModel):
+    """执行配置"""
+    max_steps: int = Field(default=50, ge=1, le=200)
+    max_file_size: int = Field(default=10485760)  # 10MB
+    max_execution_time: int = Field(default=600)  # 10分钟
+    enable_auto_fix: bool = True
+
+
+class UISettings(BaseModel):
+    """界面配置"""
+    theme: str = "light"
+    auto_scroll: bool = True
+    show_timestamps: bool = True
+
+
+class AppSettings(BaseModel):
+    """应用总配置"""
+    llm: LLMSettings = LLMSettings()
+    execution: ExecutionSettings = ExecutionSettings()
+    ui: UISettings = UISettings()
+
+
+class ConfigManager:
+    """配置管理器"""
+    
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            config_dir = Path.home() / ".reflexion"
+            config_dir.mkdir(exist_ok=True)
+            config_path = str(config_dir / "config.json")
+        
+        self.config_path = Path(config_path)
+        self.settings = self._load()
+    
+    def _load(self) -> AppSettings:
+        """加载配置"""
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    return AppSettings(**data)
+            except Exception:
+                pass
+        
+        return AppSettings()
+    
+    def save(self):
+        """保存配置"""
+        with open(self.config_path, 'w', encoding='utf-8') as f:
+            json.dump(self.settings.dict(), f, indent=2, ensure_ascii=False)
+    
+    def update_llm(self, llm_settings: LLMSettings):
+        """更新 LLM 配置"""
+        self.settings.llm = llm_settings
+        self.save()
+    
+    def update_execution(self, execution_settings: ExecutionSettings):
+        """更新执行配置"""
+        self.settings.execution = execution_settings
+        self.save()
+    
+    def update_ui(self, ui_settings: UISettings):
+        """更新界面配置"""
+        self.settings.ui = ui_settings
+        self.save()
+    
+    def reset(self):
+        """重置为默认配置"""
+        self.settings = AppSettings()
+        self.save()
+
+
+# 全局配置管理器
+config_manager = ConfigManager()
+```
+
+- [ ] **步骤 2: 创建 LLM 配置管理 backend/app/config/llm_config.py**
+
+```python
+from typing import Optional
+from app.config.settings import config_manager, LLMSettings
+from app.models.llm_config import LLMConfig, LLMProvider
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class LLMConfigManager:
+    """LLM 配置管理"""
+    
+    @staticmethod
+    def get_config() -> LLMConfig:
+        """获取当前 LLM 配置"""
+        settings = config_manager.settings.llm
+        
+        return LLMConfig(
+            provider=LLMProvider(settings.provider),
+            model=settings.model,
+            api_key=settings.api_key,
+            base_url=settings.base_url,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens
+        )
+    
+    @staticmethod
+    def update_config(config: LLMConfig):
+        """更新 LLM 配置"""
+        llm_settings = LLMSettings(
+            provider=config.provider.value,
+            model=config.model,
+            api_key=config.api_key,
+            base_url=config.base_url,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens
+        )
+        
+        config_manager.update_llm(llm_settings)
+        logger.info(f"LLM 配置已更新: {config.provider.value} - {config.model}")
+    
+    @staticmethod
+    def set_api_key(api_key: str, provider: str = "openai"):
+        """设置 API Key"""
+        config = LLMConfigManager.get_config()
+        config.api_key = api_key
+        if provider:
+            config.provider = LLMProvider(provider)
+        LLMConfigManager.update_config(config)
+```
+
+- [ ] **步骤 3: 提交代码**
+
+```bash
+git add backend/app/config/
+git commit -m "feat: 完善配置管理系统
+
+- 实现应用配置管理器
+- 支持 LLM/执行/界面配置
+- 配置持久化到本地
+- 支持动态配置更新"
+```
+
+---
+
+### 任务 3.8: 实现 WebSocket 后端 🔴 P0
+
+**优先级:** 🔴 高 - 实时性要求
+
+**文件:**
+- 创建: `backend/app/api/websocket.py`
+- 更新: `backend/app/main.py`
+
+- [ ] **步骤 1: 创建 WebSocket 连接管理器 backend/app/api/websocket.py**
+
+```python
+from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict, Set
+from datetime import datetime
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ConnectionManager:
+    """WebSocket 连接管理器"""
+    
+    def __init__(self):
+        # execution_id -> Set[WebSocket]
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+    
+    async def connect(self, websocket: WebSocket, execution_id: str):
+        """接受新连接"""
+        await websocket.accept()
+        
+        if execution_id not in self.active_connections:
+            self.active_connections[execution_id] = set()
+        
+        self.active_connections[execution_id].add(websocket)
+        logger.info(f"WebSocket 连接: execution_id={execution_id}, 当前连接数={len(self.active_connections[execution_id])}")
+    
+    def disconnect(self, websocket: WebSocket, execution_id: str):
+        """断开连接"""
+        if execution_id in self.active_connections:
+            self.active_connections[execution_id].discard(websocket)
+            
+            if not self.active_connections[execution_id]:
+                del self.active_connections[execution_id]
+        
+        logger.info(f"WebSocket 断开: execution_id={execution_id}")
+    
+    async def send_event(self, execution_id: str, event_type: str, data: dict):
+        """发送事件到所有订阅该执行的客户端"""
+        if execution_id not in self.active_connections:
+            return
+        
+        message = json.dumps({
+            "type": event_type,
+            "data": data,
+            "timestamp": datetime.now().isoformat()
+        }, ensure_ascii=False)
+        
+        disconnected = []
+        
+        for connection in self.active_connections[execution_id]:
+            try:
+                await connection.send_text(message)
+            except Exception as e:
+                logger.error(f"发送消息失败: {e}")
+                disconnected.append(connection)
+        
+        # 清理断开的连接
+        for conn in disconnected:
+            self.disconnect(conn, execution_id)
+    
+    async def broadcast(self, event_type: str, data: dict):
+        """广播到所有连接"""
+        for execution_id in list(self.active_connections.keys()):
+            await self.send_event(execution_id, event_type, data)
+
+
+# 全局连接管理器
+ws_manager = ConnectionManager()
+```
+
+- [ ] **步骤 2: 创建 WebSocket 路由**
+
+在 `backend/app/api/websocket.py` 中添加:
+
+```python
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from app.api.websocket import ws_manager
+
+router = APIRouter()
+
+
+@router.websocket("/ws/execution/{execution_id}")
+async def websocket_endpoint(websocket: WebSocket, execution_id: str):
+    """WebSocket 端点"""
+    await ws_manager.connect(websocket, execution_id)
+    
+    try:
+        while True:
+            # 接收客户端消息
+            data = await websocket.receive_text()
+            
+            try:
+                message = json.loads(data)
+                
+                # 处理心跳
+                if message.get("type") == "ping":
+                    await websocket.send_text(json.dumps({"type": "pong"}))
+                
+                # 处理控制命令
+                elif message.get("type") == "control":
+                    # TODO: 实现暂停/恢复/终止等控制
+                    pass
+            
+            except json.JSONDecodeError:
+                logger.warning(f"无效的 JSON 消息: {data}")
+    
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, execution_id)
+    except Exception as e:
+        logger.error(f"WebSocket 错误: {e}")
+        ws_manager.disconnect(websocket, execution_id)
+```
+
+- [ ] **步骤 3: 更新 main.py 注册 WebSocket 路由**
+
+```python
+from app.api.websocket import router as ws_router
+
+app.include_router(ws_router)
+```
+
+- [ ] **步骤 4: 在执行循环中集成 WebSocket**
+
+在 `RapidExecutionLoop` 中:
+
+```python
+from app.api.websocket import ws_manager
+
+class RapidExecutionLoop:
+    async def run(self, task: str, context: ExecutionContext) -> Execution:
+        execution_id = context.execution_id
+        
+        # 发送开始事件
+        await ws_manager.send_event(execution_id, "execution:start", {
+            "execution_id": execution_id,
+            "task": task
+        })
+        
+        for step_num in range(1, self.max_steps + 1):
+            # 发送步骤开始事件
+            await ws_manager.send_event(execution_id, "execution:step", {
+                "step_number": step_num,
+                "status": "running"
+            })
+            
+            # 执行步骤...
+            step = await self.execute_action(action, context, step_num)
+            
+            # 发送步骤完成事件
+            await ws_manager.send_event(execution_id, "execution:step", {
+                "step_number": step_num,
+                "status": step.status.value,
+                "tool": step.tool,
+                "output": step.output,
+                "duration": step.duration
+            })
+        
+        # 发送完成事件
+        await ws_manager.send_event(execution_id, "execution:complete", {
+            "status": execution.status.value,
+            "result": execution.result
+        })
+        
+        return execution
+```
+
+- [ ] **步骤 5: 提交代码**
+
+```bash
+git add backend/app/api/websocket.py backend/app/main.py
+git commit -m "feat: 实现 WebSocket 实时通信
+
+- 创建 WebSocket 连接管理器
+- 支持执行步骤实时推送
+- 支持心跳机制
+- 集成到执行循环"
+```
+
+---
+
 ## 模块四: Agent 执行引擎 (Week 4)
 
 ### 任务 4.1: 实现执行上下文管理
@@ -2241,6 +3306,188 @@ git commit -m "feat: 实现 Agent 快速执行循环
 - 实现工具调用执行器
 - 支持错误处理和自动修复
 - 添加完整的单元测试"
+```
+
+---
+
+### 任务 4.3: 实现 Prompt 管理系统 ✨ NEW
+
+**文件:**
+- 创建: `backend/app/execution/prompt_manager.py`
+- 创建: `backend/tests/test_execution/test_prompt_manager.py`
+
+**优先级:** 🔴 高 (Prompt 是 Agent 的核心)
+
+**目标:**
+- 实现 Prompt 模板管理
+- 支持 System/Step/Error 三种 Prompt
+- 支持模板变量替换
+- 为后续扩展预留接口
+
+- [ ] **步骤 1: 创建 Prompt 管理器测试**
+
+```python
+import pytest
+from app.execution.prompt_manager import PromptManager
+
+
+class TestPromptManager:
+    
+    def test_get_system_prompt(self):
+        manager = PromptManager()
+        
+        prompt = manager.get_system_prompt(tools=[])
+        
+        assert "autonomous coding agent" in prompt
+        assert "Output MUST be valid JSON" in prompt
+    
+    def test_get_step_prompt(self):
+        from app.execution.context_manager import ExecutionContext
+        manager = PromptManager()
+        context = ExecutionContext(task="修复bug")
+        
+        prompt = manager.get_step_prompt(context)
+        
+        assert "修复bug" in prompt
+        assert "What is your next action" in prompt
+    
+    def test_get_error_prompt(self):
+        manager = PromptManager()
+        
+        prompt = manager.get_error_prompt(
+            error="File not found",
+            tool="file",
+            code_snippet="def test(): pass"
+        )
+        
+        assert "File not found" in prompt
+        assert "Fix the issue" in prompt
+```
+
+- [ ] **步骤 2: 实现 Prompt 管理器**
+
+创建 `backend/app/execution/prompt_manager.py` (参考设计文档中的实现)
+
+- [ ] **步骤 3: 运行测试验证**
+
+运行: `cd backend && pytest tests/test_execution/test_prompt_manager.py -v`
+预期: PASS
+
+- [ ] **步骤 4: 提交代码**
+
+```bash
+git add backend/app/execution/prompt_manager.py backend/tests/test_execution/test_prompt_manager.py
+git commit -m "feat: 实现 Prompt 管理系统
+
+- 创建 PromptManager 管理模板
+- 支持 System/Step/Error 三种 Prompt
+- 支持模板变量替换
+- 为后续扩展预留接口"
+```
+
+---
+
+### 任务 4.4: 预留 Skills 和 MCP 接口 ✨ NEW
+
+**文件:**
+- 创建: `backend/app/orchestration/__init__.py`
+- 创建: `backend/app/orchestration/skill_registry.py`
+- 创建: `backend/app/orchestration/mcp_manager.py`
+- 创建: `backend/tests/test_orchestration/`
+
+**优先级:** 🟡 中 (第二阶段完整实现)
+
+**目标:**
+- 创建 Skills 系统基础接口
+- 创建 MCP 协议基础接口
+- 注册默认 Skills
+- 为第二阶段完整实现预留架构
+
+- [ ] **步骤 1: 创建编排层目录**
+
+```bash
+mkdir -p backend/app/orchestration
+mkdir -p backend/tests/test_orchestration
+touch backend/app/orchestration/__init__.py
+```
+
+- [ ] **步骤 2: 创建 SkillRegistry 骨架**
+
+创建 `backend/app/orchestration/skill_registry.py`:
+```python
+from typing import Dict, List, Optional
+from pydantic import BaseModel
+
+
+class Skill(BaseModel):
+    """技能定义"""
+    name: str
+    description: str
+    tools: List[str]
+    prompt_template: str
+
+
+class SkillRegistry:
+    """技能注册中心 - 第一阶段仅提供基础接口"""
+    
+    def __init__(self):
+        self.skills: Dict[str, Skill] = {}
+        # TODO: 第二阶段实现完整的技能系统
+    
+    def register_skill(self, skill: Skill):
+        """注册技能"""
+        self.skills[skill.name] = skill
+    
+    def get_skill(self, name: str) -> Optional[Skill]:
+        """获取技能"""
+        return self.skills.get(name)
+    
+    def list_skills(self) -> List[Skill]:
+        """列出所有技能"""
+        return list(self.skills.values())
+```
+
+- [ ] **步骤 3: 创建 MCPManager 骨架**
+
+创建 `backend/app/orchestration/mcp_manager.py`:
+```python
+from typing import Dict, List
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class MCPManager:
+    """MCP 管理器 - 第一阶段仅提供接口定义"""
+    
+    def __init__(self):
+        self.servers: Dict[str, any] = {}
+        # TODO: 第二阶段实现完整的 MCP 协议支持
+    
+    async def register_server(self, server_id: str, config: Dict) -> bool:
+        """注册 MCP 服务器 (第二阶段实现)"""
+        logger.warning("MCP support will be implemented in Phase 2")
+        return False
+    
+    async def call_tool(self, name: str, arguments: Dict) -> any:
+        """调用 MCP 工具 (第二阶段实现)"""
+        raise NotImplementedError("MCP support will be implemented in Phase 2")
+    
+    def list_tools(self) -> List:
+        """列出 MCP 工具 (第二阶段实现)"""
+        return []
+```
+
+- [ ] **步骤 4: 提交代码**
+
+```bash
+git add backend/app/orchestration/ backend/tests/test_orchestration/
+git commit -m "feat: 预留 Skills 和 MCP 接口
+
+- 创建 SkillRegistry 基础接口
+- 创建 MCPManager 基础接口
+- 为第二阶段完整实现预留架构
+- 添加 TODO 标记"
 ```
 
 ---
