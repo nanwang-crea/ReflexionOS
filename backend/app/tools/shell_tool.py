@@ -2,7 +2,7 @@ import asyncio
 from typing import Dict, Any
 from app.tools.base import BaseTool, ToolResult
 from app.security.shell_security import ShellSecurity, ShellSecurityError
-from app.config import settings
+from app.config.settings import config_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,7 +34,7 @@ class ShellTool(BaseTool):
         """
         command = args.get("command")
         cwd = args.get("cwd")
-        timeout = args.get("timeout", settings.max_execution_time)
+        timeout = args.get("timeout", config_manager.settings.execution.max_execution_time)
         
         if not command:
             return ToolResult(success=False, error="缺少 command 参数")

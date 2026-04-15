@@ -3,7 +3,7 @@ import aiofiles
 from typing import Dict, Any, List
 from app.tools.base import BaseTool, ToolResult
 from app.security.path_security import PathSecurity
-from app.config import settings
+from app.config.settings import config_manager
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ class FileTool(BaseTool):
         if not os.path.exists(path):
             return ToolResult(success=False, error=f"文件不存在: {path}")
         
-        if os.path.getsize(path) > settings.max_file_size:
+        if os.path.getsize(path) > config_manager.settings.execution.max_file_size:
             return ToolResult(success=False, error="文件大小超过限制")
         
         async with aiofiles.open(path, mode='r', encoding='utf-8') as f:

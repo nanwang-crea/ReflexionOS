@@ -3,7 +3,9 @@ import sys
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
-from app.config import settings
+from app.config.settings import config_manager
+
+settings = config_manager.settings
 
 
 def setup_logger(
@@ -48,6 +50,6 @@ def get_logger(name: str = "reflexion") -> logging.Logger:
 
 logger = setup_logger(
     name="reflexion",
-    log_file=f"reflexion-{datetime.now().strftime('%Y%m%d')}.log" if not settings.debug else None,
-    level=logging.DEBUG if settings.debug else logging.INFO
+    log_file=None,
+    level=logging.INFO
 )
