@@ -9,6 +9,7 @@ from app.tools.patch_tool import PatchTool
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.llm import LLMAdapterFactory
+from app.config.settings import config_manager, LLMSettings
 import logging
 from pathlib import Path
 
@@ -21,7 +22,7 @@ class AgentService:
     def __init__(self):
         self.executions: Dict[str, Execution] = {}
         self.tool_registry = self._init_tool_registry()
-        self.llm_config: Optional[LLMConfig] = None
+        self.llm_config: Optional[LLMConfig] = self._load_llm_config()
     
     def _init_tool_registry(self) -> ToolRegistry:
         """初始化工具注册中心"""
@@ -36,19 +37,58 @@ class AgentService:
         
         logger.info("工具注册中心初始化完成")
         return registry
+
+    def _load_llm_config(self) -> Optional[LLMConfig]:
+        """从持久化配置加载 LLM 配置"""
+        llm_settings = config_manager.settings.llm
+        return LLMConfig(
+            provider=LLMProvider(llm_settings.provider),
+            model=llm_settings.model,
+            api_key=llm_settings.api_key,
+            base_url=llm_settings.base_url,
+            temperature=llm_settings.temperature,
+            max_tokens=llm_settings.max_tokens
+        )
+
+    def _persist_llm_config(self, config: LLMConfig) -> None:
+        """持久化 LLM 配置"""
+        config_manager.update_llm(
+            LLMSettings(
+                provider=config.provider.value,
+                model=config.model,
+                api_key=config.api_key,
+                base_url=config.base_url,
+                temperature=config.temperature,
+                max_tokens=config.max_tokens
+            )
+        )
     
     def set_llm_config(self, config: LLMConfig) -> None:
         """设置 LLM 配置"""
-        self.llm_config = config
-        logger.info(f"设置 LLM 配置: {config.provider} - {config.model}")
+        existing_config = self.llm_config or self._load_llm_config()
+
+        merged_config = LLMConfig(
+            provider=config.provider,
+            model=config.model,
+            api_key=config.api_key or (existing_config.api_key if existing_config else None),
+            base_url=config.base_url,
+            temperature=config.temperature,
+            max_tokens=config.max_tokens
+        )
+
+        self.llm_config = merged_config
+        self._persist_llm_config(merged_config)
+        logger.info(f"设置 LLM 配置: {merged_config.provider} - {merged_config.model}")
     
     def get_llm_config(self) -> Optional[LLMConfig]:
         """获取 LLM 配置"""
+        if not self.llm_config:
+            self.llm_config = self._load_llm_config()
         return self.llm_config
     
     async def execute_task(self, execution_create: ExecutionCreate) -> Execution:
         """执行任务"""
-        if not self.llm_config:
+        if not self.llm_config or not self.llm_config.api_key:
             raise ValueError("LLM 配置未设置，请先在设置页面配置 API Key")
         
         llm = LLMAdapterFactory.create(self.llm_config)

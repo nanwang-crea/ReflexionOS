@@ -3,12 +3,14 @@ import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { LLMProvider } from '@/types/llm'
 
+const DEFAULT_OPENAI_MODEL = 'qwen3.6-plus'
+
 export default function SettingsPage() {
   const { setLLMConfig, configured, setConfigured } = useSettingsStore()
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [formData, setFormData] = useState({
     provider: 'openai',
-    model: 'gpt-4-turbo-preview',
+    model: DEFAULT_OPENAI_MODEL,
     api_key: '',
     base_url: '',
   })
@@ -32,31 +34,53 @@ export default function SettingsPage() {
   const loadConfig = async () => {
     try {
       const response = await llmApi.getConfig()
-      if (response.data.configured) {
-        setConfigured(true)
+      if (response.data.provider || response.data.model || response.data.base_url) {
         setFormData({
           provider: response.data.provider || 'openai',
-          model: response.data.model || 'gpt-4-turbo-preview',
+          model: response.data.model || DEFAULT_OPENAI_MODEL,
           api_key: '',
           base_url: response.data.base_url || '',
         })
       }
+
+      setConfigured(Boolean(response.data.configured))
     } catch (error) {
       console.error('Failed to load config:', error)
     }
   }
 
   const handleSave = async () => {
+    const model = formData.model.trim()
+    if (!model) {
+      alert('Model is required')
+      return
+    }
+
+    const payload = {
+      provider: formData.provider,
+      model,
+      api_key: formData.api_key.trim() || undefined,
+      base_url: formData.base_url.trim() || undefined,
+    }
+
     setSaving(true)
     try {
-      await llmApi.setConfig(formData)
-      setLLMConfig({
-        provider: formData.provider as any,
-        model: formData.model,
-        api_key: formData.api_key,
-        base_url: formData.base_url,
+      const response = await llmApi.setConfig(payload)
+
+      setFormData({
+        provider: response.data.provider || payload.provider,
+        model: response.data.model || payload.model,
+        api_key: '',
+        base_url: response.data.base_url || payload.base_url || '',
       })
-      setConfigured(true)
+
+      setLLMConfig({
+        provider: (response.data.provider || payload.provider) as any,
+        model: response.data.model || payload.model,
+        api_key: payload.api_key,
+        base_url: response.data.base_url || payload.base_url,
+      })
+      setConfigured(Boolean(response.data.configured))
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
     } catch (error) {
@@ -112,17 +136,22 @@ export default function SettingsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Model
             </label>
-            <select
+            <input
+              type="text"
+              list="llm-model-suggestions"
               value={formData.model}
               onChange={(e) => setFormData({ ...formData, model: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-            >
+              placeholder="e.g. qwen3.6-plus"
+            />
+            <datalist id="llm-model-suggestions">
               {selectedProvider?.models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
+                <option key={model} value={model} />
               ))}
-            </select>
+            </datalist>
+            <p className="mt-1 text-sm text-gray-500">
+              You can choose a suggested model or type any OpenAI-compatible model name manually.
+            </p>
           </div>
 
           <div>

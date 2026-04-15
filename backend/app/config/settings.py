@@ -7,7 +7,7 @@ import json
 class LLMSettings(BaseModel):
     """LLM 配置"""
     provider: str = "openai"
-    model: str = "gpt-4-turbo-preview"
+    model: str = "qwen3.6-plus"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
@@ -63,7 +63,7 @@ class ConfigManager:
     def save(self):
         """保存配置"""
         with open(self.config_path, 'w', encoding='utf-8') as f:
-            json.dump(self.settings.dict(), f, indent=2, ensure_ascii=False)
+            json.dump(self.settings.model_dump(), f, indent=2, ensure_ascii=False)
     
     def update_llm(self, llm_settings: LLMSettings):
         """更新 LLM 配置"""
