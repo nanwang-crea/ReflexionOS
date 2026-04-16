@@ -35,37 +35,30 @@ class PromptManager:
 You MUST respond in JSON format:
 ```json
 {
-  "content": "Your message to the user (explain what you're doing or the result)",
-  "tool_calls": [
-    {"name": "tool_name", "args": {"arg1": "value1"}}
-  ]
+  "content": "Your message to the user",
+  "tool_calls": [{"name": "tool_name", "args": {...}}]
 }
 ```
 
-- `content`: Always explain what you're doing or the result
-- `tool_calls`: List of tools to execute (empty [] when done)
+**IMPORTANT**: 
+- `content` is REQUIRED - always explain what you're doing or summarize results
+- `tool_calls` should be [] when done with all operations
 
-## When to use tools:
-- Need to read/write files → use "file" tool
-- Need to run commands → use "shell" tool  
-- Need to modify code → use "patch" tool
-
-## When done:
-```json
-{
-  "content": "I have completed the task. Here's what I did...",
-  "tool_calls": []
-}
-```
+## Workflow:
+1. **During task**: Use tools to accomplish the task
+   - {"content": "Let me check the files...", "tool_calls": [{"name": "file", "args": {"action": "list", "path": "."}}]}
+   
+2. **After tools complete**: Provide a summary
+   - {"content": "I found X files. Here's what I discovered...", "tool_calls": []}
 
 ## Available tools:
 $tool_list
 
 ## Rules:
-- Always include `content` to explain your actions
-- Use minimal, precise changes
-- Verify results when possible
-- If user just asks a question (not a task), respond with content and empty tool_calls""",
+- ALWAYS include `content` field explaining your actions
+- When finished with all tools, set `tool_calls` to [] and summarize your findings
+- If user asks a question (not a task), just respond with content and empty tool_calls
+- Keep responses concise but informative""",
             variables=["tool_list"]
         )
         

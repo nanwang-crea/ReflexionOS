@@ -28,14 +28,16 @@ class AgentService:
         """初始化工具注册中心"""
         registry = ToolRegistry()
         
-        path_security = PathSecurity(["/tmp"])
+        # 默认允许当前工作目录
+        allowed_paths = [str(Path.cwd())]
+        path_security = PathSecurity(allowed_paths, base_dir=str(Path.cwd()))
         shell_security = ShellSecurity()
         
         registry.register(FileTool(path_security))
         registry.register(ShellTool(shell_security))
         registry.register(PatchTool(path_security))
         
-        logger.info("工具注册中心初始化完成")
+        logger.info(f"工具注册中心初始化完成, 允许路径: {allowed_paths}")
         return registry
 
     def _load_llm_config(self) -> Optional[LLMConfig]:
@@ -98,13 +100,22 @@ class AgentService:
             tool_registry=self.tool_registry
         )
         
+        # 更新路径安全配置，允许项目路径
         project_path = execution_create.project_id
         if project_path and Path(project_path).exists():
-            path_security = PathSecurity([project_path])
+            # 获取当前允许的路径
+            current_allowed = self.tool_registry.tools.get("file").security.allowed_base_paths if "file" in self.tool_registry.tools else []
+            
+            # 添加项目路径到允许列表
+            allowed_paths = list(set(current_allowed + [str(Path(project_path).resolve())]))
+            path_security = PathSecurity(allowed_paths, base_dir=project_path)
+            
             if "file" in self.tool_registry.tools:
                 self.tool_registry.tools["file"].security = path_security
             if "patch" in self.tool_registry.tools:
                 self.tool_registry.tools["patch"].security = path_security
+            
+            logger.info(f"更新允许路径: {allowed_paths}")
         
         execution = await execution_loop.run(
             task=execution_create.task,

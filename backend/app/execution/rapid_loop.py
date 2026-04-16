@@ -75,6 +75,7 @@ class RapidExecutionLoop:
         logger.info(f"开始执行任务: {task}")
         
         final_message = ""
+        last_action_had_tools = False
         
         try:
             step_num = 0
@@ -92,10 +93,18 @@ class RapidExecutionLoop:
                 
                 # 检查是否完成（没有工具调用）
                 if not action.has_tool_calls:
-                    execution.status = ExecutionStatus.COMPLETED
-                    execution.result = final_message or "任务完成"
-                    logger.info(f"任务完成: {execution.result}")
-                    break
+                    # 如果上一次有工具调用，这次没有，说明是最终总结
+                    if last_action_had_tools or action.content:
+                        execution.status = ExecutionStatus.COMPLETED
+                        execution.result = final_message or "任务完成"
+                        logger.info(f"任务完成: {execution.result}")
+                        break
+                    else:
+                        # 没有工具调用也没有内容，可能是空响应，让 LLM 再试
+                        conversation.append(Message(role="user", content="请总结你的发现并回复用户。"))
+                        continue
+                
+                last_action_had_tools = True
                 
                 # 执行工具调用
                 for tool_call in action.tool_calls:
@@ -105,16 +114,23 @@ class RapidExecutionLoop:
                     
                     # 将工具结果加入对话
                     if step.status == StepStatus.SUCCESS:
-                        tool_result = f"Tool {tool_call.name} succeeded: {step.output or '(no output)'}"
+                        tool_result = f"Tool {tool_call.name} succeeded.\n{step.output or '(no output)'}"
                     else:
                         tool_result = f"Tool {tool_call.name} failed: {step.error}"
                         await self.handle_error(context, step)
                     
-                    # 工具结果作为 user 消息（让 LLM 知道执行结果）
                     conversation.append(Message(role="user", content=tool_result))
             
             else:
-                # 超过最大步数
+                # 超过最大步数，强制获取总结
+                conversation.append(Message(
+                    role="user", 
+                    content="已达到最大步数限制。请总结目前的发现并回复用户。"
+                ))
+                action = await self.decide_action(conversation)
+                if action.content:
+                    final_message = action.content
+                
                 execution.status = ExecutionStatus.COMPLETED
                 execution.result = final_message or "执行完成"
                 logger.warning("执行达到最大步数")

@@ -3,7 +3,7 @@ import tempfile
 import os
 from pathlib import Path
 from app.tools.file_tool import FileTool
-from app.security.path_security import PathSecurity, SecurityError
+from app.security.path_security import PathSecurity
 
 
 class TestFileTool:
@@ -29,7 +29,58 @@ class TestFileTool:
         })
         
         assert result.success is True
-        assert result.data["content"] == "print('hello')"
+        assert "print('hello')" in result.data["content"]
+        assert result.data["total_lines"] == 1
+    
+    @pytest.mark.asyncio
+    async def test_read_file_with_line_range(self, file_tool, temp_dir):
+        test_file = Path(temp_dir) / "test.py"
+        test_file.write_text("line1\nline2\nline3\nline4\nline5")
+        
+        result = await file_tool.execute({
+            "action": "read",
+            "path": str(test_file),
+            "start_line": 2,
+            "end_line": 4
+        })
+        
+        assert result.success is True
+        assert result.data["start_line"] == 2
+        assert result.data["end_line"] == 4
+        assert "line2" in result.data["content"]
+        assert "line4" in result.data["content"]
+    
+    @pytest.mark.asyncio
+    async def test_read_file_with_context(self, file_tool, temp_dir):
+        test_file = Path(temp_dir) / "test.py"
+        lines = [f"line{i}" for i in range(1, 21)]
+        test_file.write_text("\n".join(lines))
+        
+        result = await file_tool.execute({
+            "action": "read",
+            "path": str(test_file),
+            "line": 10,
+            "context": 2
+        })
+        
+        assert result.success is True
+        assert "line8" in result.data["content"]
+        assert "line10" in result.data["content"]
+        assert "line12" in result.data["content"]
+    
+    @pytest.mark.asyncio
+    async def test_search_in_file(self, file_tool, temp_dir):
+        test_file = Path(temp_dir) / "test.py"
+        test_file.write_text("def hello():\n    print('hello')\n\ndef world():\n    print('world')")
+        
+        result = await file_tool.execute({
+            "action": "search",
+            "path": str(test_file),
+            "query": "def"
+        })
+        
+        assert result.success is True
+        assert result.data["count"] == 2
     
     @pytest.mark.asyncio
     async def test_read_file_outside_workspace(self, file_tool):
@@ -38,7 +89,7 @@ class TestFileTool:
             "path": "/etc/passwd"
         })
         assert result.success is False
-        assert "不在允许的访问范围内" in result.error
+        assert "不在允许范围内" in result.error
     
     @pytest.mark.asyncio
     async def test_write_file_success(self, file_tool, temp_dir):
