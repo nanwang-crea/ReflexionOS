@@ -64,7 +64,8 @@ export default function AgentWorkspace() {
         timestamp: Date.now()
       })
     } catch (err: any) {
-      const errorMsg = err.response?.data?.detail || '执行失败'
+      console.error('Agent execution error:', err)
+      const errorMsg = err.response?.data?.detail || err.message || '执行失败'
       addMessage({
         id: `msg-${Date.now()}-error`,
         role: 'assistant',

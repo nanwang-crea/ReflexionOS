@@ -9,11 +9,11 @@ class TestLogger:
         logger = setup_logger("test_logger")
         
         assert logger.name == "test_logger"
-        assert logger.level == logging.INFO
+        assert logger.level == logging.DEBUG
         assert len(logger.handlers) > 0
     
     def test_get_logger(self):
-        logger = get_logger("reflexion")
+        logger = get_logger("app")
         
-        assert logger.name == "reflexion"
+        assert logger.name == "app"
         assert isinstance(logger, logging.Logger)

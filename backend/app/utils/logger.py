@@ -1,29 +1,28 @@
 import logging
 import sys
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
-from app.config.settings import config_manager
-
-settings = config_manager.settings
 
 
 def setup_logger(
-    name: str = "reflexion",
+    name: str = "app",
     log_file: Optional[str] = None,
-    level: int = logging.INFO
+    level: int = logging.DEBUG
 ) -> logging.Logger:
+    """设置日志器 - 输出到控制台"""
     logger = logging.getLogger(name)
     logger.setLevel(level)
     
     if logger.handlers:
         return logger
     
+    # 详细格式，包含文件名和行号
     formatter = logging.Formatter(
-        fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
+        fmt="%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(message)s",
+        datefmt="%H:%M:%S"
     )
     
+    # 控制台输出
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(level)
     console_handler.setFormatter(formatter)
@@ -44,12 +43,23 @@ def setup_logger(
     return logger
 
 
-def get_logger(name: str = "reflexion") -> logging.Logger:
+def get_logger(name: str = "app") -> logging.Logger:
     return logging.getLogger(name)
 
 
-logger = setup_logger(
-    name="reflexion",
-    log_file=None,
-    level=logging.INFO
-)
+# 初始化根日志器
+root_logger = setup_logger(name="app", level=logging.DEBUG)
+
+# 设置所有 app 模块的日志级别
+logging.getLogger("app").setLevel(logging.DEBUG)
+logging.getLogger("app.execution").setLevel(logging.DEBUG)
+logging.getLogger("app.tools").setLevel(logging.DEBUG)
+logging.getLogger("app.llm").setLevel(logging.DEBUG)
+logging.getLogger("app.services").setLevel(logging.DEBUG)
+
+# 降低第三方库的日志级别
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
+
+logger = root_logger

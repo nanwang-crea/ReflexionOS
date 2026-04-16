@@ -136,9 +136,10 @@ class RapidExecutionLoop:
                 logger.warning("执行达到最大步数")
         
         except Exception as e:
+            import traceback
             execution.status = ExecutionStatus.FAILED
-            execution.result = str(e)
-            logger.error(f"执行异常: {str(e)}")
+            execution.result = f"执行异常: {str(e)}"
+            logger.error(f"执行异常: {str(e)}\n{traceback.format_exc()}")
         
         finally:
             execution.total_duration = time.time() - start_time
