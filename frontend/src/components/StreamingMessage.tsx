@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 interface StreamingMessageProps {
   content: string
@@ -11,6 +11,72 @@ export function StreamingMessage({ content, isStreaming }: StreamingMessageProps
       <div className="whitespace-pre-wrap">{content}</div>
       {isStreaming && (
         <span className="inline-block w-2 h-5 bg-blue-500 animate-pulse ml-1" />
+      )}
+    </div>
+  )
+}
+
+interface ThoughtDisclosureProps {
+  label: string
+  content: string
+  isStreaming?: boolean
+  defaultOpen?: boolean
+}
+
+export function ThoughtDisclosure({
+  label,
+  content,
+  isStreaming = false,
+  defaultOpen = false
+}: ThoughtDisclosureProps) {
+  const [expanded, setExpanded] = useState(defaultOpen)
+
+  useEffect(() => {
+    if (defaultOpen) {
+      setExpanded(true)
+    }
+  }, [defaultOpen])
+
+  const preview = useMemo(() => {
+    const normalized = content.replace(/\s+/g, ' ').trim()
+    if (!normalized) {
+      return isStreaming ? '正在分析当前任务...' : '查看本轮思考过程'
+    }
+    return normalized.length > 72 ? `${normalized.slice(0, 72)}...` : normalized
+  }, [content, isStreaming])
+
+  return (
+    <div className="mb-3 max-w-[80%] rounded-xl border border-gray-200 bg-white text-gray-800 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setExpanded(prev => !prev)}
+        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left hover:bg-gray-50"
+      >
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-2">
+            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+              {label}
+            </span>
+            {isStreaming && (
+              <span className="text-xs text-blue-600">实时更新中</span>
+            )}
+          </div>
+          <div className="truncate text-sm text-gray-500">{preview}</div>
+        </div>
+        <span className="shrink-0 text-sm text-gray-400">
+          {expanded ? '收起' : '展开'}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-100 px-4 py-3">
+          <div className="whitespace-pre-wrap text-sm leading-6 text-gray-700">
+            {content}
+            {isStreaming && (
+              <span className="ml-1 inline-block h-4 w-2 animate-pulse bg-blue-500 align-middle" />
+            )}
+          </div>
+        </div>
       )}
     </div>
   )

@@ -56,10 +56,11 @@ class ToolRegistry:
         definitions = []
         for tool in self.tools.values():
             schema = tool.get_schema()
+            parameters = schema.get("parameters") or schema.get("input_schema", {})
             definitions.append(LLMToolDefinition(
                 name=schema["name"],
                 description=schema["description"],
-                parameters=schema.get("parameters", {})
+                parameters=parameters
             ))
         return definitions
     

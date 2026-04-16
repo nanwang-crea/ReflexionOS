@@ -1,6 +1,5 @@
 from typing import List, Dict, Any
 from string import Template
-import json
 
 from app.llm.base import LLMToolDefinition
 
@@ -41,11 +40,30 @@ $tool_list
 
 ## Rules:
 - Use tools to accomplish tasks (read files, write files, run commands)
-- After using tools, provide a brief summary of what you did
+- Answer the user's actual question directly once you have enough information
+- Keep any explanation of your process brief and natural unless the user explicitly asks for details
 - If a task is complex, break it into steps
 - If something fails, try to fix it and retry
-- When done, provide a clear summary of the completed work""",
+- When done, provide a helpful final answer, not a rigid operation log""",
             variables=["tool_list"]
+        )
+
+        self.register_template(
+            name="final_response",
+            template="""You have already finished the tool work.
+
+Original user request:
+$task
+
+Write the final answer for the user now.
+
+Requirements:
+- Directly answer the user's real question first
+- Keep the tone natural, clear, and helpful
+- You may briefly mention how you verified or gathered the answer if it helps, but do not write a rigid "operation summary"
+- Do not use headings like "操作总结", "完成的操作", or "获得的结果" unless the user explicitly asked for that format
+- If the answer is based on repository structure or files, summarize the key conclusion instead of dumping unnecessary detail""",
+            variables=["task"]
         )
         
         # Error Prompt
@@ -95,3 +113,7 @@ Please try a different approach or fix the issue.""",
             error=error,
             code_snippet=code_snippet
         )
+
+    def get_final_response_prompt(self, task: str) -> str:
+        """获取最终回答提示"""
+        return self.get_template("final_response").render(task=task)

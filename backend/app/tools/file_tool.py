@@ -29,7 +29,7 @@ class FileTool(BaseTool):
         return {
             "name": self.name,
             "description": self.description,
-            "input_schema": {
+            "parameters": {
                 "type": "object",
                 "properties": {
                     "action": {

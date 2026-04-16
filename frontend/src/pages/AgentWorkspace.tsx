@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { ExecutionWebSocket } from '@/services/websocketClient'
+import { ThoughtDisclosure } from '@/components/StreamingMessage'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 
@@ -15,29 +16,86 @@ interface ToolStep {
 
 interface Message {
   id: string
+  type: 'message'
   role: 'user' | 'assistant'
   content: string
   isStreaming?: boolean
 }
+
+interface ThoughtItem {
+  id: string
+  type: 'thought'
+  content: string
+}
+
+type ChatItem = Message | ThoughtItem
 
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
   const { configured } = useSettingsStore()
   
   const [inputValue, setInputValue] = useState('')
-  const [messages, setMessages] = useState<Message[]>([])
+  const [chatItems, setChatItems] = useState<ChatItem[]>([])
   const [steps, setSteps] = useState<ToolStep[]>([])
   const [isExecuting, setIsExecuting] = useState(false)
-  const [streamingContent, setStreamingContent] = useState('')
+  const [llmStreamingContent, setLlmStreamingContent] = useState('')
+  const [summaryStreamingContent, setSummaryStreamingContent] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
   
   const wsRef = useRef<ExecutionWebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const stepCounterRef = useRef(0)
+  const llmStreamingRef = useRef('')
+  const summaryStreamingRef = useRef('')
+  const summaryStartedRef = useRef(false)
+  const finalMessageHandledRef = useRef(false)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, streamingContent, steps])
+  }, [chatItems, llmStreamingContent, summaryStreamingContent, steps])
+
+  const appendChatMessage = useCallback((role: 'user' | 'assistant', content: string) => {
+    if (!content) return
+
+    setChatItems(prev => [...prev, {
+      id: `msg-${Date.now()}`,
+      type: 'message',
+      role,
+      content,
+      isStreaming: false
+    }])
+  }, [])
+
+  const appendAssistantMessage = useCallback((content: string) => {
+    appendChatMessage('assistant', content)
+  }, [appendChatMessage])
+
+  const appendThoughtItem = useCallback((content: string) => {
+    if (!content) return
+
+    setChatItems(prev => [...prev, {
+      id: `thought-${Date.now()}`,
+      type: 'thought',
+      content
+    }])
+  }, [])
+
+  const flushLlmStreamingMessage = useCallback((
+    target: 'thought' | 'assistant',
+    fallbackContent = ''
+  ) => {
+    const content = llmStreamingRef.current || fallbackContent
+    if (!content) return
+
+    if (target === 'thought') {
+      appendThoughtItem(content)
+    } else {
+      appendAssistantMessage(content)
+    }
+
+    llmStreamingRef.current = ''
+    setLlmStreamingContent('')
+  }, [appendAssistantMessage, appendThoughtItem])
 
   const connectWebSocket = useCallback(async () => {
     if (wsRef.current?.isConnected()) return
@@ -48,12 +106,20 @@ export default function AgentWorkspace() {
     ws.on('*', (message: any) => {
       console.log('[WS Event]', message.type, message.data)
     })
+
+    ws.on('llm:start', () => {
+      llmStreamingRef.current = ''
+      setLlmStreamingContent('')
+    })
     
     ws.on('llm:content', (data) => {
-      setStreamingContent(prev => prev + data.content)
+      llmStreamingRef.current += data.content
+      setLlmStreamingContent(prev => prev + data.content)
     })
     
     ws.on('llm:tool_call', (data) => {
+      flushLlmStreamingMessage('thought', data.thought)
+
       stepCounterRef.current++
       const newStep: ToolStep = {
         id: `step-${stepCounterRef.current}`,
@@ -62,15 +128,6 @@ export default function AgentWorkspace() {
         status: 'running'
       }
       setSteps(prev => [...prev, newStep])
-      
-      if (data.thought) {
-        setMessages(prev => [...prev, {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: data.thought,
-          isStreaming: false
-        }])
-      }
     })
     
     ws.on('tool:start', (data) => {
@@ -98,44 +155,43 @@ export default function AgentWorkspace() {
     })
     
     ws.on('summary:start', () => {
-      setStreamingContent('')
+      summaryStartedRef.current = true
+      flushLlmStreamingMessage('thought')
+      summaryStreamingRef.current = ''
+      setSummaryStreamingContent('')
     })
     
     ws.on('summary:token', (data) => {
-      setStreamingContent(prev => prev + data.token)
+      summaryStreamingRef.current += data.token
+      setSummaryStreamingContent(prev => prev + data.token)
     })
     
     ws.on('summary:complete', (data) => {
-      setMessages(prev => [...prev, {
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        content: data.summary,
-        isStreaming: false
-      }])
-      setStreamingContent('')
+      appendAssistantMessage(data.summary)
+      finalMessageHandledRef.current = true
+      summaryStartedRef.current = false
+      summaryStreamingRef.current = ''
+      setSummaryStreamingContent('')
     })
     
     ws.on('execution:complete', (data) => {
       setIsExecuting(false)
-      
-      if (!streamingContent && data.result) {
-        setMessages(prev => [...prev, {
-          id: `msg-${Date.now()}`,
-          role: 'assistant',
-          content: data.result,
-          isStreaming: false
-        }])
+
+      if (!summaryStartedRef.current && !finalMessageHandledRef.current) {
+        flushLlmStreamingMessage('assistant', data.result)
+        finalMessageHandledRef.current = true
       }
     })
     
     ws.on('execution:error', (data) => {
       setIsExecuting(false)
-      setMessages(prev => [...prev, {
-        id: `msg-${Date.now()}`,
-        role: 'assistant',
-        content: `错误: ${data.error}`,
-        isStreaming: false
-      }])
+      summaryStartedRef.current = false
+      finalMessageHandledRef.current = false
+      llmStreamingRef.current = ''
+      summaryStreamingRef.current = ''
+      setLlmStreamingContent('')
+      setSummaryStreamingContent('')
+      appendAssistantMessage(`错误: ${data.error}`)
     })
     
     try {
@@ -147,9 +203,9 @@ export default function AgentWorkspace() {
       console.error('WebSocket connection failed:', error)
       setConnectionStatus('disconnected')
     }
-  }, [])
+  }, [appendAssistantMessage, flushLlmStreamingMessage])
 
-  const handleSend = async () => {
+  const handleSend = useCallback(async () => {
     if (!inputValue.trim()) return
     if (!currentProject) {
       alert('请先选择一个项目')
@@ -163,15 +219,15 @@ export default function AgentWorkspace() {
     const userMessage = inputValue.trim()
     setInputValue('')
     
-    setMessages(prev => [...prev, {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: userMessage,
-      isStreaming: false
-    }])
+    appendChatMessage('user', userMessage)
     
     setSteps([])
-    setStreamingContent('')
+    llmStreamingRef.current = ''
+    summaryStreamingRef.current = ''
+    summaryStartedRef.current = false
+    finalMessageHandledRef.current = false
+    setLlmStreamingContent('')
+    setSummaryStreamingContent('')
     setIsExecuting(true)
     
     if (!wsRef.current?.isConnected()) {
@@ -179,12 +235,17 @@ export default function AgentWorkspace() {
     }
     
     wsRef.current?.startExecution(userMessage, currentProject.path)
-  }
+  }, [appendChatMessage, connectWebSocket, configured, currentProject, inputValue])
 
   const handleReset = () => {
-    setMessages([])
+    setChatItems([])
     setSteps([])
-    setStreamingContent('')
+    llmStreamingRef.current = ''
+    summaryStreamingRef.current = ''
+    summaryStartedRef.current = false
+    finalMessageHandledRef.current = false
+    setLlmStreamingContent('')
+    setSummaryStreamingContent('')
     setIsExecuting(false)
     stepCounterRef.current = 0
   }
@@ -229,34 +290,56 @@ export default function AgentWorkspace() {
           </div>
         )}
 
-        {/* Messages */}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`mb-4 ${msg.role === 'user' ? 'text-right' : ''}`}
-          >
-            <div
-              className={`inline-block max-w-[80%] px-4 py-3 rounded-lg ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white border border-gray-200 text-gray-800'
-              }`}
-            >
-              <div className="text-sm font-medium mb-1 opacity-70">
-                {msg.role === 'user' ? '你' : '🤖 Agent'}
-              </div>
-              <div className="whitespace-pre-wrap">{msg.content}</div>
-            </div>
-          </div>
-        ))}
+        {/* Chat Items */}
+        {chatItems.map((item) => {
+          if (item.type === 'thought') {
+            return (
+              <ThoughtDisclosure
+                key={item.id}
+                label="已思考"
+                content={item.content}
+              />
+            )
+          }
 
-        {/* Streaming Content */}
-        {streamingContent && (
+          return (
+            <div
+              key={item.id}
+              className={`mb-4 ${item.role === 'user' ? 'text-right' : ''}`}
+            >
+              <div
+                className={`inline-block max-w-[80%] px-4 py-3 rounded-2xl ${
+                  item.role === 'user'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white border border-gray-200 text-gray-800 shadow-sm'
+                }`}
+              >
+                <div className="text-sm font-medium mb-1 opacity-70">
+                  {item.role === 'user' ? '你' : '🤖 Agent'}
+                </div>
+                <div className="whitespace-pre-wrap">{item.content}</div>
+              </div>
+            </div>
+          )
+        })}
+
+        {/* LLM Streaming Content */}
+        {llmStreamingContent && (
+          <ThoughtDisclosure
+            label="思考中"
+            content={llmStreamingContent}
+            isStreaming
+            defaultOpen
+          />
+        )}
+
+        {/* Summary Streaming Content */}
+        {summaryStreamingContent && (
           <div className="mb-4">
-            <div className="inline-block max-w-[80%] px-4 py-3 rounded-lg bg-white border border-gray-200 text-gray-800">
-              <div className="text-sm font-medium mb-1 opacity-70">🤖 Agent</div>
+            <div className="inline-block max-w-[80%] px-4 py-3 rounded-2xl border border-gray-200 bg-white text-gray-800 shadow-sm">
+              <div className="mb-1 text-sm font-medium opacity-70">🤖 Agent 正在整理回答</div>
               <div className="whitespace-pre-wrap">
-                {streamingContent}
+                {summaryStreamingContent}
                 <span className="inline-block w-2 h-5 bg-blue-500 animate-pulse ml-1" />
               </div>
             </div>
@@ -310,7 +393,7 @@ export default function AgentWorkspace() {
         )}
 
         {/* Loading indicator */}
-        {isExecuting && !streamingContent && steps.length === 0 && (
+        {isExecuting && !llmStreamingContent && !summaryStreamingContent && steps.length === 0 && (
           <div className="mt-4 flex items-center gap-2 text-gray-500">
             <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full" />
             <span>Agent 正在思考...</span>

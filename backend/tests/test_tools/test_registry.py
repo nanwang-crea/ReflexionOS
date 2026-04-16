@@ -26,8 +26,9 @@ class TestToolRegistry:
     
     @pytest.fixture
     def shell_tool(self):
+        path_security = PathSecurity([os.getcwd()])
         security = ShellSecurity()
-        return ShellTool(security)
+        return ShellTool(security, path_security)
     
     def test_register_tool(self, registry, file_tool):
         registry.register(file_tool)
@@ -70,3 +71,15 @@ class TestToolRegistry:
         assert len(tools) == 2
         assert "file" in tools
         assert "shell" in tools
+
+    def test_get_tool_definitions_include_parameters(self, registry, file_tool, shell_tool):
+        registry.register(file_tool)
+        registry.register(shell_tool)
+
+        definitions = registry.get_tool_definitions()
+        definitions_by_name = {definition.name: definition for definition in definitions}
+
+        assert definitions_by_name["file"].parameters["properties"]["action"]["type"] == "string"
+        assert definitions_by_name["file"].parameters["properties"]["path"]["type"] == "string"
+        assert definitions_by_name["shell"].parameters["properties"]["command"]["type"] == "string"
+        assert definitions_by_name["shell"].parameters["properties"]["cwd"]["type"] == "string"

@@ -114,12 +114,6 @@ class RapidExecutionLoop:
                     # 调用 LLM 决策
                     response = await self._call_llm(context)
                     
-                    # 发送 LLM 响应事件
-                    if response.has_content:
-                        await self._emit("llm:content", {
-                            "content": response.content
-                        })
-                    
                     # 检查是否有工具调用
                     if response.has_tool_calls:
                         # 发送工具调用事件
@@ -135,8 +129,14 @@ class RapidExecutionLoop:
                     else:
                         # 没有工具调用
                         if self.has_executed_tools:
-                            # 已执行过工具，进入总结阶段
-                            state = ExecutionState.FINAL_SUMMARY
+                            if response.has_content:
+                                # 已经有可直接返回给用户的答案，不再强制进入总结
+                                execution.status = ExecutionStatus.COMPLETED
+                                execution.result = response.content
+                                state = ExecutionState.DONE
+                            else:
+                                # 没有最终回答时，再进入兜底总结阶段
+                                state = ExecutionState.FINAL_SUMMARY
                         else:
                             # 没执行过工具，直接完成
                             execution.status = ExecutionStatus.COMPLETED
@@ -256,13 +256,42 @@ class RapidExecutionLoop:
         
         # 发送 LLM 开始事件
         await self._emit("llm:start", {})
-        
-        # 调用 LLM（原生工具调用）
-        response = await self.llm.complete(messages, tools)
+
+        # 流式调用 LLM，并在接收内容时持续推送到前端
+        content_parts = []
+        tool_calls = []
+        finish_reason = "stop"
+
+        async for chunk in self.llm.stream_complete(messages, tools):
+            if chunk.type == "content" and chunk.content:
+                content_parts.append(chunk.content)
+                await self._emit("llm:content", {
+                    "content": chunk.content
+                })
+            elif chunk.type == "tool_calls":
+                tool_calls = chunk.tool_calls
+                finish_reason = chunk.finish_reason or "tool_calls"
+                break
+            elif chunk.type == "done":
+                finish_reason = chunk.finish_reason or "stop"
+                break
+            elif chunk.type == "error":
+                raise RuntimeError(chunk.error or "LLM 流式调用失败")
+
+        response = LLMResponse(
+            content="".join(content_parts),
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            model=self.llm.get_model_name()
+        )
         
         # 记录到上下文
-        if response.has_content:
-            context.add_message("assistant", response.content)
+        if response.has_content or response.has_tool_calls:
+            context.add_message(
+                "assistant",
+                content=response.content or None,
+                tool_calls=[tool_call.model_dump() for tool_call in response.tool_calls]
+            )
         
         logger.info(
             f"LLM 响应: "
@@ -285,9 +314,15 @@ class RapidExecutionLoop:
         
         # 历史消息
         for msg in context.messages[-10:]:  # 最多保留 10 条
+            tool_calls = [
+                LLMToolCall(**tool_call)
+                for tool_call in msg.get("tool_calls", [])
+            ]
             messages.append(LLMMessage(
                 role=msg["role"],
-                content=msg.get("content")
+                content=msg.get("content"),
+                tool_calls=tool_calls,
+                tool_call_id=msg.get("tool_call_id")
             ))
         
         return messages
@@ -348,7 +383,13 @@ class RapidExecutionLoop:
             step.duration = time.time() - start_time
             
             # 更新上下文
-            context.update_history(tool_call, result.output or result.error or "")
+            tool_output = result.output or result.error or ""
+            context.update_history(tool_call, tool_output)
+            context.add_message(
+                "tool",
+                content=tool_output,
+                tool_call_id=tool_call.id
+            )
             
             # 发送工具结果事件
             await self._emit("tool:result", {
@@ -366,6 +407,13 @@ class RapidExecutionLoop:
             step.error = str(e)
             step.duration = time.time() - start_time
             logger.error(f"工具执行异常: {str(e)}")
+
+            context.update_history(tool_call, str(e))
+            context.add_message(
+                "tool",
+                content=str(e),
+                tool_call_id=tool_call.id
+            )
             
             await self._emit("tool:error", {
                 "tool_name": tool_call.name,
@@ -376,16 +424,19 @@ class RapidExecutionLoop:
     
     async def _get_final_summary(self, context: ExecutionContext) -> str:
         """
-        获取最终总结
+        获取最终回答
         
         Args:
             context: 执行上下文
             
         Returns:
-            str: 总结内容
+            str: 最终回答内容
         """
-        # 添加总结请求
-        context.add_message("user", "请总结你完成的操作和结果。")
+        # 添加最终回答请求
+        context.add_message(
+            "user",
+            self.prompt_manager.get_final_response_prompt(context.task)
+        )
         
         # 调用 LLM
         messages = self._build_messages(context)

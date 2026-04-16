@@ -2,6 +2,7 @@ import asyncio
 from typing import Dict, Any
 from app.tools.base import BaseTool, ToolResult
 from app.security.shell_security import ShellSecurity, ShellSecurityError
+from app.security.path_security import PathSecurity, SecurityError
 from app.config.settings import config_manager
 import logging
 
@@ -11,8 +12,9 @@ logger = logging.getLogger(__name__)
 class ShellTool(BaseTool):
     """Shell 命令执行工具"""
     
-    def __init__(self, security: ShellSecurity):
+    def __init__(self, security: ShellSecurity, path_security: PathSecurity):
         self.security = security
+        self.path_security = path_security
     
     @property
     def name(self) -> str:
@@ -21,6 +23,31 @@ class ShellTool(BaseTool):
     @property
     def description(self) -> str:
         return "执行安全的 Shell 命令"
+
+    def get_schema(self) -> Dict[str, Any]:
+        """返回工具的 JSON Schema"""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "要执行的 Shell 命令"
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "命令执行目录，可选"
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "命令超时时间，单位秒，可选"
+                    }
+                },
+                "required": ["command"]
+            }
+        }
     
     async def execute(self, args: Dict[str, Any]) -> ToolResult:
         """
@@ -41,6 +68,7 @@ class ShellTool(BaseTool):
         
         try:
             self.security.validate_command(command)
+            cwd = self.path_security.validate_path(cwd or ".")
             
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -79,6 +107,9 @@ class ShellTool(BaseTool):
                 
         except ShellSecurityError as e:
             logger.error(f"Shell 安全错误: {str(e)}")
+            return ToolResult(success=False, error=str(e))
+        except SecurityError as e:
+            logger.error(f"Shell 路径安全错误: {str(e)}")
             return ToolResult(success=False, error=str(e))
         except Exception as e:
             logger.error(f"Shell 执行异常: {str(e)}")

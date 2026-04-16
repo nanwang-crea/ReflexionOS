@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import AsyncMock
 from app.execution.rapid_loop import RapidExecutionLoop, ExecutionState
 from app.execution.context_manager import ExecutionContext
-from app.llm.base import LLMMessage, LLMResponse, LLMToolCall
+from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, StreamChunk
 from app.tools.registry import ToolRegistry
 from app.tools.base import BaseTool, ToolResult
 
@@ -35,11 +35,25 @@ class MockTool(BaseTool):
 
 
 class TestRapidExecutionLoop:
+
+    @staticmethod
+    async def _stream_response(content="", tool_calls=None, finish_reason="stop"):
+        if content:
+            yield StreamChunk(type="content", content=content)
+
+        if tool_calls:
+            yield StreamChunk(
+                type="tool_calls",
+                tool_calls=tool_calls,
+                finish_reason=finish_reason
+            )
+        else:
+            yield StreamChunk(type="done", finish_reason=finish_reason)
     
     @pytest.fixture
     def mock_llm(self):
         llm = AsyncMock()
-        llm.get_model_name.return_value = "gpt-4"
+        llm.get_model_name = lambda: "gpt-4"
         return llm
     
     @pytest.fixture
@@ -55,11 +69,11 @@ class TestRapidExecutionLoop:
     @pytest.mark.asyncio
     async def test_execution_with_finish(self, execution_loop, mock_llm):
         """测试任务正常完成（无工具调用）"""
-        mock_llm.complete.return_value = LLMResponse(
-            content='任务完成',
-            tool_calls=[],
-            finish_reason='stop'
-        )
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(content="任务完成"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
         
         result = await execution_loop.run("测试任务")
         
@@ -69,33 +83,22 @@ class TestRapidExecutionLoop:
     @pytest.mark.asyncio
     async def test_execution_with_tool_call(self, execution_loop, mock_llm):
         """测试带工具调用的执行"""
-        from app.llm.base import StreamChunk
-        
         # 第一次调用返回工具调用，第二次返回完成
         call_count = [0]
         
-        async def mock_complete(messages, tools=None):
+        async def mock_stream(messages, tools=None):
             call_count[0] += 1
             if call_count[0] == 1:
-                return LLMResponse(
-                    content='执行工具',
+                async for chunk in self._stream_response(
+                    content="执行工具",
                     tool_calls=[LLMToolCall(name="mock", arguments={})],
-                    finish_reason='tool_calls'
-                )
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
             else:
-                return LLMResponse(
-                    content='任务完成',
-                    tool_calls=[],
-                    finish_reason='stop'
-                )
-        
-        mock_llm.complete = mock_complete
-        
-        # 模拟 stream_complete 用于总结
-        async def mock_stream(messages, tools=None):
-            yield StreamChunk(type="content", content="完成")
-            yield StreamChunk(type="done")
-        
+                async for chunk in self._stream_response(content="完成"):
+                    yield chunk
+
         mock_llm.stream_complete = mock_stream
         
         result = await execution_loop.run("执行工具任务")
@@ -103,16 +106,101 @@ class TestRapidExecutionLoop:
         assert len(result.steps) == 1
         assert result.steps[0].tool == "mock"
         assert result.steps[0].status.value == "success"
+        assert result.result == "完成"
+
+    @pytest.mark.asyncio
+    async def test_tool_results_are_sent_back_to_llm(self, execution_loop, mock_llm):
+        """测试工具调用和结果会进入下一轮 LLM 消息"""
+        captured_calls = []
+        tool_call = LLMToolCall(name="mock", arguments={"path": "README.md"})
+
+        async def mock_stream(messages, tools=None):
+            captured_calls.append((messages, tools))
+            call_index = len(captured_calls)
+
+            if call_index == 1:
+                async for chunk in self._stream_response(
+                    content="先读取 README",
+                    tool_calls=[tool_call],
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="README 已读取完成"):
+                    yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("帮我看一下当前 README")
+
+        assert result.status.value == "completed"
+        assert result.result == "README 已读取完成"
+        assert len(captured_calls) == 2
+
+        second_messages, second_tools = captured_calls[1]
+        assert second_tools is not None
+
+        assistant_message = next(
+            msg for msg in second_messages
+            if msg.role == "assistant" and msg.tool_calls
+        )
+        assert assistant_message.content == "先读取 README"
+        assert assistant_message.tool_calls[0].name == "mock"
+        assert assistant_message.tool_calls[0].arguments == {"path": "README.md"}
+
+        tool_message = next(msg for msg in second_messages if msg.role == "tool")
+        assert tool_message.content == "mock output"
+        assert tool_message.tool_call_id == tool_call.id
+
+    @pytest.mark.asyncio
+    async def test_final_response_fallback_when_no_content_after_tools(self, execution_loop, mock_llm):
+        """测试工具执行后没有直接答案时，走兜底最终回答"""
+        captured_calls = []
+
+        async def mock_stream(messages, tools=None):
+            captured_calls.append((messages, tools))
+            call_index = len(captured_calls)
+
+            if call_index == 1:
+                async for chunk in self._stream_response(
+                    content="先查看项目结构",
+                    tool_calls=[LLMToolCall(name="mock", arguments={})],
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
+            elif call_index == 2:
+                async for chunk in self._stream_response(content=""):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="项目采用前后端分离结构。"):
+                    yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("其项目结构是怎么样的呢？")
+
+        assert result.status.value == "completed"
+        assert result.result == "项目采用前后端分离结构。"
+        assert len(captured_calls) == 3
+
+        summary_messages, summary_tools = captured_calls[2]
+        assert summary_tools is None
+        assert summary_messages[-1].role == "user"
+        assert "Write the final answer for the user now." in summary_messages[-1].content
     
     @pytest.mark.asyncio
     async def test_execution_max_steps(self, execution_loop, mock_llm):
         """测试超过最大步数"""
         # 始终返回工具调用
-        mock_llm.complete.return_value = LLMResponse(
-            content='继续执行',
-            tool_calls=[LLMToolCall(name="mock", arguments={})],
-            finish_reason='tool_calls'
-        )
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                content="继续执行",
+                tool_calls=[LLMToolCall(name="mock", arguments={})],
+                finish_reason="tool_calls"
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
         
         result = await execution_loop.run("无限循环任务")
         
@@ -134,16 +222,17 @@ class TestRapidExecutionLoop:
             event_callback=callback
         )
         
-        mock_llm.complete.return_value = LLMResponse(
-            content='任务完成',
-            tool_calls=[],
-            finish_reason='stop'
-        )
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(content="任务完成"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
         
         await execution_loop.run("测试任务")
         
         # 检查事件
         assert any(e["type"] == "execution:start" for e in events)
+        assert any(e["type"] == "llm:content" for e in events)
         assert any(e["type"] == "execution:complete" for e in events)
     
     @pytest.mark.asyncio
@@ -165,11 +254,14 @@ class TestRapidExecutionLoop:
         execution_loop.tool_registry.register(FailTool())
         
         # 第一次调用返回失败工具
-        mock_llm.complete.return_value = LLMResponse(
-            content='',
-            tool_calls=[LLMToolCall(name="fail", arguments={})],
-            finish_reason='tool_calls'
-        )
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                tool_calls=[LLMToolCall(name="fail", arguments={})],
+                finish_reason="tool_calls"
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
         
         result = await execution_loop.run("测试失败任务")
         

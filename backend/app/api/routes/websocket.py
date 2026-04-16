@@ -32,7 +32,8 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     - {"type": "summary:token", "data": {"token": "..."}, "timestamp": "..."}
     - {"type": "execution:complete", "data": {...}, "timestamp": "..."}
     """
-    await ws_manager.connect(websocket, execution_id)
+    current_execution_id = execution_id
+    await ws_manager.connect(websocket, current_execution_id)
     
     try:
         while True:
@@ -57,9 +58,15 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     
                     # 更新 execution_id
                     execution = await agent_service.create_execution(execution_create)
+                    ws_manager.move_connection(
+                        websocket,
+                        current_execution_id,
+                        execution.id
+                    )
+                    current_execution_id = execution.id
                     
                     # 发送确认
-                    await ws_manager.send_event(execution_id, "execution:created", {
+                    await ws_manager.send_event(current_execution_id, "execution:created", {
                         "execution_id": execution.id,
                         "task": task,
                         "status": "pending"
@@ -71,20 +78,20 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                 
                 elif msg_type == "pause":
                     # TODO: 实现暂停功能
-                    await ws_manager.send_event(execution_id, "execution:paused", {})
+                    await ws_manager.send_event(current_execution_id, "execution:paused", {})
                 
                 elif msg_type == "resume":
                     # TODO: 实现恢复功能
-                    await ws_manager.send_event(execution_id, "execution:resumed", {})
+                    await ws_manager.send_event(current_execution_id, "execution:resumed", {})
                 
                 elif msg_type == "stop":
                     # TODO: 实现停止功能
-                    await ws_manager.send_event(execution_id, "execution:stopped", {})
+                    await ws_manager.send_event(current_execution_id, "execution:stopped", {})
                     break
                 
                 elif msg_type == "ping":
                     # 心跳
-                    await ws_manager.send_event(execution_id, "pong", {})
+                    await ws_manager.send_event(current_execution_id, "pong", {})
                 
             except json.JSONDecodeError:
                 logger.error(f"无效的 JSON 消息: {data}")
@@ -92,11 +99,11 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                 logger.error(f"处理消息失败: {e}")
                 
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket, execution_id)
-        logger.info(f"WebSocket 断开连接: {execution_id}")
+        ws_manager.disconnect(websocket, current_execution_id)
+        logger.info(f"WebSocket 断开连接: {current_execution_id}")
     except Exception as e:
         logger.error(f"WebSocket 错误: {e}")
-        ws_manager.disconnect(websocket, execution_id)
+        ws_manager.disconnect(websocket, current_execution_id)
 
 
 @router.websocket("/ws/status")

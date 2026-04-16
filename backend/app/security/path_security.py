@@ -41,7 +41,10 @@ class PathSecurity:
             abs_path = os.path.realpath(os.path.abspath(path))
         
         # 检查是否在允许范围内
-        if not any(abs_path.startswith(base) for base in self.allowed_base_paths):
+        if not any(
+            abs_path == base or abs_path.startswith(f"{base}{os.sep}")
+            for base in self.allowed_base_paths
+        ):
             allowed_str = ", ".join(self.allowed_base_paths)
             raise SecurityError(
                 f"路径不在允许范围内。\n"

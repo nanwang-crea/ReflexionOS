@@ -33,6 +33,24 @@ class ConnectionManager:
                 del self.active_connections[execution_id]
         
         logger.info(f"WebSocket 断开: execution_id={execution_id}")
+
+    def move_connection(self, websocket: WebSocket, old_execution_id: str, new_execution_id: str):
+        """将连接从临时 execution_id 迁移到真实 execution_id"""
+        if old_execution_id == new_execution_id:
+            return
+
+        if old_execution_id in self.active_connections:
+            self.active_connections[old_execution_id].discard(websocket)
+            if not self.active_connections[old_execution_id]:
+                del self.active_connections[old_execution_id]
+
+        if new_execution_id not in self.active_connections:
+            self.active_connections[new_execution_id] = set()
+
+        self.active_connections[new_execution_id].add(websocket)
+        logger.info(
+            f"WebSocket 连接迁移: {old_execution_id} -> {new_execution_id}"
+        )
     
     async def send_event(self, execution_id: str, event_type: str, data: dict):
         """发送事件到所有订阅该执行的客户端"""

@@ -35,7 +35,7 @@ class AgentService:
         shell_security = ShellSecurity()
         
         registry.register(FileTool(path_security))
-        registry.register(ShellTool(shell_security))
+        registry.register(ShellTool(shell_security, path_security))
         registry.register(PatchTool(path_security))
         
         logger.info(f"工具注册中心初始化完成, 允许路径: {allowed_paths}")
@@ -112,6 +112,8 @@ class AgentService:
                 self.tool_registry.tools["file"].security = path_security
             if "patch" in self.tool_registry.tools:
                 self.tool_registry.tools["patch"].security = path_security
+            if "shell" in self.tool_registry.tools:
+                self.tool_registry.tools["shell"].path_security = path_security
             
             logger.info(f"更新允许路径: {allowed_paths}")
         

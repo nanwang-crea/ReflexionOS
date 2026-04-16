@@ -23,10 +23,12 @@ class ExecutionWebSocket {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  private manuallyClosed = false
 
   connect(executionId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.executionId = executionId
+      this.manuallyClosed = false
       const wsUrl = `ws://127.0.0.1:8000/ws/execution/${executionId}`
       
       this.ws = new WebSocket(wsUrl)
@@ -53,7 +55,9 @@ class ExecutionWebSocket {
       
       this.ws.onclose = () => {
         console.log('[WS] Disconnected')
-        this.handleReconnect()
+        if (!this.manuallyClosed) {
+          this.handleReconnect()
+        }
       }
     })
   }
@@ -132,6 +136,7 @@ class ExecutionWebSocket {
   }
 
   close(): void {
+    this.manuallyClosed = true
     if (this.ws) {
       this.ws.close()
       this.ws = null

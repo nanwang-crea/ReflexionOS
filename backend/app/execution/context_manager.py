@@ -15,7 +15,7 @@ class ExecutionContext:
         self.execution_id = execution_id or f"exec-{id(self)}"
         self.history: List[Dict[str, Any]] = []
         self.steps: List[ExecutionStep] = []
-        self.messages: List[Dict[str, str]] = []
+        self.messages: List[Dict[str, Any]] = []
         self.current_step_number = 0
         self.workspace_snapshot: Dict[str, Any] = {}
         self.metadata: Dict[str, Any] = {}
@@ -35,13 +35,27 @@ class ExecutionContext:
         self.current_step_number = step.step_number
         logger.info(f"添加执行步骤 {step.step_number}: {step.tool}")
     
-    def add_message(self, role: str, content: str) -> None:
+    def add_message(
+        self,
+        role: str,
+        content: Optional[str] = None,
+        tool_calls: Optional[List[Dict[str, Any]]] = None,
+        tool_call_id: Optional[str] = None
+    ) -> None:
         """添加消息"""
-        self.messages.append({
+        message: Dict[str, Any] = {
             "role": role,
-            "content": content,
             "timestamp": datetime.now().isoformat()
-        })
+        }
+
+        if content is not None:
+            message["content"] = content
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        if tool_call_id:
+            message["tool_call_id"] = tool_call_id
+
+        self.messages.append(message)
     
     def get_last_message(self) -> Optional[str]:
         """获取最后一条消息"""
