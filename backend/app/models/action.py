@@ -1,19 +1,28 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from enum import Enum
 
 
-class ActionType(str, Enum):
-    TOOL_CALL = "tool_call"
-    FINISH = "finish"
+class ToolCall(BaseModel):
+    """工具调用"""
+    name: str
+    args: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Action(BaseModel):
-    type: ActionType
+    """Agent 动作 - OpenAI Assistant 风格"""
+    content: Optional[str] = None
+    tool_calls: List[ToolCall] = Field(default_factory=list)
     thought: Optional[str] = None
-    tool: Optional[str] = None
-    args: Dict[str, Any] = Field(default_factory=dict)
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    
+    @property
+    def has_tool_calls(self) -> bool:
+        return len(self.tool_calls) > 0
+    
+    @property
+    def is_finish(self) -> bool:
+        """没有工具调用且没有待执行的任务时视为完成"""
+        return not self.has_tool_calls and bool(self.content)
 
 
 class ActionResult(BaseModel):

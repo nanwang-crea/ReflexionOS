@@ -1,12 +1,13 @@
 import json
 import time
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
 import uuid
 import logging
+import re
 
 from app.llm.base import UniversalLLMInterface, Message
-from app.models.action import Action, ActionType
+from app.models.action import Action, ToolCall
 from app.models.execution import Execution, ExecutionStep, ExecutionStatus, StepStatus
 from app.execution.context_manager import ExecutionContext
 from app.execution.prompt_manager import PromptManager
@@ -17,7 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 class RapidExecutionLoop:
-    """快速执行循环 - Agent 核心执行引擎"""
+    """快速执行循环 - Agent 核心执行引擎
+    
+    OpenAI Assistant 风格：
+    - content: 对用户说的话（思考过程/进度说明/结果总结）
+    - tool_calls: 要执行的工具列表
+    - 两者可以同时存在
+    """
     
     def __init__(
         self,
@@ -55,34 +62,62 @@ class RapidExecutionLoop:
             execution_id=execution.id
         )
         
+        # 对话历史
+        conversation: list[Message] = [
+            Message(role="system", content=self.prompt_manager.get_system_prompt(
+                list(self.tool_registry.tools.values())
+            ))
+        ]
+        
+        # 用户任务
+        conversation.append(Message(role="user", content=task))
+        
         logger.info(f"开始执行任务: {task}")
         
+        final_message = ""
+        
         try:
-            for step_num in range(1, self.max_steps + 1):
-                # 决策下一步动作
-                action = await self.decide_action(context)
+            step_num = 0
+            while step_num < self.max_steps:
+                step_num += 1
                 
-                # 检查是否完成
-                if action.type == ActionType.FINISH:
+                # 调用 LLM
+                action = await self.decide_action(conversation)
+                
+                # 记录 LLM 的回复内容
+                if action.content:
+                    final_message = action.content
+                    context.add_message("assistant", action.content)
+                    conversation.append(Message(role="assistant", content=action.content))
+                
+                # 检查是否完成（没有工具调用）
+                if not action.has_tool_calls:
                     execution.status = ExecutionStatus.COMPLETED
-                    execution.result = str(action.confidence)
-                    logger.info(f"任务完成: {action.confidence}")
+                    execution.result = final_message or "任务完成"
+                    logger.info(f"任务完成: {execution.result}")
                     break
                 
-                # 执行动作
-                step = await self.execute_action(action, context, step_num)
-                execution.steps.append(step)
-                context.add_step(step)
-                
-                # 处理错误
-                if step.status == StepStatus.FAILED and step.error:
-                    await self.handle_error(context, step)
+                # 执行工具调用
+                for tool_call in action.tool_calls:
+                    step = await self.execute_tool_call(tool_call, context, step_num)
+                    execution.steps.append(step)
+                    context.add_step(step)
+                    
+                    # 将工具结果加入对话
+                    if step.status == StepStatus.SUCCESS:
+                        tool_result = f"Tool {tool_call.name} succeeded: {step.output or '(no output)'}"
+                    else:
+                        tool_result = f"Tool {tool_call.name} failed: {step.error}"
+                        await self.handle_error(context, step)
+                    
+                    # 工具结果作为 user 消息（让 LLM 知道执行结果）
+                    conversation.append(Message(role="user", content=tool_result))
             
             else:
                 # 超过最大步数
-                execution.status = ExecutionStatus.FAILED
-                execution.result = "超过最大步数限制"
-                logger.warning("执行超过最大步数限制")
+                execution.status = ExecutionStatus.COMPLETED
+                execution.result = final_message or "执行完成"
+                logger.warning("执行达到最大步数")
         
         except Exception as e:
             execution.status = ExecutionStatus.FAILED
@@ -95,62 +130,108 @@ class RapidExecutionLoop:
         
         return execution
     
-    async def decide_action(self, context: ExecutionContext) -> Action:
+    async def decide_action(self, conversation: list[Message]) -> Action:
         """
         决定下一步动作
         
         Args:
-            context: 执行上下文
+            conversation: 对话历史
             
         Returns:
             Action: 决定的动作
         """
-        # 构建消息
-        system_prompt = self.prompt_manager.get_system_prompt(
-            list(self.tool_registry.tools.values())
-        )
-        step_prompt = self.prompt_manager.get_step_prompt(context)
+        # 调用 LLM
+        response = await self.llm.complete(conversation)
+        content = response.content.strip()
         
-        messages = [
-            Message(role="system", content=system_prompt),
-            Message(role="user", content=step_prompt)
-        ]
+        # 解析为 Action
+        action = self._parse_action(content)
         
-        # 调用LLM
-        response = await self.llm.complete(messages)
+        log_msg = f"LLM 回复"
+        if action.content:
+            log_msg += f": {action.content[:50]}{'...' if len(action.content) > 50 else ''}"
+        if action.has_tool_calls:
+            log_msg += f" | 工具调用: {[tc.name for tc in action.tool_calls]}"
+        logger.info(log_msg)
         
-        # 解析响应
-        try:
-            action_data = json.loads(response.content)
-            action = Action(**action_data)
-            logger.info(f"LLM 决策: {action.type} - {action.tool or 'finish'}")
-            return action
-        except json.JSONDecodeError as e:
-            logger.error(f"解析 LLM 响应失败: {str(e)}")
-            return Action(
-                type=ActionType.FINISH,
-                thought="解析失败",
-                confidence=0.0
-            )
-        except Exception as e:
-            logger.error(f"创建 Action 失败: {str(e)}")
-            return Action(
-                type=ActionType.FINISH,
-                thought="创建失败",
-                confidence=0.0
-            )
+        return action
     
-    async def execute_action(
+    def _parse_action(self, content: str) -> Action:
+        """解析 LLM 输出为 Action"""
+        
+        # 尝试提取 JSON
+        json_str = self._extract_json(content)
+        
+        if json_str:
+            try:
+                data = json.loads(json_str)
+                return self._create_action_from_dict(data)
+            except json.JSONDecodeError:
+                pass
+        
+        # 无法解析为 JSON，作为纯文本回复
+        return Action(content=content)
+    
+    def _extract_json(self, content: str) -> Optional[str]:
+        """从内容中提取 JSON"""
+        content = content.strip()
+        
+        # 尝试直接解析
+        if content.startswith('{') and content.endswith('}'):
+            return content
+        
+        # 尝试提取 ```json ... ``` 块
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
+        if json_match:
+            return json_match.group(1).strip()
+        
+        # 尝试找到第一个 { 和最后一个 }
+        start = content.find('{')
+        end = content.rfind('}')
+        if start != -1 and end != -1 and end > start:
+            return content[start:end+1]
+        
+        return None
+    
+    def _create_action_from_dict(self, data: dict) -> Action:
+        """从字典创建 Action，兼容多种格式"""
+        
+        content = data.get('content') or data.get('message') or data.get('text')
+        thought = data.get('thought') or data.get('thinking')
+        
+        tool_calls = []
+        
+        # 解析 tool_calls（多种格式兼容）
+        raw_tool_calls = data.get('tool_calls') or data.get('tools') or []
+        
+        # 单个工具调用
+        if not raw_tool_calls:
+            if 'tool' in data or 'name' in data:
+                raw_tool_calls = [data]
+        
+        for tc in raw_tool_calls:
+            name = tc.get('name') or tc.get('tool') or tc.get('function')
+            args = tc.get('args') or tc.get('arguments') or tc.get('input') or {}
+            if name:
+                tool_calls.append(ToolCall(name=name, args=args))
+        
+        return Action(
+            content=content,
+            tool_calls=tool_calls,
+            thought=thought
+        )
+    
+    async def execute_tool_call(
         self,
-        action: Action,
+        tool_call: ToolCall,
         context: ExecutionContext,
         step_number: int
     ) -> ExecutionStep:
         """
-        执行动作
+        执行工具调用
         
         Args:
-            action: 要执行的动作
+            tool_call: 工具调用
             context: 执行上下文
             step_number: 步骤编号
             
@@ -160,8 +241,8 @@ class RapidExecutionLoop:
         step = ExecutionStep(
             id=f"step-{uuid.uuid4().hex[:8]}",
             step_number=step_number,
-            tool=action.tool or "",
-            args=action.args,
+            tool=tool_call.name,
+            args=tool_call.args,
             status=StepStatus.RUNNING
         )
         
@@ -169,13 +250,13 @@ class RapidExecutionLoop:
         
         try:
             # 获取工具
-            tool = self.tool_registry.get(action.tool)
+            tool = self.tool_registry.get(tool_call.name)
             
             if not tool:
-                raise ValueError(f"工具不存在: {action.tool}")
+                raise ValueError(f"工具不存在: {tool_call.name}")
             
             # 执行工具
-            result = await tool.execute(action.args)
+            result = await tool.execute(tool_call.args)
             
             # 更新步骤状态
             step.status = StepStatus.SUCCESS if result.success else StepStatus.FAILED
@@ -184,31 +265,24 @@ class RapidExecutionLoop:
             step.duration = time.time() - start_time
             
             # 更新上下文
-            context.update_history(action, result.output or result.error or "")
+            context.update_history(tool_call, result.output or result.error or "")
             
-            logger.info(f"步骤 {step_number} 执行{'成功' if result.success else '失败'}: {action.tool}")
+            logger.info(f"工具 {tool_call.name} 执行{'成功' if result.success else '失败'}")
             
         except Exception as e:
             step.status = StepStatus.FAILED
             step.error = str(e)
             step.duration = time.time() - start_time
-            logger.error(f"步骤 {step_number} 执行异常: {str(e)}")
+            logger.error(f"工具执行异常: {str(e)}")
         
         return step
     
     async def handle_error(self, context: ExecutionContext, step: ExecutionStep) -> None:
-        """
-        处理错误
-        
-        Args:
-            context: 执行上下文
-            step: 失败的步骤
-        """
+        """处理错误"""
         error_message = self.prompt_manager.get_error_prompt(
             error=step.error or "Unknown error",
             tool=step.tool,
             code_snippet=""
         )
-        
         context.metadata["last_error"] = error_message
         logger.warning(f"处理错误: {step.error}")

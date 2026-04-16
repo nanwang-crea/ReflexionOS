@@ -6,12 +6,12 @@ from app.models.execution import (
     ExecutionStatus,
     StepStatus
 )
-from app.models.action import Action, ActionResult, ActionType
+from app.models.action import Action, ActionResult, ToolCall
 from app.models.llm_config import LLMConfig, LLMConfigCreate, LLMProvider
 
 __all__ = [
     "Project", "ProjectCreate",
     "Execution", "ExecutionCreate", "ExecutionStep", "ExecutionStatus", "StepStatus",
-    "Action", "ActionResult", "ActionType",
+    "Action", "ActionResult", "ToolCall",
     "LLMConfig", "LLMConfigCreate", "LLMProvider",
 ]

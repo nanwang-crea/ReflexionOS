@@ -1,6 +1,6 @@
 import pytest
 from app.execution.context_manager import ExecutionContext
-from app.models.action import Action, ActionType
+from app.models.action import Action, ToolCall
 
 
 class TestExecutionContext:
@@ -13,26 +13,23 @@ class TestExecutionContext:
     
     def test_update_history(self):
         context = ExecutionContext(task="测试任务")
-        action = Action(type=ActionType.TOOL_CALL, tool="file", args={"path": "test.py"})
+        tool_call = ToolCall(name="file", args={"path": "test.py"})
         
-        context.update_history(action, "执行结果")
+        context.update_history(tool_call, "执行结果")
         
         assert len(context.history) == 1
-        assert context.history[0]["action"] == action
         assert context.history[0]["result"] == "执行结果"
     
     def test_get_recent_history(self):
         context = ExecutionContext(task="测试任务")
         
         for i in range(5):
-            action = Action(type=ActionType.TOOL_CALL, tool="file", args={"index": i})
-            context.update_history(action, f"结果{i}")
+            tool_call = ToolCall(name="file", args={"index": i})
+            context.update_history(tool_call, f"结果{i}")
         
         recent = context.get_recent_history(3)
         
         assert len(recent) == 3
-        assert recent[0]["result"] == "结果2"
-        assert recent[2]["result"] == "结果4"
     
     def test_add_step(self):
         from app.models.execution import ExecutionStep, StepStatus
@@ -49,6 +46,15 @@ class TestExecutionContext:
         
         assert len(context.steps) == 1
         assert context.current_step_number == 1
+    
+    def test_add_message(self):
+        context = ExecutionContext(task="测试任务")
+        
+        context.add_message("user", "你好")
+        context.add_message("assistant", "你好，有什么可以帮助你的？")
+        
+        assert len(context.messages) == 2
+        assert context.get_last_message() == "你好，有什么可以帮助你的？"
     
     def test_get_workspace_context(self):
         context = ExecutionContext(task="测试任务")

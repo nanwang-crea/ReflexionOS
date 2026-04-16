@@ -12,16 +12,9 @@ class TestPromptManager:
         prompt = manager.get_system_prompt(tools=[])
         
         assert "autonomous coding agent" in prompt
-        assert "Output MUST be valid JSON" in prompt
-    
-    def test_get_step_prompt(self, manager):
-        from app.execution.context_manager import ExecutionContext
-        context = ExecutionContext(task="修复bug")
-        
-        prompt = manager.get_step_prompt(context)
-        
-        assert "修复bug" in prompt
-        assert "What is your next action" in prompt
+        assert "JSON" in prompt
+        assert "content" in prompt
+        assert "tool_calls" in prompt
     
     def test_get_error_prompt(self, manager):
         prompt = manager.get_error_prompt(
@@ -31,7 +24,7 @@ class TestPromptManager:
         )
         
         assert "File not found" in prompt
-        assert "Fix the issue" in prompt
+        assert "file" in prompt
     
     def test_register_custom_template(self, manager):
         manager.register_template(

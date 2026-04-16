@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.execution.context_manager import ExecutionContext
 from app.llm.base import Message, LLMResponse
-from app.models.action import Action, ActionType
+from app.models.action import Action, ToolCall
 from app.tools.registry import ToolRegistry
 from app.tools.base import BaseTool, ToolResult
 
@@ -44,9 +44,8 @@ class TestRapidExecutionLoop:
     @pytest.mark.asyncio
     async def test_execution_with_finish(self, execution_loop, mock_llm):
         """测试任务正常完成"""
-        # Mock LLM返回finish
         mock_llm.complete.return_value = LLMResponse(
-            content='{"type": "finish", "thought": "完成", "confidence": 0.95}',
+            content='{"content": "任务完成", "tool_calls": []}',
             model="gpt-4",
             usage={"total_tokens": 100}
         )
@@ -54,52 +53,50 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("测试任务")
         
         assert result.status.value == "completed"
-        assert "0.95" in result.result
+        assert "任务完成" in result.result
     
     @pytest.mark.asyncio
     async def test_execution_max_steps(self, execution_loop, mock_llm):
         """测试超过最大步数"""
-        # Mock LLM始终返回工具调用
         mock_llm.complete.return_value = LLMResponse(
-            content='{"type": "tool_call", "thought": "继续", "tool": "mock", "args": {}, "confidence": 0.8}',
+            content='{"content": "继续执行", "tool_calls": [{"name": "mock", "args": {}}]}',
             model="gpt-4",
             usage={"total_tokens": 100}
         )
         
         result = await execution_loop.run("无限循环任务")
         
-        assert result.status.value == "failed"
-        assert "最大步数" in result.result
+        assert result.status.value == "completed"
     
     @pytest.mark.asyncio
-    async def test_decide_action_with_tool_call(self, execution_loop, mock_llm):
-        """测试LLM决策返回工具调用"""
-        context = ExecutionContext(task="测试任务")
+    async def test_parse_action_with_tool_call(self, execution_loop):
+        """测试解析工具调用"""
+        content = '{"content": "读取文件", "tool_calls": [{"name": "mock", "args": {"path": "test.py"}}]}'
         
-        mock_llm.complete.return_value = LLMResponse(
-            content='{"type": "tool_call", "thought": "读取文件", "tool": "mock", "args": {"path": "test.py"}, "confidence": 0.8}',
-            model="gpt-4",
-            usage={"total_tokens": 100}
-        )
+        action = execution_loop._parse_action(content)
         
-        action = await execution_loop.decide_action(context)
-        
-        assert action.type == ActionType.TOOL_CALL
-        assert action.tool == "mock"
-        assert action.args["path"] == "test.py"
+        assert action.content == "读取文件"
+        assert action.has_tool_calls
+        assert action.tool_calls[0].name == "mock"
+        assert action.tool_calls[0].args["path"] == "test.py"
     
     @pytest.mark.asyncio
-    async def test_decide_action_with_finish(self, execution_loop, mock_llm):
-        """测试LLM决策返回完成"""
-        context = ExecutionContext(task="测试任务")
+    async def test_parse_action_with_message_only(self, execution_loop):
+        """测试解析纯消息"""
+        content = '{"content": "你好！有什么可以帮助你的吗？", "tool_calls": []}'
         
-        mock_llm.complete.return_value = LLMResponse(
-            content='{"type": "finish", "thought": "完成", "confidence": 0.95}',
-            model="gpt-4",
-            usage={"total_tokens": 100}
-        )
+        action = execution_loop._parse_action(content)
         
-        action = await execution_loop.decide_action(context)
+        assert action.content == "你好！有什么可以帮助你的吗？"
+        assert not action.has_tool_calls
+        assert action.is_finish
+    
+    @pytest.mark.asyncio
+    async def test_parse_action_pure_text(self, execution_loop):
+        """测试解析纯文本（无法解析为JSON）"""
+        content = "你好，我是 AI 助手"
         
-        assert action.type == ActionType.FINISH
-        assert action.confidence == 0.95
+        action = execution_loop._parse_action(content)
+        
+        assert action.content == "你好，我是 AI 助手"
+        assert not action.has_tool_calls
