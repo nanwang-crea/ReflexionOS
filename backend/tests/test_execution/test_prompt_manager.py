@@ -1,5 +1,6 @@
 import pytest
 from app.execution.prompt_manager import PromptManager
+from app.llm.base import LLMToolDefinition
 
 
 class TestPromptManager:
@@ -9,12 +10,18 @@ class TestPromptManager:
         return PromptManager()
     
     def test_get_system_prompt(self, manager):
-        prompt = manager.get_system_prompt(tools=[])
+        tools = [
+            LLMToolDefinition(
+                name="file",
+                description="File operations",
+                parameters={"type": "object", "properties": {"path": {"type": "string"}}}
+            )
+        ]
+        prompt = manager.get_system_prompt(tools)
         
         assert "autonomous coding agent" in prompt
-        assert "JSON" in prompt
-        assert "content" in prompt
-        assert "tool_calls" in prompt
+        assert "file" in prompt
+        assert "File operations" in prompt
     
     def test_get_error_prompt(self, manager):
         prompt = manager.get_error_prompt(

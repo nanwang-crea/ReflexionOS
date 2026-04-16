@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import projects, agent, llm
+from app.api.routes import projects, agent, llm, websocket
 
 app = FastAPI(
     title="ReflexionOS",
@@ -18,6 +18,7 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(agent.router)
 app.include_router(llm.router)
+app.include_router(websocket.router)
 
 
 @app.get("/")
@@ -25,7 +26,12 @@ async def root():
     return {
         "name": "ReflexionOS",
         "version": "0.1.0",
-        "status": "running"
+        "status": "running",
+        "features": {
+            "websocket": True,
+            "native_tools": True,
+            "streaming": True
+        }
     }
 
 

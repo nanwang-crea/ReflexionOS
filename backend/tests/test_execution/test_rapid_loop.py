@@ -1,9 +1,8 @@
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from app.execution.rapid_loop import RapidExecutionLoop
+from unittest.mock import AsyncMock
+from app.execution.rapid_loop import RapidExecutionLoop, ExecutionState
 from app.execution.context_manager import ExecutionContext
-from app.llm.base import Message, LLMResponse
-from app.models.action import Action, ToolCall
+from app.llm.base import LLMMessage, LLMResponse, LLMToolCall
 from app.tools.registry import ToolRegistry
 from app.tools.base import BaseTool, ToolResult
 
@@ -18,6 +17,18 @@ class MockTool(BaseTool):
     @property
     def description(self) -> str:
         return "Mock tool for testing"
+    
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File path"}
+                }
+            }
+        }
     
     async def execute(self, args):
         return ToolResult(success=True, output="mock output")
@@ -43,11 +54,11 @@ class TestRapidExecutionLoop:
     
     @pytest.mark.asyncio
     async def test_execution_with_finish(self, execution_loop, mock_llm):
-        """测试任务正常完成"""
+        """测试任务正常完成（无工具调用）"""
         mock_llm.complete.return_value = LLMResponse(
-            content='{"content": "任务完成", "tool_calls": []}',
-            model="gpt-4",
-            usage={"total_tokens": 100}
+            content='任务完成',
+            tool_calls=[],
+            finish_reason='stop'
         )
         
         result = await execution_loop.run("测试任务")
@@ -56,47 +67,110 @@ class TestRapidExecutionLoop:
         assert "任务完成" in result.result
     
     @pytest.mark.asyncio
+    async def test_execution_with_tool_call(self, execution_loop, mock_llm):
+        """测试带工具调用的执行"""
+        from app.llm.base import StreamChunk
+        
+        # 第一次调用返回工具调用，第二次返回完成
+        call_count = [0]
+        
+        async def mock_complete(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return LLMResponse(
+                    content='执行工具',
+                    tool_calls=[LLMToolCall(name="mock", arguments={})],
+                    finish_reason='tool_calls'
+                )
+            else:
+                return LLMResponse(
+                    content='任务完成',
+                    tool_calls=[],
+                    finish_reason='stop'
+                )
+        
+        mock_llm.complete = mock_complete
+        
+        # 模拟 stream_complete 用于总结
+        async def mock_stream(messages, tools=None):
+            yield StreamChunk(type="content", content="完成")
+            yield StreamChunk(type="done")
+        
+        mock_llm.stream_complete = mock_stream
+        
+        result = await execution_loop.run("执行工具任务")
+        
+        assert len(result.steps) == 1
+        assert result.steps[0].tool == "mock"
+        assert result.steps[0].status.value == "success"
+    
+    @pytest.mark.asyncio
     async def test_execution_max_steps(self, execution_loop, mock_llm):
         """测试超过最大步数"""
+        # 始终返回工具调用
         mock_llm.complete.return_value = LLMResponse(
-            content='{"content": "继续执行", "tool_calls": [{"name": "mock", "args": {}}]}',
-            model="gpt-4",
-            usage={"total_tokens": 100}
+            content='继续执行',
+            tool_calls=[LLMToolCall(name="mock", arguments={})],
+            finish_reason='tool_calls'
         )
         
         result = await execution_loop.run("无限循环任务")
         
         assert result.status.value == "completed"
+        assert len(result.steps) == 5
     
     @pytest.mark.asyncio
-    async def test_parse_action_with_tool_call(self, execution_loop):
-        """测试解析工具调用"""
-        content = '{"content": "读取文件", "tool_calls": [{"name": "mock", "args": {"path": "test.py"}}]}'
+    async def test_event_callback(self, mock_llm, tool_registry):
+        """测试事件回调"""
+        events = []
         
-        action = execution_loop._parse_action(content)
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
         
-        assert action.content == "读取文件"
-        assert action.has_tool_calls
-        assert action.tool_calls[0].name == "mock"
-        assert action.tool_calls[0].args["path"] == "test.py"
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=5,
+            event_callback=callback
+        )
+        
+        mock_llm.complete.return_value = LLMResponse(
+            content='任务完成',
+            tool_calls=[],
+            finish_reason='stop'
+        )
+        
+        await execution_loop.run("测试任务")
+        
+        # 检查事件
+        assert any(e["type"] == "execution:start" for e in events)
+        assert any(e["type"] == "execution:complete" for e in events)
     
     @pytest.mark.asyncio
-    async def test_parse_action_with_message_only(self, execution_loop):
-        """测试解析纯消息"""
-        content = '{"content": "你好！有什么可以帮助你的吗？", "tool_calls": []}'
+    async def test_tool_failure_recovery(self, execution_loop, mock_llm):
+        """测试工具失败恢复"""
+        # 注册一个会失败的工具
+        class FailTool(BaseTool):
+            @property
+            def name(self) -> str:
+                return "fail"
+            
+            @property
+            def description(self) -> str:
+                return "Fail tool"
+            
+            async def execute(self, args):
+                return ToolResult(success=False, error="Failed")
         
-        action = execution_loop._parse_action(content)
+        execution_loop.tool_registry.register(FailTool())
         
-        assert action.content == "你好！有什么可以帮助你的吗？"
-        assert not action.has_tool_calls
-        assert action.is_finish
-    
-    @pytest.mark.asyncio
-    async def test_parse_action_pure_text(self, execution_loop):
-        """测试解析纯文本（无法解析为JSON）"""
-        content = "你好，我是 AI 助手"
+        # 第一次调用返回失败工具
+        mock_llm.complete.return_value = LLMResponse(
+            content='',
+            tool_calls=[LLMToolCall(name="fail", arguments={})],
+            finish_reason='tool_calls'
+        )
         
-        action = execution_loop._parse_action(content)
+        result = await execution_loop.run("测试失败任务")
         
-        assert action.content == "你好，我是 AI 助手"
-        assert not action.has_tool_calls
+        assert result.steps[0].status.value == "failed"

@@ -2,6 +2,8 @@ from typing import List, Dict, Any
 from string import Template
 import json
 
+from app.llm.base import LLMToolDefinition
+
 
 class PromptTemplate:
     """Prompt 模板"""
@@ -26,39 +28,23 @@ class PromptManager:
     def _load_default_templates(self):
         """加载默认模板"""
         
-        # System Prompt - 明确输出格式
+        # System Prompt - 原生工具调用模式
         self.register_template(
             name="system",
             template="""You are an autonomous coding agent. You help users with coding tasks by using tools.
 
-## Output Format
-You MUST respond in JSON format:
-```json
-{
-  "content": "Your message to the user",
-  "tool_calls": [{"name": "tool_name", "args": {...}}]
-}
-```
-
-**IMPORTANT**: 
-- `content` is REQUIRED - always explain what you're doing or summarize results
-- `tool_calls` should be [] when done with all operations
-
-## Workflow:
-1. **During task**: Use tools to accomplish the task
-   - {"content": "Let me check the files...", "tool_calls": [{"name": "file", "args": {"action": "list", "path": "."}}]}
-   
-2. **After tools complete**: Provide a summary
-   - {"content": "I found X files. Here's what I discovered...", "tool_calls": []}
+## How to use tools:
+You have access to the following tools. When you need to use a tool, simply call it - the system will handle the execution.
 
 ## Available tools:
 $tool_list
 
 ## Rules:
-- ALWAYS include `content` field explaining your actions
-- When finished with all tools, set `tool_calls` to [] and summarize your findings
-- If user asks a question (not a task), just respond with content and empty tool_calls
-- Keep responses concise but informative""",
+- Use tools to accomplish tasks (read files, write files, run commands)
+- After using tools, provide a brief summary of what you did
+- If a task is complex, break it into steps
+- If something fails, try to fix it and retry
+- When done, provide a clear summary of the completed work""",
             variables=["tool_list"]
         )
         
@@ -70,7 +56,7 @@ $tool_list
 Tool: $tool
 Error: $error
 
-Please fix the issue and try again, or explain why it cannot be fixed.""",
+Please try a different approach or fix the issue.""",
             variables=["tool", "error", "code_snippet"]
         )
     
@@ -84,15 +70,23 @@ Please fix the issue and try again, or explain why it cannot be fixed.""",
             raise ValueError(f"Template not found: {name}")
         return self.templates[name]
     
-    def get_system_prompt(self, tools: List[Any]) -> str:
+    def get_system_prompt(self, tools: List[LLMToolDefinition]) -> str:
         """获取系统提示"""
-        tool_schemas = []
-        for tool in tools:
-            schema = tool.get_schema()
-            tool_schemas.append(schema)
-        
-        tool_list = json.dumps(tool_schemas, indent=2, ensure_ascii=False)
+        tool_list = self._format_tools(tools)
         return self.get_template("system").render(tool_list=tool_list)
+    
+    def _format_tools(self, tools: List[LLMToolDefinition]) -> str:
+        """格式化工具列表"""
+        lines = []
+        for tool in tools:
+            lines.append(f"\n### {tool.name}")
+            lines.append(f"{tool.description}")
+            if tool.parameters.get("properties"):
+                lines.append("Parameters:")
+                for prop, schema in tool.parameters["properties"].items():
+                    prop_desc = schema.get("description", "")
+                    lines.append(f"  - {prop}: {prop_desc}")
+        return "\n".join(lines)
     
     def get_error_prompt(self, error: str, tool: str, code_snippet: str = "") -> str:
         """获取错误提示"""

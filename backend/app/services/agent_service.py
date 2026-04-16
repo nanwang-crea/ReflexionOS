@@ -10,8 +10,10 @@ from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.llm import LLMAdapterFactory
 from app.config.settings import config_manager, LLMSettings
+from app.api.websocket import ws_manager
 import logging
 from pathlib import Path
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +30,6 @@ class AgentService:
         """初始化工具注册中心"""
         registry = ToolRegistry()
         
-        # 默认允许当前工作目录
         allowed_paths = [str(Path.cwd())]
         path_security = PathSecurity(allowed_paths, base_dir=str(Path.cwd()))
         shell_security = ShellSecurity()
@@ -89,24 +90,21 @@ class AgentService:
         return self.llm_config
     
     async def execute_task(self, execution_create: ExecutionCreate) -> Execution:
-        """执行任务"""
-        if not self.llm_config or not self.llm_config.api_key:
-            raise ValueError("LLM 配置未设置，请先在设置页面配置 API Key")
-        
-        llm = LLMAdapterFactory.create(self.llm_config)
-        
-        execution_loop = RapidExecutionLoop(
-            llm=llm,
-            tool_registry=self.tool_registry
+        """执行任务（同步模式，兼容旧接口）"""
+        execution = await self.create_execution(execution_create)
+        return await self.run_execution(execution.id)
+    
+    async def create_execution(self, execution_create: ExecutionCreate) -> Execution:
+        """创建执行任务"""
+        execution = Execution(
+            project_id=execution_create.project_id or "standalone",
+            task=execution_create.task
         )
         
-        # 更新路径安全配置，允许项目路径
+        # 更新路径安全配置
         project_path = execution_create.project_id
         if project_path and Path(project_path).exists():
-            # 获取当前允许的路径
             current_allowed = self.tool_registry.tools.get("file").security.allowed_base_paths if "file" in self.tool_registry.tools else []
-            
-            # 添加项目路径到允许列表
             allowed_paths = list(set(current_allowed + [str(Path(project_path).resolve())]))
             path_security = PathSecurity(allowed_paths, base_dir=project_path)
             
@@ -117,15 +115,49 @@ class AgentService:
             
             logger.info(f"更新允许路径: {allowed_paths}")
         
-        execution = await execution_loop.run(
-            task=execution_create.task,
-            project_path=project_path
+        self.executions[execution.id] = execution
+        return execution
+    
+    async def run_execution(self, execution_id: str) -> Execution:
+        """运行执行任务"""
+        execution = self.executions.get(execution_id)
+        if not execution:
+            raise ValueError(f"执行不存在: {execution_id}")
+        
+        if not self.llm_config or not self.llm_config.api_key:
+            raise ValueError("LLM 配置未设置，请先在设置页面配置 API Key")
+        
+        llm = LLMAdapterFactory.create(self.llm_config)
+        
+        # 创建事件回调（推送到 WebSocket）
+        async def event_callback(event_type: str, data: dict):
+            await ws_manager.send_event(execution_id, event_type, data)
+        
+        execution_loop = RapidExecutionLoop(
+            llm=llm,
+            tool_registry=self.tool_registry,
+            event_callback=event_callback
         )
         
-        self.executions[execution.id] = execution
+        result = await execution_loop.run(
+            task=execution.task,
+            project_path=execution.project_id
+        )
         
-        logger.info(f"任务执行完成: {execution.id} - {execution.status}")
-        return execution
+        # 更新执行记录
+        self.executions[execution_id] = result
+        
+        logger.info(f"任务执行完成: {execution_id} - {result.status}")
+        return result
+    
+    async def start_execution_async(self, execution_create: ExecutionCreate) -> str:
+        """异步启动执行任务"""
+        execution = await self.create_execution(execution_create)
+        
+        # 后台运行
+        asyncio.create_task(self.run_execution(execution.id))
+        
+        return execution.id
     
     def get_execution(self, execution_id: str) -> Optional[Execution]:
         """获取执行结果"""
