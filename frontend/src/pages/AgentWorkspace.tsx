@@ -1,29 +1,153 @@
-import { useState, useRef, useEffect } from 'react'
-import { agentApi, llmApi } from '@/services/apiClient'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { ExecutionWebSocket } from '@/services/websocketClient'
 import { useProjectStore } from '@/stores/projectStore'
-import { useAgentStore } from '@/stores/agentStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { Execution } from '@/types/execution'
+
+interface ToolStep {
+  id: string
+  tool_name: string
+  arguments: Record<string, any>
+  status: 'running' | 'success' | 'failed'
+  output?: string
+  error?: string
+  duration?: number
+}
+
+interface Message {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  isStreaming?: boolean
+}
 
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
-  const { messages, addMessage, setExecutionStatus, reset } = useAgentStore()
   const { configured } = useSettingsStore()
+  
   const [inputValue, setInputValue] = useState('')
-  const [execution, setExecution] = useState<Execution | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+  const [messages, setMessages] = useState<Message[]>([])
+  const [steps, setSteps] = useState<ToolStep[]>([])
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [streamingContent, setStreamingContent] = useState('')
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
+  
+  const wsRef = useRef<ExecutionWebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    llmApi.getConfig().then((res) => {
-      useSettingsStore.getState().setConfigured(res.data.configured || false)
-    })
-  }, [])
+  const stepCounterRef = useRef(0)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, execution?.steps])
+  }, [messages, streamingContent, steps])
+
+  const connectWebSocket = useCallback(async () => {
+    if (wsRef.current?.isConnected()) return
+    
+    const executionId = `exec-${Date.now()}`
+    const ws = new ExecutionWebSocket()
+    
+    ws.on('*', (message: any) => {
+      console.log('[WS Event]', message.type, message.data)
+    })
+    
+    ws.on('llm:content', (data) => {
+      setStreamingContent(prev => prev + data.content)
+    })
+    
+    ws.on('llm:tool_call', (data) => {
+      stepCounterRef.current++
+      const newStep: ToolStep = {
+        id: `step-${stepCounterRef.current}`,
+        tool_name: data.tool_name,
+        arguments: data.arguments,
+        status: 'running'
+      }
+      setSteps(prev => [...prev, newStep])
+      
+      if (data.thought) {
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: data.thought,
+          isStreaming: false
+        }])
+      }
+    })
+    
+    ws.on('tool:start', (data) => {
+      setSteps(prev => prev.map(s => 
+        s.tool_name === data.tool_name && s.status === 'running'
+          ? { ...s, status: 'running' }
+          : s
+      ))
+    })
+    
+    ws.on('tool:result', (data) => {
+      setSteps(prev => prev.map(s =>
+        s.tool_name === data.tool_name && s.status === 'running'
+          ? { ...s, status: data.success ? 'success' : 'failed', output: data.output, duration: data.duration }
+          : s
+      ))
+    })
+    
+    ws.on('tool:error', (data) => {
+      setSteps(prev => prev.map(s =>
+        s.tool_name === data.tool_name && s.status === 'running'
+          ? { ...s, status: 'failed', error: data.error }
+          : s
+      ))
+    })
+    
+    ws.on('summary:start', () => {
+      setStreamingContent('')
+    })
+    
+    ws.on('summary:token', (data) => {
+      setStreamingContent(prev => prev + data.token)
+    })
+    
+    ws.on('summary:complete', (data) => {
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: data.summary,
+        isStreaming: false
+      }])
+      setStreamingContent('')
+    })
+    
+    ws.on('execution:complete', (data) => {
+      setIsExecuting(false)
+      
+      if (!streamingContent && data.result) {
+        setMessages(prev => [...prev, {
+          id: `msg-${Date.now()}`,
+          role: 'assistant',
+          content: data.result,
+          isStreaming: false
+        }])
+      }
+    })
+    
+    ws.on('execution:error', (data) => {
+      setIsExecuting(false)
+      setMessages(prev => [...prev, {
+        id: `msg-${Date.now()}`,
+        role: 'assistant',
+        content: `错误: ${data.error}`,
+        isStreaming: false
+      }])
+    })
+    
+    try {
+      setConnectionStatus('connecting')
+      await ws.connect(executionId)
+      setConnectionStatus('connected')
+      wsRef.current = ws
+    } catch (error) {
+      console.error('WebSocket connection failed:', error)
+      setConnectionStatus('disconnected')
+    }
+  }, [])
 
   const handleSend = async () => {
     if (!inputValue.trim()) return
@@ -39,79 +163,30 @@ export default function AgentWorkspace() {
     const userMessage = inputValue.trim()
     setInputValue('')
     
-    addMessage({
+    setMessages(prev => [...prev, {
       id: `msg-${Date.now()}`,
       role: 'user',
       content: userMessage,
-      timestamp: Date.now()
-    })
-
-    setLoading(true)
-    setExecutionStatus('running')
-
-    try {
-      const response = await agentApi.execute({
-        project_id: currentProject.path,
-        task: userMessage,
-      })
-      setExecution(response.data)
-      setExecutionStatus(response.data.status)
-      
-      addMessage({
-        id: `msg-${Date.now()}-agent`,
-        role: 'assistant',
-        content: response.data.result || '任务执行完成',
-        timestamp: Date.now()
-      })
-    } catch (err: any) {
-      console.error('Agent execution error:', err)
-      const errorMsg = err.response?.data?.detail || err.message || '执行失败'
-      addMessage({
-        id: `msg-${Date.now()}-error`,
-        role: 'assistant',
-        content: `错误: ${errorMsg}`,
-        timestamp: Date.now()
-      })
-      setExecutionStatus('failed')
-    } finally {
-      setLoading(false)
+      isStreaming: false
+    }])
+    
+    setSteps([])
+    setStreamingContent('')
+    setIsExecuting(true)
+    
+    if (!wsRef.current?.isConnected()) {
+      await connectWebSocket()
     }
+    
+    wsRef.current?.startExecution(userMessage, currentProject.path)
   }
 
   const handleReset = () => {
-    reset()
-    setExecution(null)
-    setExpandedSteps(new Set())
-  }
-
-  const toggleStep = (stepId: string) => {
-    setExpandedSteps(prev => {
-      const next = new Set(prev)
-      if (next.has(stepId)) {
-        next.delete(stepId)
-      } else {
-        next.add(stepId)
-      }
-      return next
-    })
-  }
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'success': return '✅'
-      case 'running': return '🔄'
-      case 'failed': return '❌'
-      default: return '⏸️'
-    }
-  }
-
-  const getToolIcon = (tool: string) => {
-    switch (tool) {
-      case 'file': return '📄'
-      case 'shell': return '💻'
-      case 'patch': return '📝'
-      default: return '🔧'
-    }
+    setMessages([])
+    setSteps([])
+    setStreamingContent('')
+    setIsExecuting(false)
+    stepCounterRef.current = 0
   }
 
   return (
@@ -126,22 +201,31 @@ export default function AgentWorkspace() {
             <p className="text-sm text-gray-500">{currentProject.path}</p>
           )}
         </div>
-        <button
-          onClick={handleReset}
-          className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
-        >
-          重置对话
-        </button>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${
+              connectionStatus === 'connected' ? 'bg-green-500' :
+              connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-gray-300'
+            }`} />
+            <span className="text-sm text-gray-500">
+              {connectionStatus === 'connected' ? '已连接' :
+               connectionStatus === 'connecting' ? '连接中...' : '未连接'}
+            </span>
+          </div>
+          <button
+            onClick={handleReset}
+            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+          >
+            重置对话
+          </button>
+        </div>
       </div>
 
-      {/* Main Content - Timeline & Chat */}
+      {/* Main Content */}
       <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-        {/* Warning if not configured */}
         {!configured && (
           <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-yellow-800">
-              请先在设置页面配置 LLM API Key
-            </p>
+            <p className="text-yellow-800">请先在设置页面配置 LLM API Key</p>
           </div>
         )}
 
@@ -166,69 +250,57 @@ export default function AgentWorkspace() {
           </div>
         ))}
 
-        {/* Execution Steps Timeline */}
-        {execution && execution.steps.length > 0 && (
+        {/* Streaming Content */}
+        {streamingContent && (
+          <div className="mb-4">
+            <div className="inline-block max-w-[80%] px-4 py-3 rounded-lg bg-white border border-gray-200 text-gray-800">
+              <div className="text-sm font-medium mb-1 opacity-70">🤖 Agent</div>
+              <div className="whitespace-pre-wrap">
+                {streamingContent}
+                <span className="inline-block w-2 h-5 bg-blue-500 animate-pulse ml-1" />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Execution Timeline */}
+        {steps.length > 0 && (
           <div className="mt-6 bg-white rounded-lg border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-gray-900">执行时间线</h3>
-              <div className="text-sm text-gray-500">
-                {execution.steps.length} 步骤 | 状态: {execution.status}
-              </div>
+              <span className="text-sm text-gray-500">{steps.length} 步骤</span>
             </div>
             
             <div className="space-y-3">
-              {execution.steps.map((step, index) => (
-                <div key={step.id} className="border border-gray-100 rounded-lg">
-                  {/* Step Header */}
-                  <div
-                    className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50"
-                    onClick={() => toggleStep(step.id)}
-                  >
+              {steps.map((step, index) => (
+                <div key={step.id} className="border border-gray-100 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between p-3 hover:bg-gray-50">
                     <div className="flex items-center gap-3">
-                      <span className="text-lg">{getStatusIcon(step.status)}</span>
-                      <span className="font-medium">Step {index + 1}</span>
-                      <span className="text-gray-500">
-                        {getToolIcon(step.tool)} {step.tool}
+                      <span>
+                        {step.status === 'running' ? '🔄' :
+                         step.status === 'success' ? '✅' : '❌'}
                       </span>
+                      <span className="font-medium">Step {index + 1}</span>
+                      <span className="text-gray-500">{step.tool_name}</span>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-500">
-                      {step.duration && <span>{step.duration.toFixed(2)}s</span>}
-                      <span>{expandedSteps.has(step.id) ? '▼' : '▶'}</span>
+                    <div className="text-sm text-gray-500">
+                      {step.duration && `${step.duration.toFixed(2)}s`}
                     </div>
                   </div>
-
-                  {/* Step Details */}
-                  {expandedSteps.has(step.id) && (
+                  
+                  {step.output && (
                     <div className="px-3 pb-3 border-t border-gray-100">
-                      {/* Args */}
-                      {Object.keys(step.args).length > 0 && (
-                        <div className="mt-2">
-                          <div className="text-xs font-medium text-gray-500 mb-1">参数:</div>
-                          <pre className="text-xs bg-gray-50 p-2 rounded overflow-auto">
-                            {JSON.stringify(step.args, null, 2)}
-                          </pre>
-                        </div>
-                      )}
-                      
-                      {/* Output */}
-                      {step.output && (
-                        <div className="mt-2">
-                          <div className="text-xs font-medium text-gray-500 mb-1">输出:</div>
-                          <pre className="text-xs bg-gray-50 p-2 rounded overflow-auto max-h-40 whitespace-pre-wrap">
-                            {step.output}
-                          </pre>
-                        </div>
-                      )}
-
-                      {/* Error */}
-                      {step.error && (
-                        <div className="mt-2">
-                          <div className="text-xs font-medium text-red-500 mb-1">错误:</div>
-                          <pre className="text-xs bg-red-50 p-2 rounded text-red-700">
-                            {step.error}
-                          </pre>
-                        </div>
-                      )}
+                      <pre className="text-xs bg-gray-50 p-2 rounded mt-2 overflow-auto max-h-32">
+                        {step.output}
+                      </pre>
+                    </div>
+                  )}
+                  
+                  {step.error && (
+                    <div className="px-3 pb-3 border-t border-gray-100">
+                      <pre className="text-xs bg-red-50 p-2 rounded mt-2 text-red-700">
+                        {step.error}
+                      </pre>
                     </div>
                   )}
                 </div>
@@ -238,9 +310,9 @@ export default function AgentWorkspace() {
         )}
 
         {/* Loading indicator */}
-        {loading && (
+        {isExecuting && !streamingContent && steps.length === 0 && (
           <div className="mt-4 flex items-center gap-2 text-gray-500">
-            <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+            <div className="animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full" />
             <span>Agent 正在思考...</span>
           </div>
         )}
@@ -258,24 +330,22 @@ export default function AgentWorkspace() {
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
             placeholder="描述你想要 Agent 做什么..."
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={loading || !configured || !currentProject}
+            disabled={isExecuting || !configured || !currentProject}
           />
           <button
             onClick={handleSend}
-            disabled={loading || !inputValue.trim() || !configured || !currentProject}
+            disabled={isExecuting || !inputValue.trim() || !configured || !currentProject}
             className={`px-6 py-2 rounded-lg font-medium ${
-              loading || !inputValue.trim() || !configured || !currentProject
+              isExecuting || !inputValue.trim() || !configured || !currentProject
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}
           >
-            发送
+            {isExecuting ? '执行中...' : '发送'}
           </button>
         </div>
         {!currentProject && (
-          <p className="mt-2 text-sm text-gray-500">
-            请先在项目页面选择一个项目
-          </p>
+          <p className="mt-2 text-sm text-gray-500">请先在项目页面选择一个项目</p>
         )}
       </div>
     </div>
