@@ -40,9 +40,26 @@ class BaseTool(ABC):
         pass
     
     def get_schema(self) -> Dict[str, Any]:
-        """获取工具的 JSON Schema"""
+        """
+        获取工具的 JSON Schema（统一格式）
+        
+        Returns:
+            Dict containing name, description, parameters
+        """
         return {
             "name": self.name,
             "description": self.description,
-            "parameters": {}
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         }
+    
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """
+        获取工具定义（用于 LLM tools 参数）
+        
+        这是统一格式，各 Provider Adapter 负责转换为自己需要的格式
+        """
+        return self.get_schema()

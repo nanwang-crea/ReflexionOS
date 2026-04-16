@@ -1,4 +1,12 @@
-from app.llm.base import UniversalLLMInterface, Message, LLMResponse
+from app.llm.base import (
+    UniversalLLMInterface,
+    LLMMessage,
+    LLMResponse,
+    LLMToolCall,
+    LLMToolDefinition,
+    StreamChunk,
+    Message  # 兼容别名
+)
 from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import LLMConfig, LLMProvider
 from typing import Optional
@@ -40,8 +48,12 @@ class LLMAdapterFactory:
 
 __all__ = [
     "UniversalLLMInterface",
-    "Message",
+    "LLMMessage",
     "LLMResponse",
+    "LLMToolCall",
+    "LLMToolDefinition",
+    "StreamChunk",
+    "Message",
     "OpenAIAdapter",
     "LLMAdapterFactory",
 ]
