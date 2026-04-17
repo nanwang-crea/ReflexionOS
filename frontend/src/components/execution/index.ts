@@ -1,3 +1,3 @@
-export { StepCard } from './StepCard'
+export { ActionReceipt } from './ActionReceipt'
 export { StatusBadge } from './StatusBadge'
 export { ExecutionControls } from './ExecutionControls'

@@ -1,85 +1,218 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ExecutionWebSocket } from '@/services/websocketClient'
-import { ThoughtDisclosure } from '@/components/StreamingMessage'
 import { SlideIn } from '@/components/animations'
-import { StepCard } from '@/components/execution/StepCard'
+import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { ExecutionControls } from '@/components/execution/ExecutionControls'
+import {
+  buildReceiptDetail,
+  type ActionReceiptDetail,
+  type ActionReceiptStatus,
+  type ReceiptDetailStatus,
+} from '@/components/execution/receiptUtils'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ChatInput } from '@/components/chat/ChatInput'
-import { LoadingSpinner } from '@/components/feedback/LoadingSpinner'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import { agentApi } from '@/services/apiClient'
 
-type ChatItemType = 'user-message' | 'assistant-message' | 'thought' | 'step'
+type ChatItemType = 'user-message' | 'assistant-message' | 'agent-update' | 'action-receipt'
 
 interface ChatItem {
   id: string
   type: ChatItemType
   content?: string
-  stepNumber?: number
-  toolName?: string
-  status?: 'running' | 'success' | 'failed'
-  output?: string
-  error?: string
-  duration?: number
-  arguments?: Record<string, any>
-  isStreaming?: boolean
+  receiptStatus?: ActionReceiptStatus
+  details?: ActionReceiptDetail[]
+}
+
+const transcriptClassName = [
+  'max-w-[920px]',
+  'text-[17px]',
+  'leading-[1.8]',
+  'text-slate-900',
+  '[&_p]:m-0',
+  '[&_p+p]:mt-6',
+  '[&_ul]:my-4',
+  '[&_ol]:my-4',
+  '[&_li]:mt-1.5',
+  '[&_h1]:mt-0',
+  '[&_h2]:mt-8',
+  '[&_h3]:mt-6',
+  '[&_pre]:my-4',
+  '[&_blockquote]:my-5',
+].join(' ')
+
+function createItemId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function updateFirstMatchingDetail(
+  details: ActionReceiptDetail[],
+  matcher: (detail: ActionReceiptDetail) => boolean,
+  updater: (detail: ActionReceiptDetail) => ActionReceiptDetail
+) {
+  const index = details.findIndex(matcher)
+
+  if (index === -1) {
+    return details
+  }
+
+  const nextDetails = [...details]
+  nextDetails[index] = updater(nextDetails[index])
+  return nextDetails
 }
 
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
   const { configured } = useSettingsStore()
-  const { 
-    status, 
-    startExecution, 
-    pauseExecution, 
-    resumeExecution, 
-    stopExecution, 
-    resetExecution 
+  const {
+    status,
+    startExecution,
+    pauseExecution,
+    resumeExecution,
+    stopExecution,
+    resetExecution
   } = useExecutionStore()
-  
+
   const [chatItems, setChatItems] = useState<ChatItem[]>([])
   const [llmStreamingContent, setLlmStreamingContent] = useState('')
   const [summaryStreamingContent, setSummaryStreamingContent] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
-  
+
   const wsRef = useRef<ExecutionWebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const stepCounterRef = useRef(0)
   const llmStreamingRef = useRef('')
   const summaryStreamingRef = useRef('')
   const summaryStartedRef = useRef(false)
   const finalMessageHandledRef = useRef(false)
   const currentExecutionIdRef = useRef<string | null>(null)
+  const activeReceiptIdRef = useRef<string | null>(null)
+  const thoughtFlushedRef = useRef(false)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatItems, llmStreamingContent, summaryStreamingContent])
 
-  const addChatItem = useCallback((item: Omit<ChatItem, 'id'>) => {
-    setChatItems(prev => [...prev, {
-      ...item,
-      id: `item-${Date.now()}-${Math.random()}`
-    }])
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close()
+    }
   }, [])
 
-  const flushLlmStreamingMessage = useCallback((
-    type: 'thought' | 'assistant-message',
-    fallbackContent = ''
-  ) => {
-    const content = llmStreamingRef.current || fallbackContent
-    if (!content) return
+  const addChatItem = useCallback((item: ChatItem) => {
+    setChatItems(prev => [...prev, item])
+  }, [])
 
-    addChatItem({ type, content })
+  const updateReceiptItem = useCallback((
+    receiptId: string,
+    updater: (item: ChatItem) => ChatItem
+  ) => {
+    setChatItems(prev => prev.map(item => (
+      item.type === 'action-receipt' && item.id === receiptId
+        ? updater(item)
+        : item
+    )))
+  }, [])
+
+  const flushStreamingAgentUpdate = useCallback((fallbackContent = '') => {
+    const content = (llmStreamingRef.current || fallbackContent).trim()
+
+    if (!content) {
+      llmStreamingRef.current = ''
+      setLlmStreamingContent('')
+      return
+    }
+
+    addChatItem({
+      id: createItemId('update'),
+      type: 'agent-update',
+      content
+    })
     llmStreamingRef.current = ''
     setLlmStreamingContent('')
+    thoughtFlushedRef.current = true
   }, [addChatItem])
+
+  const finalizeActiveReceipt = useCallback((forcedStatus?: ActionReceiptStatus) => {
+    if (!activeReceiptIdRef.current) {
+      return
+    }
+
+    const receiptId = activeReceiptIdRef.current
+    updateReceiptItem(receiptId, (item) => {
+      const resolvedStatus = forcedStatus || (
+        item.details?.some(detail => detail.status === 'failed') ? 'failed' : 'completed'
+      )
+
+      return {
+        ...item,
+        receiptStatus: resolvedStatus,
+        details: (item.details || []).map((detail) => {
+          if (detail.status !== 'pending' && detail.status !== 'running') {
+            return detail
+          }
+
+          const nextStatus: ReceiptDetailStatus = resolvedStatus === 'failed' ? 'failed' : 'success'
+          return { ...detail, status: nextStatus }
+        })
+      }
+    })
+
+    activeReceiptIdRef.current = null
+  }, [updateReceiptItem])
+
+  const ensureReceiptItem = useCallback(() => {
+    if (activeReceiptIdRef.current) {
+      return activeReceiptIdRef.current
+    }
+
+    const receiptId = createItemId('receipt')
+    addChatItem({
+      id: receiptId,
+      type: 'action-receipt',
+      receiptStatus: 'running',
+      details: []
+    })
+    activeReceiptIdRef.current = receiptId
+    return receiptId
+  }, [addChatItem])
+
+  const appendReceiptDetail = useCallback((toolName: string, args?: Record<string, unknown>) => {
+    const receiptId = ensureReceiptItem()
+    const detail = buildReceiptDetail(createItemId('detail'), toolName, args)
+
+    updateReceiptItem(receiptId, (item) => ({
+      ...item,
+      receiptStatus: 'running',
+      details: [...(item.details || []), detail]
+    }))
+  }, [ensureReceiptItem, updateReceiptItem])
+
+  const updateActiveReceiptDetail = useCallback((
+    toolName: string,
+    updater: (detail: ActionReceiptDetail) => ActionReceiptDetail
+  ) => {
+    if (!activeReceiptIdRef.current) {
+      return
+    }
+
+    updateReceiptItem(activeReceiptIdRef.current, (item) => ({
+      ...item,
+      details: updateFirstMatchingDetail(
+        item.details || [],
+        detail => detail.toolName === toolName && (
+          detail.status === 'pending' || detail.status === 'running'
+        ),
+        updater
+      )
+    }))
+  }, [updateReceiptItem])
 
   const handlePause = async () => {
     if (!currentExecutionIdRef.current) return
+
     try {
       await agentApi.pause(currentExecutionIdRef.current)
       pauseExecution()
@@ -87,9 +220,10 @@ export default function AgentWorkspace() {
       console.error('Failed to pause execution:', error)
     }
   }
-  
+
   const handleResume = async () => {
     if (!currentExecutionIdRef.current) return
+
     try {
       await agentApi.resume(currentExecutionIdRef.current)
       resumeExecution()
@@ -97,170 +231,224 @@ export default function AgentWorkspace() {
       console.error('Failed to resume execution:', error)
     }
   }
-  
+
   const handleStop = async () => {
     if (!currentExecutionIdRef.current) return
+
     try {
       await agentApi.stop(currentExecutionIdRef.current)
       stopExecution()
       wsRef.current?.close()
+      wsRef.current = null
+      setConnectionStatus('disconnected')
+      finalizeActiveReceipt('failed')
     } catch (error) {
       console.error('Failed to stop execution:', error)
     }
   }
 
-  const connectWebSocket = useCallback(async (execId: string) => {
-    if (wsRef.current?.isConnected()) return
-    
+  const connectWebSocket = useCallback(async (executionKey: string) => {
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
+
     const ws = new ExecutionWebSocket()
-    
-    ws.on('*', (message: any) => {
-      console.log('[WS Event]', message.type, message.data)
+
+    ws.on('*', (message: unknown) => {
+      console.log('[WS Event]', message)
     })
 
     ws.on('llm:start', () => {
+      finalizeActiveReceipt()
+      thoughtFlushedRef.current = false
       llmStreamingRef.current = ''
       setLlmStreamingContent('')
     })
-    
+
     ws.on('llm:content', (data) => {
       llmStreamingRef.current += data.content
-      setLlmStreamingContent(prev => prev + data.content)
+      setLlmStreamingContent(llmStreamingRef.current)
     })
-    
-    ws.on('llm:tool_call', (data) => {
-      flushLlmStreamingMessage('thought', data.thought)
 
-      stepCounterRef.current++
-      addChatItem({
-        type: 'step',
-        stepNumber: stepCounterRef.current,
-        toolName: data.tool_name,
-        status: 'running',
-        arguments: data.arguments
-      })
+    ws.on('llm:tool_call', (data) => {
+      if (!thoughtFlushedRef.current) {
+        flushStreamingAgentUpdate(data.thought)
+      }
+
+      appendReceiptDetail(data.tool_name, data.arguments as Record<string, unknown>)
     })
-    
-    ws.on('tool:start', () => {
-      // Tool start event - no action needed
+
+    ws.on('tool:start', (data) => {
+      updateActiveReceiptDetail(data.tool_name, (detail) => ({
+        ...detail,
+        status: 'running'
+      }))
     })
-    
+
     ws.on('tool:result', (data) => {
-      setChatItems(prev => prev.map(item => 
-        item.type === 'step' && item.toolName === data.tool_name && item.status === 'running'
-          ? { ...item, status: data.success ? 'success' : 'failed', output: data.output, duration: data.duration }
-          : item
-      ))
+      updateActiveReceiptDetail(data.tool_name, (detail) => ({
+        ...detail,
+        status: data.success ? 'success' : 'failed',
+        output: data.output,
+        error: data.error,
+        duration: data.duration
+      }))
     })
-    
+
     ws.on('tool:error', (data) => {
-      setChatItems(prev => prev.map(item =>
-        item.type === 'step' && item.toolName === data.tool_name && item.status === 'running'
-          ? { ...item, status: 'failed', error: data.error }
-          : item
-      ))
+      updateActiveReceiptDetail(data.tool_name, (detail) => ({
+        ...detail,
+        status: 'failed',
+        error: data.error
+      }))
     })
-    
+
     ws.on('summary:start', () => {
+      finalizeActiveReceipt()
       summaryStartedRef.current = true
-      flushLlmStreamingMessage('thought')
       summaryStreamingRef.current = ''
       setSummaryStreamingContent('')
     })
-    
+
     ws.on('summary:token', (data) => {
       summaryStreamingRef.current += data.token
-      setSummaryStreamingContent(prev => prev + data.token)
+      setSummaryStreamingContent(summaryStreamingRef.current)
     })
-    
+
     ws.on('summary:complete', (data) => {
-      addChatItem({ type: 'assistant-message', content: data.summary })
+      finalizeActiveReceipt()
+      addChatItem({
+        id: createItemId('assistant'),
+        type: 'assistant-message',
+        content: data.summary
+      })
       finalMessageHandledRef.current = true
       summaryStartedRef.current = false
       summaryStreamingRef.current = ''
       setSummaryStreamingContent('')
     })
-    
+
     ws.on('execution:start', (data) => {
       currentExecutionIdRef.current = data.execution_id
       startExecution(data.execution_id)
     })
-    
+
     ws.on('execution:complete', (data) => {
       resetExecution()
+      finalizeActiveReceipt()
+      llmStreamingRef.current = ''
+      setLlmStreamingContent('')
 
       if (!summaryStartedRef.current && !finalMessageHandledRef.current) {
-        flushLlmStreamingMessage('assistant-message', data.result)
+        addChatItem({
+          id: createItemId('assistant'),
+          type: 'assistant-message',
+          content: data.result
+        })
         finalMessageHandledRef.current = true
       }
     })
-    
+
     ws.on('execution:error', (data) => {
       resetExecution()
+      finalizeActiveReceipt('failed')
       summaryStartedRef.current = false
       finalMessageHandledRef.current = false
       llmStreamingRef.current = ''
       summaryStreamingRef.current = ''
       setLlmStreamingContent('')
       setSummaryStreamingContent('')
-      addChatItem({ type: 'assistant-message', content: `错误: ${data.error}` })
+      addChatItem({
+        id: createItemId('assistant'),
+        type: 'assistant-message',
+        content: `错误: ${data.error}`
+      })
     })
-    
+
     try {
       setConnectionStatus('connecting')
-      await ws.connect(execId)
+      await ws.connect(executionKey)
       setConnectionStatus('connected')
       wsRef.current = ws
     } catch (error) {
       console.error('WebSocket connection failed:', error)
       setConnectionStatus('disconnected')
+      addChatItem({
+        id: createItemId('assistant'),
+        type: 'assistant-message',
+        content: '连接执行通道失败，请重试。'
+      })
+      throw error
     }
-  }, [addChatItem, flushLlmStreamingMessage, startExecution, resetExecution])
+  }, [
+    addChatItem,
+    appendReceiptDetail,
+    finalizeActiveReceipt,
+    flushStreamingAgentUpdate,
+    resetExecution,
+    startExecution,
+    updateActiveReceiptDetail,
+  ])
 
   const handleSend = useCallback(async (message: string) => {
     if (!message.trim()) return
+
     if (!currentProject) {
       alert('请先选择一个项目')
       return
     }
+
     if (!configured) {
       alert('请先在设置页面配置 LLM')
       return
     }
 
-    addChatItem({ type: 'user-message', content: message })
-    
-    stepCounterRef.current = 0
+    addChatItem({
+      id: createItemId('user'),
+      type: 'user-message',
+      content: message
+    })
+
     llmStreamingRef.current = ''
     summaryStreamingRef.current = ''
     summaryStartedRef.current = false
     finalMessageHandledRef.current = false
+    activeReceiptIdRef.current = null
+    thoughtFlushedRef.current = false
     setLlmStreamingContent('')
     setSummaryStreamingContent('')
-    
-    const execId = `exec-${Date.now()}`
-    await connectWebSocket(execId)
-    
-    wsRef.current?.startExecution(message, currentProject.path)
-  }, [addChatItem, connectWebSocket, configured, currentProject])
+
+    const executionKey = `exec-${Date.now()}`
+
+    try {
+      await connectWebSocket(executionKey)
+      wsRef.current?.startExecution(message, currentProject.path)
+    } catch (error) {
+      console.error('Failed to start execution:', error)
+    }
+  }, [addChatItem, configured, connectWebSocket, currentProject])
 
   const handleReset = () => {
+    wsRef.current?.close()
+    wsRef.current = null
+    setConnectionStatus('disconnected')
     setChatItems([])
     llmStreamingRef.current = ''
     summaryStreamingRef.current = ''
     summaryStartedRef.current = false
     finalMessageHandledRef.current = false
+    activeReceiptIdRef.current = null
+    thoughtFlushedRef.current = false
     setLlmStreamingContent('')
     setSummaryStreamingContent('')
-    stepCounterRef.current = 0
-    resetExecution()
     currentExecutionIdRef.current = null
+    resetExecution()
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white">
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
             {currentProject ? currentProject.name : '选择项目开始'}
@@ -276,7 +464,7 @@ export default function AgentWorkspace() {
             onStop={handleStop}
           />
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${
+            <div className={`h-2 w-2 rounded-full ${
               connectionStatus === 'connected' ? 'bg-green-500' :
               connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-gray-300'
             }`} />
@@ -287,137 +475,117 @@ export default function AgentWorkspace() {
           </div>
           <button
             onClick={handleReset}
-            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+            className="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
           >
             重置对话
           </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
-        {!configured && (
-          <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <p className="text-yellow-800">请先在设置页面配置 LLM API Key</p>
-          </div>
-        )}
+      <div className="flex-1 overflow-y-auto bg-white">
+        <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
+          {!configured && (
+            <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+              <p className="text-yellow-800">请先在设置页面配置 LLM API Key</p>
+            </div>
+          )}
 
-        {/* Chat Items */}
-        <AnimatePresence mode="popLayout">
-          {chatItems.map((item) => {
-            if (item.type === 'user-message') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <div className="mb-4 text-right">
-                    <motion.div 
-                      className="inline-block max-w-[80%] px-4 py-3 rounded-2xl bg-blue-600 text-white shadow-lg"
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ type: 'spring', stiffness: 300 }}
-                    >
-                      <div className="text-sm font-medium mb-1 opacity-70">你</div>
-                      <div className="whitespace-pre-wrap">{item.content}</div>
-                    </motion.div>
-                  </div>
-                </SlideIn>
-              )
-            }
-            
-            if (item.type === 'assistant-message') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <div className="mb-4">
-                    <motion.div 
-                      className="inline-block max-w-[80%] px-4 py-3 rounded-2xl border border-gray-200 bg-white text-gray-800 shadow-sm"
-                      initial={{ scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ type: 'spring', stiffness: 300 }}
-                    >
-                      <div className="mb-1 text-sm font-medium opacity-70">🤖 Agent</div>
-                      <MarkdownRenderer content={item.content || ''} />
-                    </motion.div>
-                  </div>
-                </SlideIn>
-              )
-            }
-            
-            if (item.type === 'thought') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <ThoughtDisclosure
-                    label="已思考"
-                    content={item.content || ''}
-                  />
-                </SlideIn>
-              )
-            }
-            
-            if (item.type === 'step') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <div className="mb-3">
-                    <StepCard
-                      stepNumber={item.stepNumber || 0}
-                      toolName={item.toolName || ''}
-                      status={item.status || 'running'}
-                      output={item.output}
-                      error={item.error}
-                      duration={item.duration}
-                      arguments={item.arguments}
-                      defaultExpanded={item.status === 'running'}
-                      autoCollapse={true}
+          <AnimatePresence mode="popLayout">
+            {chatItems.map((item) => {
+              if (item.type === 'user-message') {
+                return (
+                  <SlideIn key={item.id} direction="up">
+                    <div className="mb-8 flex justify-end">
+                      <motion.div
+                        className="max-w-[720px] rounded-2xl bg-slate-100 px-5 py-4 text-[15px] leading-7 text-slate-700"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        {item.content}
+                      </motion.div>
+                    </div>
+                  </SlideIn>
+                )
+              }
+
+              if (item.type === 'agent-update') {
+                return (
+                  <SlideIn key={item.id} direction="up">
+                    <div className="mb-7">
+                      <MarkdownRenderer
+                        content={item.content || ''}
+                        variant="plain"
+                        className={transcriptClassName}
+                      />
+                    </div>
+                  </SlideIn>
+                )
+              }
+
+              if (item.type === 'action-receipt') {
+                return (
+                  <SlideIn key={item.id} direction="up">
+                    <ActionReceipt
+                      status={item.receiptStatus || 'running'}
+                      details={item.details || []}
                     />
-                  </div>
-                </SlideIn>
-              )
-            }
-            
-            return null
-          })}
-        </AnimatePresence>
+                  </SlideIn>
+                )
+              }
 
-        {/* LLM Streaming Content */}
-        {llmStreamingContent && (
-          <SlideIn direction="up">
-            <ThoughtDisclosure
-              label="思考中"
-              content={llmStreamingContent}
-              isStreaming
-              defaultOpen
-            />
-          </SlideIn>
-        )}
+              if (item.type === 'assistant-message') {
+                return (
+                  <SlideIn key={item.id} direction="up">
+                    <div className="mb-10">
+                      <MarkdownRenderer
+                        content={item.content || ''}
+                        variant="plain"
+                        className={transcriptClassName}
+                      />
+                    </div>
+                  </SlideIn>
+                )
+              }
 
-        {/* Summary Streaming Content */}
-        {summaryStreamingContent && (
-          <SlideIn direction="up">
-            <div className="mb-4">
-              <div className="inline-block max-w-[80%] px-4 py-3 rounded-2xl border border-gray-200 bg-white text-gray-800 shadow-sm">
-                <div className="mb-1 text-sm font-medium opacity-70">🤖 Agent 正在整理回答</div>
+              return null
+            })}
+          </AnimatePresence>
+
+          {llmStreamingContent && (
+            <SlideIn direction="up">
+              <div className="mb-7 max-w-[920px] text-[17px] leading-[1.8] text-slate-800">
                 <div className="whitespace-pre-wrap">
-                  {summaryStreamingContent}
+                  {llmStreamingContent}
                   <motion.span
-                    className="inline-block w-2 h-5 bg-blue-500 ml-1"
+                    className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
                     animate={{ opacity: [1, 0] }}
                     transition={{ duration: 0.5, repeat: Infinity }}
                   />
                 </div>
               </div>
-            </div>
-          </SlideIn>
-        )}
+            </SlideIn>
+          )}
 
-        {/* Loading indicator */}
-        {status === 'running' && !llmStreamingContent && !summaryStreamingContent && chatItems.filter(i => i.type === 'step').length === 0 && (
-          <div className="mt-4">
-            <LoadingSpinner text="Agent 正在思考..." />
-          </div>
-        )}
+          {summaryStreamingContent && (
+            <SlideIn direction="up">
+              <div className="mb-10 max-w-[920px] text-[17px] leading-[1.8] text-slate-900">
+                <div className="whitespace-pre-wrap">
+                  {summaryStreamingContent}
+                  <motion.span
+                    className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
+                    animate={{ opacity: [1, 0] }}
+                    transition={{ duration: 0.5, repeat: Infinity }}
+                  />
+                </div>
+              </div>
+            </SlideIn>
+          )}
 
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* Input Area */}
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput
           onSend={handleSend}

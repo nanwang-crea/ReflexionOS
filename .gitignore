@@ -43,4 +43,5 @@ log/
 .env
 .env.*
 !.env.example
+.arf_config
 

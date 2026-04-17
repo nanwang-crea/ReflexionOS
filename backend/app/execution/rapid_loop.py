@@ -44,6 +44,7 @@ class RapidExecutionLoop:
     MAX_TURN_RETRIES = 2      # 每轮最大重试
     MAX_SUMMARY_RETRIES = 2   # 总结最大重试
     MAX_ERROR_RETRIES = 2     # 错误恢复最大重试
+    MAX_CONTEXT_GROUPS = 10   # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     
     def __init__(
         self,
@@ -313,7 +314,7 @@ class RapidExecutionLoop:
         messages.append(LLMMessage(role="user", content=context.task))
         
         # 历史消息
-        for msg in context.messages[-10:]:  # 最多保留 10 条
+        for msg in self._get_recent_context_messages(context):
             tool_calls = [
                 LLMToolCall(**tool_call)
                 for tool_call in msg.get("tool_calls", [])
@@ -326,6 +327,40 @@ class RapidExecutionLoop:
             ))
         
         return messages
+
+    def _get_recent_context_messages(self, context: ExecutionContext) -> list[dict]:
+        """
+        获取最近的上下文消息。
+
+        这里不能直接按消息条数截断，否则一次 assistant 工具调用产生的多条
+        tool 消息可能被保留下来，但对应的 assistant/tool_calls 消息被截掉，
+        从而让下游模型在处理 tool_call_id 时无法配对。
+        """
+        if not context.messages:
+            return []
+
+        grouped_messages: list[list[dict]] = []
+        active_tool_group: Optional[list[dict]] = None
+
+        for msg in context.messages:
+            if msg["role"] == "assistant" and msg.get("tool_calls"):
+                active_tool_group = [msg]
+                grouped_messages.append(active_tool_group)
+                continue
+
+            if msg["role"] == "tool" and active_tool_group is not None:
+                active_tool_group.append(msg)
+                continue
+
+            active_tool_group = None
+            grouped_messages.append([msg])
+
+        recent_groups = grouped_messages[-self.MAX_CONTEXT_GROUPS:]
+        return [
+            message
+            for group in recent_groups
+            for message in group
+        ]
     
     def _get_system_prompt(self) -> str:
         """获取系统提示"""
