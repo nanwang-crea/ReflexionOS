@@ -3,11 +3,10 @@ import { CheckCircle2 } from 'lucide-react'
 
 interface SuccessToastProps {
   message: string
-  duration?: number
   onDismiss?: () => void
 }
 
-export function SuccessToast({ message, duration = 3000, onDismiss }: SuccessToastProps) {
+export function SuccessToast({ message, onDismiss: _onDismiss }: SuccessToastProps) {
   return (
     <motion.div
       className="bg-green-50 border border-green-200 rounded-lg shadow-lg p-4"
