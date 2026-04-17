@@ -20,7 +20,7 @@ sleep 3
 # 启动前端
 echo "[2/2] 启动前端服务..."
 cd frontend
-npm run dev &
+pnpm dev:web &
 FRONTEND_PID=$!
 cd ..
 

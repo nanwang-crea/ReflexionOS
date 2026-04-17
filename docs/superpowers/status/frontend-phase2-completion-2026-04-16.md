@@ -323,7 +323,7 @@ dist/assets/index-DAUHalrI.js   527.69 kB │ gzip: 169.94 kB
 当前实现已经可以投入使用,建议:
 
 1. **手动测试**:
-   - 启动前端: `cd frontend && npm run dev`
+   - 启动前端: `cd frontend && pnpm dev`
    - 启动后端: `cd backend && python -m uvicorn app.main:app --reload`
    - 测试所有新功能
 

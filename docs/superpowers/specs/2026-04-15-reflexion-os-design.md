@@ -2115,8 +2115,8 @@ class ShellSecurity:
     ]
     
     ALLOWED_COMMANDS_PATTERNS = [
-        r'^(pytest|python|node|npm|yarn|git|ls|cat|grep|find)\s+',
-        r'^npm (run|test|build)',
+        r'^(pytest|python|node|pnpm|git|ls|cat|grep|find)\s+',
+        r'^pnpm (run|test|build|dev|start)',
         r'^git (status|diff|log|add|commit|push|pull)',
     ]
     

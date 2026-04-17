@@ -2,6 +2,13 @@
   "name": "reflexion-os-frontend",
   "version": "0.1.0",
   "description": "ReflexionOS Desktop Application",
+  "packageManager": "pnpm@10.30.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
   "type": "module",
   "scripts": {
     "dev": "node ./scripts/dev-electron.mjs",

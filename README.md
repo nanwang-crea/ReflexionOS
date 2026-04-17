@@ -19,14 +19,14 @@ pip install -r requirements.txt
 **Frontend:**
 ```bash
 cd frontend
-npm install
+pnpm install
 ```
 
 ### 2. Start Desktop App
 
 ```bash
 cd frontend
-npm run dev
+pnpm dev
 ```
 
 This starts the Vite renderer, launches Electron, and lets Electron manage the local FastAPI backend.
@@ -36,15 +36,15 @@ If Electron cannot start the backend automatically, point it at a Python interpr
 ```bash
 export REFLEXION_PYTHON_PATH=/path/to/python
 cd frontend
-npm run dev
+pnpm dev
 ```
 
 ### 3. Build And Run Desktop App
 
 ```bash
 cd frontend
-npm run build
-npm run start
+pnpm build
+pnpm start
 ```
 
 ### 4. Web Development Fallback
@@ -58,7 +58,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 **Terminal 2 - Frontend:**
 ```bash
 cd frontend
-npm run dev:web
+pnpm dev:web
 ```
 
 ### 5. Access The Application

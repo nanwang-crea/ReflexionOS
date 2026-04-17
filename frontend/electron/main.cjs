@@ -39,7 +39,7 @@ function createWindow() {
   if (!fs.existsSync(rendererDistPath)) {
     dialog.showErrorBox(
       'Renderer Build Missing',
-      '未找到前端构建产物，请先在 frontend 目录执行 npm run build。',
+      '未找到前端构建产物，请先在 frontend 目录执行 pnpm build。',
     )
     return
   }

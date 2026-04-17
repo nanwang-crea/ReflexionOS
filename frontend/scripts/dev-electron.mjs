@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(__dirname, '..')
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+const pnpmCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
 const electronBinary = path.join(
   frontendDir,
   'node_modules',
@@ -73,7 +73,7 @@ function shutdown(code = 0) {
 }
 
 async function main() {
-  viteProcess = spawn(npmCommand, ['run', 'dev:web'], {
+  viteProcess = spawn(pnpmCommand, ['dev:web'], {
     cwd: frontendDir,
     env: {
       ...process.env,

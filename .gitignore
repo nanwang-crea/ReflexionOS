@@ -45,4 +45,5 @@ log/
 !.env.example
 .arf_config
 */node_modules/
-
+.pnpm-store/
+backend/.reflexion/
