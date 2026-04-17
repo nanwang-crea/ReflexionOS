@@ -1,17 +1,15 @@
 import { motion } from 'framer-motion'
-import { Pause, Play, Square } from 'lucide-react'
+import { Loader2, Square } from 'lucide-react'
 import { useExecutionStore } from '@/stores/executionStore'
 
 interface ExecutionControlsProps {
-  onPause?: () => void
-  onResume?: () => void
-  onStop?: () => void
+  onCancel?: () => void
 }
 
-export function ExecutionControls({ onPause, onResume, onStop }: ExecutionControlsProps) {
-  const { status, canPause, canStop } = useExecutionStore()
+export function ExecutionControls({ onCancel }: ExecutionControlsProps) {
+  const { status, canCancel } = useExecutionStore()
   
-  if (status === 'idle' || status === 'stopped') {
+  if (status === 'idle' || status === 'completed' || status === 'failed' || status === 'cancelled') {
     return null
   }
   
@@ -23,46 +21,25 @@ export function ExecutionControls({ onPause, onResume, onStop }: ExecutionContro
       exit={{ opacity: 0, x: 20 }}
       transition={{ duration: 0.2 }}
     >
-      {status === 'running' && canPause && (
+      {status === 'running' && canCancel && (
         <motion.button
-          onClick={onPause}
-          className="flex items-center gap-2 px-4 py-2 bg-yellow-500 text-white rounded-lg
-                     hover:bg-yellow-600 shadow-lg shadow-yellow-500/30"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 400 }}
-        >
-          <Pause className="w-4 h-4" />
-          <span>暂停</span>
-        </motion.button>
-      )}
-      
-      {status === 'paused' && (
-        <motion.button
-          onClick={onResume}
-          className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg
-                     hover:bg-green-600 shadow-lg shadow-green-500/30"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          transition={{ type: 'spring', stiffness: 400 }}
-        >
-          <Play className="w-4 h-4" />
-          <span>继续</span>
-        </motion.button>
-      )}
-      
-      {canStop && (
-        <motion.button
-          onClick={onStop}
-          className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg
-                     hover:bg-red-600 shadow-lg shadow-red-500/30"
+          onClick={onCancel}
+          className="flex items-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-white
+                     shadow-lg shadow-red-500/30 hover:bg-red-600"
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           transition={{ type: 'spring', stiffness: 400 }}
         >
           <Square className="w-4 h-4" />
-          <span>停止</span>
+          <span>取消</span>
         </motion.button>
+      )}
+
+      {status === 'cancelling' && (
+        <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>取消中</span>
+        </div>
       )}
     </motion.div>
   )

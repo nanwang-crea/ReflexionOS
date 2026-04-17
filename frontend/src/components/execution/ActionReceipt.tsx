@@ -18,7 +18,9 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
 
   const lineClassName = status === 'failed'
     ? 'text-red-500 hover:text-red-600'
-    : 'text-slate-400 hover:text-slate-600'
+    : status === 'cancelled'
+      ? 'text-amber-500 hover:text-amber-600'
+      : 'text-slate-400 hover:text-slate-600'
 
   return (
     <div className="mb-8 max-w-[920px]">
@@ -40,6 +42,9 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
         {status === 'failed' && (
           <AlertCircle className="h-3.5 w-3.5" />
         )}
+        {status === 'cancelled' && (
+          <AlertCircle className="h-3.5 w-3.5" />
+        )}
       </button>
 
       <AnimatePresence initial={false}>
@@ -57,6 +62,7 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
                     <span className={`h-1.5 w-1.5 rounded-full ${
                       detail.status === 'failed' ? 'bg-red-400' :
+                      detail.status === 'cancelled' ? 'bg-amber-400' :
                       detail.status === 'running' ? 'bg-blue-400' : 'bg-slate-300'
                     }`} />
                     <span>{detail.summary}</span>

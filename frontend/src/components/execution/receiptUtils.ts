@@ -1,5 +1,5 @@
-export type ReceiptDetailStatus = 'pending' | 'running' | 'success' | 'failed'
-export type ActionReceiptStatus = 'running' | 'completed' | 'failed'
+export type ReceiptDetailStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+export type ActionReceiptStatus = 'running' | 'completed' | 'failed' | 'cancelled'
 export type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
 
 export interface ActionReceiptDetail {
@@ -257,7 +257,11 @@ export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionR
     }
   })
 
-  const prefix = status === 'running' ? '正在' : '已'
+  const prefix = status === 'running'
+    ? '正在'
+    : status === 'cancelled'
+      ? '已取消'
+      : '已'
   const segments = [
     formatSegment(prefix, '探索', exploreTargets.size, '个文件'),
     formatSegment(prefix, '探索', searchCount, '次搜索'),
@@ -272,5 +276,13 @@ export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionR
   }
 
   const summary = segments.join('，') || `${prefix}处理 1 个操作`
-  return status === 'failed' ? `执行失败 · ${summary}` : summary
+  if (status === 'failed') {
+    return `执行失败 · ${summary}`
+  }
+
+  if (status === 'cancelled') {
+    return `执行已取消 · ${summary}`
+  }
+
+  return summary
 }

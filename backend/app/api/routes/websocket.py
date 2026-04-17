@@ -17,19 +17,20 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     
     客户端 → 服务端消息:
     - {"type": "start", "data": {"task": "...", "project_id": "..."}}  启动任务
-    - {"type": "pause"}                                                  暂停任务
-    - {"type": "resume"}                                                 恢复任务
-    - {"type": "stop"}                                                   停止任务
+    - {"type": "cancel"}                                                 取消任务
+    - {"type": "stop"}                                                   兼容旧端的取消任务
     
     服务端 → 客户端消息:
     - {"type": "execution:start", "data": {...}, "timestamp": "..."}
     - {"type": "llm:start", "data": {}, "timestamp": "..."}
     - {"type": "llm:content", "data": {"content": "..."}, "timestamp": "..."}
+    - {"type": "llm:thought", "data": {"content": "..."}, "timestamp": "..."}
     - {"type": "llm:tool_call", "data": {"tool_name": "...", ...}, "timestamp": "..."}
     - {"type": "tool:start", "data": {...}, "timestamp": "..."}
     - {"type": "tool:result", "data": {...}, "timestamp": "..."}
     - {"type": "summary:start", "data": {}, "timestamp": "..."}
     - {"type": "summary:token", "data": {"token": "..."}, "timestamp": "..."}
+    - {"type": "execution:cancelled", "data": {...}, "timestamp": "..."}
     - {"type": "execution:complete", "data": {...}, "timestamp": "..."}
     """
     current_execution_id = execution_id
@@ -73,21 +74,10 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     })
                     
                     # 后台运行执行
-                    import asyncio
-                    asyncio.create_task(agent_service.run_execution(execution.id))
+                    agent_service.schedule_execution(execution.id)
                 
-                elif msg_type == "pause":
-                    # TODO: 实现暂停功能
-                    await ws_manager.send_event(current_execution_id, "execution:paused", {})
-                
-                elif msg_type == "resume":
-                    # TODO: 实现恢复功能
-                    await ws_manager.send_event(current_execution_id, "execution:resumed", {})
-                
-                elif msg_type == "stop":
-                    # TODO: 实现停止功能
-                    await ws_manager.send_event(current_execution_id, "execution:stopped", {})
-                    break
+                elif msg_type in {"cancel", "stop"}:
+                    await agent_service.cancel_execution(current_execution_id)
                 
                 elif msg_type == "ping":
                     # 心跳

@@ -1,67 +1,97 @@
 import { create } from 'zustand'
 
-export type ExecutionStatus = 'idle' | 'running' | 'paused' | 'stopped'
+export type ExecutionStatus = 'idle' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
+export type ExecutionPhase = 'thinking' | 'executing' | 'summarizing' | null
 
 interface ExecutionState {
   status: ExecutionStatus
+  phase: ExecutionPhase
   executionId: string | null
-  canPause: boolean
-  canStop: boolean
+  canCancel: boolean
   
   setStatus: (status: ExecutionStatus) => void
+  setPhase: (phase: ExecutionPhase) => void
   setExecutionId: (id: string | null) => void
-  setCanPause: (canPause: boolean) => void
-  setCanStop: (canStop: boolean) => void
+  setCanCancel: (canCancel: boolean) => void
   
   startExecution: (id: string) => void
-  pauseExecution: () => void
-  resumeExecution: () => void
-  stopExecution: () => void
+  setThinkingPhase: () => void
+  setExecutingPhase: () => void
+  setSummarizingPhase: () => void
+  startCancelling: () => void
+  completeExecution: () => void
+  failExecution: () => void
+  cancelExecution: () => void
   resetExecution: () => void
 }
 
-export const useExecutionStore = create<ExecutionState>((set, get) => ({
+export const useExecutionStore = create<ExecutionState>((set) => ({
   status: 'idle',
+  phase: null,
   executionId: null,
-  canPause: false,
-  canStop: false,
+  canCancel: false,
   
   setStatus: (status) => set({ status }),
+  setPhase: (phase) => set({ phase }),
   setExecutionId: (id) => set({ executionId: id }),
-  setCanPause: (canPause) => set({ canPause }),
-  setCanStop: (canStop) => set({ canStop }),
+  setCanCancel: (canCancel) => set({ canCancel }),
   
   startExecution: (id) => set({
     status: 'running',
+    phase: 'thinking',
     executionId: id,
-    canPause: true,
-    canStop: true
+    canCancel: true
   }),
   
-  pauseExecution: () => {
-    const { status } = get()
-    if (status === 'running') {
-      set({ status: 'paused', canPause: false })
-    }
-  },
-  
-  resumeExecution: () => {
-    const { status } = get()
-    if (status === 'paused') {
-      set({ status: 'running', canPause: true })
-    }
-  },
-  
-  stopExecution: () => set({
-    status: 'stopped',
-    canPause: false,
-    canStop: false
+  setThinkingPhase: () => set((state) => (
+    state.status === 'running'
+      ? { phase: 'thinking' }
+      : {}
+  )),
+
+  setExecutingPhase: () => set((state) => (
+    state.status === 'running'
+      ? { phase: 'executing' }
+      : {}
+  )),
+
+  setSummarizingPhase: () => set((state) => (
+    state.status === 'running'
+      ? { phase: 'summarizing' }
+      : {}
+  )),
+
+  startCancelling: () => set((state) => (
+    state.status === 'running'
+      ? { status: 'cancelling', canCancel: false }
+      : {}
+  )),
+
+  completeExecution: () => set({
+    status: 'completed',
+    phase: null,
+    executionId: null,
+    canCancel: false
+  }),
+
+  failExecution: () => set({
+    status: 'failed',
+    phase: null,
+    executionId: null,
+    canCancel: false
+  }),
+
+  cancelExecution: () => set({
+    status: 'cancelled',
+    phase: null,
+    executionId: null,
+    canCancel: false
   }),
   
   resetExecution: () => set({
     status: 'idle',
+    phase: null,
     executionId: null,
-    canPause: false,
-    canStop: false
+    canCancel: false
   })
 }))

@@ -29,3 +29,21 @@ async def get_execution_status(execution_id: str):
 async def get_execution_history(project_id: str):
     """获取执行历史"""
     return agent_service.list_executions(project_id)
+
+
+@router.post("/cancel/{execution_id}", response_model=Execution)
+async def cancel_execution(execution_id: str):
+    """取消正在运行的执行"""
+    try:
+        return await agent_service.cancel_execution(execution_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/stop/{execution_id}", response_model=Execution)
+async def stop_execution(execution_id: str):
+    """兼容旧前端的停止接口，实际执行取消"""
+    try:
+        return await agent_service.cancel_execution(execution_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))

@@ -1,19 +1,41 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { motion } from 'framer-motion'
+import { useMemo } from 'react'
 
 interface MarkdownRendererProps {
   content: string
   className?: string
   variant?: 'prose' | 'plain'
+  isStreaming?: boolean
+}
+
+function normalizeStreamingMarkdown(content: string, isStreaming: boolean) {
+  const normalized = content.replace(/\r\n/g, '\n')
+
+  if (!isStreaming) {
+    return normalized
+  }
+
+  const fenceMatches = normalized.match(/```/g)
+  if (fenceMatches && fenceMatches.length % 2 === 1) {
+    return `${normalized}\n\`\`\``
+  }
+
+  return normalized
 }
 
 export function MarkdownRenderer({
   content,
   className = '',
-  variant = 'prose'
+  variant = 'prose',
+  isStreaming = false
 }: MarkdownRendererProps) {
   const baseClassName = variant === 'prose' ? 'prose prose-sm max-w-none' : ''
+  const renderedContent = useMemo(
+    () => normalizeStreamingMarkdown(content, isStreaming),
+    [content, isStreaming]
+  )
 
   return (
     <motion.div
@@ -94,8 +116,15 @@ export function MarkdownRenderer({
           ),
         }}
       >
-        {content}
+        {renderedContent}
       </ReactMarkdown>
+      {isStreaming && (
+        <motion.span
+          className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
+          animate={{ opacity: [1, 0] }}
+          transition={{ duration: 0.5, repeat: Infinity }}
+        />
+      )}
     </motion.div>
   )
 }

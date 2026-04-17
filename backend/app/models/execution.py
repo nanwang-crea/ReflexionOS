@@ -11,6 +11,7 @@ class ExecutionStatus(str, Enum):
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class StepStatus(str, Enum):

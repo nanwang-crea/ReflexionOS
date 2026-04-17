@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock
 from app.execution.rapid_loop import RapidExecutionLoop, ExecutionState
@@ -305,6 +307,41 @@ class TestRapidExecutionLoop:
 
         assert events[thought_index]["data"]["content"] == "我先查看项目结构，再继续探索。"
         assert thought_index < tool_call_index
+
+    @pytest.mark.asyncio
+    async def test_execution_returns_cancelled_when_task_is_cancelled(self, mock_llm, tool_registry):
+        """测试取消运行中的执行会返回 cancelled 状态并发送事件"""
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback
+        )
+
+        async def mock_stream(messages, tools=None):
+            yield StreamChunk(type="content", content="正在分析项目结构")
+            await asyncio.sleep(5)
+            yield StreamChunk(type="done", finish_reason="stop")
+
+        mock_llm.stream_complete = mock_stream
+
+        task = asyncio.create_task(
+            execution_loop.run("请检查项目结构", execution_id="exec-cancel-test")
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+
+        result = await task
+
+        assert result.id == "exec-cancel-test"
+        assert result.status.value == "cancelled"
+        assert result.result == "执行已取消"
+        assert any(event["type"] == "execution:cancelled" for event in events)
     
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
