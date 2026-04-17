@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     server_port: int = 8000
     
     llm_provider: str = "openai"
-    llm_api_key: Optional[str] = "sk-f4a4ff4b0bf242df9bae933c165d5835"
+    # 填入自己的值
+    llm_api_key: Optional[str] = "sk-test"
     llm_model: str = "qwen3.6-plus"
     llm_base_url: Optional[str] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     
