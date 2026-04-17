@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { demoWorkspaceState, isDemoMode } from '@/demo/demoData'
 import type { ChatSession, WorkspaceChatItem } from '@/types/workspace'
 
 interface WorkspaceState {
@@ -40,15 +41,22 @@ function upsertExpanded(list: string[], value: string, expanded: boolean) {
   return list.filter(item => item !== value)
 }
 
+function stripTransientItems(sessions: ChatSession[]) {
+  return sessions.map((session) => ({
+    ...session,
+    items: session.items.filter((item) => !item.transient)
+  }))
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
-      sessions: [],
-      currentSessionId: null,
-      expandedProjectIds: [],
-      expandedSessionProjectIds: [],
-      searchQuery: '',
-      searchOpen: false,
+      sessions: isDemoMode() ? demoWorkspaceState.sessions : [],
+      currentSessionId: isDemoMode() ? demoWorkspaceState.currentSessionId : null,
+      expandedProjectIds: isDemoMode() ? demoWorkspaceState.expandedProjectIds : [],
+      expandedSessionProjectIds: isDemoMode() ? demoWorkspaceState.expandedSessionProjectIds : [],
+      searchQuery: isDemoMode() ? demoWorkspaceState.searchQuery : '',
+      searchOpen: isDemoMode() ? demoWorkspaceState.searchOpen : false,
 
       createSession: (projectId, title = '新建聊天') => {
         const now = createNow()
@@ -157,10 +165,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       })
     }),
     {
-      name: 'reflexion-workspace',
+      name: isDemoMode() ? 'reflexion-workspace-demo' : 'reflexion-workspace',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        sessions: state.sessions,
+        sessions: stripTransientItems(state.sessions),
         currentSessionId: state.currentSessionId,
         expandedProjectIds: state.expandedProjectIds,
         expandedSessionProjectIds: state.expandedSessionProjectIds,

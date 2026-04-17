@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { demoLLMConfig, isDemoMode } from '@/demo/demoData'
 import { LLMConfig } from '@/types/llm'
 
 interface SettingsState {
@@ -9,8 +10,8 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  llmConfig: null,
-  configured: false,
+  llmConfig: isDemoMode() ? demoLLMConfig : null,
+  configured: isDemoMode(),
   
   setLLMConfig: (config) => set({ 
     llmConfig: config,

@@ -14,6 +14,7 @@ import {
   Trash2,
   Workflow
 } from 'lucide-react'
+import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { projectApi } from '@/services/apiClient'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
@@ -101,6 +102,7 @@ export function WorkspaceSidebar() {
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
+  const demoMode = isDemoMode()
 
   const busy = status === 'running' || status === 'cancelling'
   const currentSession = useMemo(
@@ -110,6 +112,12 @@ export function WorkspaceSidebar() {
 
   useEffect(() => {
     const loadProjects = async () => {
+      if (demoMode) {
+        setProjects(demoProjects)
+        setLoading(false)
+        return
+      }
+
       setLoading(true)
       try {
         const response = await projectApi.list()
@@ -122,7 +130,7 @@ export function WorkspaceSidebar() {
     }
 
     loadProjects()
-  }, [setLoading, setProjects])
+  }, [demoMode, setLoading, setProjects])
 
   useEffect(() => {
     if (projects.length === 0) {

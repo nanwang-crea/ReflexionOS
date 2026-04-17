@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { demoCurrentProject, demoProjects, isDemoMode } from '@/demo/demoData'
 import { Project } from '@/types/project'
 
 interface ProjectState {
@@ -16,8 +17,8 @@ interface ProjectState {
 export const useProjectStore = create<ProjectState>()(
   persist(
     (set) => ({
-      projects: [],
-      currentProject: null,
+      projects: isDemoMode() ? demoProjects : [],
+      currentProject: isDemoMode() ? demoCurrentProject : null,
       loading: false,
       
       setProjects: (projects) => set((state) => ({
@@ -41,7 +42,7 @@ export const useProjectStore = create<ProjectState>()(
       setLoading: (loading) => set({ loading }),
     }),
     {
-      name: 'reflexion-project',
+      name: isDemoMode() ? 'reflexion-project-demo' : 'reflexion-project',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         currentProject: state.currentProject

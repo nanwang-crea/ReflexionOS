@@ -2,6 +2,7 @@ import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/exec
 
 export type WorkspaceChatItemType =
   | 'user-message'
+  | 'assistant-status'
   | 'assistant-message'
   | 'agent-update'
   | 'action-receipt'
@@ -10,9 +11,11 @@ export interface WorkspaceChatItem {
   id: string
   type: WorkspaceChatItemType
   content?: string
+  statusLabel?: string
   receiptStatus?: ActionReceiptStatus
   details?: ActionReceiptDetail[]
   isStreaming?: boolean
+  transient?: boolean
 }
 
 export interface ChatSession {

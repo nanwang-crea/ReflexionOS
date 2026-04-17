@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/services/apiClient'
+import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { Project } from '@/types/project'
@@ -11,12 +12,19 @@ export default function ProjectsPage() {
   const [showModal, setShowModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
+  const demoMode = isDemoMode()
 
   useEffect(() => {
     loadProjects()
   }, [])
 
   const loadProjects = async () => {
+    if (demoMode) {
+      setProjects(demoProjects)
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     try {
       const response = await projectApi.list()
