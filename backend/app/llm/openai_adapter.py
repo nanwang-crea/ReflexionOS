@@ -123,6 +123,8 @@ class OpenAIAdapter(UniversalLLMInterface):
                                 "name": "",
                                 "arguments": ""
                             }
+                        elif tc.id:
+                            current_tool_calls[idx]["id"] = tc.id
                         if tc.function:
                             if tc.function.name:
                                 current_tool_calls[idx]["name"] = tc.function.name

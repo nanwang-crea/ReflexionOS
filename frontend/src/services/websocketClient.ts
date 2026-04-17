@@ -7,7 +7,7 @@ interface ExecutionEvents {
   'llm:content': { content: string }
   'llm:tool_call': { tool_name: string; arguments: object; thought: string }
   'tool:start': { tool_name: string; arguments: object; step_number: number }
-  'tool:result': { tool_name: string; success: boolean; output: string; duration: number }
+  'tool:result': { tool_name: string; success: boolean; output?: string; error?: string; duration: number }
   'tool:error': { tool_name: string; error: string }
   'summary:start': {}
   'summary:token': { token: string }

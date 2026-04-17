@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.llm.openai_adapter import OpenAIAdapter
@@ -77,3 +79,57 @@ class TestOpenAIAdapter:
             assert response.content == ""
             assert response.model == "gpt-4-turbo-preview"
             assert response.usage["total_tokens"] == 50
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_updates_late_tool_call_id(self, openai_adapter):
+        messages = [Message(role="user", content="Inspect README")]
+
+        async def mock_stream():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                index=0,
+                                id=None,
+                                function=SimpleNamespace(
+                                    name="mock_tool",
+                                    arguments='{"path":"README'
+                                )
+                            )
+                        ]
+                    ),
+                    finish_reason=None
+                )]
+            )
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        content=None,
+                        tool_calls=[
+                            SimpleNamespace(
+                                index=0,
+                                id="fc_test_call_id",
+                                function=SimpleNamespace(
+                                    name=None,
+                                    arguments='.md"}'
+                                )
+                            )
+                        ]
+                    ),
+                    finish_reason="tool_calls"
+                )]
+            )
+
+        with patch.object(openai_adapter.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = mock_stream()
+
+            chunks = []
+            async for chunk in openai_adapter.stream_complete(messages, tools=[]):
+                chunks.append(chunk)
+
+        tool_call_chunk = next(chunk for chunk in chunks if chunk.type == "tool_calls")
+        assert tool_call_chunk.tool_calls[0].id == "fc_test_call_id"
+        assert tool_call_chunk.tool_calls[0].name == "mock_tool"
+        assert tool_call_chunk.tool_calls[0].arguments == {"path": "README.md"}

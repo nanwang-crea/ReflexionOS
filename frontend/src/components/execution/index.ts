@@ -1,4 +1,3 @@
-export { StepRow } from './StepRow'
-export { ExecutionTrace } from './ExecutionTrace'
+export { ActionReceipt } from './ActionReceipt'
 export { StatusBadge } from './StatusBadge'
 export { ExecutionControls } from './ExecutionControls'

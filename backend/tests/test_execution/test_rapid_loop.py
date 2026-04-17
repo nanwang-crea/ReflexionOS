@@ -152,6 +152,37 @@ class TestRapidExecutionLoop:
         assert tool_message.content == "mock output"
         assert tool_message.tool_call_id == tool_call.id
 
+    def test_build_messages_keeps_tool_outputs_with_matching_assistant_call(self, execution_loop):
+        """测试历史截断时不会留下孤立的 tool 输出消息"""
+        context = ExecutionContext(task="检查工具消息配对")
+        first_call = LLMToolCall(id="call_alpha", name="mock", arguments={"path": "a.txt"})
+        second_call = LLMToolCall(id="call_beta", name="mock", arguments={"path": "b.txt"})
+
+        context.add_message(
+            "assistant",
+            content="先读取两个文件",
+            tool_calls=[first_call.model_dump(), second_call.model_dump()]
+        )
+        context.add_message("tool", content="a output", tool_call_id=first_call.id)
+        context.add_message("tool", content="b output", tool_call_id=second_call.id)
+
+        for index in range(9):
+            context.add_message("user", content=f"filler {index}")
+
+        messages = execution_loop._build_messages(context)
+
+        assistant_messages = [
+            msg for msg in messages
+            if msg.role == "assistant" and msg.tool_calls
+        ]
+        tool_messages = [msg for msg in messages if msg.role == "tool"]
+
+        assert len(assistant_messages) == 1
+        assert [tool_message.tool_call_id for tool_message in tool_messages] == [
+            first_call.id,
+            second_call.id,
+        ]
+
     @pytest.mark.asyncio
     async def test_final_response_fallback_when_no_content_after_tools(self, execution_loop, mock_llm):
         """测试工具执行后没有直接答案时，走兜底最终回答"""

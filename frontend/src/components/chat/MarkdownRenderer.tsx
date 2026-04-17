@@ -5,12 +5,19 @@ import { motion } from 'framer-motion'
 interface MarkdownRendererProps {
   content: string
   className?: string
+  variant?: 'prose' | 'plain'
 }
 
-export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className = '',
+  variant = 'prose'
+}: MarkdownRendererProps) {
+  const baseClassName = variant === 'prose' ? 'prose prose-sm max-w-none' : ''
+
   return (
     <motion.div
-      className={`prose prose-sm max-w-none ${className}`}
+      className={`${baseClassName} ${className}`.trim()}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.2 }}
