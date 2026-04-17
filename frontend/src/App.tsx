@@ -2,6 +2,9 @@ import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-d
 import ProjectsPage from './pages/ProjectsPage'
 import AgentWorkspace from './pages/AgentWorkspace'
 import SettingsPage from './pages/SettingsPage'
+import SkillsPage from './pages/SkillsPage'
+import PluginsPage from './pages/PluginsPage'
+import AutomationPage from './pages/AutomationPage'
 import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
 
 function App() {
@@ -14,6 +17,9 @@ function App() {
             <Route path="/" element={<Navigate to="/agent" replace />} />
             <Route path="/agent" element={<AgentWorkspace />} />
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/skills" element={<SkillsPage />} />
+            <Route path="/plugins" element={<PluginsPage />} />
+            <Route path="/automation" element={<AutomationPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>

@@ -1,21 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { NavLink, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   ChevronDown,
   ChevronRight,
   Folder,
   FolderPlus,
+  Pencil,
   Puzzle,
   Search,
   Settings,
   Sparkles,
   SquarePen,
+  Trash2,
   Workflow
 } from 'lucide-react'
 import { projectApi } from '@/services/apiClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useExecutionStore } from '@/stores/executionStore'
+import type { ChatSession } from '@/types/workspace'
 import type { Project } from '@/types/project'
 
 const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-slate-700 transition hover:bg-slate-200/60'
@@ -63,11 +66,13 @@ function deriveProjectSelection(
 
 export function WorkspaceSidebar() {
   const navigate = useNavigate()
+  const location = useLocation()
   const {
     projects,
     currentProject,
     setProjects,
     addProject,
+    removeProject,
     setCurrentProject,
     loading,
     setLoading
@@ -80,12 +85,15 @@ export function WorkspaceSidebar() {
     searchOpen,
     searchQuery,
     createSession,
+    updateSessionTitle,
+    removeSession,
     setCurrentSessionId,
     toggleProjectExpanded,
     setProjectExpanded,
     toggleProjectShowAll,
     setSearchOpen,
-    setSearchQuery
+    setSearchQuery,
+    removeProjectSessions
   } = useWorkspaceStore()
   const { status } = useExecutionStore()
 
@@ -192,6 +200,29 @@ export function WorkspaceSidebar() {
     navigate('/agent')
   }
 
+  const handleDeleteProject = async (project: Project) => {
+    if (busy) {
+      return
+    }
+
+    const confirmed = confirm(`确定删除项目“${project.name}”吗？项目下的聊天也会一并移除。`)
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      await projectApi.delete(project.id)
+      removeProject(project.id)
+      removeProjectSessions(project.id)
+      if (currentProject?.id === project.id) {
+        setCurrentProject(null)
+      }
+    } catch (error) {
+      console.error('Failed to delete project:', error)
+      alert('删除项目失败')
+    }
+  }
+
   const handleNewChat = () => {
     if (busy) {
       return
@@ -221,41 +252,71 @@ export function WorkspaceSidebar() {
     navigate('/agent')
   }
 
+  const handleRenameSession = (session: ChatSession) => {
+    if (busy) {
+      return
+    }
+
+    const nextTitle = prompt('重命名聊天', session.title)?.trim()
+    if (!nextTitle || nextTitle === session.title) {
+      return
+    }
+
+    updateSessionTitle(session.id, nextTitle)
+  }
+
+  const handleDeleteSession = (session: ChatSession) => {
+    if (busy) {
+      return
+    }
+
+    if (!confirm(`确定删除聊天“${session.title}”吗？`)) {
+      return
+    }
+
+    removeSession(session.id)
+  }
+
   const globalEntries = [
     {
       key: 'new-chat',
       label: '新建聊天',
       icon: SquarePen,
       onClick: handleNewChat,
-      disabled: false
+      disabled: false,
+      path: null
     },
     {
       key: 'search',
       label: '搜索',
       icon: Search,
       onClick: () => setSearchOpen(!searchOpen),
-      disabled: false
+      disabled: false,
+      path: null
     },
     {
       key: 'skills',
       label: '技能',
       icon: Sparkles,
-      onClick: undefined,
-      disabled: true
+      onClick: () => navigate('/skills'),
+      disabled: false,
+      path: '/skills'
     },
     {
       key: 'plugins',
       label: '插件',
       icon: Puzzle,
-      onClick: undefined,
-      disabled: true
+      onClick: () => navigate('/plugins'),
+      disabled: false,
+      path: '/plugins'
     },
     {
       key: 'automation',
       label: '自动化',
       icon: Workflow,
-      onClick: undefined,
-      disabled: true
+      onClick: () => navigate('/automation'),
+      disabled: false,
+      path: '/automation'
     }
   ]
 
@@ -266,6 +327,7 @@ export function WorkspaceSidebar() {
           {globalEntries.map((entry) => {
             const Icon = entry.icon
             const disabled = entry.disabled || busy
+            const active = entry.path ? location.pathname.startsWith(entry.path) : false
 
             return (
               <button
@@ -274,6 +336,8 @@ export function WorkspaceSidebar() {
                 onClick={entry.onClick}
                 disabled={disabled}
                 className={`${sidebarEntryClassName} ${
+                  active ? 'bg-slate-200 text-slate-900' : ''
+                } ${
                   disabled ? 'cursor-default opacity-45 hover:bg-transparent' : ''
                 }`}
               >
@@ -339,7 +403,7 @@ export function WorkspaceSidebar() {
                 return (
                   <div key={project.id}>
                     <div
-                      className={`flex items-center gap-1 rounded-xl px-2 py-1.5 text-[15px] transition ${
+                      className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 text-[15px] transition ${
                         busy ? 'opacity-75' : 'hover:bg-slate-200/70'
                       } ${isCurrentProject ? 'text-slate-900' : 'text-slate-600'}`}
                     >
@@ -367,6 +431,15 @@ export function WorkspaceSidebar() {
                         <Folder className="h-5 w-5 shrink-0 text-slate-500" />
                         <span className="truncate text-[17px]">{project.name}</span>
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteProject(project)}
+                        disabled={busy}
+                        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                        title="删除项目"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
 
                     {expanded && (
@@ -379,22 +452,44 @@ export function WorkspaceSidebar() {
                               const active = currentSessionId === session.id && currentProject?.id === project.id
 
                               return (
-                                <button
+                                <div
                                   key={session.id}
-                                  type="button"
-                                  onClick={() => handleSessionSelect(project, session.id)}
-                                  disabled={busy}
-                                  className={`flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-2.5 text-left text-[15px] transition ${
+                                  className={`group flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[15px] transition ${
                                     active
                                       ? 'bg-slate-200 text-slate-900'
                                       : 'text-slate-600 hover:bg-slate-200/70'
-                                  } ${busy ? 'cursor-default opacity-75' : ''}`}
+                                  } ${busy ? 'opacity-75' : ''}`}
                                 >
-                                  <span className="truncate">{session.title}</span>
-                                  <span className="shrink-0 text-slate-400">
-                                    {formatRelativeTime(session.updatedAt)}
-                                  </span>
-                                </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSessionSelect(project, session.id)}
+                                    disabled={busy}
+                                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+                                  >
+                                    <span className="truncate">{session.title}</span>
+                                    <span className="shrink-0 text-slate-400">
+                                      {formatRelativeTime(session.updatedAt)}
+                                    </span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRenameSession(session)}
+                                    disabled={busy}
+                                    className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-slate-600 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                                    title="重命名聊天"
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteSession(session)}
+                                    disabled={busy}
+                                    className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                                    title="删除聊天"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
                               )
                             })}
 

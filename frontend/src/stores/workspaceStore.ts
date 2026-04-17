@@ -14,6 +14,7 @@ interface WorkspaceState {
   setCurrentSessionId: (sessionId: string | null) => void
   saveSessionItems: (sessionId: string, items: WorkspaceChatItem[]) => void
   updateSessionTitle: (sessionId: string, title: string) => void
+  removeSession: (sessionId: string) => void
   touchSession: (sessionId: string) => void
   toggleProjectExpanded: (projectId: string) => void
   setProjectExpanded: (projectId: string, expanded: boolean) => void
@@ -96,6 +97,22 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             : session
         ))
       })),
+
+      removeSession: (sessionId) => set((state) => {
+        const targetSession = state.sessions.find((session) => session.id === sessionId) || null
+        const nextSessions = state.sessions.filter((session) => session.id !== sessionId)
+        const siblingSessionId = targetSession
+          ? nextSessions.find((session) => session.projectId === targetSession.projectId)?.id || null
+          : null
+        const nextCurrentSessionId = state.currentSessionId === sessionId
+          ? siblingSessionId || nextSessions[0]?.id || null
+          : state.currentSessionId
+
+        return {
+          sessions: nextSessions,
+          currentSessionId: nextCurrentSessionId
+        }
+      }),
 
       touchSession: (sessionId) => set((state) => ({
         sessions: state.sessions.map((session) => (

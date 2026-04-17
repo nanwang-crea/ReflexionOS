@@ -38,3 +38,7 @@ export const llmApi = {
     apiClient.post('/api/llm/config', data),
   getProviders: () => apiClient.get('/api/llm/providers'),
 }
+
+export const skillApi = {
+  list: () => apiClient.get('/api/skills'),
+}

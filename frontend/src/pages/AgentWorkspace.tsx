@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react'
 import { ExecutionWebSocket } from '@/services/websocketClient'
 import { SlideIn } from '@/components/animations'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import { ExecutionControls } from '@/components/execution/ExecutionControls'
 import {
   buildReceiptDetail,
   type ActionReceiptDetail,
@@ -697,7 +696,7 @@ export default function AgentWorkspace() {
   const inputBusy = status === 'running' || status === 'cancelling'
 
   return (
-    <div className="flex h-full flex-col bg-white">
+      <div className="flex h-full flex-col bg-white">
       <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
@@ -708,7 +707,6 @@ export default function AgentWorkspace() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          <ExecutionControls onCancel={handleCancel} />
           <div className="flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${
               connectionStatus === 'connected' ? 'bg-green-500' :
@@ -826,8 +824,11 @@ export default function AgentWorkspace() {
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput
           onSend={handleSend}
+          onCancel={handleCancel}
           disabled={!configured || !currentProject || inputBusy}
           isLoading={inputBusy}
+          canCancel={status === 'running'}
+          isCancelling={status === 'cancelling'}
           placeholder={currentProject ? '给当前项目开一个新任务...' : '请先选择项目'}
         />
         {!currentProject && (
