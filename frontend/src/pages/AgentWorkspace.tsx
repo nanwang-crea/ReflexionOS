@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react'
 import { ExecutionWebSocket } from '@/services/websocketClient'
 import { SlideIn } from '@/components/animations'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import { ExecutionControls } from '@/components/execution/ExecutionControls'
 import {
   buildReceiptDetail,
   type ActionReceiptDetail,
@@ -16,18 +15,9 @@ import { ChatInput } from '@/components/chat/ChatInput'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useExecutionStore } from '@/stores/executionStore'
+import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { agentApi } from '@/services/apiClient'
-
-type ChatItemType = 'user-message' | 'assistant-message' | 'agent-update' | 'action-receipt'
-
-interface ChatItem {
-  id: string
-  type: ChatItemType
-  content?: string
-  receiptStatus?: ActionReceiptStatus
-  details?: ActionReceiptDetail[]
-  isStreaming?: boolean
-}
+import type { WorkspaceChatItem } from '@/types/workspace'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -66,9 +56,25 @@ function updateFirstMatchingDetail(
   return nextDetails
 }
 
+function deriveSessionTitle(items: WorkspaceChatItem[]) {
+  const firstUserMessage = items.find((item) => item.type === 'user-message' && item.content)?.content?.trim()
+  if (!firstUserMessage) {
+    return null
+  }
+
+  return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage
+}
+
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
   const { configured } = useSettingsStore()
+  const {
+    sessions,
+    currentSessionId,
+    createSession,
+    saveSessionItems,
+    updateSessionTitle,
+  } = useWorkspaceStore()
   const {
     status,
     phase,
@@ -86,7 +92,12 @@ export default function AgentWorkspace() {
     resetExecution
   } = useExecutionStore()
 
-  const [chatItems, setChatItems] = useState<ChatItem[]>([])
+  const currentSession = useMemo(
+    () => sessions.find((session) => session.id === currentSessionId) || null,
+    [currentSessionId, sessions]
+  )
+
+  const [chatItems, setChatItems] = useState<WorkspaceChatItem[]>(currentSession?.items || [])
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
 
   const wsRef = useRef<ExecutionWebSocket | null>(null)
@@ -99,10 +110,44 @@ export default function AgentWorkspace() {
   const thoughtFlushedRef = useRef(false)
   const currentLlmMessageIdRef = useRef<string | null>(null)
   const currentAssistantMessageIdRef = useRef<string | null>(null)
+  const lastSyncedItemsRef = useRef('')
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatItems])
+
+  useEffect(() => {
+    const nextItems = currentSession?.items || []
+    setChatItems(nextItems)
+    lastSyncedItemsRef.current = JSON.stringify(nextItems)
+    llmStreamingRef.current = ''
+    summaryStartedRef.current = false
+    finalMessageHandledRef.current = false
+    activeReceiptIdRef.current = null
+    thoughtFlushedRef.current = false
+    currentLlmMessageIdRef.current = null
+    currentAssistantMessageIdRef.current = null
+    currentExecutionIdRef.current = null
+  }, [currentSessionId])
+
+  useEffect(() => {
+    if (!currentSessionId) {
+      return
+    }
+
+    const serialized = JSON.stringify(chatItems)
+    if (serialized === lastSyncedItemsRef.current) {
+      return
+    }
+
+    saveSessionItems(currentSessionId, chatItems)
+    lastSyncedItemsRef.current = serialized
+
+    const nextTitle = deriveSessionTitle(chatItems)
+    if (nextTitle && currentSession?.title !== nextTitle) {
+      updateSessionTitle(currentSessionId, nextTitle)
+    }
+  }, [chatItems, currentSession?.title, currentSessionId, saveSessionItems, updateSessionTitle])
 
   useEffect(() => {
     return () => {
@@ -135,13 +180,13 @@ export default function AgentWorkspace() {
     }
   }, [phase, status])
 
-  const addChatItem = useCallback((item: ChatItem) => {
+  const addChatItem = useCallback((item: WorkspaceChatItem) => {
     setChatItems(prev => [...prev, item])
   }, [])
 
   const updateChatItem = useCallback((
     itemId: string,
-    updater: (item: ChatItem) => ChatItem
+    updater: (item: WorkspaceChatItem) => WorkspaceChatItem
   ) => {
     setChatItems(prev => prev.map(item => (
       item.id === itemId
@@ -152,7 +197,7 @@ export default function AgentWorkspace() {
 
   const updateReceiptItem = useCallback((
     receiptId: string,
-    updater: (item: ChatItem) => ChatItem
+    updater: (item: WorkspaceChatItem) => WorkspaceChatItem
   ) => {
     setChatItems(prev => prev.map(item => (
       item.type === 'action-receipt' && item.id === receiptId
@@ -586,11 +631,23 @@ export default function AgentWorkspace() {
       return
     }
 
-    addChatItem({
+    const userItem: WorkspaceChatItem = {
       id: createItemId('user'),
       type: 'user-message',
       content: message
-    })
+    }
+
+    const requiresFreshSession = !currentSession || currentSession.projectId !== currentProject.id
+
+    if (requiresFreshSession) {
+      const session = createSession(currentProject.id)
+      saveSessionItems(session.id, [userItem])
+      updateSessionTitle(session.id, deriveSessionTitle([userItem]) || session.title)
+      setChatItems([userItem])
+      lastSyncedItemsRef.current = JSON.stringify([userItem])
+    } else {
+      addChatItem(userItem)
+    }
 
     llmStreamingRef.current = ''
     summaryStartedRef.current = false
@@ -609,7 +666,16 @@ export default function AgentWorkspace() {
     } catch (error) {
       console.error('Failed to start execution:', error)
     }
-  }, [addChatItem, configured, connectWebSocket, currentProject])
+  }, [
+    addChatItem,
+    configured,
+    connectWebSocket,
+    createSession,
+    currentProject,
+    currentSession,
+    saveSessionItems,
+    updateSessionTitle
+  ])
 
   const handleReset = () => {
     wsRef.current?.close()
@@ -630,18 +696,17 @@ export default function AgentWorkspace() {
   const inputBusy = status === 'running' || status === 'cancelling'
 
   return (
-    <div className="flex h-full flex-col bg-white">
+      <div className="flex h-full flex-col bg-white">
       <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
-            {currentProject ? currentProject.name : '选择项目开始'}
+            {currentSession?.title || (currentProject ? currentProject.name : '选择项目开始')}
           </h2>
           {currentProject && (
             <p className="text-sm text-gray-500">{currentProject.path}</p>
           )}
         </div>
         <div className="flex items-center gap-4">
-          <ExecutionControls onCancel={handleCancel} />
           <div className="flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${
               connectionStatus === 'connected' ? 'bg-green-500' :
@@ -673,6 +738,18 @@ export default function AgentWorkspace() {
             <div className={`mb-6 flex items-center gap-2 text-sm ${statusLine.className}`}>
               <Loader2 className="h-4 w-4 animate-spin" />
               <span>{statusLine.label}</span>
+            </div>
+          )}
+
+          {!currentProject && (
+            <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
+              先在左侧选择一个项目，再开始新的聊天。
+            </div>
+          )}
+
+          {currentProject && !currentSession && chatItems.length === 0 && (
+            <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
+              这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击“新建聊天”。
             </div>
           )}
 
@@ -747,11 +824,15 @@ export default function AgentWorkspace() {
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput
           onSend={handleSend}
+          onCancel={handleCancel}
           disabled={!configured || !currentProject || inputBusy}
           isLoading={inputBusy}
+          canCancel={status === 'running'}
+          isCancelling={status === 'cancelling'}
+          placeholder={currentProject ? '给当前项目开一个新任务...' : '请先选择项目'}
         />
         {!currentProject && (
-          <p className="mt-2 text-sm text-gray-500">请先在项目页面选择一个项目</p>
+          <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
         )}
       </div>
     </div>
