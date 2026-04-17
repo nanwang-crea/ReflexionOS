@@ -271,6 +271,10 @@ export default function AgentWorkspace() {
       setLlmStreamingContent(llmStreamingRef.current)
     })
 
+    ws.on('llm:thought', (data) => {
+      flushStreamingAgentUpdate(data.content)
+    })
+
     ws.on('llm:tool_call', (data) => {
       if (!thoughtFlushedRef.current) {
         flushStreamingAgentUpdate(data.thought)

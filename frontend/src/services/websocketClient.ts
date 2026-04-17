@@ -5,6 +5,7 @@ interface ExecutionEvents {
   'execution:created': { execution_id: string; task: string; status: string }
   'llm:start': {}
   'llm:content': { content: string }
+  'llm:thought': { content: string }
   'llm:tool_call': { tool_name: string; arguments: object; thought: string }
   'tool:start': { tool_name: string; arguments: object; step_number: number }
   'tool:result': { tool_name: string; success: boolean; output?: string; error?: string; duration: number }

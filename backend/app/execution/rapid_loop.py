@@ -117,6 +117,11 @@ class RapidExecutionLoop:
                     
                     # 检查是否有工具调用
                     if response.has_tool_calls:
+                        if response.has_content:
+                            await self._emit("llm:thought", {
+                                "content": response.content
+                            })
+
                         # 发送工具调用事件
                         for tc in response.tool_calls:
                             await self._emit("llm:tool_call", {
