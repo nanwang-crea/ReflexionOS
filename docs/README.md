@@ -1,0 +1,58 @@
+# ReflexionOS Documentation Guide
+
+这个仓库里的文档有历史累积,当前请按下面的优先级阅读。
+
+## 当前有效
+
+1. `README.md`
+   - 项目概览和当前启动方式。
+   - 当前代码实际形态以这里和代码仓库为准。
+
+2. `backend/README.md`
+   - 后端单独启动、配置和测试说明。
+
+3. `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`
+   - 当前主设计文档。
+   - 产品定位、整体架构、模块职责统一以这份为主。
+
+4. `docs/plans/2026-04-16-v0.0.1.1-enhanced-mvp.md`
+   - 最新一轮增强 MVP 实施计划。
+   - 适合继续跟进执行稳定性和流式交互相关工作。
+
+## 历史参考
+
+这些文档保留是为了追溯上下文,默认不需要继续维护:
+
+- `设计方案.md`
+  - 早期草稿版设计,已被主设计文档替代。
+
+- `docs/superpowers/specs/2026-04-15-architecture-completeness.md`
+  - 一次性的架构完整性分析,不是当前事实来源。
+
+- `docs/superpowers/specs/2026-04-16-frontend-ui-enhancement-design.md`
+  - 已完成阶段的前端专题设计,仅供回看。
+
+- `docs/superpowers/plans/README.md`
+  - 旧进度看板,数字已经过时。
+
+- `docs/superpowers/plans/2026-04-15-phase1-implementation.md`
+  - 第一阶段实施计划归档。
+
+- `docs/superpowers/plans/2026-04-15-phase1-progress.md`
+  - 第一阶段进度快照归档。
+
+- `docs/superpowers/plans/2026-04-16-frontend-ui-enhancement.md`
+  - 前端 UI 完善实施计划归档。
+
+- `docs/superpowers/status/implementation-status-2026-04-16.md`
+  - 2026-04-16 状态快照,不等同于当前实现现状。
+
+- `docs/superpowers/status/frontend-phase2-completion-2026-04-16.md`
+  - 前端第二阶段完成报告归档。
+
+## 维护规则
+
+- 后续如果是整体产品或架构变更,优先更新 `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`。
+- 如果只是运行方式、目录结构、开发命令变化,优先更新 `README.md` 和 `backend/README.md`。
+- 阶段性计划和状态报告可以保留,但应明确标注日期和阶段,不要再把它们当成主设计文档。
+- 新增文档前,先判断能否直接补到现有主设计文档里,避免继续产生平行版本。

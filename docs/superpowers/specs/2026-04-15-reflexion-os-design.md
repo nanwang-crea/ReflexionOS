@@ -1,5 +1,9 @@
 # ReflexionOS 设计方案
 
+> Status: Current primary design document.
+> Use this file for product and architecture updates.
+> Historical plans and reports under `docs/superpowers/plans/` and `docs/superpowers/status/` are reference only.
+
 **版本**: v1.0  
 **日期**: 2026-04-15  
 **状态**: 已批准

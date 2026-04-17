@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { HashRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
 import ProjectsPage from './pages/ProjectsPage'
 import AgentWorkspace from './pages/AgentWorkspace'
 import SettingsPage from './pages/SettingsPage'

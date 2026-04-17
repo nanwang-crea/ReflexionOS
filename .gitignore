@@ -44,4 +44,5 @@ log/
 .env.*
 !.env.example
 .arf_config
+*/node_modules/
 

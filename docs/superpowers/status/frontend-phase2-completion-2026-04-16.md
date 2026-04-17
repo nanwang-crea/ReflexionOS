@@ -1,5 +1,9 @@
 # ReflexionOS 前端 UI 第二阶段实施完成报告
 
+> Status: Archived completion report.
+> This file records a completed front-end phase and is preserved only for traceability.
+> For current documentation, start from `docs/README.md`.
+
 **完成日期**: 2026-04-16  
 **实施阶段**: 第二阶段 (Phase 2) - 前端 UI 完善  
 **完成度**: 100% ✅

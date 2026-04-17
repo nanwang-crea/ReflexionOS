@@ -15,6 +15,7 @@ import {
   Workflow
 } from 'lucide-react'
 import { projectApi } from '@/services/apiClient'
+import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useExecutionStore } from '@/stores/executionStore'
@@ -99,6 +100,7 @@ export function WorkspaceSidebar() {
 
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
+  const canSelectDirectory = isElectronRuntime()
 
   const busy = status === 'running' || status === 'cancelling'
   const currentSession = useMemo(
@@ -183,6 +185,16 @@ export function WorkspaceSidebar() {
       console.error('Failed to create project:', error)
       alert('创建项目失败')
     }
+  }
+
+  const handleSelectDirectory = async () => {
+    const selectedPath = await selectProjectDirectory()
+
+    if (!selectedPath) {
+      return
+    }
+
+    setFormData((current) => ({ ...current, path: selectedPath }))
   }
 
   const handleProjectSelect = (project: Project, projectSessions: typeof sessions) => {
@@ -543,13 +555,24 @@ export function WorkspaceSidebar() {
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-600">项目路径</label>
-                <input
-                  type="text"
-                  value={formData.path}
-                  onChange={(event) => setFormData({ ...formData, path: event.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-700 outline-none transition focus:border-slate-300"
-                  placeholder="/path/to/project"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={formData.path}
+                    onChange={(event) => setFormData({ ...formData, path: event.target.value })}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-700 outline-none transition focus:border-slate-300"
+                    placeholder="/path/to/project"
+                  />
+                  {canSelectDirectory && (
+                    <button
+                      type="button"
+                      onClick={handleSelectDirectory}
+                      className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+                    >
+                      选择目录
+                    </button>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-600">主要语言</label>

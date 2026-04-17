@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/services/apiClient'
+import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { Project } from '@/types/project'
 
@@ -9,6 +10,7 @@ export default function ProjectsPage() {
   const { projects, setProjects, addProject, removeProject, setCurrentProject, loading, setLoading } = useProjectStore()
   const [showModal, setShowModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
+  const canSelectDirectory = isElectronRuntime()
 
   useEffect(() => {
     loadProjects()
@@ -51,6 +53,16 @@ export default function ProjectsPage() {
   const handleSelectProject = (project: Project) => {
     setCurrentProject(project)
     navigate('/agent')
+  }
+
+  const handleSelectDirectory = async () => {
+    const selectedPath = await selectProjectDirectory()
+
+    if (!selectedPath) {
+      return
+    }
+
+    setFormData((current) => ({ ...current, path: selectedPath }))
   }
 
   return (
@@ -144,13 +156,24 @@ export default function ProjectsPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     项目路径
                   </label>
-                  <input
-                    type="text"
-                    value={formData.path}
-                    onChange={(e) => setFormData({ ...formData, path: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="/path/to/project"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={formData.path}
+                      onChange={(e) => setFormData({ ...formData, path: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="/path/to/project"
+                    />
+                    {canSelectDirectory && (
+                      <button
+                        type="button"
+                        onClick={handleSelectDirectory}
+                        className="shrink-0 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 transition hover:bg-gray-50"
+                      >
+                        选择目录
+                      </button>
+                    )}
+                  </div>
                   <p className="mt-1 text-xs text-gray-500">Agent 将在此目录下工作</p>
                 </div>
                 <div>
