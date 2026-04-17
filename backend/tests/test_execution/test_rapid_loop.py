@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock
 from app.execution.rapid_loop import RapidExecutionLoop, ExecutionState
@@ -265,6 +267,81 @@ class TestRapidExecutionLoop:
         assert any(e["type"] == "execution:start" for e in events)
         assert any(e["type"] == "llm:content" for e in events)
         assert any(e["type"] == "execution:complete" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_emits_llm_thought_before_tool_receipts(self, mock_llm, tool_registry):
+        """测试带工具调用的 content 会作为中间思考事件发出"""
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback
+        )
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    content="我先查看项目结构，再继续探索。",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "."})],
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="项目结构已经确认。"):
+                    yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        await execution_loop.run("介绍一下当前项目结构")
+
+        thought_index = next(i for i, e in enumerate(events) if e["type"] == "llm:thought")
+        tool_call_index = next(i for i, e in enumerate(events) if e["type"] == "llm:tool_call")
+
+        assert events[thought_index]["data"]["content"] == "我先查看项目结构，再继续探索。"
+        assert thought_index < tool_call_index
+
+    @pytest.mark.asyncio
+    async def test_execution_returns_cancelled_when_task_is_cancelled(self, mock_llm, tool_registry):
+        """测试取消运行中的执行会返回 cancelled 状态并发送事件"""
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback
+        )
+
+        async def mock_stream(messages, tools=None):
+            yield StreamChunk(type="content", content="正在分析项目结构")
+            await asyncio.sleep(5)
+            yield StreamChunk(type="done", finish_reason="stop")
+
+        mock_llm.stream_complete = mock_stream
+
+        task = asyncio.create_task(
+            execution_loop.run("请检查项目结构", execution_id="exec-cancel-test")
+        )
+        await asyncio.sleep(0)
+        task.cancel()
+
+        result = await task
+
+        assert result.id == "exec-cancel-test"
+        assert result.status.value == "cancelled"
+        assert result.result == "执行已取消"
+        assert any(event["type"] == "execution:cancelled" for event in events)
     
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):

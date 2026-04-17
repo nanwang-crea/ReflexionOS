@@ -71,7 +71,13 @@ class RapidExecutionLoop:
             except Exception as e:
                 logger.error(f"事件回调失败: {e}")
     
-    async def run(self, task: str, project_path: Optional[str] = None) -> Execution:
+    async def run(
+        self,
+        task: str,
+        project_path: Optional[str] = None,
+        execution_id: Optional[str] = None,
+        created_at: Optional[datetime] = None
+    ) -> Execution:
         """
         执行任务
         
@@ -85,9 +91,11 @@ class RapidExecutionLoop:
         start_time = time.time()
         
         execution = Execution(
+            id=execution_id or f"exec-{uuid.uuid4().hex[:8]}",
             project_id=project_path or "standalone",
             task=task,
-            status=ExecutionStatus.RUNNING
+            status=ExecutionStatus.RUNNING,
+            created_at=created_at or datetime.now()
         )
         
         context = ExecutionContext(
@@ -117,6 +125,11 @@ class RapidExecutionLoop:
                     
                     # 检查是否有工具调用
                     if response.has_tool_calls:
+                        if response.has_content:
+                            await self._emit("llm:thought", {
+                                "content": response.content
+                            })
+
                         # 发送工具调用事件
                         for tc in response.tool_calls:
                             await self._emit("llm:tool_call", {
@@ -215,6 +228,17 @@ class RapidExecutionLoop:
                 execution.result = execution.result or "执行完成（达到最大步数）"
                 logger.warning("执行达到最大步数")
         
+        except asyncio.CancelledError:
+            execution.status = ExecutionStatus.CANCELLED
+            execution.result = execution.result or "执行已取消"
+            logger.info(f"执行已取消: {execution.id}")
+
+            await self._emit("execution:cancelled", {
+                "status": execution.status.value,
+                "result": execution.result,
+                "total_steps": len(execution.steps)
+            })
+
         except Exception as e:
             import traceback
             execution.status = ExecutionStatus.FAILED
@@ -230,12 +254,13 @@ class RapidExecutionLoop:
             execution.completed_at = datetime.now()
             
             # 发送完成事件
-            await self._emit("execution:complete", {
-                "status": execution.status.value,
-                "result": execution.result,
-                "total_steps": len(execution.steps),
-                "duration": execution.total_duration
-            })
+            if execution.status != ExecutionStatus.CANCELLED:
+                await self._emit("execution:complete", {
+                    "status": execution.status.value,
+                    "result": execution.result,
+                    "total_steps": len(execution.steps),
+                    "duration": execution.total_duration
+                })
         
         return execution
     

@@ -1,5 +1,6 @@
 from typing import Dict, Optional
 from app.models.execution import Execution, ExecutionCreate
+from app.models.execution import ExecutionStatus
 from app.models.llm_config import LLMConfig, LLMProvider
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.tools.registry import ToolRegistry
@@ -14,6 +15,7 @@ from app.api.websocket import ws_manager
 import logging
 from pathlib import Path
 import asyncio
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ class AgentService:
     
     def __init__(self):
         self.executions: Dict[str, Execution] = {}
+        self.running_tasks: Dict[str, asyncio.Task] = {}
         self.tool_registry = self._init_tool_registry()
         self.llm_config: Optional[LLMConfig] = self._load_llm_config()
     
@@ -130,6 +133,8 @@ class AgentService:
             raise ValueError("LLM 配置未设置，请先在设置页面配置 API Key")
         
         llm = LLMAdapterFactory.create(self.llm_config)
+        execution.status = ExecutionStatus.RUNNING
+        self.executions[execution_id] = execution
         
         # 创建事件回调（推送到 WebSocket）
         async def event_callback(event_type: str, data: dict):
@@ -143,7 +148,9 @@ class AgentService:
         
         result = await execution_loop.run(
             task=execution.task,
-            project_path=execution.project_id
+            project_path=execution.project_id,
+            execution_id=execution.id,
+            created_at=execution.created_at
         )
         
         # 更新执行记录
@@ -157,9 +164,67 @@ class AgentService:
         execution = await self.create_execution(execution_create)
         
         # 后台运行
-        asyncio.create_task(self.run_execution(execution.id))
+        self.schedule_execution(execution.id)
         
         return execution.id
+
+    def schedule_execution(self, execution_id: str) -> asyncio.Task:
+        """调度后台执行并跟踪运行中的任务"""
+        task = asyncio.create_task(self.run_execution(execution_id))
+        self.running_tasks[execution_id] = task
+
+        def _cleanup(_: asyncio.Task) -> None:
+            self.running_tasks.pop(execution_id, None)
+
+        task.add_done_callback(_cleanup)
+        return task
+
+    async def cancel_execution(self, execution_id: str) -> Execution:
+        """取消正在运行的执行任务"""
+        execution = self.executions.get(execution_id)
+        if not execution:
+            raise ValueError(f"执行不存在: {execution_id}")
+
+        if execution.status in {
+            ExecutionStatus.COMPLETED,
+            ExecutionStatus.FAILED,
+            ExecutionStatus.CANCELLED
+        }:
+            return execution
+
+        task = self.running_tasks.get(execution_id)
+        if task and not task.done():
+            task.cancel()
+            await asyncio.sleep(0)
+            execution = self.executions.get(execution_id, execution)
+            if execution.status != ExecutionStatus.CANCELLED and task.done():
+                execution.status = ExecutionStatus.CANCELLED
+                execution.result = execution.result or "执行已取消"
+                execution.completed_at = datetime.now()
+                self.executions[execution_id] = execution
+
+                await ws_manager.send_event(execution_id, "execution:cancelled", {
+                    "status": execution.status.value,
+                    "result": execution.result,
+                    "total_steps": len(execution.steps),
+                    "duration": execution.total_duration
+                })
+
+            return execution
+
+        execution.status = ExecutionStatus.CANCELLED
+        execution.result = execution.result or "执行已取消"
+        execution.completed_at = datetime.now()
+        self.executions[execution_id] = execution
+
+        await ws_manager.send_event(execution_id, "execution:cancelled", {
+            "status": execution.status.value,
+            "result": execution.result,
+            "total_steps": len(execution.steps),
+            "duration": execution.total_duration
+        })
+
+        return execution
     
     def get_execution(self, execution_id: str) -> Optional[Execution]:
         """获取执行结果"""

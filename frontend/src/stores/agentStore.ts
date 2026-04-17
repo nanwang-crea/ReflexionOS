@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { Message } from '@/types/agent'
 
-type ExecutionStatus = 'idle' | 'running' | 'paused' | 'completed' | 'failed'
+type ExecutionStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 interface AgentState {
   messages: Message[]

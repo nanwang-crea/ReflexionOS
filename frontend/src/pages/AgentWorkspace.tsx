@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Loader2 } from 'lucide-react'
 import { ExecutionWebSocket } from '@/services/websocketClient'
 import { SlideIn } from '@/components/animations'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
@@ -25,6 +26,7 @@ interface ChatItem {
   content?: string
   receiptStatus?: ActionReceiptStatus
   details?: ActionReceiptDetail[]
+  isStreaming?: boolean
 }
 
 const transcriptClassName = [
@@ -69,31 +71,38 @@ export default function AgentWorkspace() {
   const { configured } = useSettingsStore()
   const {
     status,
+    phase,
     startExecution,
-    pauseExecution,
-    resumeExecution,
-    stopExecution,
+    setStatus,
+    setPhase,
+    setCanCancel,
+    setThinkingPhase,
+    setExecutingPhase,
+    setSummarizingPhase,
+    startCancelling,
+    completeExecution,
+    failExecution,
+    cancelExecution,
     resetExecution
   } = useExecutionStore()
 
   const [chatItems, setChatItems] = useState<ChatItem[]>([])
-  const [llmStreamingContent, setLlmStreamingContent] = useState('')
-  const [summaryStreamingContent, setSummaryStreamingContent] = useState('')
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
 
   const wsRef = useRef<ExecutionWebSocket | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const llmStreamingRef = useRef('')
-  const summaryStreamingRef = useRef('')
   const summaryStartedRef = useRef(false)
   const finalMessageHandledRef = useRef(false)
   const currentExecutionIdRef = useRef<string | null>(null)
   const activeReceiptIdRef = useRef<string | null>(null)
   const thoughtFlushedRef = useRef(false)
+  const currentLlmMessageIdRef = useRef<string | null>(null)
+  const currentAssistantMessageIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatItems, llmStreamingContent, summaryStreamingContent])
+  }, [chatItems])
 
   useEffect(() => {
     return () => {
@@ -101,8 +110,44 @@ export default function AgentWorkspace() {
     }
   }, [])
 
+  const statusLine = useMemo(() => {
+    if (status === 'cancelling') {
+      return {
+        label: '正在取消',
+        className: 'text-amber-600'
+      }
+    }
+
+    if (status !== 'running') {
+      return null
+    }
+
+    const label = {
+      thinking: '正在思考中',
+      executing: '正在执行操作',
+      summarizing: '正在整理回答',
+      null: '正在思考中'
+    }[String(phase) as 'thinking' | 'executing' | 'summarizing' | 'null']
+
+    return {
+      label,
+      className: 'text-slate-500'
+    }
+  }, [phase, status])
+
   const addChatItem = useCallback((item: ChatItem) => {
     setChatItems(prev => [...prev, item])
+  }, [])
+
+  const updateChatItem = useCallback((
+    itemId: string,
+    updater: (item: ChatItem) => ChatItem
+  ) => {
+    setChatItems(prev => prev.map(item => (
+      item.id === itemId
+        ? updater(item)
+        : item
+    )))
   }, [])
 
   const updateReceiptItem = useCallback((
@@ -116,24 +161,135 @@ export default function AgentWorkspace() {
     )))
   }, [])
 
+  const ensureStreamingLlmMessage = useCallback((initialContent = '') => {
+    if (currentLlmMessageIdRef.current) {
+      return currentLlmMessageIdRef.current
+    }
+
+    const messageId = createItemId('llm')
+    addChatItem({
+      id: messageId,
+      type: 'agent-update',
+      content: initialContent,
+      isStreaming: true
+    })
+    currentLlmMessageIdRef.current = messageId
+    return messageId
+  }, [addChatItem])
+
+  const appendStreamingLlmToken = useCallback((token: string) => {
+    const messageId = ensureStreamingLlmMessage()
+    updateChatItem(messageId, (item) => ({
+      ...item,
+      content: `${item.content || ''}${token}`,
+      isStreaming: true
+    }))
+  }, [ensureStreamingLlmMessage, updateChatItem])
+
   const flushStreamingAgentUpdate = useCallback((fallbackContent = '') => {
     const content = (llmStreamingRef.current || fallbackContent).trim()
 
     if (!content) {
       llmStreamingRef.current = ''
-      setLlmStreamingContent('')
+      if (currentLlmMessageIdRef.current) {
+        updateChatItem(currentLlmMessageIdRef.current, (item) => ({
+          ...item,
+          isStreaming: false
+        }))
+        currentLlmMessageIdRef.current = null
+      }
       return
     }
 
-    addChatItem({
-      id: createItemId('update'),
-      type: 'agent-update',
-      content
-    })
+    if (currentLlmMessageIdRef.current) {
+      updateChatItem(currentLlmMessageIdRef.current, (item) => ({
+        ...item,
+        type: 'agent-update',
+        content,
+        isStreaming: false
+      }))
+    } else {
+      addChatItem({
+        id: createItemId('update'),
+        type: 'agent-update',
+        content
+      })
+    }
+
+    currentLlmMessageIdRef.current = null
     llmStreamingRef.current = ''
-    setLlmStreamingContent('')
     thoughtFlushedRef.current = true
+  }, [addChatItem, updateChatItem])
+
+  const finalizeStreamingLlmAsAssistant = useCallback((finalContent?: string) => {
+    if (!currentLlmMessageIdRef.current) {
+      if (finalContent) {
+        addChatItem({
+          id: createItemId('assistant'),
+          type: 'assistant-message',
+          content: finalContent,
+          isStreaming: false
+        })
+      }
+      return
+    }
+
+    const messageId = currentLlmMessageIdRef.current
+    updateChatItem(messageId, (item) => ({
+      ...item,
+      type: 'assistant-message',
+      content: finalContent ?? item.content,
+      isStreaming: false
+    }))
+    currentLlmMessageIdRef.current = null
+  }, [addChatItem, updateChatItem])
+
+  const ensureStreamingAssistantMessage = useCallback((initialContent = '') => {
+    if (currentAssistantMessageIdRef.current) {
+      return currentAssistantMessageIdRef.current
+    }
+
+    const messageId = createItemId('assistant')
+    addChatItem({
+      id: messageId,
+      type: 'assistant-message',
+      content: initialContent,
+      isStreaming: true
+    })
+    currentAssistantMessageIdRef.current = messageId
+    return messageId
   }, [addChatItem])
+
+  const appendStreamingAssistantToken = useCallback((token: string) => {
+    const messageId = ensureStreamingAssistantMessage()
+    updateChatItem(messageId, (item) => ({
+      ...item,
+      content: `${item.content || ''}${token}`,
+      isStreaming: true
+    }))
+  }, [ensureStreamingAssistantMessage, updateChatItem])
+
+  const finalizeStreamingAssistantMessage = useCallback((finalContent?: string) => {
+    if (!currentAssistantMessageIdRef.current) {
+      if (finalContent) {
+        addChatItem({
+          id: createItemId('assistant'),
+          type: 'assistant-message',
+          content: finalContent,
+          isStreaming: false
+        })
+      }
+      return
+    }
+
+    const messageId = currentAssistantMessageIdRef.current
+    updateChatItem(messageId, (item) => ({
+      ...item,
+      content: finalContent ?? item.content,
+      isStreaming: false
+    }))
+    currentAssistantMessageIdRef.current = null
+  }, [addChatItem, updateChatItem])
 
   const finalizeActiveReceipt = useCallback((forcedStatus?: ActionReceiptStatus) => {
     if (!activeReceiptIdRef.current) {
@@ -154,7 +310,12 @@ export default function AgentWorkspace() {
             return detail
           }
 
-          const nextStatus: ReceiptDetailStatus = resolvedStatus === 'failed' ? 'failed' : 'success'
+          const nextStatus: ReceiptDetailStatus = resolvedStatus === 'failed'
+            ? 'failed'
+            : resolvedStatus === 'cancelled'
+              ? 'cancelled'
+              : 'success'
+
           return { ...detail, status: nextStatus }
         })
       }
@@ -210,40 +371,18 @@ export default function AgentWorkspace() {
     }))
   }, [updateReceiptItem])
 
-  const handlePause = async () => {
+  const handleCancel = async () => {
     if (!currentExecutionIdRef.current) return
 
-    try {
-      await agentApi.pause(currentExecutionIdRef.current)
-      pauseExecution()
-    } catch (error) {
-      console.error('Failed to pause execution:', error)
-    }
-  }
-
-  const handleResume = async () => {
-    if (!currentExecutionIdRef.current) return
+    startCancelling()
 
     try {
-      await agentApi.resume(currentExecutionIdRef.current)
-      resumeExecution()
+      await agentApi.cancel(currentExecutionIdRef.current)
     } catch (error) {
-      console.error('Failed to resume execution:', error)
-    }
-  }
-
-  const handleStop = async () => {
-    if (!currentExecutionIdRef.current) return
-
-    try {
-      await agentApi.stop(currentExecutionIdRef.current)
-      stopExecution()
-      wsRef.current?.close()
-      wsRef.current = null
-      setConnectionStatus('disconnected')
-      finalizeActiveReceipt('failed')
-    } catch (error) {
-      console.error('Failed to stop execution:', error)
+      console.error('Failed to cancel execution:', error)
+      setStatus('running')
+      setCanCancel(true)
+      setPhase(phase || 'thinking')
     }
   }
 
@@ -259,16 +398,32 @@ export default function AgentWorkspace() {
       console.log('[WS Event]', message)
     })
 
+    ws.on('execution:created', (data) => {
+      currentExecutionIdRef.current = data.execution_id
+      startExecution(data.execution_id)
+    })
+
+    ws.on('execution:start', (data) => {
+      currentExecutionIdRef.current = data.execution_id
+      startExecution(data.execution_id)
+    })
+
     ws.on('llm:start', () => {
       finalizeActiveReceipt()
       thoughtFlushedRef.current = false
       llmStreamingRef.current = ''
-      setLlmStreamingContent('')
+      setThinkingPhase()
     })
 
     ws.on('llm:content', (data) => {
       llmStreamingRef.current += data.content
-      setLlmStreamingContent(llmStreamingRef.current)
+      appendStreamingLlmToken(data.content)
+      setThinkingPhase()
+    })
+
+    ws.on('llm:thought', (data) => {
+      flushStreamingAgentUpdate(data.content)
+      setThinkingPhase()
     })
 
     ws.on('llm:tool_call', (data) => {
@@ -277,6 +432,7 @@ export default function AgentWorkspace() {
       }
 
       appendReceiptDetail(data.tool_name, data.arguments as Record<string, unknown>)
+      setExecutingPhase()
     })
 
     ws.on('tool:start', (data) => {
@@ -284,6 +440,7 @@ export default function AgentWorkspace() {
         ...detail,
         status: 'running'
       }))
+      setExecutingPhase()
     })
 
     ws.on('tool:result', (data) => {
@@ -294,6 +451,7 @@ export default function AgentWorkspace() {
         error: data.error,
         duration: data.duration
       }))
+      setExecutingPhase()
     })
 
     ws.on('tool:error', (data) => {
@@ -302,63 +460,70 @@ export default function AgentWorkspace() {
         status: 'failed',
         error: data.error
       }))
+      setExecutingPhase()
     })
 
     ws.on('summary:start', () => {
       finalizeActiveReceipt()
       summaryStartedRef.current = true
-      summaryStreamingRef.current = ''
-      setSummaryStreamingContent('')
+      setSummarizingPhase()
+      ensureStreamingAssistantMessage('')
     })
 
     ws.on('summary:token', (data) => {
-      summaryStreamingRef.current += data.token
-      setSummaryStreamingContent(summaryStreamingRef.current)
+      appendStreamingAssistantToken(data.token)
+      setSummarizingPhase()
     })
 
     ws.on('summary:complete', (data) => {
       finalizeActiveReceipt()
-      addChatItem({
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content: data.summary
-      })
+      finalizeStreamingAssistantMessage(data.summary)
       finalMessageHandledRef.current = true
       summaryStartedRef.current = false
-      summaryStreamingRef.current = ''
-      setSummaryStreamingContent('')
     })
 
-    ws.on('execution:start', (data) => {
-      currentExecutionIdRef.current = data.execution_id
-      startExecution(data.execution_id)
+    ws.on('execution:cancelled', () => {
+      flushStreamingAgentUpdate()
+      finalizeActiveReceipt('cancelled')
+      finalizeStreamingAssistantMessage()
+      llmStreamingRef.current = ''
+      summaryStartedRef.current = false
+      finalMessageHandledRef.current = false
+      currentExecutionIdRef.current = null
+      cancelExecution()
     })
 
     ws.on('execution:complete', (data) => {
-      resetExecution()
       finalizeActiveReceipt()
-      llmStreamingRef.current = ''
-      setLlmStreamingContent('')
+      finalizeStreamingAssistantMessage()
+      currentExecutionIdRef.current = null
+
+      if (data.status === 'failed') {
+        flushStreamingAgentUpdate()
+        failExecution()
+        return
+      }
 
       if (!summaryStartedRef.current && !finalMessageHandledRef.current) {
-        addChatItem({
-          id: createItemId('assistant'),
-          type: 'assistant-message',
-          content: data.result
-        })
+        finalizeStreamingLlmAsAssistant(data.result)
         finalMessageHandledRef.current = true
+      } else {
+        flushStreamingAgentUpdate()
       }
+
+      llmStreamingRef.current = ''
+      completeExecution()
     })
 
     ws.on('execution:error', (data) => {
-      resetExecution()
+      flushStreamingAgentUpdate()
       finalizeActiveReceipt('failed')
+      finalizeStreamingAssistantMessage()
       summaryStartedRef.current = false
       finalMessageHandledRef.current = false
       llmStreamingRef.current = ''
-      summaryStreamingRef.current = ''
-      setLlmStreamingContent('')
-      setSummaryStreamingContent('')
+      currentExecutionIdRef.current = null
+      failExecution()
       addChatItem({
         id: createItemId('assistant'),
         type: 'assistant-message',
@@ -374,6 +539,9 @@ export default function AgentWorkspace() {
     } catch (error) {
       console.error('WebSocket connection failed:', error)
       setConnectionStatus('disconnected')
+      flushStreamingAgentUpdate()
+      finalizeStreamingAssistantMessage()
+      failExecution()
       addChatItem({
         id: createItemId('assistant'),
         type: 'assistant-message',
@@ -384,9 +552,23 @@ export default function AgentWorkspace() {
   }, [
     addChatItem,
     appendReceiptDetail,
+    appendStreamingAssistantToken,
+    cancelExecution,
+    completeExecution,
+    ensureStreamingAssistantMessage,
+    finalizeStreamingLlmAsAssistant,
+    failExecution,
     finalizeActiveReceipt,
+    finalizeStreamingAssistantMessage,
     flushStreamingAgentUpdate,
-    resetExecution,
+    phase,
+    setCanCancel,
+    setExecutingPhase,
+    setPhase,
+    setStatus,
+    setSummarizingPhase,
+    setThinkingPhase,
+    startCancelling,
     startExecution,
     updateActiveReceiptDetail,
   ])
@@ -411,13 +593,13 @@ export default function AgentWorkspace() {
     })
 
     llmStreamingRef.current = ''
-    summaryStreamingRef.current = ''
     summaryStartedRef.current = false
     finalMessageHandledRef.current = false
     activeReceiptIdRef.current = null
     thoughtFlushedRef.current = false
-    setLlmStreamingContent('')
-    setSummaryStreamingContent('')
+    currentLlmMessageIdRef.current = null
+    currentAssistantMessageIdRef.current = null
+    currentExecutionIdRef.current = null
 
     const executionKey = `exec-${Date.now()}`
 
@@ -435,16 +617,17 @@ export default function AgentWorkspace() {
     setConnectionStatus('disconnected')
     setChatItems([])
     llmStreamingRef.current = ''
-    summaryStreamingRef.current = ''
     summaryStartedRef.current = false
     finalMessageHandledRef.current = false
     activeReceiptIdRef.current = null
     thoughtFlushedRef.current = false
-    setLlmStreamingContent('')
-    setSummaryStreamingContent('')
+    currentLlmMessageIdRef.current = null
+    currentAssistantMessageIdRef.current = null
     currentExecutionIdRef.current = null
     resetExecution()
   }
+
+  const inputBusy = status === 'running' || status === 'cancelling'
 
   return (
     <div className="flex h-full flex-col bg-white">
@@ -458,11 +641,7 @@ export default function AgentWorkspace() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          <ExecutionControls
-            onPause={handlePause}
-            onResume={handleResume}
-            onStop={handleStop}
-          />
+          <ExecutionControls onCancel={handleCancel} />
           <div className="flex items-center gap-2">
             <div className={`h-2 w-2 rounded-full ${
               connectionStatus === 'connected' ? 'bg-green-500' :
@@ -487,6 +666,13 @@ export default function AgentWorkspace() {
           {!configured && (
             <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
               <p className="text-yellow-800">请先在设置页面配置 LLM API Key</p>
+            </div>
+          )}
+
+          {statusLine && (
+            <div className={`mb-6 flex items-center gap-2 text-sm ${statusLine.className}`}>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>{statusLine.label}</span>
             </div>
           )}
 
@@ -516,6 +702,7 @@ export default function AgentWorkspace() {
                       <MarkdownRenderer
                         content={item.content || ''}
                         variant="plain"
+                        isStreaming={item.isStreaming}
                         className={transcriptClassName}
                       />
                     </div>
@@ -541,6 +728,7 @@ export default function AgentWorkspace() {
                       <MarkdownRenderer
                         content={item.content || ''}
                         variant="plain"
+                        isStreaming={item.isStreaming}
                         className={transcriptClassName}
                       />
                     </div>
@@ -552,36 +740,6 @@ export default function AgentWorkspace() {
             })}
           </AnimatePresence>
 
-          {llmStreamingContent && (
-            <SlideIn direction="up">
-              <div className="mb-7 max-w-[920px] text-[17px] leading-[1.8] text-slate-800">
-                <div className="whitespace-pre-wrap">
-                  {llmStreamingContent}
-                  <motion.span
-                    className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
-                    animate={{ opacity: [1, 0] }}
-                    transition={{ duration: 0.5, repeat: Infinity }}
-                  />
-                </div>
-              </div>
-            </SlideIn>
-          )}
-
-          {summaryStreamingContent && (
-            <SlideIn direction="up">
-              <div className="mb-10 max-w-[920px] text-[17px] leading-[1.8] text-slate-900">
-                <div className="whitespace-pre-wrap">
-                  {summaryStreamingContent}
-                  <motion.span
-                    className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
-                    animate={{ opacity: [1, 0] }}
-                    transition={{ duration: 0.5, repeat: Infinity }}
-                  />
-                </div>
-              </div>
-            </SlideIn>
-          )}
-
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -589,8 +747,8 @@ export default function AgentWorkspace() {
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput
           onSend={handleSend}
-          disabled={!configured || !currentProject || status === 'running'}
-          isLoading={status === 'running'}
+          disabled={!configured || !currentProject || inputBusy}
+          isLoading={inputBusy}
         />
         {!currentProject && (
           <p className="mt-2 text-sm text-gray-500">请先在项目页面选择一个项目</p>

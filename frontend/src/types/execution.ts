@@ -14,7 +14,7 @@ export interface Execution {
   id: string
   project_id: string
   task: string
-  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed'
+  status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
   steps: ExecutionStep[]
   result?: string
   total_duration?: number

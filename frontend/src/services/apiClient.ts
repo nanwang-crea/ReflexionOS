@@ -26,11 +26,8 @@ export const agentApi = {
     apiClient.get(`/api/agent/status/${executionId}`),
   getHistory: (projectId: string) =>
     apiClient.get(`/api/agent/history/${projectId}`),
-  
-  pause: (executionId: string) =>
-    apiClient.post(`/api/agent/pause/${executionId}`),
-  resume: (executionId: string) =>
-    apiClient.post(`/api/agent/resume/${executionId}`),
+  cancel: (executionId: string) =>
+    apiClient.post(`/api/agent/cancel/${executionId}`),
   stop: (executionId: string) =>
     apiClient.post(`/api/agent/stop/${executionId}`),
 }
