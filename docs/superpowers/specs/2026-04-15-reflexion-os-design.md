@@ -2,10 +2,11 @@
 
 > Status: Current primary design document.
 > Use this file for product and architecture updates.
-> Historical plans and reports under `docs/superpowers/plans/` and `docs/superpowers/status/` are reference only.
+> Historical plans and reports under `docs/plans/`, `docs/superpowers/plans/` and `docs/superpowers/status/` are reference only.
 
-**版本**: v1.0  
+**版本**: v1.1  
 **日期**: 2026-04-15  
+**最近更新**: 2026-04-18  
 **状态**: 已批准
 
 ---
@@ -33,7 +34,7 @@ ReflexionOS 是一个类似 Codex / Cursor 的本地执行型 Agent 桌面应用
 ### 1.3 设计目标
 
 - 构建桌面端Agent应用,支持多项目并发管理
-- 支持多种LLM提供商(OpenAI、Claude、Ollama等)
+- 支持多种LLM协议类型,并允许配置多个供应商实例及其模型
 - 提供直观的执行时间线界面
 - 支持代码审查和执行干预
 - 预留外部应用接入能力(QQ、飞书等)
@@ -223,16 +224,26 @@ class UniversalLLMInterface(ABC):
         """流式补全"""
         pass
 
+class ResolvedLLMConfig(BaseModel):
+    """执行时解析后的 LLM 配置"""
+
+    provider_id: str
+    provider_type: str
+    model: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
 class LLMAdapterFactory:
     """适配器工厂"""
     
     @staticmethod
-    def create(config: LLMConfig) -> UniversalLLMInterface:
-        if config.provider == "openai":
+    def create(config: ResolvedLLMConfig) -> UniversalLLMInterface:
+        if config.provider_type == "openai_compatible":
             return OpenAIAdapter(config)
-        elif config.provider == "claude":
+        elif config.provider_type == "anthropic":
             return ClaudeAdapter(config)
-        elif config.provider == "ollama":
+        elif config.provider_type == "ollama":
             return OllamaAdapter(config)
 ```
 
@@ -886,25 +897,49 @@ backend/app/storage/
 **优先级:** 🔴 高 - MVP 必须实现
 
 **问题:**
-- LLM 配置无法动态修改
+- LLM 配置仍是单条全局配置
 - 用户偏好无法持久化
 - 缺少配置验证机制
 
 **架构设计:**
 
 ```python
+from enum import Enum
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional
 from pathlib import Path
 import json
 
 
-class LLMConfig(BaseModel):
-    """LLM 配置"""
-    provider: str = "openai"
-    model: str = "gpt-4-turbo-preview"
+class ProviderType(str, Enum):
+    OPENAI_COMPATIBLE = "openai_compatible"
+    ANTHROPIC = "anthropic"
+    OLLAMA = "ollama"
+
+
+class ProviderModelConfig(BaseModel):
+    id: str
+    display_name: str
+    model_name: str
+    enabled: bool = True
+
+
+class ProviderInstanceConfig(BaseModel):
+    id: str
+    name: str
+    provider_type: ProviderType
     api_key: Optional[str] = None
     base_url: Optional[str] = None
+    models: list[ProviderModelConfig] = Field(default_factory=list)
+    default_model_id: Optional[str] = None
+    enabled: bool = True
+
+
+class LLMSettings(BaseModel):
+    """全局 LLM 设置"""
+    providers: list[ProviderInstanceConfig] = Field(default_factory=list)
+    default_provider_id: Optional[str] = None
+    default_model_id: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
 
@@ -928,7 +963,7 @@ class UIConfig(BaseModel):
 
 class AppConfig(BaseModel):
     """应用总配置"""
-    llm: LLMConfig = LLMConfig()
+    llm: LLMSettings = LLMSettings()
     execution: ExecutionConfig = ExecutionConfig()
     ui: UIConfig = UIConfig()
     
@@ -958,9 +993,29 @@ class ConfigManager:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.config.dict(), f, indent=2, ensure_ascii=False)
     
-    def update_llm_config(self, llm_config: LLMConfig):
-        """更新 LLM 配置"""
-        self.config.llm = llm_config
+    def replace_llm_settings(self, llm_settings: LLMSettings):
+        """整体替换 LLM 设置"""
+        self.config.llm = llm_settings
+        self.save_config()
+    
+    def upsert_provider(self, provider: ProviderInstanceConfig):
+        """新增或更新供应商实例"""
+        providers = [item for item in self.config.llm.providers if item.id != provider.id]
+        providers.append(provider)
+        self.config.llm.providers = providers
+        self.save_config()
+
+    def delete_provider(self, provider_id: str):
+        """删除供应商实例"""
+        self.config.llm.providers = [
+            item for item in self.config.llm.providers if item.id != provider_id
+        ]
+        self.save_config()
+
+    def set_default_selection(self, provider_id: str, model_id: str):
+        """设置全局默认供应商和模型"""
+        self.config.llm.default_provider_id = provider_id
+        self.config.llm.default_model_id = model_id
         self.save_config()
     
     def update_execution_config(self, execution_config: ExecutionConfig):
@@ -983,9 +1038,33 @@ class ConfigManager:
 ```json
 {
   "llm": {
-    "provider": "openai",
-    "model": "gpt-4-turbo-preview",
-    "api_key": "sk-...",
+    "providers": [
+      {
+        "id": "provider-openai-official",
+        "name": "OpenAI 官方",
+        "provider_type": "openai_compatible",
+        "api_key": "sk-...",
+        "base_url": "https://api.openai.com/v1",
+        "models": [
+          {
+            "id": "gpt-4.1",
+            "display_name": "GPT-4.1",
+            "model_name": "gpt-4.1",
+            "enabled": true
+          },
+          {
+            "id": "gpt-4.1-mini",
+            "display_name": "GPT-4.1 Mini",
+            "model_name": "gpt-4.1-mini",
+            "enabled": true
+          }
+        ],
+        "default_model_id": "gpt-4.1",
+        "enabled": true
+      }
+    ],
+    "default_provider_id": "provider-openai-official",
+    "default_model_id": "gpt-4.1",
     "temperature": 0.7,
     "max_tokens": 4096
   },
@@ -1004,6 +1083,14 @@ class ConfigManager:
   }
 }
 ```
+
+**补充说明:**
+
+- 供应商的定义是“用户配置的接入方实例”，不是固定枚举。
+- 允许同一 `provider_type` 下配置多条供应商实例。
+- 聊天页模型选择采用“全局默认 + 会话记忆”。
+- 聊天页仅允许选择已配置模型，不提供手动输入。
+- 设置页允许手动维护模型列表，并支持保存前测试连接。
 
 ---
 
@@ -1839,6 +1926,7 @@ class PluginManager:
 │                                                          │
 │  ┌─────────────────────────────────────────────────┐    │
 │  │ [输入框...]                          [发送]     │    │
+│  │ [供应商: OpenAI 官方 ▼] [模型: GPT-4.1 ▼]      │    │
 │  └─────────────────────────────────────────────────┘    │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
@@ -1852,8 +1940,20 @@ class PluginManager:
 - **内联Diff预览**: 代码修改直接在时间线中展示
 - **日志流**: Shell输出实时流式显示
 - **快速操作**: 暂停/继续/终止按钮固定在底部
+- **模型切换**: 输入框下方提供供应商和模型选择,新会话继承全局默认
+- **会话记忆**: 已有会话恢复上次使用的供应商和模型
+- **选择约束**: 聊天页仅展示设置页中已配置的模型,不允许手动输入
 
-#### 4.2.3 CodeReviewer (代码审查视图 - 独立弹窗)
+#### 4.2.3 SettingsPage (设置页 - 供应商实例管理)
+
+- 支持新增、编辑、删除供应商实例
+- 支持同一协议类型下维护多条供应商实例
+- 支持为供应商手动维护多个模型
+- 支持设置全局默认供应商与默认模型
+- 支持在保存前测试连接
+- 测试连接优先验证当前草稿配置,不要求必须先保存
+
+#### 4.2.4 CodeReviewer (代码审查视图 - 独立弹窗)
 
 ```
 ┌────────────────────────────────────────┐
@@ -1903,6 +2003,24 @@ interface ExecutionStore {
   addStep: (step: ExecutionStep) => void
   updateStep: (id: string, status: StepStatus) => void
   addLog: (log: string) => void
+}
+
+// settingsStore.ts
+interface SettingsStore {
+  providers: ProviderInstance[]
+  defaultProviderId: string | null
+  defaultModelId: string | null
+  setProviders: (providers: ProviderInstance[]) => void
+  setDefaultSelection: (providerId: string, modelId: string) => void
+}
+
+// workspaceStore.ts
+interface ChatSession {
+  id: string
+  projectId: string
+  title: string
+  preferredProviderId?: string
+  preferredModelId?: string
 }
 ```
 
@@ -1963,7 +2081,7 @@ DELETE /api/projects/{id}               # 删除项目
 GET    /api/projects/{id}/structure     # 获取项目结构
 
 # Agent执行
-POST   /api/agent/execute               # 执行任务
+POST   /api/agent/execute               # 执行任务,请求体支持 provider_id / model_id
 POST   /api/agent/pause                 # 暂停执行
 POST   /api/agent/resume                # 恢复执行
 POST   /api/agent/stop                  # 终止执行
@@ -1974,10 +2092,14 @@ GET    /api/changes/{execution_id}      # 获取代码变更
 POST   /api/changes/{id}/accept         # 接受修改
 POST   /api/changes/{id}/reject         # 拒绝修改
 
-# LLM配置
-GET    /api/llm/config                  # 获取LLM配置
-POST   /api/llm/config                  # 更新LLM配置
-GET    /api/llm/providers               # 获取支持的LLM提供商
+# LLM 供应商管理
+GET    /api/llm/providers               # 获取供应商实例及其模型
+POST   /api/llm/providers               # 新增供应商实例
+PUT    /api/llm/providers/{provider_id} # 更新供应商实例
+DELETE /api/llm/providers/{provider_id} # 删除供应商实例
+POST   /api/llm/providers/test          # 测试草稿配置连接
+GET    /api/llm/default                 # 获取全局默认供应商和模型
+PUT    /api/llm/default                 # 更新全局默认供应商和模型
 ```
 
 #### 5.2.2 WebSocket事件
@@ -2766,7 +2888,8 @@ test('complete agent workflow', async ({ page }) => {
 - [ ] HomePage实现
 - [ ] AgentWorkspace页面
 - [ ] ExecutionTimeline组件
-- [ ] LLM配置界面(OpenAI API Key配置、模型选择)
+- [ ] 供应商实例管理界面(支持同类型多条配置、模型维护、测试连接)
+- [ ] 聊天输入区模型选择(全局默认 + 会话记忆)
 - [ ] 基础状态管理
 
 #### Week 6: 集成测试
