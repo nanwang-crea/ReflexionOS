@@ -10,7 +10,7 @@ from app.tools.patch_tool import PatchTool
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.llm import LLMAdapterFactory
-from app.config.settings import config_manager, LLMSettings
+from app.config.settings import config_manager
 from app.api.websocket import ws_manager
 import logging
 from pathlib import Path
@@ -46,28 +46,11 @@ class AgentService:
 
     def _load_llm_config(self) -> Optional[LLMConfig]:
         """从持久化配置加载 LLM 配置"""
-        llm_settings = config_manager.settings.llm
-        return LLMConfig(
-            provider=LLMProvider(llm_settings.provider),
-            model=llm_settings.model,
-            api_key=llm_settings.api_key,
-            base_url=llm_settings.base_url,
-            temperature=llm_settings.temperature,
-            max_tokens=llm_settings.max_tokens
-        )
+        return config_manager.settings.llm
 
     def _persist_llm_config(self, config: LLMConfig) -> None:
         """持久化 LLM 配置"""
-        config_manager.update_llm(
-            LLMSettings(
-                provider=config.provider.value,
-                model=config.model,
-                api_key=config.api_key,
-                base_url=config.base_url,
-                temperature=config.temperature,
-                max_tokens=config.max_tokens
-            )
-        )
+        config_manager.update_llm(config)
     
     def set_llm_config(self, config: LLMConfig) -> None:
         """设置 LLM 配置"""

@@ -9,19 +9,13 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
 
 
-class LLMConfigBase(BaseModel):
-    provider: LLMProvider
-    model: str
+class LLMConfig(BaseModel):
+    provider: LLMProvider = LLMProvider.OPENAI
+    model: str = "qwen3.6-plus"
     api_key: Optional[str] = None
     base_url: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
 
-
-class LLMConfigCreate(LLMConfigBase):
-    pass
-
-
-class LLMConfig(LLMConfigBase):
     class Config:
         from_attributes = True

@@ -2,16 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from pathlib import Path
 import json
-
-
-class LLMSettings(BaseModel):
-    """LLM 配置"""
-    provider: str = "openai"
-    model: str = "qwen3.6-plus"
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=4096, ge=1)
+from app.models.llm_config import LLMConfig
 
 
 class ExecutionSettings(BaseModel):
@@ -31,7 +22,7 @@ class UISettings(BaseModel):
 
 class AppSettings(BaseModel):
     """应用总配置"""
-    llm: LLMSettings = LLMSettings()
+    llm: LLMConfig = LLMConfig()
     execution: ExecutionSettings = ExecutionSettings()
     ui: UISettings = UISettings()
 
@@ -65,7 +56,7 @@ class ConfigManager:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.settings.model_dump(), f, indent=2, ensure_ascii=False)
     
-    def update_llm(self, llm_settings: LLMSettings):
+    def update_llm(self, llm_settings: LLMConfig):
         """更新 LLM 配置"""
         self.settings.llm = llm_settings
         self.save()
