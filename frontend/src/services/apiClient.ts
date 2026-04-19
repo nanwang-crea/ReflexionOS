@@ -6,7 +6,7 @@ import type {
 } from '@/types/llm'
 import { getApiBaseUrl } from './runtimeConfig'
 
-export const apiClient = axios.create({
+const apiClient = axios.create({
   baseURL: getApiBaseUrl(),
   timeout: 60000,
   headers: {

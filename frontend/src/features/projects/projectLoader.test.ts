@@ -1,12 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from '@/types/project'
-import { createProjectLoader } from './projectLoader'
-
-interface ProjectLoaderState {
-  loaded: boolean
-  loading: boolean
-  projects: Project[]
-}
 
 function createProject(id: string): Project {
   return {
@@ -19,54 +12,60 @@ function createProject(id: string): Project {
   }
 }
 
-describe('createProjectLoader', () => {
+const listProjectsMock = vi.fn()
+
+vi.mock('@/demo/demoData', () => ({
+  isDemoMode: () => false,
+  demoProjects: [],
+}))
+
+vi.mock('@/services/apiClient', () => ({
+  projectApi: {
+    list: listProjectsMock,
+  },
+}))
+
+beforeEach(() => {
+  vi.resetModules()
+  listProjectsMock.mockReset()
+})
+
+describe('ensureProjectsLoaded', () => {
   it('deduplicates concurrent loads and updates the store once', async () => {
-    const state: ProjectLoaderState = {
+    listProjectsMock.mockResolvedValue({
+      data: [createProject('project-a')],
+    })
+
+    const { useProjectStore } = await import('@/stores/projectStore')
+    useProjectStore.setState({
       loaded: false,
       loading: false,
       projects: [],
-    }
-    const listProjects = vi.fn(async () => [createProject('project-a')])
-    const loader = createProjectLoader({
-      isDemoMode: () => false,
-      getDemoProjects: () => [],
-      listProjects,
-      getState: () => state,
-      setLoading: (loading) => {
-        state.loading = loading
-      },
-      setProjects: (projects) => {
-        state.projects = projects
-        state.loaded = true
-      },
+      currentProject: null,
     })
 
-    await Promise.all([loader(), loader()])
+    const { ensureProjectsLoaded } = await import('./projectLoader')
 
-    expect(listProjects).toHaveBeenCalledTimes(1)
-    expect(state.projects.map((project) => project.id)).toEqual(['project-a'])
-    expect(state.loading).toBe(false)
+    await Promise.all([ensureProjectsLoaded(), ensureProjectsLoaded()])
+
+    expect(listProjectsMock).toHaveBeenCalledTimes(1)
+    expect(useProjectStore.getState().projects.map((project) => project.id)).toEqual(['project-a'])
+    expect(useProjectStore.getState().loading).toBe(false)
   })
 
   it('skips the network request when projects are already loaded', async () => {
-    const state: ProjectLoaderState = {
+    const { useProjectStore } = await import('@/stores/projectStore')
+    useProjectStore.setState({
       loaded: true,
       loading: false,
       projects: [createProject('project-a')],
-    }
-    const listProjects = vi.fn(async () => [createProject('project-b')])
-    const loader = createProjectLoader({
-      isDemoMode: () => false,
-      getDemoProjects: () => [],
-      listProjects,
-      getState: () => state,
-      setLoading: () => undefined,
-      setProjects: () => undefined,
+      currentProject: null,
     })
 
-    const projects = await loader()
+    const { ensureProjectsLoaded } = await import('./projectLoader')
+    const projects = await ensureProjectsLoaded()
 
-    expect(listProjects).not.toHaveBeenCalled()
+    expect(listProjectsMock).not.toHaveBeenCalled()
     expect(projects.map((project) => project.id)).toEqual(['project-a'])
   })
 })

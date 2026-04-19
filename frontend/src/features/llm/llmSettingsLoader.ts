@@ -7,7 +7,7 @@ import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 
-export interface LoadedLLMSettings {
+interface LoadedLLMSettings {
   providers: ProviderInstance[]
   selection: DefaultLLMSelection
 }
@@ -41,7 +41,7 @@ function createLoadedSnapshot(state: LLMSettingsLoaderState): LoadedLLMSettings 
   }
 }
 
-export function createLLMSettingsLoader(options: CreateLLMSettingsLoaderOptions) {
+function createLLMSettingsLoader(options: CreateLLMSettingsLoaderOptions) {
   let inFlight: Promise<LoadedLLMSettings> | null = null
 
   return async function ensureLLMSettingsLoaded({ force = false }: { force?: boolean } = {}) {

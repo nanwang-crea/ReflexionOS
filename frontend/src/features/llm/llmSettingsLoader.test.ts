@@ -1,14 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
-import { createLLMSettingsLoader } from './llmSettingsLoader'
-
-interface SettingsLoaderState {
-  loaded: boolean
-  providers: ProviderInstance[]
-  defaultProviderId: string | null
-  defaultModelId: string | null
-  configured: boolean
-}
 
 function createProvider(id: string, modelId: string): ProviderInstance {
   return {
@@ -28,92 +19,77 @@ function createProvider(id: string, modelId: string): ProviderInstance {
   }
 }
 
-function applySettingsState(
-  state: SettingsLoaderState,
-  providers: ProviderInstance[],
-  selection: DefaultLLMSelection
-) {
-  state.providers = providers
-  state.defaultProviderId = selection.provider_id
-  state.defaultModelId = selection.model_id
-  state.configured = selection.configured
-  state.loaded = true
-}
+const getProvidersMock = vi.fn()
+const getDefaultSelectionMock = vi.fn()
 
-describe('createLLMSettingsLoader', () => {
+vi.mock('@/demo/demoData', () => ({
+  isDemoMode: () => false,
+  demoProviders: [],
+  demoDefaultLLMSelection: {
+    provider_id: null,
+    model_id: null,
+    configured: false,
+  },
+}))
+
+vi.mock('@/services/apiClient', () => ({
+  llmApi: {
+    getProviders: getProvidersMock,
+    getDefaultSelection: getDefaultSelectionMock,
+  },
+}))
+
+beforeEach(() => {
+  vi.resetModules()
+  getProvidersMock.mockReset()
+  getDefaultSelectionMock.mockReset()
+})
+
+describe('ensureLLMSettingsLoaded', () => {
   it('deduplicates concurrent loads and stores the resolved settings', async () => {
-    const state: SettingsLoaderState = {
-      loaded: false,
-      providers: [],
-      defaultProviderId: null,
-      defaultModelId: null,
-      configured: false,
-    }
     const providers = [createProvider('provider-a', 'model-a')]
     const selection: DefaultLLMSelection = {
       provider_id: 'provider-a',
       model_id: 'model-a',
       configured: true,
     }
-    const getProviders = vi.fn(async () => providers)
-    const getDefaultSelection = vi.fn(async () => selection)
-    const loader = createLLMSettingsLoader({
-      isDemoMode: () => false,
-      getDemoProviders: () => [],
-      getDemoSelection: () => ({
-        provider_id: null,
-        model_id: null,
-        configured: false,
-      }),
-      getProviders,
-      getDefaultSelection,
-      getState: () => state,
-      setLLMState: ({ providers: nextProviders, selection: nextSelection }) => {
-        applySettingsState(state, nextProviders, nextSelection)
-      },
+    getProvidersMock.mockResolvedValue({ data: providers })
+    getDefaultSelectionMock.mockResolvedValue({ data: selection })
+
+    const { useSettingsStore } = await import('@/stores/settingsStore')
+    useSettingsStore.setState({
+      providers: [],
+      defaultProviderId: null,
+      defaultModelId: null,
+      configured: false,
+      loaded: false,
     })
 
-    const [first, second] = await Promise.all([loader(), loader()])
+    const { ensureLLMSettingsLoaded } = await import('./llmSettingsLoader')
+    const [first, second] = await Promise.all([ensureLLMSettingsLoaded(), ensureLLMSettingsLoaded()])
 
-    expect(getProviders).toHaveBeenCalledTimes(1)
-    expect(getDefaultSelection).toHaveBeenCalledTimes(1)
+    expect(getProvidersMock).toHaveBeenCalledTimes(1)
+    expect(getDefaultSelectionMock).toHaveBeenCalledTimes(1)
     expect(first).toEqual({ providers, selection })
     expect(second).toEqual({ providers, selection })
-    expect(state.loaded).toBe(true)
+    expect(useSettingsStore.getState().loaded).toBe(true)
   })
 
   it('returns the existing store snapshot when settings are already loaded', async () => {
-    const state: SettingsLoaderState = {
-      loaded: true,
+    const { useSettingsStore } = await import('@/stores/settingsStore')
+    useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
       defaultProviderId: 'provider-a',
       defaultModelId: 'model-a',
       configured: true,
-    }
-    const getProviders = vi.fn(async () => [])
-    const getDefaultSelection = vi.fn(async () => ({
-      provider_id: null,
-      model_id: null,
-      configured: false,
-    }))
-    const loader = createLLMSettingsLoader({
-      isDemoMode: () => false,
-      getDemoProviders: () => [],
-      getDemoSelection: () => ({
-        provider_id: null,
-        model_id: null,
-        configured: false,
-      }),
-      getProviders,
-      getDefaultSelection,
-      getState: () => state,
-      setLLMState: () => undefined,
+      loaded: true,
     })
 
-    const loadedSettings = await loader()
+    const { ensureLLMSettingsLoaded } = await import('./llmSettingsLoader')
+    const loadedSettings = await ensureLLMSettingsLoaded()
 
-    expect(getProviders).not.toHaveBeenCalled()
-    expect(getDefaultSelection).not.toHaveBeenCalled()
+    expect(getProvidersMock).not.toHaveBeenCalled()
+    expect(getDefaultSelectionMock).not.toHaveBeenCalled()
     expect(loadedSettings.selection).toEqual({
       provider_id: 'provider-a',
       model_id: 'model-a',

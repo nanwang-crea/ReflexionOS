@@ -1,5 +1,5 @@
-export const DEFAULT_BACKEND_HTTP_ORIGIN = 'http://127.0.0.1:8000'
-export const DEFAULT_BACKEND_WS_ORIGIN = 'ws://127.0.0.1:8000'
+const DEFAULT_BACKEND_HTTP_ORIGIN = 'http://127.0.0.1:8000'
+const DEFAULT_BACKEND_WS_ORIGIN = 'ws://127.0.0.1:8000'
 
 interface ResolveRuntimeUrlOptions {
   dev: boolean
@@ -28,7 +28,7 @@ function resolveOverride(backendOrigin?: string | null) {
   return trimmed ? normalizeOrigin(trimmed) : null
 }
 
-export function resolveApiBaseUrl(options: ResolveRuntimeUrlOptions) {
+function resolveApiBaseUrl(options: ResolveRuntimeUrlOptions) {
   const override = resolveOverride(options.backendOrigin)
   if (override) {
     return override
@@ -37,7 +37,7 @@ export function resolveApiBaseUrl(options: ResolveRuntimeUrlOptions) {
   return options.dev ? '' : DEFAULT_BACKEND_HTTP_ORIGIN
 }
 
-export function resolveWebSocketBaseUrl(options: ResolveRuntimeUrlOptions) {
+function resolveWebSocketBaseUrl(options: ResolveRuntimeUrlOptions) {
   const override = resolveOverride(options.backendOrigin)
   if (override) {
     return toWebSocketOrigin(override)
@@ -74,7 +74,7 @@ export function getApiBaseUrl() {
   })
 }
 
-export function getWebSocketBaseUrl() {
+function getWebSocketBaseUrl() {
   return resolveWebSocketBaseUrl({
     dev: import.meta.env.DEV,
     appOrigin: readBrowserOrigin(),

@@ -38,7 +38,7 @@ interface ExecutionEvents {
   'execution:error': { error: string }
 }
 
-export function buildExecutionStartMessage(
+function buildExecutionStartMessage(
   task: string,
   projectPath: string,
   providerId?: string,
@@ -238,4 +238,3 @@ class ExecutionWebSocket {
 }
 
 export { ExecutionWebSocket }
-export type { ExecutionEvents }

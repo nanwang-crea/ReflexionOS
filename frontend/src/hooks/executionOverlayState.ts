@@ -1,4 +1,4 @@
-export interface OverlayRuntimeState {
+interface OverlayRuntimeState {
   llmStreaming: string
   summaryStarted: boolean
   finalMessageHandled: boolean
@@ -26,10 +26,6 @@ export function createOverlayRuntimeState(): OverlayRuntimeState {
     currentLlmMessageId: null,
     currentAssistantMessageId: null,
   }
-}
-
-export function resetOverlayRuntimeState(state: OverlayRuntimeState) {
-  Object.assign(state, createOverlayRuntimeState())
 }
 
 export function shouldResetOverlayForSessionChange(

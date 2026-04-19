@@ -17,7 +17,7 @@ interface CreateProjectLoaderOptions {
   setProjects: (projects: Project[]) => void
 }
 
-export function createProjectLoader(options: CreateProjectLoaderOptions) {
+function createProjectLoader(options: CreateProjectLoaderOptions) {
   let inFlight: Promise<Project[]> | null = null
 
   return async function ensureProjectsLoaded({ force = false }: { force?: boolean } = {}) {

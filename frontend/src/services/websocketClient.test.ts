@@ -1,11 +1,19 @@
-import { describe, expect, it } from 'vitest'
-import { buildExecutionStartMessage } from './websocketClient'
+import { describe, expect, it, vi } from 'vitest'
+import { ExecutionWebSocket } from './websocketClient'
 
-describe('buildExecutionStartMessage', () => {
+describe('ExecutionWebSocket.startExecution', () => {
   it('sends project_path instead of overloading project_id semantics', () => {
-    expect(
-      buildExecutionStartMessage('Run task', '/tmp/reflexion', 'provider-a', 'model-a')
-    ).toEqual({
+    const send = vi.fn()
+    const websocket = new ExecutionWebSocket()
+
+    ;(websocket as unknown as { ws: { readyState: number; send: typeof send } }).ws = {
+      readyState: WebSocket.OPEN,
+      send,
+    }
+
+    websocket.startExecution('Run task', '/tmp/reflexion', 'provider-a', 'model-a')
+
+    expect(send).toHaveBeenCalledWith(JSON.stringify({
       type: 'start',
       data: {
         task: 'Run task',
@@ -13,6 +21,6 @@ describe('buildExecutionStartMessage', () => {
         provider_id: 'provider-a',
         model_id: 'model-a',
       },
-    })
+    }))
   })
 })

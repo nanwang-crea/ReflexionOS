@@ -1,6 +1,6 @@
 import type { ProviderInstance, ProviderModel } from '@/types/llm'
 
-export interface WorkspaceSelection {
+interface WorkspaceSelection {
   providerId: string | null
   modelId: string | null
 }
