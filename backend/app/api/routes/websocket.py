@@ -16,7 +16,7 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     WebSocket 端点 - 执行任务实时通信
     
     客户端 → 服务端消息:
-    - {"type": "start", "data": {"task": "...", "project_path": "...", "provider_id": "...", "model_id": "..."}}  启动任务
+    - {"type": "start", "data": {"task": "...", "project_id": "...", "provider_id": "...", "model_id": "..."}}  启动任务
     - {"type": "cancel"}                                                 取消任务
     
     服务端 → 客户端消息:
@@ -48,13 +48,13 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                 if msg_type == "start":
                     # 启动任务
                     task = msg_data.get("task", "")
-                    project_path = msg_data.get("project_path") or msg_data.get("project_id", "")
+                    project_id = msg_data.get("project_id", "")
                     provider_id = msg_data.get("provider_id")
                     model_id = msg_data.get("model_id")
                     
                     # 创建执行
                     execution_create = ExecutionCreate(
-                        project_id=project_path,
+                        project_id=project_id,
                         task=task,
                         provider_id=provider_id,
                         model_id=model_id,

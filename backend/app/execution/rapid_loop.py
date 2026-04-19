@@ -92,7 +92,8 @@ class RapidExecutionLoop:
         
         execution = Execution(
             id=execution_id or f"exec-{uuid.uuid4().hex[:8]}",
-            project_id=project_path or "standalone",
+            project_id="",
+            project_path=project_path or "",
             task=task,
             status=ExecutionStatus.RUNNING,
             created_at=created_at or datetime.now()

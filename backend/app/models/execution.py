@@ -36,21 +36,22 @@ class ExecutionStep(BaseModel):
 class ExecutionBase(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    project_id: str
     task: str
     provider_id: Optional[str] = None
     model_id: Optional[str] = None
 
-    @property
-    def project_path(self) -> str:
-        return self.project_id
-
-
 class ExecutionCreate(ExecutionBase):
-    pass
+    project_id: str
 
 
 class Execution(ExecutionBase):
+    model_config = ConfigDict(
+        protected_namespaces=(),
+        from_attributes=True,
+    )
+
+    project_id: str = ""
+    project_path: str = ""
     id: str = Field(default_factory=lambda: f"exec-{uuid.uuid4().hex[:8]}")
     status: ExecutionStatus = ExecutionStatus.PENDING
     steps: List[ExecutionStep] = []
@@ -58,6 +59,3 @@ class Execution(ExecutionBase):
     total_duration: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None
-    
-    class Config:
-        from_attributes = True

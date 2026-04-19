@@ -25,6 +25,7 @@ from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.storage.database import db
 from app.storage.repositories.execution_repo import ExecutionRepository
+from app.storage.repositories.project_repo import ProjectRepository
 from app.tools.file_tool import FileTool
 from app.tools.patch_tool import PatchTool
 from app.tools.registry import ToolRegistry
@@ -36,10 +37,15 @@ logger = logging.getLogger(__name__)
 class AgentService:
     """Agent 执行服务"""
 
-    def __init__(self, execution_repo: Optional[ExecutionRepository] = None):
+    def __init__(
+        self,
+        execution_repo: Optional[ExecutionRepository] = None,
+        project_repo: Optional[ProjectRepository] = None,
+    ):
         self.executions: Dict[str, Execution] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.execution_repo = execution_repo or ExecutionRepository(db)
+        self.project_repo = project_repo or ProjectRepository(db)
         self.tool_registry = self._init_tool_registry()
         self.llm_settings = self._load_llm_settings()
 
@@ -397,14 +403,19 @@ class AgentService:
 
     async def create_execution(self, execution_create: ExecutionCreate) -> Execution:
         """创建执行任务"""
+        project = self.project_repo.get(execution_create.project_id)
+        if not project:
+            raise ValueError("项目不存在")
+
+        project_path = project.path
         execution = Execution(
-            project_id=execution_create.project_path or "standalone",
+            project_id=project.id,
+            project_path=project_path,
             task=execution_create.task,
             provider_id=execution_create.provider_id,
             model_id=execution_create.model_id,
         )
 
-        project_path = execution_create.project_path
         if project_path and Path(project_path).exists():
             current_allowed = (
                 self.tool_registry.tools.get("file").security.allowed_base_paths

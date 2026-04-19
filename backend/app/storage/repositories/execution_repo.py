@@ -31,6 +31,7 @@ class ExecutionRepository:
                 model = ExecutionModel(
                     id=execution.id,
                     project_id=execution.project_id,
+                    project_path=execution.project_path,
                     task=execution.task,
                     status=execution.status.value,
                     steps=[step.dict() for step in execution.steps],
@@ -52,6 +53,7 @@ class ExecutionRepository:
                 return Execution(
                     id=model.id,
                     project_id=model.project_id,
+                    project_path=model.project_path,
                     task=model.task,
                     status=ExecutionStatus(model.status),
                     steps=[ExecutionStep(**s) for s in model.steps],
@@ -77,6 +79,7 @@ class ExecutionRepository:
                 Execution(
                     id=m.id,
                     project_id=m.project_id,
+                    project_path=m.project_path,
                     task=m.task,
                     status=ExecutionStatus(m.status),
                     steps=[ExecutionStep(**s) for s in m.steps],
@@ -101,6 +104,7 @@ class ExecutionRepository:
                 Execution(
                     id=m.id,
                     project_id=m.project_id,
+                    project_path=m.project_path,
                     task=m.task,
                     status=ExecutionStatus(m.status),
                     steps=[ExecutionStep(**s) for s in m.steps],

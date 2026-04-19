@@ -59,13 +59,13 @@ export function useExecutionWebSocket({
 
   const startSocketExecution = useCallback((payload: {
     message: string
-    projectPath: string
+    projectId: string
     providerId: string
     modelId: string
   }) => {
     wsRef.current?.startExecution(
       payload.message,
-      payload.projectPath,
+      payload.projectId,
       payload.providerId,
       payload.modelId
     )

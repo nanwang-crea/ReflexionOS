@@ -49,7 +49,7 @@ export function useExecutionRuntime(
   const startExecutionRun = useCallback(async (payload: {
     sessionId: string
     message: string
-    projectPath: string
+    projectId: string
     providerId: string
     modelId: string
   }) => {

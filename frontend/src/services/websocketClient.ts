@@ -40,7 +40,7 @@ interface ExecutionEvents {
 
 function buildExecutionStartMessage(
   task: string,
-  projectPath: string,
+  projectId: string,
   providerId?: string,
   modelId?: string
 ) {
@@ -48,7 +48,7 @@ function buildExecutionStartMessage(
     type: 'start',
     data: {
       task,
-      project_path: projectPath,
+      project_id: projectId,
       provider_id: providerId,
       model_id: modelId,
     },
@@ -186,10 +186,10 @@ class ExecutionWebSocket {
     }
   }
 
-  startExecution(task: string, projectPath: string, providerId?: string, modelId?: string): void {
+  startExecution(task: string, projectId: string, providerId?: string, modelId?: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(
-        buildExecutionStartMessage(task, projectPath, providerId, modelId)
+        buildExecutionStartMessage(task, projectId, providerId, modelId)
       ))
     }
   }

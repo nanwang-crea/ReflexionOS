@@ -1,5 +1,5 @@
 from sqlalchemy import Column, String, DateTime, JSON, Integer, Text
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from datetime import datetime
 
 Base = declarative_base()
@@ -24,6 +24,7 @@ class ExecutionModel(Base):
     
     id = Column(String, primary_key=True)
     project_id = Column(String, nullable=False, index=True)
+    project_path = Column(String, nullable=False)
     task = Column(Text, nullable=False)
     status = Column(String, default="pending", index=True)
     steps = Column(JSON, default=[])

@@ -215,7 +215,7 @@ export default function AgentWorkspace() {
     await startExecutionRun({
       sessionId: targetSession.id,
       message,
-      projectPath: currentProject.path,
+      projectId: currentProject.id,
       providerId: selection.providerId,
       modelId: selection.modelId,
     })

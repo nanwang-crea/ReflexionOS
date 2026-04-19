@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { ExecutionWebSocket } from './websocketClient'
 
 describe('ExecutionWebSocket.startExecution', () => {
-  it('sends project_path instead of overloading project_id semantics', () => {
+  it('sends project_id so the backend can resolve the execution path itself', () => {
     const send = vi.fn()
     const websocket = new ExecutionWebSocket()
 
@@ -11,13 +11,13 @@ describe('ExecutionWebSocket.startExecution', () => {
       send,
     }
 
-    websocket.startExecution('Run task', '/tmp/reflexion', 'provider-a', 'model-a')
+    websocket.startExecution('Run task', 'proj-reflexion', 'provider-a', 'model-a')
 
     expect(send).toHaveBeenCalledWith(JSON.stringify({
       type: 'start',
       data: {
         task: 'Run task',
-        project_path: '/tmp/reflexion',
+        project_id: 'proj-reflexion',
         provider_id: 'provider-a',
         model_id: 'model-a',
       },
