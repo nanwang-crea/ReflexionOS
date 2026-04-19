@@ -194,30 +194,6 @@ class ExecutionWebSocket {
     }
   }
 
-  pause(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'pause' }))
-    }
-  }
-
-  resume(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'resume' }))
-    }
-  }
-
-  stop(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'stop' }))
-    }
-  }
-
-  ping(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'ping' }))
-    }
-  }
-
   close(): void {
     this.manuallyClosed = true
     this.hasConnectedOnce = false

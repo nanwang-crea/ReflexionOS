@@ -1,6 +1,7 @@
 const http = require('http')
 const path = require('path')
 const { spawn, spawnSync } = require('child_process')
+const { buildImportProbeCode, readProbeModuleNames } = require('./backend-runtime-requirements.cjs')
 
 const BACKEND_HOST = '127.0.0.1'
 const BACKEND_PORT = 8000
@@ -45,7 +46,9 @@ function resolveVirtualEnvPython() {
     : path.join(virtualEnv, 'bin', 'python')
 }
 
-function findPythonCommand() {
+function findPythonCommand(requirementsPath) {
+  const moduleNames = readProbeModuleNames(requirementsPath)
+  const probeCode = buildImportProbeCode(moduleNames)
   const candidates = [
     process.env.REFLEXION_PYTHON_PATH,
     process.env.PYTHON_PATH,
@@ -57,8 +60,8 @@ function findPythonCommand() {
 
   for (const command of candidates) {
     const args = command === 'py'
-      ? ['-3', '-c', 'import uvicorn, fastapi, openai, aiofiles, sqlalchemy']
-      : ['-c', 'import uvicorn, fastapi, openai, aiofiles, sqlalchemy']
+      ? ['-3', '-c', probeCode]
+      : ['-c', probeCode]
     const result = spawnSync(command, args, { stdio: 'ignore' })
 
     if (result.status === 0) {
@@ -72,11 +75,12 @@ function findPythonCommand() {
 class BackendManager {
   constructor(options = {}) {
     this.backendDir = options.backendDir
+    this.requirementsPath = path.join(this.backendDir, 'requirements.txt')
     this.childProcess = null
     this.state = 'stopped'
     this.error = null
     this.managed = false
-    this.pythonCommand = findPythonCommand()
+    this.pythonCommand = findPythonCommand(this.requirementsPath)
   }
 
   get url() {
@@ -103,7 +107,7 @@ class BackendManager {
 
     if (!this.pythonCommand) {
       this.state = 'error'
-      this.error = '未找到可用的 Python 解释器，请设置 REFLEXION_PYTHON_PATH。'
+      this.error = '未找到满足 backend/requirements.txt 的 Python 环境，请设置 REFLEXION_PYTHON_PATH。'
       throw new Error(this.error)
     }
 

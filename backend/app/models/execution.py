@@ -8,7 +8,6 @@ import uuid
 class ExecutionStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
-    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"

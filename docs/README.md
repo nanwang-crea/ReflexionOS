@@ -9,11 +9,11 @@
    - 当前代码实际形态以这里和代码仓库为准。
 
 2. `backend/README.md`
-   - 后端单独启动、配置和测试说明。
+   - 后端依赖来源、桌面启动探测和手动调试说明。
 
 3. `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`
-   - 当前主设计文档。
-   - 产品定位、整体架构、模块职责统一以这份为主。
+   - 当前长期设计参考文档。
+   - 产品定位、整体架构、模块职责可以参考这份,但运行方式、依赖来源、当前协议面仍以 `README.md`、`backend/README.md` 和代码实现为准。
 
 4. `docs/plans/2026-04-18-multi-provider-model-plan.md`
    - 当前关于多供应商实例、模型选择、默认值和会话记忆的实施计划。
@@ -52,8 +52,9 @@
 
 ## 维护规则
 
-- 后续如果是整体产品或架构变更,优先更新 `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`。
+- 后续如果是整体产品定位或长线架构变更,优先更新 `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`。
 - 当前 LLM 多供应商实例改造的阶段计划，以 `docs/plans/2026-04-18-multi-provider-model-plan.md` 为准。
 - 如果只是运行方式、目录结构、开发命令变化,优先更新 `README.md` 和 `backend/README.md`。
+- Python 依赖当前统一以 `backend/requirements.txt` 为准,不要再在 `backend/pyproject.toml` 里重复声明。
 - 阶段性计划和状态报告可以保留,但应明确标注日期和阶段,不要再把它们当成主设计文档。
 - 新增文档前,先判断能否直接补到现有主设计文档里,避免继续产生平行版本。

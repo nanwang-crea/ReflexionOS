@@ -23,4 +23,13 @@ describe('ExecutionWebSocket.startExecution', () => {
       },
     }))
   })
+
+  it('does not expose unsupported socket control methods', () => {
+    const websocket = new ExecutionWebSocket() as unknown as Record<string, unknown>
+
+    expect(websocket.pause).toBeUndefined()
+    expect(websocket.resume).toBeUndefined()
+    expect(websocket.stop).toBeUndefined()
+    expect(websocket.ping).toBeUndefined()
+  })
 })

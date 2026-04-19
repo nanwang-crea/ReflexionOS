@@ -2,6 +2,7 @@ import pytest
 
 from app.main import app
 from app.models.execution import ExecutionCreate
+from app.models.execution import ExecutionStatus
 from app.models.project import Project, ProjectCreate
 from app.services.agent_service import AgentService
 from app.services.project_service import ProjectService
@@ -51,6 +52,15 @@ async def test_agent_service_recovers_executions_from_repository(db):
 def test_agent_stop_route_is_removed():
     route_paths = {route.path for route in app.router.routes}
     assert "/api/agent/stop/{execution_id}" not in route_paths
+
+
+def test_websocket_status_route_is_removed():
+    route_paths = {route.path for route in app.router.routes}
+    assert "/ws/status" not in route_paths
+
+
+def test_execution_status_does_not_advertise_pause_support():
+    assert ExecutionStatus.__members__.get("PAUSED") is None
 
 
 @pytest.mark.asyncio

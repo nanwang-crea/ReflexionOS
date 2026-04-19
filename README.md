@@ -38,7 +38,7 @@ If transparent coding agents are your thing, a star helps a lot.
 
 - Electron desktop app with a React workspace UI
 - FastAPI backend for agent orchestration and APIs
-- Streaming chat experience over WebSocket
+- Single execution-stream WebSocket for realtime run events
 - Session-based project conversations
 - File, shell, and patch tools
 - Action receipts for exploration, search, commands, and edits
@@ -63,7 +63,7 @@ flowchart LR
     U["You"] --> E["Electron Desktop App"]
     E --> F["React Workspace UI"]
     E --> B["FastAPI Backend"]
-    F -->|HTTP + WebSocket| B
+    F -->|HTTP + Execution WebSocket| B
     B --> L["LLM Adapter"]
     B --> T["Tool Registry"]
     T --> T1["File Tool"]
@@ -73,30 +73,34 @@ flowchart LR
 
 ## Quick Start
 
-### 1. Install Backend Dependencies
+### Recommended Desktop Development Path
+
+`requirements.txt` is the only source of truth for Python dependencies.
+
+1. Install backend dependencies:
 
 ```bash
 cd backend
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
-### 2. Install Frontend Dependencies
+2. Install frontend dependencies:
 
 ```bash
 cd frontend
 pnpm install
 ```
 
-### 3. Start The Desktop App
+3. Start the desktop app:
 
 ```bash
 cd frontend
 pnpm dev
 ```
 
-This starts the Vite renderer, launches Electron, and lets Electron manage the local FastAPI backend.
+This starts the Vite renderer, launches Electron, and lets Electron auto-start the local FastAPI backend after it finds a Python environment that satisfies `backend/requirements.txt`.
 
-If Electron cannot find a Python environment with the backend dependencies installed, point it to one explicitly:
+If Electron cannot find that environment, point it to one explicitly:
 
 ```bash
 export REFLEXION_PYTHON_PATH=/path/to/python
@@ -104,7 +108,7 @@ cd frontend
 pnpm dev
 ```
 
-### 4. Build And Run
+### Build And Run The Desktop App
 
 ```bash
 cd frontend
@@ -122,13 +126,27 @@ pnpm start
 
 ## Web Development Fallback
 
-If you want to work on the frontend and backend separately:
+If you want to debug the frontend and backend separately, use the web fallback instead of the desktop shell.
+
+Use the helper script from the repo root:
+
+```bash
+./start.sh
+```
+
+For Git Bash / WSL:
+
+```bash
+./start-dev.sh
+```
+
+Or run the two processes manually:
 
 **Terminal 1**
 
 ```bash
 cd backend
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 **Terminal 2**
@@ -143,7 +161,7 @@ pnpm dev:web
 - **Desktop shell**: Electron
 - **Frontend**: React, TypeScript, Zustand, TailwindCSS, Framer Motion
 - **Backend**: FastAPI, Python
-- **Realtime transport**: WebSocket
+- **Realtime transport**: single execution-stream WebSocket
 - **LLM layer**: OpenAI-compatible adapter with native tool-call support
 - **Editing model**: patch-first code modification flow
 
