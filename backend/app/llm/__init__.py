@@ -5,7 +5,6 @@ from app.llm.base import (
     LLMToolCall,
     LLMToolDefinition,
     StreamChunk,
-    Message  # 兼容别名
 )
 from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
@@ -52,7 +51,6 @@ __all__ = [
     "LLMToolCall",
     "LLMToolDefinition",
     "StreamChunk",
-    "Message",
     "OpenAIAdapter",
     "LLMAdapterFactory",
 ]

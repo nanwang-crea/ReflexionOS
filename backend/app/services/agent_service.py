@@ -23,6 +23,8 @@ from app.models.llm_config import (
 )
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
+from app.storage.database import db
+from app.storage.repositories.execution_repo import ExecutionRepository
 from app.tools.file_tool import FileTool
 from app.tools.patch_tool import PatchTool
 from app.tools.registry import ToolRegistry
@@ -34,11 +36,27 @@ logger = logging.getLogger(__name__)
 class AgentService:
     """Agent 执行服务"""
 
-    def __init__(self):
+    def __init__(self, execution_repo: Optional[ExecutionRepository] = None):
         self.executions: Dict[str, Execution] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        self.execution_repo = execution_repo or ExecutionRepository(db)
         self.tool_registry = self._init_tool_registry()
         self.llm_settings = self._load_llm_settings()
+
+    def _persist_execution(self, execution: Execution) -> Execution:
+        self.execution_repo.save(execution)
+        self.executions[execution.id] = execution
+        return execution
+
+    def _load_execution(self, execution_id: str) -> Optional[Execution]:
+        execution = self.executions.get(execution_id)
+        if execution is not None:
+            return execution
+
+        execution = self.execution_repo.get(execution_id)
+        if execution is not None:
+            self.executions[execution.id] = execution
+        return execution
 
     def _init_tool_registry(self) -> ToolRegistry:
         """初始化工具注册中心"""
@@ -373,20 +391,20 @@ class AgentService:
         )
 
     async def execute_task(self, execution_create: ExecutionCreate) -> Execution:
-        """执行任务（同步模式，兼容旧接口）"""
+        """执行任务（同步模式）"""
         execution = await self.create_execution(execution_create)
         return await self.run_execution(execution.id)
 
     async def create_execution(self, execution_create: ExecutionCreate) -> Execution:
         """创建执行任务"""
         execution = Execution(
-            project_id=execution_create.project_id or "standalone",
+            project_id=execution_create.project_path or "standalone",
             task=execution_create.task,
             provider_id=execution_create.provider_id,
             model_id=execution_create.model_id,
         )
 
-        project_path = execution_create.project_id
+        project_path = execution_create.project_path
         if project_path and Path(project_path).exists():
             current_allowed = (
                 self.tool_registry.tools.get("file").security.allowed_base_paths
@@ -404,12 +422,11 @@ class AgentService:
 
             logger.info(f"更新允许路径: {allowed_paths}")
 
-        self.executions[execution.id] = execution
-        return execution
+        return self._persist_execution(execution)
 
     async def run_execution(self, execution_id: str) -> Execution:
         """运行执行任务"""
-        execution = self.executions.get(execution_id)
+        execution = self._load_execution(execution_id)
         if not execution:
             raise ValueError(f"执行不存在: {execution_id}")
 
@@ -417,7 +434,7 @@ class AgentService:
         llm = LLMAdapterFactory.create(resolved_llm)
 
         execution.status = ExecutionStatus.RUNNING
-        self.executions[execution_id] = execution
+        self._persist_execution(execution)
 
         async def event_callback(event_type: str, data: dict):
             await ws_manager.send_event(execution_id, event_type, data)
@@ -430,12 +447,12 @@ class AgentService:
 
         result = await execution_loop.run(
             task=execution.task,
-            project_path=execution.project_id,
+            project_path=execution.project_path,
             execution_id=execution.id,
             created_at=execution.created_at
         )
 
-        self.executions[execution_id] = result
+        self._persist_execution(result)
         logger.info(
             "任务执行完成: %s - %s - provider=%s model=%s",
             execution_id,
@@ -457,12 +474,12 @@ class AgentService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            execution = self.executions.get(execution_id)
+            execution = self._load_execution(execution_id)
             if execution:
                 execution.status = ExecutionStatus.FAILED
                 execution.result = str(exc)
                 execution.completed_at = datetime.now()
-                self.executions[execution_id] = execution
+                self._persist_execution(execution)
 
             logger.exception("执行任务失败: %s", execution_id)
             await ws_manager.send_event(execution_id, "execution:error", {
@@ -482,7 +499,7 @@ class AgentService:
 
     async def cancel_execution(self, execution_id: str) -> Execution:
         """取消正在运行的执行任务"""
-        execution = self.executions.get(execution_id)
+        execution = self._load_execution(execution_id)
         if not execution:
             raise ValueError(f"执行不存在: {execution_id}")
 
@@ -497,12 +514,12 @@ class AgentService:
         if task and not task.done():
             task.cancel()
             await asyncio.sleep(0)
-            execution = self.executions.get(execution_id, execution)
+            execution = self._load_execution(execution_id) or execution
             if execution.status != ExecutionStatus.CANCELLED and task.done():
                 execution.status = ExecutionStatus.CANCELLED
                 execution.result = execution.result or "执行已取消"
                 execution.completed_at = datetime.now()
-                self.executions[execution_id] = execution
+                self._persist_execution(execution)
 
                 await ws_manager.send_event(execution_id, "execution:cancelled", {
                     "status": execution.status.value,
@@ -516,7 +533,7 @@ class AgentService:
         execution.status = ExecutionStatus.CANCELLED
         execution.result = execution.result or "执行已取消"
         execution.completed_at = datetime.now()
-        self.executions[execution_id] = execution
+        self._persist_execution(execution)
 
         await ws_manager.send_event(execution_id, "execution:cancelled", {
             "status": execution.status.value,
@@ -529,14 +546,13 @@ class AgentService:
 
     def get_execution(self, execution_id: str) -> Optional[Execution]:
         """获取执行结果"""
-        return self.executions.get(execution_id)
+        return self._load_execution(execution_id)
 
     def list_executions(self, project_id: Optional[str] = None) -> list[Execution]:
         """列出执行历史"""
-        executions = list(self.executions.values())
         if project_id:
-            executions = [execution for execution in executions if execution.project_id == project_id]
-        return executions
+            return self.execution_repo.list_by_project(project_id)
+        return self.execution_repo.list_all()
 
 
 agent_service = AgentService()

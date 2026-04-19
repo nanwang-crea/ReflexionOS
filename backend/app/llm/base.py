@@ -113,7 +113,3 @@ class UniversalLLMInterface(ABC):
     def get_model_name(self) -> str:
         """获取当前使用的模型名称"""
         pass
-
-
-# 兼容旧代码的别名
-Message = LLMMessage

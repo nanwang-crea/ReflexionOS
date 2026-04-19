@@ -38,12 +38,3 @@ async def cancel_execution(execution_id: str):
         return await agent_service.cancel_execution(execution_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.post("/stop/{execution_id}", response_model=Execution)
-async def stop_execution(execution_id: str):
-    """兼容旧前端的停止接口，实际执行取消"""
-    try:
-        return await agent_service.cancel_execution(execution_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))

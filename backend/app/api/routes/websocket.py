@@ -18,7 +18,6 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     客户端 → 服务端消息:
     - {"type": "start", "data": {"task": "...", "project_path": "...", "provider_id": "...", "model_id": "..."}}  启动任务
     - {"type": "cancel"}                                                 取消任务
-    - {"type": "stop"}                                                   兼容旧端的取消任务
     
     服务端 → 客户端消息:
     - {"type": "execution:start", "data": {...}, "timestamp": "..."}
@@ -80,7 +79,7 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     # 后台运行执行
                     agent_service.schedule_execution(execution.id)
                 
-                elif msg_type in {"cancel", "stop"}:
+                elif msg_type == "cancel":
                     await agent_service.cancel_execution(current_execution_id)
                 
                 elif msg_type == "ping":

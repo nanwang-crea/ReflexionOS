@@ -61,6 +61,32 @@ class ExecutionRepository:
                     completed_at=model.completed_at
                 )
             return None
+
+    def list_all(self, limit: Optional[int] = None) -> List[Execution]:
+        """列出所有执行记录"""
+        with self.db.get_session() as session:
+            query = session.query(ExecutionModel).order_by(
+                ExecutionModel.created_at.desc()
+            )
+            if limit is not None:
+                query = query.limit(limit)
+
+            models = query.all()
+
+            return [
+                Execution(
+                    id=m.id,
+                    project_id=m.project_id,
+                    task=m.task,
+                    status=ExecutionStatus(m.status),
+                    steps=[ExecutionStep(**s) for s in m.steps],
+                    result=m.result,
+                    total_duration=m.total_duration / 1000 if m.total_duration else None,
+                    created_at=m.created_at,
+                    completed_at=m.completed_at
+                )
+                for m in models
+            ]
     
     def list_by_project(self, project_id: str, limit: int = 10) -> List[Execution]:
         """获取项目的执行历史"""

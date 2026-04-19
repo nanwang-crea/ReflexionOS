@@ -41,6 +41,10 @@ class ExecutionBase(BaseModel):
     provider_id: Optional[str] = None
     model_id: Optional[str] = None
 
+    @property
+    def project_path(self) -> str:
+        return self.project_id
+
 
 class ExecutionCreate(ExecutionBase):
     pass

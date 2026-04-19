@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.llm.openai_adapter import OpenAIAdapter
-from app.llm.base import Message
+from app.llm.base import LLMMessage
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 
 
@@ -35,7 +35,7 @@ class TestOpenAIAdapter:
     @pytest.mark.asyncio
     async def test_complete_success(self, openai_adapter):
         messages = [
-            Message(role="user", content="Hello")
+            LLMMessage(role="user", content="Hello")
         ]
         
         mock_response = MagicMock()
@@ -60,7 +60,7 @@ class TestOpenAIAdapter:
     @pytest.mark.asyncio
     async def test_complete_with_none_content_returns_empty_string(self, openai_adapter):
         messages = [
-            Message(role="user", content="Hello")
+            LLMMessage(role="user", content="Hello")
         ]
 
         mock_response = MagicMock()
@@ -84,7 +84,7 @@ class TestOpenAIAdapter:
 
     @pytest.mark.asyncio
     async def test_stream_complete_updates_late_tool_call_id(self, openai_adapter):
-        messages = [Message(role="user", content="Inspect README")]
+        messages = [LLMMessage(role="user", content="Inspect README")]
 
         async def mock_stream():
             yield SimpleNamespace(

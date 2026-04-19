@@ -1,17 +1,17 @@
 import pytest
-from app.llm.base import Message, LLMResponse
+from app.llm.base import LLMMessage, LLMResponse
 
 
-class TestMessage:
+class TestLLMMessage:
     
     def test_message_creation(self):
-        message = Message(role="user", content="Hello")
+        message = LLMMessage(role="user", content="Hello")
         
         assert message.role == "user"
         assert message.content == "Hello"
     
     def test_message_to_dict(self):
-        message = Message(role="user", content="Hello")
+        message = LLMMessage(role="user", content="Hello")
         msg_dict = message.to_dict()
         
         assert msg_dict == {"role": "user", "content": "Hello"}
