@@ -22,6 +22,8 @@ export interface ChatSession {
   id: string
   projectId: string
   title: string
+  preferredProviderId?: string
+  preferredModelId?: string
   items: WorkspaceChatItem[]
   createdAt: string
   updatedAt: string

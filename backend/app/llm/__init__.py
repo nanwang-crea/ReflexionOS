@@ -8,8 +8,7 @@ from app.llm.base import (
     Message  # 兼容别名
 )
 from app.llm.openai_adapter import OpenAIAdapter
-from app.models.llm_config import LLMConfig, LLMProvider
-from typing import Optional
+from app.models.llm_config import ProviderType, ResolvedLLMConfig
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ class LLMAdapterFactory:
     """LLM 适配器工厂"""
     
     @staticmethod
-    def create(config: LLMConfig) -> UniversalLLMInterface:
+    def create(config: ResolvedLLMConfig) -> UniversalLLMInterface:
         """
         根据配置创建 LLM 适配器
         
@@ -32,18 +31,18 @@ class LLMAdapterFactory:
         Raises:
             ValueError: 不支持的 LLM 提供商
         """
-        if config.provider == LLMProvider.OPENAI:
+        if config.provider_type == ProviderType.OPENAI_COMPATIBLE:
             logger.info("创建 OpenAI 适配器")
             return OpenAIAdapter(config)
         
-        elif config.provider == LLMProvider.CLAUDE:
+        elif config.provider_type == ProviderType.ANTHROPIC:
             raise ValueError("Claude 适配器将在第二阶段实现")
         
-        elif config.provider == LLMProvider.OLLAMA:
+        elif config.provider_type == ProviderType.OLLAMA:
             raise ValueError("Ollama 适配器将在第二阶段实现")
         
         else:
-            raise ValueError(f"不支持的 LLM 提供商: {config.provider}")
+            raise ValueError(f"不支持的 LLM 提供商: {config.provider_type}")
 
 
 __all__ = [

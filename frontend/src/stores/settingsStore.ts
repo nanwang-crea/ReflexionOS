@@ -1,22 +1,50 @@
 import { create } from 'zustand'
-import { demoLLMConfig, isDemoMode } from '@/demo/demoData'
-import { LLMConfig } from '@/types/llm'
+import {
+  demoDefaultLLMSelection,
+  demoProviders,
+  isDemoMode,
+} from '@/demo/demoData'
+import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 
 interface SettingsState {
-  llmConfig: LLMConfig | null
+  providers: ProviderInstance[]
+  defaultProviderId: string | null
+  defaultModelId: string | null
   configured: boolean
-  setLLMConfig: (config: LLMConfig) => void
+  loaded: boolean
+  setProviders: (providers: ProviderInstance[]) => void
+  setDefaultSelection: (selection: DefaultLLMSelection) => void
   setConfigured: (configured: boolean) => void
+  setLoaded: (loaded: boolean) => void
+  setLLMState: (payload: {
+    providers: ProviderInstance[]
+    selection: DefaultLLMSelection
+  }) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  llmConfig: isDemoMode() ? demoLLMConfig : null,
-  configured: isDemoMode(),
-  
-  setLLMConfig: (config) => set({ 
-    llmConfig: config,
-    configured: true 
+  providers: isDemoMode() ? demoProviders : [],
+  defaultProviderId: isDemoMode() ? demoDefaultLLMSelection.provider_id : null,
+  defaultModelId: isDemoMode() ? demoDefaultLLMSelection.model_id : null,
+  configured: isDemoMode() ? demoDefaultLLMSelection.configured : false,
+  loaded: isDemoMode(),
+
+  setProviders: (providers) => set({ providers }),
+
+  setDefaultSelection: (selection) => set({
+    defaultProviderId: selection.provider_id,
+    defaultModelId: selection.model_id,
+    configured: selection.configured,
   }),
-  
+
   setConfigured: (configured) => set({ configured }),
+  setLoaded: (loaded) => set({ loaded }),
+
+  setLLMState: ({ providers, selection }) => set({
+    providers,
+    defaultProviderId: selection.provider_id,
+    defaultModelId: selection.model_id,
+    configured: selection.configured,
+    loaded: true,
+  }),
 }))

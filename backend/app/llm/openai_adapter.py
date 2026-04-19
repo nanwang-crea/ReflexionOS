@@ -12,7 +12,7 @@ from app.llm.base import (
     LLMToolDefinition,
     StreamChunk
 )
-from app.models.llm_config import LLMConfig
+from app.models.llm_config import ResolvedLLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 class OpenAIAdapter(UniversalLLMInterface):
     """OpenAI API 适配器 - 支持原生工具调用和流式输出"""
     
-    def __init__(self, config: LLMConfig):
+    def __init__(self, config: ResolvedLLMConfig):
         self.config = config
         self.model = config.model
         
         self.client = AsyncOpenAI(
-            api_key=config.api_key,
+            api_key=config.api_key or "reflexion-placeholder-key",
             base_url=config.base_url if config.base_url else None
         )
         

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -34,8 +34,12 @@ class ExecutionStep(BaseModel):
 
 
 class ExecutionBase(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     project_id: str
     task: str
+    provider_id: Optional[str] = None
+    model_id: Optional[str] = None
 
 
 class ExecutionCreate(ExecutionBase):

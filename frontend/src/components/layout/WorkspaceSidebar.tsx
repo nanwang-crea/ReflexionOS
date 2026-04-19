@@ -18,6 +18,7 @@ import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { projectApi } from '@/services/apiClient'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import type { ChatSession } from '@/types/workspace'
@@ -79,6 +80,7 @@ export function WorkspaceSidebar() {
     loading,
     setLoading
   } = useProjectStore()
+  const { defaultProviderId, defaultModelId } = useSettingsStore()
   const {
     sessions,
     currentSessionId,
@@ -256,7 +258,12 @@ export function WorkspaceSidebar() {
 
     setCurrentProject(targetProject)
     setProjectExpanded(targetProject.id, true)
-    const session = createSession(targetProject.id)
+    const session = createSession(
+      targetProject.id,
+      undefined,
+      defaultProviderId,
+      defaultModelId
+    )
     setCurrentSessionId(session.id)
     navigate('/agent')
   }

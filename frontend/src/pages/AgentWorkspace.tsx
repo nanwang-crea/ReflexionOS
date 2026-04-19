@@ -17,7 +17,8 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import { agentApi } from '@/services/apiClient'
+import { agentApi, llmApi } from '@/services/apiClient'
+import type { ProviderInstance, ProviderModel } from '@/types/llm'
 import type { WorkspaceChatItem } from '@/types/workspace'
 
 const transcriptClassName = [
@@ -66,15 +67,63 @@ function deriveSessionTitle(items: WorkspaceChatItem[]) {
   return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage
 }
 
+function getEnabledModels(provider: ProviderInstance | null | undefined) {
+  return provider?.models.filter((model) => model.enabled) || []
+}
+
+function resolveProvider(
+  providers: ProviderInstance[],
+  preferredProviderId?: string | null
+) {
+  if (preferredProviderId) {
+    const matched = providers.find((provider) => provider.id === preferredProviderId)
+    if (matched) {
+      return matched
+    }
+  }
+
+  return providers[0] || null
+}
+
+function resolveModel(
+  models: ProviderModel[],
+  preferredModelId?: string | null,
+  fallbackModelId?: string | null
+) {
+  if (preferredModelId) {
+    const matched = models.find((model) => model.id === preferredModelId)
+    if (matched) {
+      return matched
+    }
+  }
+
+  if (fallbackModelId) {
+    const matched = models.find((model) => model.id === fallbackModelId)
+    if (matched) {
+      return matched
+    }
+  }
+
+  return models[0] || null
+}
+
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
-  const { configured } = useSettingsStore()
+  const {
+    providers,
+    defaultProviderId,
+    defaultModelId,
+    configured,
+    loaded,
+    setLLMState,
+  } = useSettingsStore()
   const {
     sessions,
     currentSessionId,
     createSession,
     saveSessionItems,
     updateSessionTitle,
+    updateSessionPreferences,
   } = useWorkspaceStore()
   const {
     status,
@@ -100,6 +149,10 @@ export default function AgentWorkspace() {
   const demoMode = isDemoMode()
 
   const [chatItems, setChatItems] = useState<WorkspaceChatItem[]>(currentSession?.items || [])
+  const [selection, setSelection] = useState<{ providerId: string | null; modelId: string | null }>({
+    providerId: null,
+    modelId: null,
+  })
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>(
     demoMode ? 'connected' : 'disconnected'
   )
@@ -173,6 +226,53 @@ export default function AgentWorkspace() {
     }
   }, [])
 
+  useEffect(() => {
+    if (demoMode) {
+      return
+    }
+
+    let cancelled = false
+
+    const loadLLMSettings = async () => {
+      try {
+        const [providersResponse, defaultResponse] = await Promise.all([
+          llmApi.getProviders(),
+          llmApi.getDefaultSelection(),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        setLLMState({
+          providers: providersResponse.data,
+          selection: defaultResponse.data,
+        })
+      } catch (error) {
+        console.error('Failed to load LLM settings:', error)
+
+        if (cancelled) {
+          return
+        }
+
+        setLLMState({
+          providers: [],
+          selection: {
+            provider_id: null,
+            model_id: null,
+            configured: false,
+          },
+        })
+      }
+    }
+
+    loadLLMSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [demoMode, setLLMState])
+
   const statusLine = useMemo(() => {
     if (status === 'cancelling') {
       return {
@@ -197,6 +297,70 @@ export default function AgentWorkspace() {
       className: 'text-slate-500'
     }
   }, [phase, status])
+
+  const availableProviders = useMemo(
+    () => providers.filter((provider) => (
+      provider.enabled && getEnabledModels(provider).length > 0
+    )),
+    [providers]
+  )
+
+  const selectedProvider = useMemo(
+    () => availableProviders.find((provider) => provider.id === selection.providerId) || null,
+    [availableProviders, selection.providerId]
+  )
+
+  const selectedModels = useMemo(
+    () => getEnabledModels(selectedProvider),
+    [selectedProvider]
+  )
+
+  useEffect(() => {
+    const preferredProvider = currentSession?.preferredProviderId || defaultProviderId
+    const nextProvider = resolveProvider(availableProviders, preferredProvider)
+    const nextModels = getEnabledModels(nextProvider)
+    const nextModel = resolveModel(
+      nextModels,
+      currentSession?.preferredModelId || (
+        nextProvider?.id === defaultProviderId ? defaultModelId : nextProvider?.default_model_id
+      ),
+      nextProvider?.default_model_id
+    )
+
+    const nextSelection = {
+      providerId: nextProvider?.id || null,
+      modelId: nextModel?.id || null,
+    }
+
+    setSelection((current) => (
+      current.providerId === nextSelection.providerId && current.modelId === nextSelection.modelId
+        ? current
+        : nextSelection
+    ))
+
+    if (
+      currentSessionId &&
+      nextSelection.providerId &&
+      nextSelection.modelId &&
+      (
+        currentSession?.preferredProviderId !== nextSelection.providerId ||
+        currentSession?.preferredModelId !== nextSelection.modelId
+      )
+    ) {
+      updateSessionPreferences(currentSessionId, {
+        preferredProviderId: nextSelection.providerId,
+        preferredModelId: nextSelection.modelId,
+      })
+    }
+  }, [
+    availableProviders,
+    currentSession?.preferredModelId,
+    currentSession?.preferredProviderId,
+    currentSessionId,
+    defaultModelId,
+    defaultProviderId,
+    updateSessionPreferences,
+  ])
 
   const addChatItem = useCallback((item: WorkspaceChatItem) => {
     setChatItems(prev => [...prev, item])
@@ -538,6 +702,49 @@ export default function AgentWorkspace() {
     }
   }
 
+  const handleProviderChange = useCallback((providerId: string) => {
+    const provider = availableProviders.find((item) => item.id === providerId) || null
+    const nextModels = getEnabledModels(provider)
+    const nextModel = resolveModel(
+      nextModels,
+      provider?.id === defaultProviderId ? defaultModelId : provider?.default_model_id,
+      provider?.default_model_id
+    )
+    const nextSelection = {
+      providerId,
+      modelId: nextModel?.id || null,
+    }
+
+    setSelection(nextSelection)
+
+    if (currentSessionId && nextSelection.modelId) {
+      updateSessionPreferences(currentSessionId, {
+        preferredProviderId: nextSelection.providerId,
+        preferredModelId: nextSelection.modelId,
+      })
+    }
+  }, [availableProviders, currentSessionId, defaultModelId, defaultProviderId, updateSessionPreferences])
+
+  const handleModelChange = useCallback((modelId: string) => {
+    if (!selection.providerId) {
+      return
+    }
+
+    const nextSelection = {
+      providerId: selection.providerId,
+      modelId,
+    }
+
+    setSelection(nextSelection)
+
+    if (currentSessionId) {
+      updateSessionPreferences(currentSessionId, {
+        preferredProviderId: nextSelection.providerId,
+        preferredModelId: nextSelection.modelId,
+      })
+    }
+  }, [currentSessionId, selection.providerId, updateSessionPreferences])
+
   const connectWebSocket = useCallback(async (executionKey: string) => {
     if (wsRef.current) {
       wsRef.current.close()
@@ -757,7 +964,12 @@ export default function AgentWorkspace() {
     }
 
     if (!configured) {
-      alert('请先在设置页面配置 LLM')
+      alert('请先在设置页面配置供应商、模型和默认项')
+      return
+    }
+
+    if (!selection.providerId || !selection.modelId) {
+      alert('请先选择要使用的供应商和模型')
       return
     }
 
@@ -777,7 +989,12 @@ export default function AgentWorkspace() {
     let targetSessionId = currentSession?.id || null
 
     if (requiresFreshSession) {
-      const session = createSession(currentProject.id)
+      const session = createSession(
+        currentProject.id,
+        undefined,
+        selection.providerId,
+        selection.modelId
+      )
       const nextItems = [userItem, statusItem]
       saveSessionItems(session.id, nextItems)
       updateSessionTitle(session.id, deriveSessionTitle([userItem]) || session.title)
@@ -785,6 +1002,12 @@ export default function AgentWorkspace() {
       lastSyncedItemsRef.current = JSON.stringify(nextItems)
       targetSessionId = session.id
     } else {
+      if (targetSessionId) {
+        updateSessionPreferences(targetSessionId, {
+          preferredProviderId: selection.providerId,
+          preferredModelId: selection.modelId,
+        })
+      }
       addChatItems([userItem, statusItem])
     }
 
@@ -804,7 +1027,12 @@ export default function AgentWorkspace() {
 
     try {
       await connectWebSocket(executionKey)
-      wsRef.current?.startExecution(message, currentProject.path)
+      wsRef.current?.startExecution(
+        message,
+        currentProject.path,
+        selection.providerId,
+        selection.modelId
+      )
     } catch (error) {
       console.error('Failed to start execution:', error)
     }
@@ -816,6 +1044,9 @@ export default function AgentWorkspace() {
     currentProject,
     currentSession,
     saveSessionItems,
+    selection.modelId,
+    selection.providerId,
+    updateSessionPreferences,
     updateSessionTitle
   ])
 
@@ -839,6 +1070,14 @@ export default function AgentWorkspace() {
   }
 
   const inputBusy = status === 'running' || status === 'cancelling'
+  const providerOptions = availableProviders.map((provider) => ({
+    id: provider.id,
+    label: provider.name,
+  }))
+  const modelOptions = selectedModels.map((model) => ({
+    id: model.id,
+    label: model.display_name,
+  }))
 
   return (
       <div className="flex h-full flex-col bg-white">
@@ -873,9 +1112,9 @@ export default function AgentWorkspace() {
 
       <div className="flex-1 overflow-y-auto bg-white">
         <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
-          {!configured && (
+          {loaded && !configured && (
             <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-              <p className="text-yellow-800">请先在设置页面配置 LLM API Key</p>
+              <p className="text-yellow-800">请先在设置页面配置供应商、模型和默认项</p>
             </div>
           )}
 
@@ -976,11 +1215,18 @@ export default function AgentWorkspace() {
         <ChatInput
           onSend={handleSend}
           onCancel={handleCancel}
-          disabled={!configured || !currentProject || inputBusy}
+          disabled={!loaded || !configured || !currentProject || inputBusy}
           isLoading={inputBusy}
           canCancel={status === 'running'}
           isCancelling={status === 'cancelling'}
           placeholder={currentProject ? '给当前项目开一个新任务...' : '请先选择项目'}
+          providerOptions={providerOptions}
+          modelOptions={modelOptions}
+          selectedProviderId={selection.providerId}
+          selectedModelId={selection.modelId}
+          onProviderChange={handleProviderChange}
+          onModelChange={handleModelChange}
+          selectionDisabled={!loaded || inputBusy || providerOptions.length === 0}
         />
         {!currentProject && (
           <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>

@@ -11,10 +11,19 @@ interface WorkspaceState {
   searchQuery: string
   searchOpen: boolean
 
-  createSession: (projectId: string, title?: string) => ChatSession
+  createSession: (
+    projectId: string,
+    title?: string,
+    preferredProviderId?: string | null,
+    preferredModelId?: string | null
+  ) => ChatSession
   setCurrentSessionId: (sessionId: string | null) => void
   saveSessionItems: (sessionId: string, items: WorkspaceChatItem[]) => void
   updateSessionTitle: (sessionId: string, title: string) => void
+  updateSessionPreferences: (
+    sessionId: string,
+    preferences: { preferredProviderId?: string | null; preferredModelId?: string | null }
+  ) => void
   removeSession: (sessionId: string) => void
   touchSession: (sessionId: string) => void
   toggleProjectExpanded: (projectId: string) => void
@@ -58,12 +67,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       searchQuery: isDemoMode() ? demoWorkspaceState.searchQuery : '',
       searchOpen: isDemoMode() ? demoWorkspaceState.searchOpen : false,
 
-      createSession: (projectId, title = '新建聊天') => {
+      createSession: (
+        projectId,
+        title = '新建聊天',
+        preferredProviderId = null,
+        preferredModelId = null
+      ) => {
         const now = createNow()
         const session: ChatSession = {
           id: createSessionId(),
           projectId,
           title,
+          preferredProviderId: preferredProviderId || undefined,
+          preferredModelId: preferredModelId || undefined,
           items: [],
           createdAt: now,
           updatedAt: now
@@ -100,6 +116,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ? {
                 ...session,
                 title,
+                updatedAt: createNow()
+              }
+            : session
+        ))
+      })),
+
+      updateSessionPreferences: (sessionId, preferences) => set((state) => ({
+        sessions: state.sessions.map((session) => (
+          session.id === sessionId
+            ? {
+                ...session,
+                preferredProviderId: preferences.preferredProviderId || undefined,
+                preferredModelId: preferences.preferredModelId || undefined,
                 updatedAt: createNow()
               }
             : session

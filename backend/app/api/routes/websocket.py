@@ -16,7 +16,7 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     WebSocket 端点 - 执行任务实时通信
     
     客户端 → 服务端消息:
-    - {"type": "start", "data": {"task": "...", "project_id": "..."}}  启动任务
+    - {"type": "start", "data": {"task": "...", "project_id": "...", "provider_id": "...", "model_id": "..."}}  启动任务
     - {"type": "cancel"}                                                 取消任务
     - {"type": "stop"}                                                   兼容旧端的取消任务
     
@@ -50,11 +50,15 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     # 启动任务
                     task = msg_data.get("task", "")
                     project_id = msg_data.get("project_id", "")
+                    provider_id = msg_data.get("provider_id")
+                    model_id = msg_data.get("model_id")
                     
                     # 创建执行
                     execution_create = ExecutionCreate(
                         project_id=project_id,
-                        task=task
+                        task=task,
+                        provider_id=provider_id,
+                        model_id=model_id,
                     )
                     
                     # 更新 execution_id

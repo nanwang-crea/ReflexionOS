@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from pathlib import Path
 import json
-from app.models.llm_config import LLMConfig
+from app.models.llm_config import LLMSettings
 
 
 class ExecutionSettings(BaseModel):
@@ -22,7 +22,7 @@ class UISettings(BaseModel):
 
 class AppSettings(BaseModel):
     """应用总配置"""
-    llm: LLMConfig = LLMConfig()
+    llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
     ui: UISettings = UISettings()
 
@@ -56,7 +56,7 @@ class ConfigManager:
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump(self.settings.model_dump(), f, indent=2, ensure_ascii=False)
     
-    def update_llm(self, llm_settings: LLMConfig):
+    def update_llm(self, llm_settings: LLMSettings):
         """更新 LLM 配置"""
         self.settings.llm = llm_settings
         self.save()

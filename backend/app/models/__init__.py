@@ -7,11 +7,27 @@ from app.models.execution import (
     StepStatus
 )
 from app.models.action import Action, ActionResult, ToolCall
-from app.models.llm_config import LLMConfig, LLMProvider
+from app.models.llm_config import (
+    DefaultLLMSelection,
+    LLMSettings,
+    ProviderConnectionTestRequest,
+    ProviderConnectionTestResult,
+    ProviderInstanceConfig,
+    ProviderModelConfig,
+    ProviderType,
+    ResolvedLLMConfig,
+)
 
 __all__ = [
     "Project", "ProjectCreate",
     "Execution", "ExecutionCreate", "ExecutionStep", "ExecutionStatus", "StepStatus",
     "Action", "ActionResult", "ToolCall",
-    "LLMConfig", "LLMProvider",
+    "ProviderType",
+    "ProviderModelConfig",
+    "ProviderInstanceConfig",
+    "LLMSettings",
+    "DefaultLLMSelection",
+    "ResolvedLLMConfig",
+    "ProviderConnectionTestRequest",
+    "ProviderConnectionTestResult",
 ]

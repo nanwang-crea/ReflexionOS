@@ -1,4 +1,9 @@
 import axios from 'axios'
+import type {
+  DefaultLLMSelection,
+  ProviderConnectionTestRequest,
+  ProviderInstance,
+} from '@/types/llm'
 
 const API_BASE_URL = 'http://127.0.0.1:8000'
 
@@ -20,7 +25,7 @@ export const projectApi = {
 }
 
 export const agentApi = {
-  execute: (data: { project_id: string; task: string }) =>
+  execute: (data: { project_id: string; task: string; provider_id?: string; model_id?: string }) =>
     apiClient.post('/api/agent/execute', data),
   getStatus: (executionId: string) =>
     apiClient.get(`/api/agent/status/${executionId}`),
@@ -33,10 +38,16 @@ export const agentApi = {
 }
 
 export const llmApi = {
-  getConfig: () => apiClient.get('/api/llm/config'),
-  setConfig: (data: { provider: string; model: string; api_key?: string; base_url?: string }) =>
-    apiClient.post('/api/llm/config', data),
-  getProviders: () => apiClient.get('/api/llm/providers'),
+  getProviders: () => apiClient.get<ProviderInstance[]>('/api/llm/providers'),
+  createProvider: (data: ProviderInstance) => apiClient.post<ProviderInstance>('/api/llm/providers', data),
+  updateProvider: (providerId: string, data: ProviderInstance) =>
+    apiClient.put<ProviderInstance>(`/api/llm/providers/${providerId}`, data),
+  deleteProvider: (providerId: string) => apiClient.delete(`/api/llm/providers/${providerId}`),
+  testProvider: (data: ProviderConnectionTestRequest) =>
+    apiClient.post('/api/llm/providers/test', data),
+  getDefaultSelection: () => apiClient.get<DefaultLLMSelection>('/api/llm/default'),
+  setDefaultSelection: (data: { provider_id: string; model_id: string }) =>
+    apiClient.put<DefaultLLMSelection>('/api/llm/default', data),
 }
 
 export const skillApi = {

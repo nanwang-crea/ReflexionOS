@@ -1,5 +1,5 @@
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
-import type { LLMConfig } from '@/types/llm'
+import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 import type { Project } from '@/types/project'
 import type { ChatSession } from '@/types/workspace'
 
@@ -92,6 +92,8 @@ export const demoSessions: ChatSession[] = [
     id: 'demo-session-desktop',
     projectId: 'demo-proj-reflexion',
     title: 'Harden Electron bootstrap',
+    preferredProviderId: 'demo-provider-openai',
+    preferredModelId: 'demo-model-qwen',
     createdAt: createIso(60),
     updatedAt: createIso(4),
     items: [
@@ -151,9 +153,34 @@ export const demoWorkspaceState = {
   searchOpen: false,
 }
 
-export const demoLLMConfig: LLMConfig = {
-  provider: 'openai',
-  model: 'qwen3.6-plus',
-  api_key: '',
-  base_url: 'https://api.openai.com/v1',
+export const demoProviders: ProviderInstance[] = [
+  {
+    id: 'demo-provider-openai',
+    name: 'OpenAI 官方',
+    provider_type: 'openai_compatible',
+    api_key: 'demo-key',
+    base_url: 'https://api.openai.com/v1',
+    default_model_id: 'demo-model-qwen',
+    enabled: true,
+    models: [
+      {
+        id: 'demo-model-qwen',
+        display_name: 'Qwen 3.6 Plus',
+        model_name: 'qwen3.6-plus',
+        enabled: true,
+      },
+      {
+        id: 'demo-model-gpt41',
+        display_name: 'GPT-4.1',
+        model_name: 'gpt-4.1',
+        enabled: true,
+      },
+    ],
+  },
+]
+
+export const demoDefaultLLMSelection: DefaultLLMSelection = {
+  provider_id: 'demo-provider-openai',
+  model_id: 'demo-model-qwen',
+  configured: true,
 }

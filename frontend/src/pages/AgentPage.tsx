@@ -8,16 +8,46 @@ import { Execution } from '@/types/execution'
 export default function AgentPage() {
   const { currentProject } = useProjectStore()
   const { task, setTask, setExecutionStatus, reset } = useAgentStore()
-  const { configured } = useSettingsStore()
+  const {
+    configured,
+    defaultProviderId,
+    defaultModelId,
+    loaded,
+    setLLMState,
+  } = useSettingsStore()
   const [execution, setExecution] = useState<Execution | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    llmApi.getConfig().then((res) => {
-      useSettingsStore.getState().setConfigured(res.data.configured || false)
-    })
-  }, [])
+    let cancelled = false
+
+    const loadSettings = async () => {
+      try {
+        const [providersResponse, defaultResponse] = await Promise.all([
+          llmApi.getProviders(),
+          llmApi.getDefaultSelection(),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        setLLMState({
+          providers: providersResponse.data,
+          selection: defaultResponse.data,
+        })
+      } catch (loadError) {
+        console.error('Failed to load LLM settings:', loadError)
+      }
+    }
+
+    loadSettings()
+
+    return () => {
+      cancelled = true
+    }
+  }, [setLLMState])
 
   const handleExecute = async () => {
     if (!currentProject) {
@@ -41,6 +71,8 @@ export default function AgentPage() {
       const response = await agentApi.execute({
         project_id: currentProject.path,
         task: task,
+        provider_id: defaultProviderId || undefined,
+        model_id: defaultModelId || undefined,
       })
       setExecution(response.data)
       setExecutionStatus(response.data.status)
@@ -65,7 +97,7 @@ export default function AgentPage() {
       {!configured && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
           <p className="text-yellow-800">
-            Please configure your LLM settings in the Settings page before using the agent.
+            Please configure providers, models, and a default selection in the Settings page before using the agent.
           </p>
         </div>
       )}
@@ -107,9 +139,9 @@ export default function AgentPage() {
         <div className="flex gap-3">
           <button
             onClick={handleExecute}
-            disabled={loading || !configured}
+            disabled={loading || !configured || !loaded}
             className={`px-4 py-2 rounded-lg ${
-              loading || !configured
+              loading || !configured || !loaded
                 ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                 : 'bg-blue-600 text-white hover:bg-blue-700'
             }`}

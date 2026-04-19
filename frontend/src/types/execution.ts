@@ -14,6 +14,8 @@ export interface Execution {
   id: string
   project_id: string
   task: string
+  provider_id?: string
+  model_id?: string
   status: 'pending' | 'running' | 'paused' | 'completed' | 'failed' | 'cancelled'
   steps: ExecutionStep[]
   result?: string
@@ -25,4 +27,6 @@ export interface Execution {
 export interface ExecutionCreate {
   project_id: string
   task: string
+  provider_id?: string
+  model_id?: string
 }

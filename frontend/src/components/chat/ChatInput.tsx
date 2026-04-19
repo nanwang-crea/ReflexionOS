@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Send, Square } from 'lucide-react'
 
+interface ChatSelectOption {
+  id: string
+  label: string
+}
+
 interface ChatInputProps {
   onSend: (message: string) => void
   onCancel?: () => void
@@ -10,6 +15,13 @@ interface ChatInputProps {
   isLoading?: boolean
   canCancel?: boolean
   isCancelling?: boolean
+  providerOptions?: ChatSelectOption[]
+  modelOptions?: ChatSelectOption[]
+  selectedProviderId?: string | null
+  selectedModelId?: string | null
+  onProviderChange?: (providerId: string) => void
+  onModelChange?: (modelId: string) => void
+  selectionDisabled?: boolean
 }
 
 export function ChatInput({ 
@@ -19,7 +31,14 @@ export function ChatInput({
   placeholder = '描述你想要 Agent 做什么...',
   isLoading = false,
   canCancel = false,
-  isCancelling = false
+  isCancelling = false,
+  providerOptions = [],
+  modelOptions = [],
+  selectedProviderId = null,
+  selectedModelId = null,
+  onProviderChange,
+  onModelChange,
+  selectionDisabled = false
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -74,10 +93,50 @@ export function ChatInput({
           className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-gray-50"
         />
 
-        <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2">
-          <span className="text-xs text-slate-400">
-            `Enter` 发送，`Shift + Enter` 换行
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {providerOptions.length > 0 ? (
+              <>
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>供应商</span>
+                  <select
+                    value={selectedProviderId || ''}
+                    onChange={(e) => onProviderChange?.(e.target.value)}
+                    disabled={selectionDisabled}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
+                  >
+                    {providerOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>模型</span>
+                  <select
+                    value={selectedModelId || ''}
+                    onChange={(e) => onModelChange?.(e.target.value)}
+                    disabled={selectionDisabled || modelOptions.length === 0}
+                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
+                  >
+                    {modelOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : (
+              <span className="text-xs text-slate-400">
+                请先在设置页配置供应商和模型
+              </span>
+            )}
+            <span className="text-xs text-slate-400">
+              `Enter` 发送，`Shift + Enter` 换行
+            </span>
+          </div>
 
           <div className="flex items-center gap-2">
             {canCancel || isCancelling ? (

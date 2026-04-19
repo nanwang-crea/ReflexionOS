@@ -4,15 +4,17 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from app.llm.openai_adapter import OpenAIAdapter
 from app.llm.base import Message
-from app.models.llm_config import LLMConfig, LLMProvider
+from app.models.llm_config import ProviderType, ResolvedLLMConfig
 
 
 class TestOpenAIAdapter:
     
     @pytest.fixture
     def llm_config(self):
-        return LLMConfig(
-            provider=LLMProvider.OPENAI,
+        return ResolvedLLMConfig(
+            provider_id="provider-openai",
+            provider_type=ProviderType.OPENAI_COMPATIBLE,
+            model_id="model-gpt4",
             model="gpt-4-turbo-preview",
             api_key="test-api-key",
             temperature=0.7,
