@@ -15,14 +15,6 @@ export function isDemoMode() {
   return new URLSearchParams(window.location.search).get('demo') === '1'
 }
 
-export function getDemoScene() {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  return new URLSearchParams(window.location.search).get('scene')
-}
-
 export const demoProjects: Project[] = [
   {
     id: 'demo-proj-reflexion',

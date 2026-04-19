@@ -1,7 +1,7 @@
 import type { RefObject } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2 } from 'lucide-react'
-import { SlideIn } from '@/components/animations'
+import { SlideIn } from '@/components/animations/SlideIn'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import type { Project } from '@/types/project'

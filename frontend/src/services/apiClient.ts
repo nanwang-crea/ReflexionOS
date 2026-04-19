@@ -16,24 +16,14 @@ export const apiClient = axios.create({
 
 export const projectApi = {
   list: () => apiClient.get('/api/projects'),
-  get: (id: string) => apiClient.get(`/api/projects/${id}`),
   create: (data: { name: string; path: string; language?: string }) =>
     apiClient.post('/api/projects', data),
   delete: (id: string) => apiClient.delete(`/api/projects/${id}`),
-  getStructure: (id: string) => apiClient.get(`/api/projects/${id}/structure`),
 }
 
 export const agentApi = {
-  execute: (data: { project_id: string; task: string; provider_id?: string; model_id?: string }) =>
-    apiClient.post('/api/agent/execute', data),
-  getStatus: (executionId: string) =>
-    apiClient.get(`/api/agent/status/${executionId}`),
-  getHistory: (projectId: string) =>
-    apiClient.get(`/api/agent/history/${projectId}`),
   cancel: (executionId: string) =>
     apiClient.post(`/api/agent/cancel/${executionId}`),
-  stop: (executionId: string) =>
-    apiClient.post(`/api/agent/stop/${executionId}`),
 }
 
 export const llmApi = {
