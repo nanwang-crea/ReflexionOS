@@ -1,111 +1,20 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
-import { ExecutionWebSocket } from '@/services/websocketClient'
-import { SlideIn } from '@/components/animations'
-import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { isDemoMode } from '@/demo/demoData'
-import {
-  buildReceiptDetail,
-  type ActionReceiptDetail,
-  type ActionReceiptStatus,
-  type ReceiptDetailStatus,
-} from '@/components/execution/receiptUtils'
-import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
+import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import { useExecutionRuntime } from '@/hooks/useExecutionRuntime'
+import { mergeRenderItems } from '@/features/workspace/messageFlow'
+import {
+  getAvailableProviders,
+  getEnabledModels,
+  resolveSessionSelection,
+} from '@/features/workspace/sessionSelection'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import { agentApi, llmApi } from '@/services/apiClient'
-import type { ProviderInstance, ProviderModel } from '@/types/llm'
-import type { WorkspaceChatItem } from '@/types/workspace'
-
-const transcriptClassName = [
-  'max-w-[920px]',
-  'text-[17px]',
-  'leading-[1.8]',
-  'text-slate-900',
-  '[&_p]:m-0',
-  '[&_p+p]:mt-6',
-  '[&_ul]:my-4',
-  '[&_ol]:my-4',
-  '[&_li]:mt-1.5',
-  '[&_h1]:mt-0',
-  '[&_h2]:mt-8',
-  '[&_h3]:mt-6',
-  '[&_pre]:my-4',
-  '[&_blockquote]:my-5',
-].join(' ')
-
-function createItemId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-function updateFirstMatchingDetail(
-  details: ActionReceiptDetail[],
-  matcher: (detail: ActionReceiptDetail) => boolean,
-  updater: (detail: ActionReceiptDetail) => ActionReceiptDetail
-) {
-  const index = details.findIndex(matcher)
-
-  if (index === -1) {
-    return details
-  }
-
-  const nextDetails = [...details]
-  nextDetails[index] = updater(nextDetails[index])
-  return nextDetails
-}
-
-function deriveSessionTitle(items: WorkspaceChatItem[]) {
-  const firstUserMessage = items.find((item) => item.type === 'user-message' && item.content)?.content?.trim()
-  if (!firstUserMessage) {
-    return null
-  }
-
-  return firstUserMessage.length > 28 ? `${firstUserMessage.slice(0, 28)}...` : firstUserMessage
-}
-
-function getEnabledModels(provider: ProviderInstance | null | undefined) {
-  return provider?.models.filter((model) => model.enabled) || []
-}
-
-function resolveProvider(
-  providers: ProviderInstance[],
-  preferredProviderId?: string | null
-) {
-  if (preferredProviderId) {
-    const matched = providers.find((provider) => provider.id === preferredProviderId)
-    if (matched) {
-      return matched
-    }
-  }
-
-  return providers[0] || null
-}
-
-function resolveModel(
-  models: ProviderModel[],
-  preferredModelId?: string | null,
-  fallbackModelId?: string | null
-) {
-  if (preferredModelId) {
-    const matched = models.find((model) => model.id === preferredModelId)
-    if (matched) {
-      return matched
-    }
-  }
-
-  if (fallbackModelId) {
-    const matched = models.find((model) => model.id === fallbackModelId)
-    if (matched) {
-      return matched
-    }
-  }
-
-  return models[0] || null
-}
+import { llmApi } from '@/services/apiClient'
 
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
@@ -122,25 +31,9 @@ export default function AgentWorkspace() {
     currentSessionId,
     createSession,
     saveSessionItems,
-    updateSessionTitle,
     updateSessionPreferences,
   } = useWorkspaceStore()
-  const {
-    status,
-    phase,
-    startExecution,
-    setStatus,
-    setPhase,
-    setCanCancel,
-    setThinkingPhase,
-    setExecutingPhase,
-    setSummarizingPhase,
-    startCancelling,
-    completeExecution,
-    failExecution,
-    cancelExecution,
-    resetExecution
-  } = useExecutionStore()
+  const { status } = useExecutionStore()
 
   const currentSession = useMemo(
     () => sessions.find((session) => session.id === currentSessionId) || null,
@@ -148,83 +41,42 @@ export default function AgentWorkspace() {
   )
   const demoMode = isDemoMode()
 
-  const [chatItems, setChatItems] = useState<WorkspaceChatItem[]>(currentSession?.items || [])
   const [selection, setSelection] = useState<{ providerId: string | null; modelId: string | null }>({
     providerId: null,
     modelId: null,
   })
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>(
-    demoMode ? 'connected' : 'disconnected'
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const {
+    overlayItems,
+    connectionStatus,
+    startExecutionRun,
+    handleCancel,
+    resetExecutionRuntime,
+  } = useExecutionRuntime(currentSessionId, demoMode ? 'connected' : 'disconnected')
+
+  const availableProviders = useMemo(
+    () => getAvailableProviders(providers),
+    [providers]
   )
 
-  const wsRef = useRef<ExecutionWebSocket | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const llmStreamingRef = useRef('')
-  const summaryStartedRef = useRef(false)
-  const finalMessageHandledRef = useRef(false)
-  const currentStatusItemIdRef = useRef<string | null>(null)
-  const currentExecutionIdRef = useRef<string | null>(null)
-  const activeSessionIdRef = useRef<string | null>(null)
-  const activeReceiptIdRef = useRef<string | null>(null)
-  const executionHasReceiptsRef = useRef(false)
-  const thoughtFlushedRef = useRef(false)
-  const currentLlmMessageIdRef = useRef<string | null>(null)
-  const currentAssistantMessageIdRef = useRef<string | null>(null)
-  const lastSyncedItemsRef = useRef('')
+  const selectedProvider = useMemo(
+    () => availableProviders.find((provider) => provider.id === selection.providerId) || null,
+    [availableProviders, selection.providerId]
+  )
+
+  const selectedModels = useMemo(
+    () => getEnabledModels(selectedProvider),
+    [selectedProvider]
+  )
+
+  const renderItems = useMemo(
+    () => mergeRenderItems(currentSession?.items || [], overlayItems),
+    [currentSession?.items, overlayItems]
+  )
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [chatItems])
-
-  useEffect(() => {
-    const nextItems = currentSession?.items || []
-    const preserveStreamingRefs = Boolean(
-      activeSessionIdRef.current &&
-      currentSessionId &&
-      activeSessionIdRef.current === currentSessionId
-    )
-
-    setChatItems(nextItems)
-    lastSyncedItemsRef.current = JSON.stringify(nextItems)
-    llmStreamingRef.current = ''
-    summaryStartedRef.current = false
-    finalMessageHandledRef.current = false
-    activeReceiptIdRef.current = null
-    executionHasReceiptsRef.current = false
-    thoughtFlushedRef.current = false
-
-    if (!preserveStreamingRefs) {
-      currentStatusItemIdRef.current = null
-      currentLlmMessageIdRef.current = null
-      currentAssistantMessageIdRef.current = null
-      currentExecutionIdRef.current = null
-    }
-  }, [currentSessionId])
-
-  useEffect(() => {
-    if (!currentSessionId) {
-      return
-    }
-
-    const serialized = JSON.stringify(chatItems)
-    if (serialized === lastSyncedItemsRef.current) {
-      return
-    }
-
-    saveSessionItems(currentSessionId, chatItems)
-    lastSyncedItemsRef.current = serialized
-
-    const nextTitle = deriveSessionTitle(chatItems)
-    if (nextTitle && currentSession?.title !== nextTitle) {
-      updateSessionTitle(currentSessionId, nextTitle)
-    }
-  }, [chatItems, currentSession?.title, currentSessionId, saveSessionItems, updateSessionTitle])
-
-  useEffect(() => {
-    return () => {
-      wsRef.current?.close()
-    }
-  }, [])
+  }, [renderItems])
 
   useEffect(() => {
     if (demoMode) {
@@ -273,64 +125,14 @@ export default function AgentWorkspace() {
     }
   }, [demoMode, setLLMState])
 
-  const statusLine = useMemo(() => {
-    if (status === 'cancelling') {
-      return {
-        label: '正在取消',
-        className: 'text-amber-600'
-      }
-    }
-
-    if (status !== 'running') {
-      return null
-    }
-
-    const label = {
-      thinking: '正在思考中',
-      executing: '正在执行操作',
-      summarizing: '正在整理回答',
-      null: '正在思考中'
-    }[String(phase) as 'thinking' | 'executing' | 'summarizing' | 'null']
-
-    return {
-      label,
-      className: 'text-slate-500'
-    }
-  }, [phase, status])
-
-  const availableProviders = useMemo(
-    () => providers.filter((provider) => (
-      provider.enabled && getEnabledModels(provider).length > 0
-    )),
-    [providers]
-  )
-
-  const selectedProvider = useMemo(
-    () => availableProviders.find((provider) => provider.id === selection.providerId) || null,
-    [availableProviders, selection.providerId]
-  )
-
-  const selectedModels = useMemo(
-    () => getEnabledModels(selectedProvider),
-    [selectedProvider]
-  )
-
   useEffect(() => {
-    const preferredProvider = currentSession?.preferredProviderId || defaultProviderId
-    const nextProvider = resolveProvider(availableProviders, preferredProvider)
-    const nextModels = getEnabledModels(nextProvider)
-    const nextModel = resolveModel(
-      nextModels,
-      currentSession?.preferredModelId || (
-        nextProvider?.id === defaultProviderId ? defaultModelId : nextProvider?.default_model_id
-      ),
-      nextProvider?.default_model_id
-    )
-
-    const nextSelection = {
-      providerId: nextProvider?.id || null,
-      modelId: nextModel?.id || null,
-    }
+    const nextSelection = resolveSessionSelection({
+      providers: availableProviders,
+      defaultProviderId,
+      defaultModelId,
+      preferredProviderId: currentSession?.preferredProviderId,
+      preferredModelId: currentSession?.preferredModelId,
+    })
 
     setSelection((current) => (
       current.providerId === nextSelection.providerId && current.modelId === nextSelection.modelId
@@ -362,357 +164,19 @@ export default function AgentWorkspace() {
     updateSessionPreferences,
   ])
 
-  const addChatItem = useCallback((item: WorkspaceChatItem) => {
-    setChatItems(prev => [...prev, item])
-  }, [])
-
-  const addChatItems = useCallback((items: WorkspaceChatItem[]) => {
-    setChatItems(prev => [...prev, ...items])
-  }, [])
-
-  const removeChatItem = useCallback((itemId: string) => {
-    setChatItems(prev => prev.filter((item) => item.id !== itemId))
-  }, [])
-
-  const updateChatItem = useCallback((
-    itemId: string,
-    updater: (item: WorkspaceChatItem) => WorkspaceChatItem
-  ) => {
-    setChatItems(prev => prev.map(item => (
-      item.id === itemId
-        ? updater(item)
-        : item
-    )))
-  }, [])
-
-  const updateReceiptItem = useCallback((
-    receiptId: string,
-    updater: (item: WorkspaceChatItem) => WorkspaceChatItem
-  ) => {
-    setChatItems(prev => prev.map(item => (
-      item.type === 'action-receipt' && item.id === receiptId
-        ? updater(item)
-        : item
-    )))
-  }, [])
-
-  const updateStatusBubble = useCallback((label: string) => {
-    if (!currentStatusItemIdRef.current) {
-      return
-    }
-
-    updateChatItem(currentStatusItemIdRef.current, (item) => (
-      item.type === 'assistant-status'
-        ? {
-            ...item,
-            statusLabel: label
-          }
-        : item
-    ))
-  }, [updateChatItem])
-
-  const removeStatusBubble = useCallback(() => {
-    if (!currentStatusItemIdRef.current) {
-      return
-    }
-
-    removeChatItem(currentStatusItemIdRef.current)
-    currentStatusItemIdRef.current = null
-  }, [removeChatItem])
-
-  useEffect(() => {
-    if (!statusLine?.label) {
-      return
-    }
-
-    updateStatusBubble(statusLine.label)
-  }, [statusLine?.label, updateStatusBubble])
-
-  const ensureStreamingLlmMessage = useCallback((initialContent = '') => {
-    if (currentLlmMessageIdRef.current) {
-      return currentLlmMessageIdRef.current
-    }
-
-    if (currentStatusItemIdRef.current) {
-      const messageId = currentStatusItemIdRef.current
-
-      updateChatItem(messageId, (item) => ({
-        ...item,
-        type: 'agent-update',
-        content: initialContent,
-        isStreaming: true
-      }))
-
-      currentLlmMessageIdRef.current = messageId
-      currentStatusItemIdRef.current = null
-      return messageId
-    }
-
-    const messageId = createItemId('llm')
-    addChatItem({
-      id: messageId,
-      type: 'agent-update',
-      content: initialContent,
-      isStreaming: true
-    })
-    currentLlmMessageIdRef.current = messageId
-    return messageId
-  }, [addChatItem])
-
-  const appendStreamingLlmToken = useCallback((token: string) => {
-    const messageId = ensureStreamingLlmMessage()
-    updateChatItem(messageId, (item) => ({
-      ...item,
-      content: `${item.content || ''}${token}`,
-      isStreaming: true
-    }))
-  }, [ensureStreamingLlmMessage, updateChatItem])
-
-  const flushStreamingAgentUpdate = useCallback((fallbackContent = '') => {
-    const content = (llmStreamingRef.current || fallbackContent).trim()
-
-    if (!content) {
-      llmStreamingRef.current = ''
-      if (currentLlmMessageIdRef.current) {
-        removeChatItem(currentLlmMessageIdRef.current)
-        currentLlmMessageIdRef.current = null
-      }
-      return
-    }
-
-    if (currentLlmMessageIdRef.current) {
-      updateChatItem(currentLlmMessageIdRef.current, (item) => ({
-        ...item,
-        type: 'agent-update',
-        content,
-        isStreaming: false
-      }))
-    } else {
-      addChatItem({
-        id: createItemId('update'),
-        type: 'agent-update',
-        content
-      })
-    }
-
-    currentLlmMessageIdRef.current = null
-    llmStreamingRef.current = ''
-    thoughtFlushedRef.current = true
-  }, [addChatItem, updateChatItem])
-
-  const finalizeStreamingLlmAsAssistant = useCallback((finalContent?: string) => {
-    if (!executionHasReceiptsRef.current) {
-      const messageId = currentLlmMessageIdRef.current || currentStatusItemIdRef.current
-
-      if (messageId) {
-        updateChatItem(messageId, (item) => ({
-          ...item,
-          type: 'assistant-message',
-          content: finalContent ?? item.content,
-          isStreaming: false,
-          transient: false
-        }))
-        currentLlmMessageIdRef.current = null
-        currentStatusItemIdRef.current = null
-        return
-      }
-    }
-
-    if (!currentLlmMessageIdRef.current) {
-      if (finalContent) {
-        addChatItem({
-          id: createItemId('assistant'),
-          type: 'assistant-message',
-          content: finalContent,
-          isStreaming: false
-        })
-      }
-      return
-    }
-
-    const messageId = currentLlmMessageIdRef.current
-    updateChatItem(messageId, (item) => ({
-      ...item,
-      type: 'assistant-message',
-      content: finalContent ?? item.content,
-      isStreaming: false
-    }))
-    currentLlmMessageIdRef.current = null
-  }, [addChatItem, updateChatItem])
-
-  const ensureStreamingAssistantMessage = useCallback((initialContent = '') => {
-    if (currentAssistantMessageIdRef.current) {
-      return currentAssistantMessageIdRef.current
-    }
-
-    if (!executionHasReceiptsRef.current) {
-      const messageId = currentLlmMessageIdRef.current || currentStatusItemIdRef.current
-
-      if (messageId) {
-        updateChatItem(messageId, (item) => ({
-          ...item,
-          type: 'assistant-message',
-          content: initialContent || item.content || '',
-          isStreaming: true,
-          transient: false
-        }))
-
-        currentAssistantMessageIdRef.current = messageId
-        currentLlmMessageIdRef.current = null
-        currentStatusItemIdRef.current = null
-        return messageId
-      }
-    }
-
-    const messageId = createItemId('assistant')
-    addChatItem({
-      id: messageId,
-      type: 'assistant-message',
-      content: initialContent,
-      isStreaming: true
-    })
-    currentAssistantMessageIdRef.current = messageId
-    return messageId
-  }, [addChatItem])
-
-  const appendStreamingAssistantToken = useCallback((token: string) => {
-    const messageId = ensureStreamingAssistantMessage()
-    updateChatItem(messageId, (item) => ({
-      ...item,
-      content: `${item.content || ''}${token}`,
-      isStreaming: true
-    }))
-  }, [ensureStreamingAssistantMessage, updateChatItem])
-
-  const finalizeStreamingAssistantMessage = useCallback((finalContent?: string) => {
-    if (!currentAssistantMessageIdRef.current) {
-      if (finalContent) {
-        addChatItem({
-          id: createItemId('assistant'),
-          type: 'assistant-message',
-          content: finalContent,
-          isStreaming: false
-        })
-      }
-      return
-    }
-
-    const messageId = currentAssistantMessageIdRef.current
-    updateChatItem(messageId, (item) => ({
-      ...item,
-      content: finalContent ?? item.content,
-      isStreaming: false,
-      transient: false
-    }))
-    currentAssistantMessageIdRef.current = null
-  }, [addChatItem, updateChatItem])
-
-  const finalizeActiveReceipt = useCallback((forcedStatus?: ActionReceiptStatus) => {
-    if (!activeReceiptIdRef.current) {
-      return
-    }
-
-    const receiptId = activeReceiptIdRef.current
-    updateReceiptItem(receiptId, (item) => {
-      const resolvedStatus = forcedStatus || (
-        item.details?.some(detail => detail.status === 'failed') ? 'failed' : 'completed'
-      )
-
-      return {
-        ...item,
-        receiptStatus: resolvedStatus,
-        details: (item.details || []).map((detail) => {
-          if (detail.status !== 'pending' && detail.status !== 'running') {
-            return detail
-          }
-
-          const nextStatus: ReceiptDetailStatus = resolvedStatus === 'failed'
-            ? 'failed'
-            : resolvedStatus === 'cancelled'
-              ? 'cancelled'
-              : 'success'
-
-          return { ...detail, status: nextStatus }
-        })
-      }
-    })
-
-    activeReceiptIdRef.current = null
-  }, [updateReceiptItem])
-
-  const ensureReceiptItem = useCallback(() => {
-    if (activeReceiptIdRef.current) {
-      return activeReceiptIdRef.current
-    }
-
-    const receiptId = createItemId('receipt')
-    addChatItem({
-      id: receiptId,
-      type: 'action-receipt',
-      receiptStatus: 'running',
-      details: []
-    })
-    activeReceiptIdRef.current = receiptId
-    return receiptId
-  }, [addChatItem])
-
-  const appendReceiptDetail = useCallback((toolName: string, args?: Record<string, unknown>) => {
-    const receiptId = ensureReceiptItem()
-    const detail = buildReceiptDetail(createItemId('detail'), toolName, args)
-
-    updateReceiptItem(receiptId, (item) => ({
-      ...item,
-      receiptStatus: 'running',
-      details: [...(item.details || []), detail]
-    }))
-  }, [ensureReceiptItem, updateReceiptItem])
-
-  const updateActiveReceiptDetail = useCallback((
-    toolName: string,
-    updater: (detail: ActionReceiptDetail) => ActionReceiptDetail
-  ) => {
-    if (!activeReceiptIdRef.current) {
-      return
-    }
-
-    updateReceiptItem(activeReceiptIdRef.current, (item) => ({
-      ...item,
-      details: updateFirstMatchingDetail(
-        item.details || [],
-        detail => detail.toolName === toolName && (
-          detail.status === 'pending' || detail.status === 'running'
-        ),
-        updater
-      )
-    }))
-  }, [updateReceiptItem])
-
-  const handleCancel = async () => {
-    if (!currentExecutionIdRef.current) return
-
-    startCancelling()
-
-    try {
-      await agentApi.cancel(currentExecutionIdRef.current)
-    } catch (error) {
-      console.error('Failed to cancel execution:', error)
-      setStatus('running')
-      setCanCancel(true)
-      setPhase(phase || 'thinking')
-    }
-  }
-
   const handleProviderChange = useCallback((providerId: string) => {
     const provider = availableProviders.find((item) => item.id === providerId) || null
     const nextModels = getEnabledModels(provider)
-    const nextModel = resolveModel(
-      nextModels,
-      provider?.id === defaultProviderId ? defaultModelId : provider?.default_model_id,
-      provider?.default_model_id
-    )
-    const nextSelection = {
-      providerId,
-      modelId: nextModel?.id || null,
+    const nextSelection = resolveSessionSelection({
+      providers: provider ? [provider] : [],
+      defaultProviderId: provider?.id || null,
+      defaultModelId: provider?.default_model_id || null,
+      preferredProviderId: provider?.id || null,
+      preferredModelId: provider?.default_model_id || null,
+    })
+
+    if (!nextSelection.modelId && nextModels[0]) {
+      nextSelection.modelId = nextModels[0].id
     }
 
     setSelection(nextSelection)
@@ -723,7 +187,7 @@ export default function AgentWorkspace() {
         preferredModelId: nextSelection.modelId,
       })
     }
-  }, [availableProviders, currentSessionId, defaultModelId, defaultProviderId, updateSessionPreferences])
+  }, [availableProviders, currentSessionId, updateSessionPreferences])
 
   const handleModelChange = useCallback((modelId: string) => {
     if (!selection.providerId) {
@@ -745,218 +209,10 @@ export default function AgentWorkspace() {
     }
   }, [currentSessionId, selection.providerId, updateSessionPreferences])
 
-  const connectWebSocket = useCallback(async (executionKey: string) => {
-    if (wsRef.current) {
-      wsRef.current.close()
-      wsRef.current = null
-    }
-
-    const ws = new ExecutionWebSocket()
-
-    ws.on('*', (message: unknown) => {
-      console.log('[WS Event]', message)
-    })
-
-    ws.on('execution:created', (data) => {
-      currentExecutionIdRef.current = data.execution_id
-      startExecution(data.execution_id, activeSessionIdRef.current)
-    })
-
-    ws.on('execution:start', (data) => {
-      currentExecutionIdRef.current = data.execution_id
-      startExecution(data.execution_id, activeSessionIdRef.current)
-    })
-
-    ws.on('llm:start', () => {
-      finalizeActiveReceipt()
-      thoughtFlushedRef.current = false
-      llmStreamingRef.current = ''
-      updateStatusBubble('正在思考中')
-      setThinkingPhase()
-    })
-
-    ws.on('llm:content', (data) => {
-      llmStreamingRef.current += data.content
-      appendStreamingLlmToken(data.content)
-      setThinkingPhase()
-    })
-
-    ws.on('llm:thought', (data) => {
-      flushStreamingAgentUpdate(data.content)
-      setThinkingPhase()
-    })
-
-    ws.on('llm:tool_call', (data) => {
-      if (!thoughtFlushedRef.current) {
-        flushStreamingAgentUpdate(data.thought)
-      }
-
-      executionHasReceiptsRef.current = true
-      if (currentLlmMessageIdRef.current) {
-        updateChatItem(currentLlmMessageIdRef.current, (item) => ({
-          ...item,
-          transient: false
-        }))
-      } else {
-        removeStatusBubble()
-      }
-
-      appendReceiptDetail(data.tool_name, data.arguments as Record<string, unknown>)
-      setExecutingPhase()
-    })
-
-    ws.on('tool:start', (data) => {
-      updateActiveReceiptDetail(data.tool_name, (detail) => ({
-        ...detail,
-        status: 'running'
-      }))
-      setExecutingPhase()
-    })
-
-    ws.on('tool:result', (data) => {
-      updateActiveReceiptDetail(data.tool_name, (detail) => ({
-        ...detail,
-        status: data.success ? 'success' : 'failed',
-        output: data.output,
-        error: data.error,
-        duration: data.duration
-      }))
-      setExecutingPhase()
-    })
-
-    ws.on('tool:error', (data) => {
-      updateActiveReceiptDetail(data.tool_name, (detail) => ({
-        ...detail,
-        status: 'failed',
-        error: data.error
-      }))
-      setExecutingPhase()
-    })
-
-    ws.on('summary:start', () => {
-      finalizeActiveReceipt()
-      summaryStartedRef.current = true
-      if (executionHasReceiptsRef.current) {
-        removeStatusBubble()
-      }
-      setSummarizingPhase()
-      ensureStreamingAssistantMessage('')
-    })
-
-    ws.on('summary:token', (data) => {
-      appendStreamingAssistantToken(data.token)
-      setSummarizingPhase()
-    })
-
-    ws.on('summary:complete', (data) => {
-      finalizeActiveReceipt()
-      finalizeStreamingAssistantMessage(data.summary)
-      finalMessageHandledRef.current = true
-      summaryStartedRef.current = false
-    })
-
-    ws.on('execution:cancelled', () => {
-      flushStreamingAgentUpdate()
-      finalizeActiveReceipt('cancelled')
-      finalizeStreamingAssistantMessage()
-      removeStatusBubble()
-      llmStreamingRef.current = ''
-      summaryStartedRef.current = false
-      finalMessageHandledRef.current = false
-      currentExecutionIdRef.current = null
-      activeSessionIdRef.current = null
-      cancelExecution()
-    })
-
-    ws.on('execution:complete', (data) => {
-      finalizeActiveReceipt()
-      finalizeStreamingAssistantMessage()
-      currentExecutionIdRef.current = null
-      activeSessionIdRef.current = null
-
-      if (data.status === 'failed') {
-        removeStatusBubble()
-        flushStreamingAgentUpdate()
-        failExecution()
-        return
-      }
-
-      if (!summaryStartedRef.current && !finalMessageHandledRef.current) {
-        finalizeStreamingLlmAsAssistant(data.result)
-        finalMessageHandledRef.current = true
-      } else {
-        removeStatusBubble()
-        flushStreamingAgentUpdate()
-      }
-
-      llmStreamingRef.current = ''
-      completeExecution()
-    })
-
-    ws.on('execution:error', (data) => {
-      flushStreamingAgentUpdate()
-      finalizeActiveReceipt('failed')
-      finalizeStreamingAssistantMessage()
-      removeStatusBubble()
-      summaryStartedRef.current = false
-      finalMessageHandledRef.current = false
-      llmStreamingRef.current = ''
-      currentExecutionIdRef.current = null
-      activeSessionIdRef.current = null
-      failExecution()
-      addChatItem({
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content: `错误: ${data.error}`
-      })
-    })
-
-    try {
-      setConnectionStatus('connecting')
-      await ws.connect(executionKey)
-      setConnectionStatus('connected')
-      wsRef.current = ws
-    } catch (error) {
-      console.error('WebSocket connection failed:', error)
-      setConnectionStatus('disconnected')
-      flushStreamingAgentUpdate()
-      finalizeStreamingAssistantMessage()
-      activeSessionIdRef.current = null
-      removeStatusBubble()
-      failExecution()
-      addChatItem({
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content: '连接执行通道失败，请重试。'
-      })
-      throw error
-    }
-  }, [
-    addChatItem,
-    appendReceiptDetail,
-    appendStreamingAssistantToken,
-    cancelExecution,
-    completeExecution,
-    ensureStreamingAssistantMessage,
-    finalizeStreamingLlmAsAssistant,
-    failExecution,
-    finalizeActiveReceipt,
-    finalizeStreamingAssistantMessage,
-    flushStreamingAgentUpdate,
-    phase,
-    setCanCancel,
-    setExecutingPhase,
-    setPhase,
-    setStatus,
-    setSummarizingPhase,
-    setThinkingPhase,
-    startCancelling,
-    startExecution,
-    updateActiveReceiptDetail,
-  ])
-
   const handleSend = useCallback(async (message: string) => {
-    if (!message.trim()) return
+    if (!message.trim()) {
+      return
+    }
 
     if (!currentProject) {
       alert('请先选择一个项目')
@@ -973,101 +229,48 @@ export default function AgentWorkspace() {
       return
     }
 
-    const userItem: WorkspaceChatItem = {
-      id: createItemId('user'),
-      type: 'user-message',
-      content: message
-    }
-    const statusItem: WorkspaceChatItem = {
-      id: createItemId('status'),
-      type: 'assistant-status',
-      statusLabel: '正在思考中',
-      transient: true
-    }
-
     const requiresFreshSession = !currentSession || currentSession.projectId !== currentProject.id
-    let targetSessionId = currentSession?.id || null
+    const targetSession = requiresFreshSession
+      ? createSession(
+          currentProject.id,
+          undefined,
+          selection.providerId,
+          selection.modelId
+        )
+      : currentSession
 
-    if (requiresFreshSession) {
-      const session = createSession(
-        currentProject.id,
-        undefined,
-        selection.providerId,
-        selection.modelId
-      )
-      const nextItems = [userItem, statusItem]
-      saveSessionItems(session.id, nextItems)
-      updateSessionTitle(session.id, deriveSessionTitle([userItem]) || session.title)
-      setChatItems(nextItems)
-      lastSyncedItemsRef.current = JSON.stringify(nextItems)
-      targetSessionId = session.id
-    } else {
-      if (targetSessionId) {
-        updateSessionPreferences(targetSessionId, {
-          preferredProviderId: selection.providerId,
-          preferredModelId: selection.modelId,
-        })
-      }
-      addChatItems([userItem, statusItem])
+    if (!requiresFreshSession) {
+      updateSessionPreferences(targetSession.id, {
+        preferredProviderId: selection.providerId,
+        preferredModelId: selection.modelId,
+      })
     }
 
-    llmStreamingRef.current = ''
-    summaryStartedRef.current = false
-    finalMessageHandledRef.current = false
-    activeReceiptIdRef.current = null
-    executionHasReceiptsRef.current = false
-    thoughtFlushedRef.current = false
-    currentStatusItemIdRef.current = statusItem.id
-    currentLlmMessageIdRef.current = null
-    currentAssistantMessageIdRef.current = null
-    currentExecutionIdRef.current = null
-    activeSessionIdRef.current = targetSessionId
-
-    const executionKey = `exec-${Date.now()}`
-
-    try {
-      await connectWebSocket(executionKey)
-      wsRef.current?.startExecution(
-        message,
-        currentProject.path,
-        selection.providerId,
-        selection.modelId
-      )
-    } catch (error) {
-      console.error('Failed to start execution:', error)
-    }
+    await startExecutionRun({
+      sessionId: targetSession.id,
+      message,
+      projectPath: currentProject.path,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+    })
   }, [
-    addChatItems,
     configured,
-    connectWebSocket,
     createSession,
     currentProject,
     currentSession,
-    saveSessionItems,
     selection.modelId,
     selection.providerId,
+    startExecutionRun,
     updateSessionPreferences,
-    updateSessionTitle
   ])
 
-  const handleReset = () => {
-    wsRef.current?.close()
-    wsRef.current = null
-    setConnectionStatus('disconnected')
-    setChatItems([])
-    llmStreamingRef.current = ''
-    summaryStartedRef.current = false
-    finalMessageHandledRef.current = false
-    activeReceiptIdRef.current = null
-    executionHasReceiptsRef.current = false
-    thoughtFlushedRef.current = false
-    currentStatusItemIdRef.current = null
-    currentLlmMessageIdRef.current = null
-    currentAssistantMessageIdRef.current = null
-    currentExecutionIdRef.current = null
-    activeSessionIdRef.current = null
-    resetExecution()
-  }
+  const handleReset = useCallback(() => {
+    resetExecutionRuntime()
+
+    if (currentSessionId) {
+      saveSessionItems(currentSessionId, [])
+    }
+  }, [currentSessionId, resetExecutionRuntime, saveSessionItems])
 
   const inputBusy = status === 'running' || status === 'cancelling'
   const providerOptions = availableProviders.map((provider) => ({
@@ -1080,136 +283,22 @@ export default function AgentWorkspace() {
   }))
 
   return (
-      <div className="flex h-full flex-col bg-white">
-      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">
-            {currentSession?.title || (currentProject ? currentProject.name : '选择项目开始')}
-          </h2>
-          {currentProject && (
-            <p className="text-sm text-gray-500">{currentProject.path}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className={`h-2 w-2 rounded-full ${
-              connectionStatus === 'connected' ? 'bg-green-500' :
-              connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-gray-300'
-            }`} />
-            <span className="text-sm text-gray-500">
-              {connectionStatus === 'connected' ? '已连接' :
-               connectionStatus === 'connecting' ? '连接中...' : '未连接'}
-            </span>
-          </div>
-          <button
-            onClick={handleReset}
-            className="rounded-lg px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100"
-          >
-            重置对话
-          </button>
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-white">
+      <WorkspaceHeader
+        title={currentSession?.title || (currentProject ? currentProject.name : '选择项目开始')}
+        projectPath={currentProject?.path}
+        connectionStatus={connectionStatus}
+        onReset={handleReset}
+      />
 
-      <div className="flex-1 overflow-y-auto bg-white">
-        <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
-          {loaded && !configured && (
-            <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-              <p className="text-yellow-800">请先在设置页面配置供应商、模型和默认项</p>
-            </div>
-          )}
-
-          {!currentProject && (
-            <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
-              先在左侧选择一个项目，再开始新的聊天。
-            </div>
-          )}
-
-          {currentProject && !currentSession && chatItems.length === 0 && (
-            <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
-              这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击“新建聊天”。
-            </div>
-          )}
-
-          <AnimatePresence mode="popLayout">
-            {chatItems.map((item) => {
-              if (item.type === 'user-message') {
-                return (
-                  <SlideIn key={item.id} direction="up">
-                    <div className="mb-8 flex justify-end">
-                      <motion.div
-                        className="max-w-[720px] rounded-2xl bg-slate-100 px-5 py-4 text-[15px] leading-7 text-slate-700"
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        {item.content}
-                      </motion.div>
-                    </div>
-                  </SlideIn>
-                )
-              }
-
-              if (item.type === 'assistant-status') {
-                return (
-                  <SlideIn key={item.id} direction="up">
-                    <div className="mb-7 flex">
-                      <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>{item.statusLabel}</span>
-                      </div>
-                    </div>
-                  </SlideIn>
-                )
-              }
-
-              if (item.type === 'agent-update') {
-                return (
-                  <SlideIn key={item.id} direction="up">
-                    <div className="mb-7">
-                      <MarkdownRenderer
-                        content={item.content || ''}
-                        variant="plain"
-                        isStreaming={item.isStreaming}
-                        className={transcriptClassName}
-                      />
-                    </div>
-                  </SlideIn>
-                )
-              }
-
-              if (item.type === 'action-receipt') {
-                return (
-                  <SlideIn key={item.id} direction="up">
-                    <ActionReceipt
-                      status={item.receiptStatus || 'running'}
-                      details={item.details || []}
-                    />
-                  </SlideIn>
-                )
-              }
-
-              if (item.type === 'assistant-message') {
-                return (
-                  <SlideIn key={item.id} direction="up">
-                    <div className="mb-10">
-                      <MarkdownRenderer
-                        content={item.content || ''}
-                        variant="plain"
-                        isStreaming={item.isStreaming}
-                        className={transcriptClassName}
-                      />
-                    </div>
-                  </SlideIn>
-                )
-              }
-
-              return null
-            })}
-          </AnimatePresence>
-
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
+      <WorkspaceTranscript
+        loaded={loaded}
+        configured={configured}
+        currentProject={currentProject}
+        currentSession={currentSession}
+        items={renderItems}
+        messagesEndRef={messagesEndRef}
+      />
 
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput

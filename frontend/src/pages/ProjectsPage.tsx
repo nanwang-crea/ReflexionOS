@@ -4,11 +4,13 @@ import { projectApi } from '@/services/apiClient'
 import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
+import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { Project } from '@/types/project'
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
   const { projects, setProjects, addProject, removeProject, setCurrentProject, loading, setLoading } = useProjectStore()
+  const { removeProjectSessions } = useWorkspaceStore()
   const [showModal, setShowModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
@@ -48,11 +50,12 @@ export default function ProjectsPage() {
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (project: Project) => {
     if (!confirm('确定要删除这个项目吗？')) return
     try {
-      await projectApi.delete(id)
-      removeProject(id)
+      await projectApi.delete(project.id)
+      removeProject(project.id)
+      removeProjectSessions(project.id)
     } catch (error) {
       console.error('Failed to delete project:', error)
     }
@@ -127,7 +130,7 @@ export default function ProjectsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      handleDelete(project.id)
+                      handleDelete(project)
                     }}
                     className="text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                   >

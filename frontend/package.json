@@ -18,6 +18,8 @@
     "capture:screenshots": "pnpm build && node ./scripts/capture-screenshots.mjs",
     "preview": "vite preview",
     "start": "electron ./electron/main.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
@@ -40,6 +42,7 @@
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
     "typescript": "^5.3.3",
-    "vite": "^5.1.0"
+    "vite": "^5.1.0",
+    "vitest": "^1.6.1"
   }
 }

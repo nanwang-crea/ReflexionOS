@@ -1,6 +1,26 @@
-type EventHandler = (data: any) => void
+import { getExecutionWebSocketUrl } from './runtimeConfig'
+
+type EventHandler<T = unknown> = (data: T) => void
+
+interface ExecutionMessageEnvelope {
+  type: string
+  data: unknown
+  timestamp?: string
+}
 
 interface ExecutionEvents {
+  '*': ExecutionMessageEnvelope
+  'connection:open': { executionId: string }
+  'connection:error': { executionId: string; error: unknown }
+  'connection:closed': {
+    executionId: string
+    code: number
+    reason: string
+    wasClean: boolean
+    manuallyClosed: boolean
+  }
+  'connection:reconnecting': { executionId: string; attempt: number; maxAttempts: number }
+  'connection:failed': { executionId: string; attempts: number }
   'execution:start': { execution_id: string; task: string }
   'execution:created': { execution_id: string; task: string; status: string }
   'llm:start': {}
@@ -26,21 +46,30 @@ class ExecutionWebSocket {
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
   private manuallyClosed = false
+  private hasConnectedOnce = false
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
 
   connect(executionId: string): Promise<void> {
     return new Promise((resolve, reject) => {
       this.executionId = executionId
       this.manuallyClosed = false
-      const wsUrl = `ws://127.0.0.1:8000/ws/execution/${executionId}`
-      
+      const wsUrl = getExecutionWebSocketUrl(executionId)
+      let settled = false
+
       this.ws = new WebSocket(wsUrl)
-      
+
       this.ws.onopen = () => {
         console.log('[WS] Connected:', executionId)
         this.reconnectAttempts = 0
-        resolve()
+        this.hasConnectedOnce = true
+        this.emit('connection:open', { executionId })
+
+        if (!settled) {
+          settled = true
+          resolve()
+        }
       }
-      
+
       this.ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data)
@@ -49,28 +78,53 @@ class ExecutionWebSocket {
           console.error('[WS] Parse error:', e)
         }
       }
-      
+
       this.ws.onerror = (error) => {
         console.error('[WS] Error:', error)
-        reject(error)
+        this.emit('connection:error', { executionId, error })
+
+        if (!settled && !this.hasConnectedOnce) {
+          settled = true
+          reject(error)
+        }
       }
-      
-      this.ws.onclose = () => {
+
+      this.ws.onclose = (event) => {
         console.log('[WS] Disconnected')
-        if (!this.manuallyClosed) {
+        this.ws = null
+        this.emit('connection:closed', {
+          executionId,
+          code: event.code,
+          reason: event.reason,
+          wasClean: event.wasClean,
+          manuallyClosed: this.manuallyClosed,
+        })
+
+        if (!settled && !this.hasConnectedOnce) {
+          settled = true
+          reject(new Error('WebSocket closed before opening'))
+        }
+
+        if (!this.manuallyClosed && this.hasConnectedOnce) {
           this.handleReconnect()
         }
       }
     })
   }
 
-  private handleMessage(message: { type: string; data: any; timestamp: string }) {
+  private emit<K extends keyof ExecutionEvents>(event: K, data: ExecutionEvents[K]) {
+    const handlers = this.handlers.get(event)
+    if (handlers) {
+      handlers.forEach((handler) => handler(data))
+    }
+  }
+
+  private handleMessage(message: ExecutionMessageEnvelope) {
     const handlers = this.handlers.get(message.type)
     if (handlers) {
       handlers.forEach(handler => handler(message.data))
     }
-    
-    // Also emit to '*' wildcard handlers
+
     const wildcardHandlers = this.handlers.get('*')
     if (wildcardHandlers) {
       wildcardHandlers.forEach(handler => handler(message))
@@ -81,15 +135,26 @@ class ExecutionWebSocket {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
       console.log(`[WS] Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
-      
-      setTimeout(() => {
+
+      this.emit('connection:reconnecting', {
+        executionId: this.executionId,
+        attempt: this.reconnectAttempts,
+        maxAttempts: this.maxReconnectAttempts,
+      })
+
+      this.reconnectTimeout = setTimeout(() => {
         this.connect(this.executionId).catch(console.error)
       }, this.reconnectDelay * this.reconnectAttempts)
+      return
     }
+
+    this.emit('connection:failed', {
+      executionId: this.executionId,
+      attempts: this.reconnectAttempts,
+    })
   }
 
   on<K extends keyof ExecutionEvents>(event: K, handler: (data: ExecutionEvents[K]) => void): void
-  on(event: '*', handler: (message: any) => void): void
   on(event: string, handler: EventHandler): void {
     if (!this.handlers.has(event)) {
       this.handlers.set(event, new Set())
@@ -144,6 +209,11 @@ class ExecutionWebSocket {
 
   close(): void {
     this.manuallyClosed = true
+    this.hasConnectedOnce = false
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null
