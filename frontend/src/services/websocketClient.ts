@@ -38,6 +38,23 @@ interface ExecutionEvents {
   'execution:error': { error: string }
 }
 
+export function buildExecutionStartMessage(
+  task: string,
+  projectPath: string,
+  providerId?: string,
+  modelId?: string
+) {
+  return {
+    type: 'start',
+    data: {
+      task,
+      project_path: projectPath,
+      provider_id: providerId,
+      model_id: modelId,
+    },
+  }
+}
+
 class ExecutionWebSocket {
   private ws: WebSocket | null = null
   private handlers: Map<string, Set<EventHandler>> = new Map()
@@ -169,17 +186,11 @@ class ExecutionWebSocket {
     }
   }
 
-  startExecution(task: string, projectId: string, providerId?: string, modelId?: string): void {
+  startExecution(task: string, projectPath: string, providerId?: string, modelId?: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({
-        type: 'start',
-        data: {
-          task,
-          project_id: projectId,
-          provider_id: providerId,
-          model_id: modelId
-        }
-      }))
+      this.ws.send(JSON.stringify(
+        buildExecutionStartMessage(task, projectPath, providerId, modelId)
+      ))
     }
   }
 

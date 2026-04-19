@@ -3,6 +3,7 @@ import type { WorkspaceChatItem } from '@/types/workspace'
 import {
   deriveSessionTitle,
   finalizeReceiptItem,
+  formatExecutionFailureMessage,
   mergeRenderItems,
 } from './messageFlow'
 
@@ -76,5 +77,16 @@ describe('mergeRenderItems', () => {
       'user-1',
       'status-1',
     ])
+  })
+})
+
+describe('formatExecutionFailureMessage', () => {
+  it('prefers the backend result when a failed completion is received without an execution:error event', () => {
+    expect(formatExecutionFailureMessage('执行异常: 工具调用失败')).toBe('错误: 执行异常: 工具调用失败')
+  })
+
+  it('returns null when there is no stable failure detail to show', () => {
+    expect(formatExecutionFailureMessage('')).toBe(null)
+    expect(formatExecutionFailureMessage(undefined)).toBe(null)
   })
 })

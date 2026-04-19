@@ -3,6 +3,7 @@ import { isDemoMode } from '@/demo/demoData'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
 import { useExecutionRuntime } from '@/hooks/useExecutionRuntime'
 import { mergeRenderItems } from '@/features/workspace/messageFlow'
 import {
@@ -14,7 +15,6 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import { llmApi } from '@/services/apiClient'
 
 export default function AgentWorkspace() {
   const { currentProject } = useProjectStore()
@@ -24,7 +24,6 @@ export default function AgentWorkspace() {
     defaultModelId,
     configured,
     loaded,
-    setLLMState,
   } = useSettingsStore()
   const {
     sessions,
@@ -79,51 +78,10 @@ export default function AgentWorkspace() {
   }, [renderItems])
 
   useEffect(() => {
-    if (demoMode) {
-      return
-    }
-
-    let cancelled = false
-
-    const loadLLMSettings = async () => {
-      try {
-        const [providersResponse, defaultResponse] = await Promise.all([
-          llmApi.getProviders(),
-          llmApi.getDefaultSelection(),
-        ])
-
-        if (cancelled) {
-          return
-        }
-
-        setLLMState({
-          providers: providersResponse.data,
-          selection: defaultResponse.data,
-        })
-      } catch (error) {
-        console.error('Failed to load LLM settings:', error)
-
-        if (cancelled) {
-          return
-        }
-
-        setLLMState({
-          providers: [],
-          selection: {
-            provider_id: null,
-            model_id: null,
-            configured: false,
-          },
-        })
-      }
-    }
-
-    loadLLMSettings()
-
-    return () => {
-      cancelled = true
-    }
-  }, [demoMode, setLLMState])
+    ensureLLMSettingsLoaded().catch((error) => {
+      console.error('Failed to load LLM settings:', error)
+    })
+  }, [])
 
   useEffect(() => {
     const nextSelection = resolveSessionSelection({
@@ -164,7 +122,15 @@ export default function AgentWorkspace() {
     updateSessionPreferences,
   ])
 
-  const handleProviderChange = useCallback((providerId: string) => {
+  const handleProviderChange = useCallback((providerId: string | null) => {
+    if (!providerId) {
+      setSelection({
+        providerId: null,
+        modelId: null,
+      })
+      return
+    }
+
     const provider = availableProviders.find((item) => item.id === providerId) || null
     const nextModels = getEnabledModels(provider)
     const nextSelection = resolveSessionSelection({
@@ -189,7 +155,7 @@ export default function AgentWorkspace() {
     }
   }, [availableProviders, currentSessionId, updateSessionPreferences])
 
-  const handleModelChange = useCallback((modelId: string) => {
+  const handleModelChange = useCallback((modelId: string | null) => {
     if (!selection.providerId) {
       return
     }
@@ -201,7 +167,7 @@ export default function AgentWorkspace() {
 
     setSelection(nextSelection)
 
-    if (currentSessionId) {
+    if (currentSessionId && nextSelection.modelId) {
       updateSessionPreferences(currentSessionId, {
         preferredProviderId: nextSelection.providerId,
         preferredModelId: nextSelection.modelId,

@@ -14,8 +14,8 @@ import {
   Trash2,
   Workflow
 } from 'lucide-react'
-import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { projectApi } from '@/services/apiClient'
+import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -73,12 +73,10 @@ export function WorkspaceSidebar() {
   const {
     projects,
     currentProject,
-    setProjects,
     addProject,
     removeProject,
     setCurrentProject,
-    loading,
-    setLoading
+    loading
   } = useProjectStore()
   const { defaultProviderId, defaultModelId } = useSettingsStore()
   const {
@@ -104,7 +102,6 @@ export function WorkspaceSidebar() {
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
-  const demoMode = isDemoMode()
 
   const busy = status === 'running' || status === 'cancelling'
   const currentSession = useMemo(
@@ -113,26 +110,10 @@ export function WorkspaceSidebar() {
   )
 
   useEffect(() => {
-    const loadProjects = async () => {
-      if (demoMode) {
-        setProjects(demoProjects)
-        setLoading(false)
-        return
-      }
-
-      setLoading(true)
-      try {
-        const response = await projectApi.list()
-        setProjects(response.data)
-      } catch (error) {
-        console.error('Failed to load projects:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadProjects()
-  }, [demoMode, setLoading, setProjects])
+    ensureProjectsLoaded().catch((error) => {
+      console.error('Failed to load projects:', error)
+    })
+  }, [])
 
   useEffect(() => {
     if (projects.length === 0) {

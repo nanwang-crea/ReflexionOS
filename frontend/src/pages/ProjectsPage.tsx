@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { projectApi } from '@/services/apiClient'
-import { demoProjects, isDemoMode } from '@/demo/demoData'
+import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
 import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
@@ -9,34 +9,17 @@ import { Project } from '@/types/project'
 
 export default function ProjectsPage() {
   const navigate = useNavigate()
-  const { projects, setProjects, addProject, removeProject, setCurrentProject, loading, setLoading } = useProjectStore()
+  const { projects, addProject, removeProject, setCurrentProject, loading } = useProjectStore()
   const { removeProjectSessions } = useWorkspaceStore()
   const [showModal, setShowModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
-  const demoMode = isDemoMode()
 
   useEffect(() => {
-    loadProjects()
-  }, [])
-
-  const loadProjects = async () => {
-    if (demoMode) {
-      setProjects(demoProjects)
-      setLoading(false)
-      return
-    }
-
-    setLoading(true)
-    try {
-      const response = await projectApi.list()
-      setProjects(response.data)
-    } catch (error) {
+    ensureProjectsLoaded().catch((error) => {
       console.error('Failed to load projects:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+    })
+  }, [])
 
   const handleCreate = async () => {
     try {

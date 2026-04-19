@@ -69,3 +69,12 @@ export function mergeRenderItems(
 ) {
   return [...persistedItems, ...overlayItems]
 }
+
+export function formatExecutionFailureMessage(result?: string | null) {
+  const content = result?.trim()
+  if (!content) {
+    return null
+  }
+
+  return content.startsWith('错误:') ? content : `错误: ${content}`
+}

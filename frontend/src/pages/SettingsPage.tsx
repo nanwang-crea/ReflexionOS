@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { llmApi } from '@/services/apiClient'
+import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel, ProviderType } from '@/types/llm'
 
@@ -121,20 +122,14 @@ export default function SettingsPage() {
     setLoading(true)
 
     try {
-      const [providersResponse, defaultResponse] = await Promise.all([
-        llmApi.getProviders(),
-        llmApi.getDefaultSelection(),
-      ])
-
-      const nextProviders = providersResponse.data
-      const nextSelection = defaultResponse.data
+      const loadedSettings = await ensureLLMSettingsLoaded({
+        force: preferredProviderId !== undefined,
+      })
+      const nextProviders = loadedSettings.providers
+      const nextSelection = loadedSettings.selection
 
       setProviders(nextProviders)
       setDefaultSelection(nextSelection)
-      setLLMState({
-        providers: nextProviders,
-        selection: nextSelection,
-      })
 
       const nextSelectedProvider = nextProviders.find((provider) => provider.id === preferredProviderId)
         || nextProviders[0]
@@ -171,7 +166,7 @@ export default function SettingsPage() {
   }
 
   useEffect(() => {
-    loadSettings()
+    loadSettings().catch(() => undefined)
   }, [])
 
   const handleSelectProvider = (providerId: string) => {

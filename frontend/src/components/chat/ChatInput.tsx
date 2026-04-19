@@ -19,8 +19,8 @@ interface ChatInputProps {
   modelOptions?: ChatSelectOption[]
   selectedProviderId?: string | null
   selectedModelId?: string | null
-  onProviderChange?: (providerId: string) => void
-  onModelChange?: (modelId: string) => void
+  onProviderChange?: (providerId: string | null) => void
+  onModelChange?: (modelId: string | null) => void
   selectionDisabled?: boolean
 }
 
@@ -101,10 +101,11 @@ export function ChatInput({
                   <span>供应商</span>
                   <select
                     value={selectedProviderId || ''}
-                    onChange={(e) => onProviderChange?.(e.target.value)}
+                    onChange={(e) => onProviderChange?.(e.target.value || null)}
                     disabled={selectionDisabled}
                     className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
                   >
+                    <option value="">请选择供应商</option>
                     {providerOptions.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label}
@@ -116,10 +117,11 @@ export function ChatInput({
                   <span>模型</span>
                   <select
                     value={selectedModelId || ''}
-                    onChange={(e) => onModelChange?.(e.target.value)}
+                    onChange={(e) => onModelChange?.(e.target.value || null)}
                     disabled={selectionDisabled || modelOptions.length === 0}
                     className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
                   >
+                    <option value="">请选择模型</option>
                     {modelOptions.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.label}
