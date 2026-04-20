@@ -1656,6 +1656,23 @@ class GitTool(BaseTool):
 
 **优先级:** 🟢 低 - 高级功能
 
+> **2026-04-19 说明**
+>
+> 当前记忆系统的主路线已经调整为“任务接续型记忆架构”，即：
+>
+> - Archive 与 Memory 分层
+> - 任务接续优先
+> - Durable Memory 人工门控晋升
+> - 长期记忆必须可追溯证据
+>
+> 第二阶段优先完成的是记忆基础闭环，而不是直接建设向量知识库。
+> 本节保留为后续增强能力参考，不再作为当前记忆系统第一优先方案。
+>
+> 详见：
+>
+> - `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md`
+> - `docs/plans/2026-04-19-memory-phase-1.md`
+
 **架构设计:**
 
 ```python
@@ -3092,6 +3109,7 @@ ReflexionOS 采用紧耦合单体架构,基于 Electron + React + FastAPI 技术
 ⏸️ 错误处理完善 - 智能恢复
 ⏸️ Prompt优化 - 模板迭代
 ⏸️ 执行历史管理 - 经验复用
+⏸️ 任务接续型记忆 - Archive / Hot Memory / Candidate / Durable Memory
 ⏸️ 多LLM支持 - Claude/Ollama
 ```
 
@@ -3101,8 +3119,8 @@ ReflexionOS 采用紧耦合单体架构,基于 Electron + React + FastAPI 技术
 
 ```
 智能增强:
-🟢 向量记忆 - 长期记忆
-🟢 知识库 - 项目知识积累
+🟢 向量检索与知识沉淀增强
+🟢 梦境巩固 / consolidation
 🟢 插件系统 - 能力扩展
 🟢 多Agent协作 - 复杂任务分解
 
@@ -3143,10 +3161,11 @@ ReflexionOS 采用紧耦合单体架构,基于 Electron + React + FastAPI 技术
 - [ ] 错误处理完善
 - [ ] Skills完整实现
 - [ ] MCP协议实现
+- [ ] 任务接续型记忆第一阶段
 
 #### 🟢 未来扩展
 
-- [ ] 向量记忆系统
+- [ ] 向量检索与长期记忆增强
 - [ ] 插件系统
 - [ ] 多Agent协作
 - [ ] 工作流引擎
@@ -3198,11 +3217,11 @@ ReflexionOS 采用紧耦合单体架构,基于 Electron + React + FastAPI 技术
 
 - **第二阶段 (增强, Week 7-10)**: 
   - 能力提升 (搜索工具、Git工具、Skills完整实现)
-  - 体验优化 (错误处理、Prompt优化、执行历史)
+  - 体验优化 (错误处理、Prompt优化、执行历史、任务接续型记忆)
   - 多LLM支持 (Claude/Ollama适配器)
 
 - **第三阶段 (扩展, Week 11-13)**: 
-  - 智能增强 (向量记忆、知识库)
+  - 智能增强 (向量检索、知识沉淀、梦境巩固 / consolidation)
   - 生态建设 (插件系统、Gateway)
   - 高级功能 (多Agent协作)
 
