@@ -11,6 +11,9 @@ class ExecutionRepository:
     
     def __init__(self, db):
         self.db = db
+
+    def _serialize_steps(self, execution: Execution) -> list[dict]:
+        return [step.model_dump(mode="json") for step in execution.steps]
     
     def save(self, execution: Execution) -> Execution:
         """保存执行记录"""
@@ -22,7 +25,7 @@ class ExecutionRepository:
                 # 更新
                 existing.status = execution.status.value
                 existing.session_id = execution.session_id
-                existing.steps = [step.dict() for step in execution.steps]
+                existing.steps = self._serialize_steps(execution)
                 existing.result = execution.result
                 existing.total_duration = int(execution.total_duration * 1000) if execution.total_duration else None
                 existing.completed_at = execution.completed_at
@@ -36,7 +39,7 @@ class ExecutionRepository:
                     project_path=execution.project_path,
                     task=execution.task,
                     status=execution.status.value,
-                    steps=[step.dict() for step in execution.steps],
+                    steps=self._serialize_steps(execution),
                     result=execution.result,
                     total_duration=int(execution.total_duration * 1000) if execution.total_duration else None,
                     created_at=execution.created_at,

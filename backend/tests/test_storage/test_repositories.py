@@ -6,7 +6,7 @@ from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.execution_repo import ExecutionRepository
 from app.models.conversation import ConversationMessage
 from app.models.project import Project
-from app.models.execution import Execution, ExecutionStatus
+from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
 
 
 class TestProjectRepository:
@@ -167,6 +167,28 @@ class TestExecutionRepository:
         
         assert result.status == ExecutionStatus.COMPLETED
         assert result.result == "执行完成"
+
+    def test_save_execution_with_step_timestamp_serializes_cleanly(self, repo):
+        execution = Execution(
+            id="exec-step-ts",
+            project_id="proj-step-ts",
+            task="带时间戳步骤的任务",
+            steps=[
+                ExecutionStep(
+                    step_number=1,
+                    tool="shell",
+                    args={"command": "pwd"},
+                    status=StepStatus.SUCCESS,
+                )
+            ]
+        )
+
+        repo.save(execution)
+
+        result = repo.get("exec-step-ts")
+
+        assert result is not None
+        assert result.steps[0].tool == "shell"
 
 
 class TestConversationRepository:
