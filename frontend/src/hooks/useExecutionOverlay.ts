@@ -7,12 +7,17 @@ import {
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import {
   deriveSessionTitle,
+  flattenRoundsToItems,
   finalizeReceiptItem,
   formatExecutionFailureMessage,
+  trimRecentRounds,
   updateFirstMatchingDetail,
 } from '@/features/workspace/messageFlow'
+import { createStreamingBuffer } from '@/features/workspace/streamingBuffer'
 import { createOverlayRuntimeState } from './executionOverlayState'
-import type { WorkspaceChatItem } from '@/types/workspace'
+import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
+
+const LONG_STREAM_FLUSH_INTERVAL_MS = 80
 
 function createItemId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -24,6 +29,10 @@ function normalizePersistedItem(item: WorkspaceChatItem): WorkspaceChatItem {
     isStreaming: false,
     transient: false,
   }
+}
+
+function createNow() {
+  return new Date().toISOString()
 }
 
 export function useExecutionOverlay() {
@@ -41,6 +50,9 @@ export function useExecutionOverlay() {
   const thoughtFlushedRef = useRef(false)
   const currentLlmMessageIdRef = useRef<string | null>(null)
   const currentAssistantMessageIdRef = useRef<string | null>(null)
+  const activeRoundRef = useRef<WorkspaceSessionRound | null>(null)
+  const llmFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const summaryFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setOverlayState = useCallback((
     updater: WorkspaceChatItem[] | ((items: WorkspaceChatItem[]) => WorkspaceChatItem[])
@@ -92,8 +104,29 @@ export function useExecutionOverlay() {
     setOverlayState((items) => items.filter((item) => item.id !== itemId))
   }, [setOverlayState])
 
-  const appendPersistedItems = useCallback((sessionId: string, items: WorkspaceChatItem[]) => {
-    if (items.length === 0) {
+  const clearFlushTimer = useCallback((timerRef: { current: ReturnType<typeof setTimeout> | null }) => {
+    if (!timerRef.current) {
+      return
+    }
+
+    clearTimeout(timerRef.current)
+    timerRef.current = null
+  }, [])
+
+  const appendRoundItems = useCallback((items: WorkspaceChatItem[]) => {
+    if (items.length === 0 || !activeRoundRef.current) {
+      return
+    }
+
+    activeRoundRef.current = {
+      ...activeRoundRef.current,
+      items: [...activeRoundRef.current.items, ...items.map(normalizePersistedItem)],
+    }
+  }, [])
+
+  const persistActiveRound = useCallback((sessionId: string) => {
+    const round = activeRoundRef.current
+    if (!round || round.items.length === 0) {
       return
     }
 
@@ -103,16 +136,27 @@ export function useExecutionOverlay() {
       return
     }
 
-    const normalizedItems = items.map(normalizePersistedItem)
-    const nextItems = [...session.items, ...normalizedItems]
+    const nextRounds = trimRecentRounds([...session.recentRounds, round])
+    state.saveSessionRounds(sessionId, nextRounds)
 
-    state.saveSessionItems(sessionId, nextItems)
-
-    const nextTitle = deriveSessionTitle(nextItems)
+    const nextTitle = deriveSessionTitle(flattenRoundsToItems(nextRounds))
     if (nextTitle && nextTitle !== session.title) {
       state.updateSessionTitle(sessionId, nextTitle)
     }
   }, [])
+
+  const appendRoundItemsToActiveSession = useCallback((items: WorkspaceChatItem[]) => {
+    if (items.length === 0) {
+      return
+    }
+
+    appendRoundItems(items)
+  }, [appendRoundItems])
+
+  const finalizeActiveRound = useCallback((sessionId: string) => {
+    persistActiveRound(sessionId)
+    activeRoundRef.current = null
+  }, [persistActiveRound])
 
   const finalizeActiveReceipt = useCallback((forcedStatus?: ActionReceiptStatus) => {
     const sessionId = activeSessionIdRef.current
@@ -128,12 +172,12 @@ export function useExecutionOverlay() {
       return
     }
 
-    appendPersistedItems(sessionId, [
+    appendRoundItemsToActiveSession([
       finalizeReceiptItem(receiptItem, forcedStatus),
     ])
     removeOverlayItem(receiptId)
     activeReceiptIdRef.current = null
-  }, [appendPersistedItems, getOverlayItem, removeOverlayItem])
+  }, [appendRoundItemsToActiveSession, getOverlayItem, removeOverlayItem])
 
   const ensureReceiptItem = useCallback(() => {
     if (activeReceiptIdRef.current) {
@@ -217,8 +261,42 @@ export function useExecutionOverlay() {
     }))
   }, [ensureStreamingLlmMessage, updateOverlayItem])
 
+  const llmBufferRef = useRef(createStreamingBuffer({
+    onFlush: (chunk) => {
+      appendStreamingLlmToken(chunk)
+    },
+  }))
+
+  const summaryBufferRef = useRef(createStreamingBuffer({
+    onFlush: (chunk) => {
+      appendStreamingAssistantToken(chunk)
+    },
+  }))
+
+  const scheduleBufferedFlush = useCallback((
+    timerRef: { current: ReturnType<typeof setTimeout> | null },
+    flush: () => void
+  ) => {
+    if (timerRef.current) {
+      return
+    }
+
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      flush()
+    }, LONG_STREAM_FLUSH_INTERVAL_MS)
+  }, [])
+
+  const flushAllStreamingBuffers = useCallback(() => {
+    clearFlushTimer(llmFlushTimerRef)
+    clearFlushTimer(summaryFlushTimerRef)
+    llmBufferRef.current.flush()
+    summaryBufferRef.current.flush()
+  }, [clearFlushTimer])
+
   const flushStreamingAgentUpdate = useCallback((fallbackContent = '') => {
     const sessionId = activeSessionIdRef.current
+    flushAllStreamingBuffers()
     const content = (llmStreamingRef.current || fallbackContent).trim()
 
     if (!content) {
@@ -231,11 +309,13 @@ export function useExecutionOverlay() {
     }
 
     if (sessionId) {
-      appendPersistedItems(sessionId, [{
+      appendRoundItemsToActiveSession([
+        {
         id: createItemId('update'),
         type: 'agent-update',
         content,
-      }])
+        },
+      ])
     }
 
     if (currentLlmMessageIdRef.current) {
@@ -245,10 +325,11 @@ export function useExecutionOverlay() {
     currentLlmMessageIdRef.current = null
     llmStreamingRef.current = ''
     thoughtFlushedRef.current = true
-  }, [appendPersistedItems, removeOverlayItem])
+  }, [appendRoundItemsToActiveSession, flushAllStreamingBuffers, removeOverlayItem])
 
   const finalizeStreamingLlmAsAssistant = useCallback((finalContent?: string) => {
     const sessionId = activeSessionIdRef.current
+    flushAllStreamingBuffers()
     const messageId = currentLlmMessageIdRef.current || currentStatusItemIdRef.current
     const sourceItem = messageId ? getOverlayItem(messageId) : null
     const content = (finalContent || sourceItem?.content || '').trim()
@@ -258,16 +339,19 @@ export function useExecutionOverlay() {
     }
 
     if (sessionId && content) {
-      appendPersistedItems(sessionId, [{
+      appendRoundItemsToActiveSession([
+        {
         id: createItemId('assistant'),
         type: 'assistant-message',
         content,
-      }])
+        },
+      ])
+      finalizeActiveRound(sessionId)
     }
 
     currentLlmMessageIdRef.current = null
     currentStatusItemIdRef.current = null
-  }, [appendPersistedItems, getOverlayItem, removeOverlayItem])
+  }, [appendRoundItemsToActiveSession, finalizeActiveRound, flushAllStreamingBuffers, getOverlayItem, removeOverlayItem])
 
   const ensureStreamingAssistantMessage = useCallback((initialContent = '') => {
     if (currentAssistantMessageIdRef.current) {
@@ -316,6 +400,7 @@ export function useExecutionOverlay() {
 
   const finalizeStreamingAssistantMessage = useCallback((finalContent?: string) => {
     const sessionId = activeSessionIdRef.current
+    flushAllStreamingBuffers()
     const messageId = currentAssistantMessageIdRef.current
     const sourceItem = messageId ? getOverlayItem(messageId) : null
     const content = (finalContent || sourceItem?.content || '').trim()
@@ -325,15 +410,18 @@ export function useExecutionOverlay() {
     }
 
     if (sessionId && content) {
-      appendPersistedItems(sessionId, [{
+      appendRoundItemsToActiveSession([
+        {
         id: createItemId('assistant'),
         type: 'assistant-message',
         content,
-      }])
+        },
+      ])
+      finalizeActiveRound(sessionId)
     }
 
     currentAssistantMessageIdRef.current = null
-  }, [appendPersistedItems, getOverlayItem, removeOverlayItem])
+  }, [appendRoundItemsToActiveSession, finalizeActiveRound, flushAllStreamingBuffers, getOverlayItem, removeOverlayItem])
 
   const appendReceiptDetail = useCallback((toolName: string, args?: Record<string, unknown>) => {
     const receiptId = ensureReceiptItem()
@@ -369,9 +457,13 @@ export function useExecutionOverlay() {
   }, [updateOverlayItem])
 
   const clearTransientState = useCallback(() => {
+    flushAllStreamingBuffers()
+    llmBufferRef.current.reset()
+    summaryBufferRef.current.reset()
+    activeRoundRef.current = null
     setOverlayState([])
     resetRuntimeRefs()
-  }, [resetRuntimeRefs, setOverlayState])
+  }, [flushAllStreamingBuffers, resetRuntimeRefs, setOverlayState])
 
   const setCurrentExecutionId = useCallback((executionId: string | null) => {
     currentExecutionIdRef.current = executionId
@@ -393,8 +485,12 @@ export function useExecutionOverlay() {
       transient: true,
     }
 
-    appendPersistedItems(payload.sessionId, [userItem])
     setOverlayState([statusItem])
+    activeRoundRef.current = {
+      id: createItemId('round'),
+      createdAt: createNow(),
+      items: [normalizePersistedItem(userItem)],
+    }
 
     llmStreamingRef.current = ''
     summaryStartedRef.current = false
@@ -407,7 +503,7 @@ export function useExecutionOverlay() {
     currentAssistantMessageIdRef.current = null
     currentExecutionIdRef.current = null
     activeSessionIdRef.current = payload.sessionId
-  }, [appendPersistedItems, setOverlayState])
+  }, [setOverlayState])
 
   const handleConnectionFailure = useCallback((message: string) => {
     const sessionId = activeSessionIdRef.current
@@ -418,17 +514,21 @@ export function useExecutionOverlay() {
     removeStatusBubble()
 
     if (sessionId && message) {
-      appendPersistedItems(sessionId, [{
+      appendRoundItemsToActiveSession([
+        {
         id: createItemId('assistant'),
         type: 'assistant-message',
         content: message,
-      }])
+        },
+      ])
+      finalizeActiveRound(sessionId)
     }
 
     clearTransientState()
   }, [
-    appendPersistedItems,
+    appendRoundItemsToActiveSession,
     clearTransientState,
+    finalizeActiveRound,
     finalizeActiveReceipt,
     finalizeStreamingAssistantMessage,
     flushStreamingAgentUpdate,
@@ -439,13 +539,18 @@ export function useExecutionOverlay() {
     finalizeActiveReceipt()
     thoughtFlushedRef.current = false
     llmStreamingRef.current = ''
+    llmBufferRef.current.reset()
+    clearFlushTimer(llmFlushTimerRef)
     updateStatusBubble('正在思考中')
-  }, [finalizeActiveReceipt, updateStatusBubble])
+  }, [clearFlushTimer, finalizeActiveReceipt, updateStatusBubble])
 
   const handleLlmContent = useCallback((content: string) => {
     llmStreamingRef.current += content
-    appendStreamingLlmToken(content)
-  }, [appendStreamingLlmToken])
+    llmBufferRef.current.push(content)
+    scheduleBufferedFlush(llmFlushTimerRef, () => {
+      llmBufferRef.current.flush()
+    })
+  }, [scheduleBufferedFlush])
 
   const handleLlmThought = useCallback((content: string) => {
     flushStreamingAgentUpdate(content)
@@ -499,15 +604,20 @@ export function useExecutionOverlay() {
   const handleSummaryStart = useCallback(() => {
     finalizeActiveReceipt()
     summaryStartedRef.current = true
+    summaryBufferRef.current.reset()
+    clearFlushTimer(summaryFlushTimerRef)
     if (executionHasReceiptsRef.current) {
       removeStatusBubble()
     }
     ensureStreamingAssistantMessage('')
-  }, [ensureStreamingAssistantMessage, finalizeActiveReceipt, removeStatusBubble])
+  }, [clearFlushTimer, ensureStreamingAssistantMessage, finalizeActiveReceipt, removeStatusBubble])
 
   const handleSummaryToken = useCallback((token: string) => {
-    appendStreamingAssistantToken(token)
-  }, [appendStreamingAssistantToken])
+    summaryBufferRef.current.push(token)
+    scheduleBufferedFlush(summaryFlushTimerRef, () => {
+      summaryBufferRef.current.flush()
+    })
+  }, [scheduleBufferedFlush])
 
   const handleSummaryComplete = useCallback((summary: string) => {
     finalizeActiveReceipt()
@@ -542,11 +652,14 @@ export function useExecutionOverlay() {
       flushStreamingAgentUpdate()
       const failureMessage = formatExecutionFailureMessage(data.result)
       if (failureMessage && activeSessionIdRef.current) {
-        appendPersistedItems(activeSessionIdRef.current, [{
+        appendRoundItemsToActiveSession([
+          {
           id: createItemId('assistant'),
           type: 'assistant-message',
           content: failureMessage,
-        }])
+          },
+        ])
+        finalizeActiveRound(activeSessionIdRef.current)
       }
       clearTransientState()
       return { failed: true }
@@ -563,7 +676,9 @@ export function useExecutionOverlay() {
     clearTransientState()
     return { failed: false }
   }, [
+    appendRoundItemsToActiveSession,
     clearTransientState,
+    finalizeActiveRound,
     finalizeActiveReceipt,
     finalizeStreamingAssistantMessage,
     finalizeStreamingLlmAsAssistant,
@@ -580,17 +695,21 @@ export function useExecutionOverlay() {
     removeStatusBubble()
 
     if (sessionId) {
-      appendPersistedItems(sessionId, [{
+      appendRoundItemsToActiveSession([
+        {
         id: createItemId('assistant'),
         type: 'assistant-message',
         content: `错误: ${error}`,
-      }])
+        },
+      ])
+      finalizeActiveRound(sessionId)
     }
 
     clearTransientState()
   }, [
-    appendPersistedItems,
+    appendRoundItemsToActiveSession,
     clearTransientState,
+    finalizeActiveRound,
     finalizeActiveReceipt,
     finalizeStreamingAssistantMessage,
     flushStreamingAgentUpdate,

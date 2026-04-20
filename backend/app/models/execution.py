@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 from enum import Enum
 import uuid
@@ -41,6 +41,7 @@ class ExecutionBase(BaseModel):
 
 class ExecutionCreate(ExecutionBase):
     project_id: str
+    session_id: str
 
 
 class Execution(ExecutionBase):
@@ -50,11 +51,13 @@ class Execution(ExecutionBase):
     )
 
     project_id: str = ""
+    session_id: str = ""
     project_path: str = ""
     id: str = Field(default_factory=lambda: f"exec-{uuid.uuid4().hex[:8]}")
     status: ExecutionStatus = ExecutionStatus.PENDING
     steps: List[ExecutionStep] = []
     result: Optional[str] = None
+    transcript_items: List[Dict[str, Any]] = Field(default_factory=list)
     total_duration: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: Optional[datetime] = None

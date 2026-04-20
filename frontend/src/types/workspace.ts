@@ -18,13 +18,19 @@ export interface WorkspaceChatItem {
   transient?: boolean
 }
 
+export interface WorkspaceSessionRound {
+  id: string
+  createdAt: string
+  items: WorkspaceChatItem[]
+}
+
 export interface ChatSession {
   id: string
   projectId: string
   title: string
   preferredProviderId?: string
   preferredModelId?: string
-  items: WorkspaceChatItem[]
+  recentRounds: WorkspaceSessionRound[]
   createdAt: string
   updatedAt: string
 }

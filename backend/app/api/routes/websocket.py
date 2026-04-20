@@ -37,12 +37,14 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     # 启动任务
                     task = msg_data.get("task", "")
                     project_id = msg_data.get("project_id", "")
+                    session_id = msg_data.get("session_id", "")
                     provider_id = msg_data.get("provider_id")
                     model_id = msg_data.get("model_id")
                     
                     # 创建执行
                     execution_create = ExecutionCreate(
                         project_id=project_id,
+                        session_id=session_id,
                         task=task,
                         provider_id=provider_id,
                         model_id=model_id,

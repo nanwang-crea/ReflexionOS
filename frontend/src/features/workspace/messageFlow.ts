@@ -3,7 +3,7 @@ import type {
   ActionReceiptStatus,
   ReceiptDetailStatus,
 } from '@/components/execution/receiptUtils'
-import type { WorkspaceChatItem } from '@/types/workspace'
+import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
 
 export function deriveSessionTitle(items: WorkspaceChatItem[]) {
   const firstUserMessage = items.find((item) => item.type === 'user-message' && item.content)?.content?.trim()
@@ -68,6 +68,14 @@ export function mergeRenderItems(
   overlayItems: WorkspaceChatItem[]
 ) {
   return [...persistedItems, ...overlayItems]
+}
+
+export function trimRecentRounds(rounds: WorkspaceSessionRound[]) {
+  return rounds.slice(-10)
+}
+
+export function flattenRoundsToItems(rounds: WorkspaceSessionRound[]) {
+  return rounds.flatMap((round) => round.items)
 }
 
 export function formatExecutionFailureMessage(result?: string | null) {

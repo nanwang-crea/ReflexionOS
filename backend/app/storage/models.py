@@ -24,6 +24,7 @@ class ExecutionModel(Base):
     
     id = Column(String, primary_key=True)
     project_id = Column(String, nullable=False, index=True)
+    session_id = Column(String, nullable=False, index=True)
     project_path = Column(String, nullable=False)
     task = Column(Text, nullable=False)
     status = Column(String, default="pending", index=True)
@@ -40,8 +41,13 @@ class ConversationModel(Base):
     
     id = Column(String, primary_key=True)
     execution_id = Column(String, nullable=False, index=True)
-    role = Column(String, nullable=False)  # user, assistant, system
-    content = Column(Text, nullable=False)
+    session_id = Column(String, nullable=False, index=True)
+    project_id = Column(String, nullable=False, index=True)
+    item_type = Column(String, nullable=False)
+    content = Column(Text, nullable=False, default="")
+    receipt_status = Column(String)
+    details_json = Column(JSON, default=[])
+    sequence = Column(Integer, default=0, nullable=False)
     timestamp = Column(DateTime, default=datetime.now)
 
 

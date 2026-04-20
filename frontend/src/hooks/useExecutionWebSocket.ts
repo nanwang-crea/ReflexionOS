@@ -58,6 +58,7 @@ export function useExecutionWebSocket({
   }, [])
 
   const startSocketExecution = useCallback((payload: {
+    sessionId: string
     message: string
     projectId: string
     providerId: string
@@ -65,6 +66,7 @@ export function useExecutionWebSocket({
   }) => {
     wsRef.current?.startExecution(
       payload.message,
+      payload.sessionId,
       payload.projectId,
       payload.providerId,
       payload.modelId

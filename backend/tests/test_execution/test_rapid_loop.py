@@ -239,6 +239,24 @@ class TestRapidExecutionLoop:
         
         assert result.status.value == "completed"
         assert len(result.steps) == 5
+
+    @pytest.mark.asyncio
+    async def test_execution_metadata_contains_receipt_and_agent_update_items(self, execution_loop, mock_llm):
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                content="先检查文件",
+                tool_calls=[LLMToolCall(name="mock", arguments={})],
+                finish_reason="tool_calls"
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("检查项目")
+
+        transcript = result.transcript_items
+        assert any(item["item_type"] == "agent-update" for item in transcript)
+        assert any(item["item_type"] == "action-receipt" for item in transcript)
     
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):

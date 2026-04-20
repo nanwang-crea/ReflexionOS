@@ -2,7 +2,9 @@ import pytest
 from pathlib import Path
 from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
+from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.execution_repo import ExecutionRepository
+from app.models.conversation import ConversationMessage
 from app.models.project import Project
 from app.models.execution import Execution, ExecutionStatus
 
@@ -118,6 +120,21 @@ class TestExecutionRepository:
         
         assert result is not None
         assert result.task == "测试任务2"
+
+    def test_save_execution_with_session_id(self, repo):
+        execution = Execution(
+            id="exec-session",
+            project_id="proj-session",
+            session_id="session-123",
+            task="带会话的任务"
+        )
+
+        repo.save(execution)
+
+        result = repo.get("exec-session")
+
+        assert result is not None
+        assert result.session_id == "session-123"
     
     def test_list_by_project(self, repo):
         for i in range(3):
@@ -150,3 +167,70 @@ class TestExecutionRepository:
         
         assert result.status == ExecutionStatus.COMPLETED
         assert result.result == "执行完成"
+
+
+class TestConversationRepository:
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        return Database(db_path)
+
+    @pytest.fixture
+    def repo(self, db):
+        return ConversationRepository(db)
+
+    def test_save_and_list_by_session(self, repo):
+        repo.save_messages([
+            ConversationMessage(
+                id="msg-1",
+                execution_id="exec-1",
+                session_id="session-a",
+                project_id="proj-1",
+                item_type="user-message",
+                content="hello",
+                receipt_status=None,
+                details_json=[],
+                sequence=0,
+                created_at=__import__('datetime').datetime.now(),
+            ),
+            ConversationMessage(
+                id="msg-2",
+                execution_id="exec-1",
+                session_id="session-a",
+                project_id="proj-1",
+                item_type="assistant-message",
+                content="world",
+                receipt_status=None,
+                details_json=[],
+                sequence=1,
+                created_at=__import__('datetime').datetime.now(),
+            ),
+        ])
+
+        result = repo.list_by_session("session-a")
+
+        assert [message.id for message in result] == ["msg-1", "msg-2"]
+        assert [message.item_type for message in result] == ["user-message", "assistant-message"]
+
+    def test_save_and_list_transcript_items_with_receipts(self, repo):
+        repo.save_messages([
+            ConversationMessage(
+                id="receipt-1",
+                execution_id="exec-1",
+                session_id="session-a",
+                project_id="proj-1",
+                item_type="action-receipt",
+                content="",
+                receipt_status="completed",
+                details_json=[{"title": "Read file", "status": "success"}],
+                sequence=2,
+                created_at=__import__('datetime').datetime.now(),
+            )
+        ])
+
+        result = repo.list_by_session("session-a")
+
+        assert result[0].item_type == "action-receipt"
+        assert result[0].receipt_status == "completed"
+        assert result[0].details_json == [{"title": "Read file", "status": "success"}]

@@ -21,6 +21,7 @@ class ExecutionRepository:
             if existing:
                 # 更新
                 existing.status = execution.status.value
+                existing.session_id = execution.session_id
                 existing.steps = [step.dict() for step in execution.steps]
                 existing.result = execution.result
                 existing.total_duration = int(execution.total_duration * 1000) if execution.total_duration else None
@@ -31,6 +32,7 @@ class ExecutionRepository:
                 model = ExecutionModel(
                     id=execution.id,
                     project_id=execution.project_id,
+                    session_id=execution.session_id,
                     project_path=execution.project_path,
                     task=execution.task,
                     status=execution.status.value,
@@ -53,6 +55,7 @@ class ExecutionRepository:
                 return Execution(
                     id=model.id,
                     project_id=model.project_id,
+                    session_id=model.session_id,
                     project_path=model.project_path,
                     task=model.task,
                     status=ExecutionStatus(model.status),
@@ -79,6 +82,7 @@ class ExecutionRepository:
                 Execution(
                     id=m.id,
                     project_id=m.project_id,
+                    session_id=m.session_id,
                     project_path=m.project_path,
                     task=m.task,
                     status=ExecutionStatus(m.status),
@@ -104,6 +108,7 @@ class ExecutionRepository:
                 Execution(
                     id=m.id,
                     project_id=m.project_id,
+                    session_id=m.session_id,
                     project_path=m.project_path,
                     task=m.task,
                     status=ExecutionStatus(m.status),

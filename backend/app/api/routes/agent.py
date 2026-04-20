@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional
+from app.models.conversation import ConversationMessage
 from app.models.execution import Execution, ExecutionCreate
 from app.services.agent_service import agent_service
 
@@ -29,6 +30,12 @@ async def get_execution_status(execution_id: str):
 async def get_execution_history(project_id: str):
     """获取执行历史"""
     return agent_service.list_executions(project_id)
+
+
+@router.get("/history/session/{session_id}", response_model=List[ConversationMessage])
+async def get_session_history(session_id: str):
+    """获取单个 session 的消息历史"""
+    return agent_service.get_session_history(session_id)
 
 
 @router.post("/cancel/{execution_id}", response_model=Execution)

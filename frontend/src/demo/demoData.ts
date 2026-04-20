@@ -88,33 +88,39 @@ export const demoSessions: ChatSession[] = [
     preferredModelId: 'demo-model-qwen',
     createdAt: createIso(60),
     updatedAt: createIso(4),
-    items: [
+    recentRounds: [
       {
-        id: 'demo-user-1',
-        type: 'user-message',
-        content: 'Make the Electron desktop bootstrap more reliable and easier to inspect.',
-      },
-      {
-        id: 'demo-update-1',
-        type: 'agent-update',
-        content: 'I checked the Electron entrypoint and the backend manager first so I could verify the full startup path before changing anything.',
-      },
-      {
-        id: 'demo-receipt-1',
-        type: 'action-receipt',
-        receiptStatus: 'completed',
-        details: workspaceReceiptDetails,
-      },
-      {
-        id: 'demo-assistant-1',
-        type: 'assistant-message',
-        content: [
-          'Updated the desktop bootstrap so the app is easier to start and diagnose.',
-          '',
-          '- The backend manager now prefers a Python interpreter that already has the required runtime packages.',
-          '- Electron can start the local FastAPI backend and verify `/health` before opening the workspace.',
-          '- The README now defaults to the desktop flow with `pnpm` commands.',
-        ].join('\n'),
+        id: 'demo-round-1',
+        createdAt: createIso(58),
+        items: [
+          {
+            id: 'demo-user-1',
+            type: 'user-message',
+            content: 'Make the Electron desktop bootstrap more reliable and easier to inspect.',
+          },
+          {
+            id: 'demo-update-1',
+            type: 'agent-update',
+            content: 'I checked the Electron entrypoint and the backend manager first so I could verify the full startup path before changing anything.',
+          },
+          {
+            id: 'demo-receipt-1',
+            type: 'action-receipt',
+            receiptStatus: 'completed',
+            details: workspaceReceiptDetails,
+          },
+          {
+            id: 'demo-assistant-1',
+            type: 'assistant-message',
+            content: [
+              'Updated the desktop bootstrap so the app is easier to start and diagnose.',
+              '',
+              '- The backend manager now prefers a Python interpreter that already has the required runtime packages.',
+              '- Electron can start the local FastAPI backend and verify `/health` before opening the workspace.',
+              '- The README now defaults to the desktop flow with `pnpm` commands.',
+            ].join('\n'),
+          },
+        ],
       },
     ],
   },
@@ -124,7 +130,7 @@ export const demoSessions: ChatSession[] = [
     title: 'Stream execution receipts in chat',
     createdAt: createIso(180),
     updatedAt: createIso(48),
-    items: [],
+    recentRounds: [],
   },
   {
     id: 'demo-session-runtime',
@@ -132,7 +138,7 @@ export const demoSessions: ChatSession[] = [
     title: 'Audit tool registry flow',
     createdAt: createIso(260),
     updatedAt: createIso(130),
-    items: [],
+    recentRounds: [],
   },
 ]
 

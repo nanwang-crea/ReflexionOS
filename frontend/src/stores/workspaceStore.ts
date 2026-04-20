@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { demoWorkspaceState, isDemoMode } from '@/demo/demoData'
-import type { ChatSession, WorkspaceChatItem } from '@/types/workspace'
+import type { ChatSession, WorkspaceSessionRound } from '@/types/workspace'
+import { trimRecentRounds } from '@/features/workspace/messageFlow'
 
 interface WorkspaceState {
   sessions: ChatSession[]
@@ -18,7 +19,7 @@ interface WorkspaceState {
     preferredModelId?: string | null
   ) => ChatSession
   setCurrentSessionId: (sessionId: string | null) => void
-  saveSessionItems: (sessionId: string, items: WorkspaceChatItem[]) => void
+  saveSessionRounds: (sessionId: string, rounds: WorkspaceSessionRound[]) => void
   updateSessionTitle: (sessionId: string, title: string) => void
   updateSessionPreferences: (
     sessionId: string,
@@ -50,13 +51,6 @@ function upsertExpanded(list: string[], value: string, expanded: boolean) {
   return list.filter(item => item !== value)
 }
 
-function stripTransientItems(sessions: ChatSession[]) {
-  return sessions.map((session) => ({
-    ...session,
-    items: session.items.filter((item) => !item.transient)
-  }))
-}
-
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
@@ -80,7 +74,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           title,
           preferredProviderId: preferredProviderId || undefined,
           preferredModelId: preferredModelId || undefined,
-          items: [],
+          recentRounds: [],
           createdAt: now,
           updatedAt: now
         }
@@ -95,15 +89,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
 
         return session
       },
-
+      
       setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
 
-      saveSessionItems: (sessionId, items) => set((state) => ({
+      saveSessionRounds: (sessionId, rounds) => set((state) => ({
         sessions: state.sessions.map((session) => (
           session.id === sessionId
             ? {
                 ...session,
-                items,
+                recentRounds: trimRecentRounds(rounds),
                 updatedAt: createNow()
               }
             : session
@@ -197,7 +191,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       name: isDemoMode() ? 'reflexion-workspace-demo' : 'reflexion-workspace',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        sessions: stripTransientItems(state.sessions),
+        sessions: state.sessions,
         currentSessionId: state.currentSessionId,
         expandedProjectIds: state.expandedProjectIds,
         expandedSessionProjectIds: state.expandedSessionProjectIds,

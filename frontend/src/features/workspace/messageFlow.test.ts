@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { WorkspaceChatItem } from '@/types/workspace'
+import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
 import {
   deriveSessionTitle,
+  flattenRoundsToItems,
   finalizeReceiptItem,
   formatExecutionFailureMessage,
   mergeRenderItems,
+  trimRecentRounds,
 } from './messageFlow'
 
 describe('deriveSessionTitle', () => {
@@ -77,6 +79,33 @@ describe('mergeRenderItems', () => {
       'user-1',
       'status-1',
     ])
+  })
+})
+
+describe('trimRecentRounds', () => {
+  it('keeps only the latest 10 rounds', () => {
+    const rounds: WorkspaceSessionRound[] = Array.from({ length: 12 }, (_, index) => ({
+      id: `round-${index + 1}`,
+      createdAt: `${index + 1}`,
+      items: [],
+    }))
+
+    expect(trimRecentRounds(rounds)).toHaveLength(10)
+    expect(trimRecentRounds(rounds)[0].id).toBe('round-3')
+  })
+})
+
+describe('flattenRoundsToItems', () => {
+  it('returns render items in round order', () => {
+    const rounds: WorkspaceSessionRound[] = [
+      {
+        id: 'round-1',
+        createdAt: '1',
+        items: [{ id: 'user-1', type: 'user-message', content: 'hello' }],
+      },
+    ]
+
+    expect(flattenRoundsToItems(rounds).map((item) => item.id)).toEqual(['user-1'])
   })
 })
 

@@ -76,6 +76,8 @@ class RapidExecutionLoop:
         task: str,
         project_path: Optional[str] = None,
         execution_id: Optional[str] = None,
+        session_id: str = "",
+        project_id: str = "",
         created_at: Optional[datetime] = None
     ) -> Execution:
         """
@@ -92,7 +94,8 @@ class RapidExecutionLoop:
         
         execution = Execution(
             id=execution_id or f"exec-{uuid.uuid4().hex[:8]}",
-            project_id="",
+            project_id=project_id,
+            session_id=session_id,
             project_path=project_path or "",
             task=task,
             status=ExecutionStatus.RUNNING,
@@ -253,6 +256,97 @@ class RapidExecutionLoop:
         finally:
             execution.total_duration = time.time() - start_time
             execution.completed_at = datetime.now()
+
+            transcript_items = []
+            step_iter = iter(execution.steps)
+
+            for message in context.messages:
+                role = message["role"]
+                content = message.get("content") or ""
+                created_at = datetime.fromisoformat(message["timestamp"])
+
+                if role == "user" and content:
+                    transcript_items.append({
+                        "item_type": "user-message",
+                        "content": content,
+                        "receipt_status": None,
+                        "details_json": [],
+                        "created_at": created_at,
+                    })
+                    continue
+
+                if role == "assistant" and message.get("tool_calls"):
+                    if content:
+                        transcript_items.append({
+                            "item_type": "agent-update",
+                            "content": content,
+                            "receipt_status": None,
+                            "details_json": [],
+                            "created_at": created_at,
+                        })
+
+                    tool_call_steps = []
+                    for _tool_call in message.get("tool_calls", []):
+                        try:
+                            tool_call_steps.append(next(step_iter))
+                        except StopIteration:
+                            break
+
+                    if tool_call_steps:
+                        details_json = [
+                            {
+                                "id": step.id,
+                                "toolName": step.tool,
+                                "status": "success" if step.status == StepStatus.SUCCESS else "failed",
+                                "summary": f"执行 {step.tool}",
+                                "category": "other",
+                                "output": step.output,
+                                "error": step.error,
+                                "duration": step.duration,
+                                "arguments": step.args,
+                            }
+                            for step in tool_call_steps
+                        ]
+
+                        receipt_status = (
+                            "failed"
+                            if any(step.status == StepStatus.FAILED for step in tool_call_steps)
+                            else "completed"
+                        )
+
+                        transcript_items.append({
+                            "item_type": "action-receipt",
+                            "content": "",
+                            "receipt_status": receipt_status,
+                            "details_json": details_json,
+                            "created_at": created_at,
+                        })
+                    continue
+
+                if role == "assistant" and content:
+                    transcript_items.append({
+                        "item_type": "assistant-message",
+                        "content": content,
+                        "receipt_status": None,
+                        "details_json": [],
+                        "created_at": created_at,
+                    })
+
+            execution.transcript_items = [
+                {
+                    "id": f"conv-{execution.id}-{index}",
+                    "execution_id": execution.id,
+                    "session_id": session_id,
+                    "project_id": project_id,
+                    "item_type": item["item_type"],
+                    "content": item["content"],
+                    "receipt_status": item["receipt_status"],
+                    "details_json": item["details_json"],
+                    "sequence": index,
+                    "created_at": item["created_at"],
+                }
+                for index, item in enumerate(transcript_items)
+            ]
             
             # 发送完成事件
             if execution.status != ExecutionStatus.CANCELLED:

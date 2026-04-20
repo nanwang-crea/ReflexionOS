@@ -3,9 +3,13 @@ import { isDemoMode } from '@/demo/demoData'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
+import { agentApi } from '@/services/apiClient'
 import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
+import type { TranscriptArchiveItem, TranscriptArchiveItemType } from '@/features/workspace/transcriptArchive'
+import { buildRoundsFromTranscriptArchive } from '@/features/workspace/transcriptArchive'
 import { useExecutionRuntime } from '@/hooks/useExecutionRuntime'
-import { mergeRenderItems } from '@/features/workspace/messageFlow'
+import { flattenRoundsToItems, mergeRenderItems } from '@/features/workspace/messageFlow'
 import {
   getAvailableProviders,
   getEnabledModels,
@@ -29,7 +33,7 @@ export default function AgentWorkspace() {
     sessions,
     currentSessionId,
     createSession,
-    saveSessionItems,
+    saveSessionRounds,
     updateSessionPreferences,
   } = useWorkspaceStore()
   const { status } = useExecutionStore()
@@ -69,8 +73,8 @@ export default function AgentWorkspace() {
   )
 
   const renderItems = useMemo(
-    () => mergeRenderItems(currentSession?.items || [], overlayItems),
-    [currentSession?.items, overlayItems]
+    () => mergeRenderItems(flattenRoundsToItems(currentSession?.recentRounds || []), overlayItems),
+    [currentSession?.recentRounds, overlayItems]
   )
 
   useEffect(() => {
@@ -82,6 +86,38 @@ export default function AgentWorkspace() {
       console.error('Failed to load LLM settings:', error)
     })
   }, [])
+
+  useEffect(() => {
+    if (!currentSessionId || demoMode) {
+      return
+    }
+
+    agentApi.getSessionHistory(currentSessionId)
+      .then((response) => {
+        const archive: TranscriptArchiveItem[] = response.data.map((message: {
+          id: string
+          item_type: TranscriptArchiveItemType
+          content: string
+          receipt_status: ActionReceiptStatus | null
+          details_json: ActionReceiptDetail[]
+          sequence: number
+          created_at: string
+        }) => ({
+          id: message.id,
+          itemType: message.item_type,
+          content: message.content,
+          receiptStatus: message.receipt_status,
+          detailsJson: message.details_json,
+          sequence: message.sequence,
+          createdAt: message.created_at,
+        }))
+        const rounds = buildRoundsFromTranscriptArchive(archive)
+        saveSessionRounds(currentSessionId, rounds)
+      })
+      .catch((error) => {
+        console.error('Failed to load session history:', error)
+      })
+  }, [currentSessionId, demoMode, saveSessionRounds])
 
   useEffect(() => {
     const nextSelection = resolveSessionSelection({
@@ -234,9 +270,9 @@ export default function AgentWorkspace() {
     resetExecutionRuntime()
 
     if (currentSessionId) {
-      saveSessionItems(currentSessionId, [])
+      saveSessionRounds(currentSessionId, [])
     }
-  }, [currentSessionId, resetExecutionRuntime, saveSessionItems])
+  }, [currentSessionId, resetExecutionRuntime, saveSessionRounds])
 
   const inputBusy = status === 'running' || status === 'cancelling'
   const providerOptions = availableProviders.map((provider) => ({

@@ -11,6 +11,7 @@ from app.api.websocket import ws_manager
 from app.config.settings import config_manager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm import LLMAdapterFactory
+from app.models.conversation import ConversationMessage
 from app.models.execution import Execution, ExecutionCreate, ExecutionStatus
 from app.models.llm_config import (
     DefaultLLMSelection,
@@ -24,6 +25,7 @@ from app.models.llm_config import (
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.storage.database import db
+from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.execution_repo import ExecutionRepository
 from app.storage.repositories.project_repo import ProjectRepository
 from app.tools.file_tool import FileTool
@@ -45,6 +47,7 @@ class AgentService:
         self.executions: Dict[str, Execution] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.execution_repo = execution_repo or ExecutionRepository(db)
+        self.conversation_repo = ConversationRepository(db)
         self.project_repo = project_repo or ProjectRepository(db)
         self.tool_registry = self._init_tool_registry()
         self.llm_settings = self._load_llm_settings()
@@ -410,6 +413,7 @@ class AgentService:
         project_path = project.path
         execution = Execution(
             project_id=project.id,
+            session_id=execution_create.session_id,
             project_path=project_path,
             task=execution_create.task,
             provider_id=execution_create.provider_id,
@@ -460,10 +464,13 @@ class AgentService:
             task=execution.task,
             project_path=execution.project_path,
             execution_id=execution.id,
+            session_id=execution.session_id,
+            project_id=execution.project_id,
             created_at=execution.created_at
         )
 
         self._persist_execution(result)
+        self._persist_conversation_history(result)
         logger.info(
             "任务执行完成: %s - %s - provider=%s model=%s",
             execution_id,
@@ -564,6 +571,19 @@ class AgentService:
         if project_id:
             return self.execution_repo.list_by_project(project_id)
         return self.execution_repo.list_all()
+
+    def get_session_history(self, session_id: str) -> list[ConversationMessage]:
+        return self.conversation_repo.list_by_session(session_id)
+
+    def _persist_conversation_history(self, execution: Execution) -> None:
+        messages = execution.transcript_items
+        if not messages:
+            return
+
+        self.conversation_repo.save_messages([
+            ConversationMessage(**message)
+            for message in messages
+        ])
 
 
 agent_service = AgentService()

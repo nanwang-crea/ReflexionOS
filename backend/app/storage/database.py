@@ -57,7 +57,19 @@ class Database:
             return
 
         columns = {column["name"] for column in inspector.get_columns("executions")}
-        if "project_path" in columns:
+        execution_schema_ok = "project_path" in columns and "session_id" in columns
+
+        conversation_schema_ok = True
+        if "conversations" in inspector.get_table_names():
+            conversation_columns = {column["name"] for column in inspector.get_columns("conversations")}
+            conversation_schema_ok = {
+                "item_type",
+                "receipt_status",
+                "details_json",
+                "sequence",
+            }.issubset(conversation_columns)
+
+        if execution_schema_ok and conversation_schema_ok:
             return
 
         logger.warning("检测到旧版执行表结构，重建数据库以切换到新项目执行模型")

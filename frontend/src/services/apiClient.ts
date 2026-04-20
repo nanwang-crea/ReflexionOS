@@ -4,6 +4,7 @@ import type {
   ProviderConnectionTestRequest,
   ProviderInstance,
 } from '@/types/llm'
+import type { TranscriptArchiveItem, TranscriptArchiveItemType } from '@/features/workspace/transcriptArchive'
 import { getApiBaseUrl } from './runtimeConfig'
 
 const apiClient = axios.create({
@@ -24,6 +25,16 @@ export const projectApi = {
 export const agentApi = {
   cancel: (executionId: string) =>
     apiClient.post(`/api/agent/cancel/${executionId}`),
+  getSessionHistory: (sessionId: string) =>
+    apiClient.get<Array<{
+      id: string
+      item_type: TranscriptArchiveItemType
+      content: string
+      receipt_status: TranscriptArchiveItem['receiptStatus']
+      details_json: TranscriptArchiveItem['detailsJson']
+      sequence: number
+      created_at: string
+    }>>(`/api/agent/history/session/${sessionId}`),
 }
 
 export const llmApi = {

@@ -18,7 +18,6 @@ class ExecutionContext:
         self.messages: List[Dict[str, Any]] = []
         self.current_step_number = 0
         self.workspace_snapshot: Dict[str, Any] = {}
-        self.metadata: Dict[str, Any] = {}
     
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""
