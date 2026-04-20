@@ -80,6 +80,36 @@ describe('mergeRenderItems', () => {
       'status-1',
     ])
   })
+
+  it('keeps current round items visible while overlay receipts are also rendering', () => {
+    const persistedItems: WorkspaceChatItem[] = [
+      {
+        id: 'user-1',
+        type: 'user-message',
+        content: 'hello',
+      },
+      {
+        id: 'update-1',
+        type: 'agent-update',
+        content: '已探索 1 个文件',
+      },
+    ]
+    const overlayItems: WorkspaceChatItem[] = [
+      {
+        id: 'receipt-1',
+        type: 'action-receipt',
+        receiptStatus: 'running',
+        details: [],
+        transient: true,
+      },
+    ]
+
+    expect(mergeRenderItems(persistedItems, overlayItems).map((item) => item.id)).toEqual([
+      'user-1',
+      'update-1',
+      'receipt-1',
+    ])
+  })
 })
 
 describe('trimRecentRounds', () => {

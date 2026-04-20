@@ -103,6 +103,7 @@ export function useExecutionRuntime(
 
   return {
     overlayItems: overlay.overlayItems,
+    activeRoundItems: overlay.activeRoundItems,
     connectionStatus,
     startExecutionRun,
     handleCancel,

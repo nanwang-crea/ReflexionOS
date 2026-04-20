@@ -107,7 +107,8 @@ class RapidExecutionLoop:
             project_path=project_path,
             execution_id=execution.id
         )
-        
+        context.add_message("user", task)
+
         # 发送开始事件
         await self._emit("execution:start", {
             "execution_id": execution.id,

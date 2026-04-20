@@ -51,6 +51,7 @@ export default function AgentWorkspace() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const {
     overlayItems,
+    activeRoundItems,
     connectionStatus,
     startExecutionRun,
     handleCancel,
@@ -73,8 +74,11 @@ export default function AgentWorkspace() {
   )
 
   const renderItems = useMemo(
-    () => mergeRenderItems(flattenRoundsToItems(currentSession?.recentRounds || []), overlayItems),
-    [currentSession?.recentRounds, overlayItems]
+    () => mergeRenderItems(
+      [...flattenRoundsToItems(currentSession?.recentRounds || []), ...activeRoundItems],
+      overlayItems
+    ),
+    [activeRoundItems, currentSession?.recentRounds, overlayItems]
   )
 
   useEffect(() => {

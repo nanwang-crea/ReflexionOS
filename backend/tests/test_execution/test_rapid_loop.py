@@ -255,6 +255,8 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("检查项目")
 
         transcript = result.transcript_items
+        assert transcript[0]["item_type"] == "user-message"
+        assert transcript[0]["content"] == "检查项目"
         assert any(item["item_type"] == "agent-update" for item in transcript)
         assert any(item["item_type"] == "action-receipt" for item in transcript)
     

@@ -13,6 +13,7 @@ import {
   trimRecentRounds,
   updateFirstMatchingDetail,
 } from '@/features/workspace/messageFlow'
+import { getReceiptFinalizeDelay } from '@/features/workspace/receiptTiming'
 import { createStreamingBuffer } from '@/features/workspace/streamingBuffer'
 import { createOverlayRuntimeState } from './executionOverlayState'
 import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
@@ -37,6 +38,7 @@ function createNow() {
 
 export function useExecutionOverlay() {
   const [overlayItems, setOverlayItems] = useState<WorkspaceChatItem[]>([])
+  const [activeRoundItems, setActiveRoundItems] = useState<WorkspaceChatItem[]>([])
 
   const overlayItemsRef = useRef<WorkspaceChatItem[]>([])
   const llmStreamingRef = useRef('')
@@ -46,6 +48,7 @@ export function useExecutionOverlay() {
   const currentExecutionIdRef = useRef<string | null>(null)
   const activeSessionIdRef = useRef<string | null>(null)
   const activeReceiptIdRef = useRef<string | null>(null)
+  const activeReceiptVisibleAtRef = useRef<number | null>(null)
   const executionHasReceiptsRef = useRef(false)
   const thoughtFlushedRef = useRef(false)
   const currentLlmMessageIdRef = useRef<string | null>(null)
@@ -118,10 +121,12 @@ export function useExecutionOverlay() {
       return
     }
 
-    activeRoundRef.current = {
+    const nextRound = {
       ...activeRoundRef.current,
       items: [...activeRoundRef.current.items, ...items.map(normalizePersistedItem)],
     }
+    activeRoundRef.current = nextRound
+    setActiveRoundItems(nextRound.items)
   }, [])
 
   const persistActiveRound = useCallback((sessionId: string) => {
@@ -156,6 +161,7 @@ export function useExecutionOverlay() {
   const finalizeActiveRound = useCallback((sessionId: string) => {
     persistActiveRound(sessionId)
     activeRoundRef.current = null
+    setActiveRoundItems([])
   }, [persistActiveRound])
 
   const finalizeActiveReceipt = useCallback((forcedStatus?: ActionReceiptStatus) => {
@@ -169,14 +175,25 @@ export function useExecutionOverlay() {
     const receiptItem = getOverlayItem(receiptId)
     if (!receiptItem) {
       activeReceiptIdRef.current = null
+      activeReceiptVisibleAtRef.current = null
       return
     }
 
-    appendRoundItemsToActiveSession([
-      finalizeReceiptItem(receiptItem, forcedStatus),
-    ])
-    removeOverlayItem(receiptId)
-    activeReceiptIdRef.current = null
+    const completedReceipt = finalizeReceiptItem(receiptItem, forcedStatus)
+    const finalizeNow = () => {
+      appendRoundItemsToActiveSession([completedReceipt])
+      removeOverlayItem(receiptId)
+      activeReceiptIdRef.current = null
+      activeReceiptVisibleAtRef.current = null
+    }
+
+    const delay = getReceiptFinalizeDelay(activeReceiptVisibleAtRef.current, Date.now())
+    if (delay > 0) {
+      setTimeout(finalizeNow, delay)
+      return
+    }
+
+    finalizeNow()
   }, [appendRoundItemsToActiveSession, getOverlayItem, removeOverlayItem])
 
   const ensureReceiptItem = useCallback(() => {
@@ -193,6 +210,7 @@ export function useExecutionOverlay() {
       transient: true,
     })
     activeReceiptIdRef.current = receiptId
+    activeReceiptVisibleAtRef.current = Date.now()
     return receiptId
   }, [addOverlayItem])
 
@@ -461,6 +479,8 @@ export function useExecutionOverlay() {
     llmBufferRef.current.reset()
     summaryBufferRef.current.reset()
     activeRoundRef.current = null
+    activeReceiptVisibleAtRef.current = null
+    setActiveRoundItems([])
     setOverlayState([])
     resetRuntimeRefs()
   }, [flushAllStreamingBuffers, resetRuntimeRefs, setOverlayState])
@@ -491,6 +511,7 @@ export function useExecutionOverlay() {
       createdAt: createNow(),
       items: [normalizePersistedItem(userItem)],
     }
+    setActiveRoundItems([normalizePersistedItem(userItem)])
 
     llmStreamingRef.current = ''
     summaryStartedRef.current = false
@@ -722,6 +743,7 @@ export function useExecutionOverlay() {
 
   return {
     overlayItems,
+    activeRoundItems,
     currentExecutionIdRef,
     activeSessionIdRef,
     setCurrentExecutionId,
