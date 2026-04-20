@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta
 from pathlib import Path
 from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
@@ -256,3 +257,66 @@ class TestConversationRepository:
         assert result[0].item_type == "action-receipt"
         assert result[0].receipt_status == "completed"
         assert result[0].details_json == [{"title": "Read file", "status": "success"}]
+
+    def test_list_by_session_orders_turns_by_timestamp_then_sequence(self, repo):
+        start = datetime.now()
+
+        repo.save_messages([
+            ConversationMessage(
+                id="turn-1-user",
+                execution_id="exec-1",
+                session_id="session-order",
+                project_id="proj-1",
+                item_type="user-message",
+                content="first question",
+                receipt_status=None,
+                details_json=[],
+                sequence=0,
+                created_at=start,
+            ),
+            ConversationMessage(
+                id="turn-1-assistant",
+                execution_id="exec-1",
+                session_id="session-order",
+                project_id="proj-1",
+                item_type="assistant-message",
+                content="first answer",
+                receipt_status=None,
+                details_json=[],
+                sequence=3,
+                created_at=start + timedelta(seconds=1),
+            ),
+            ConversationMessage(
+                id="turn-2-user",
+                execution_id="exec-2",
+                session_id="session-order",
+                project_id="proj-1",
+                item_type="user-message",
+                content="second question",
+                receipt_status=None,
+                details_json=[],
+                sequence=0,
+                created_at=start + timedelta(seconds=2),
+            ),
+            ConversationMessage(
+                id="turn-2-assistant",
+                execution_id="exec-2",
+                session_id="session-order",
+                project_id="proj-1",
+                item_type="assistant-message",
+                content="second answer",
+                receipt_status=None,
+                details_json=[],
+                sequence=3,
+                created_at=start + timedelta(seconds=3),
+            ),
+        ])
+
+        result = repo.list_by_session("session-order")
+
+        assert [message.id for message in result] == [
+            "turn-1-user",
+            "turn-1-assistant",
+            "turn-2-user",
+            "turn-2-assistant",
+        ]

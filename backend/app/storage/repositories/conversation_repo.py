@@ -42,8 +42,8 @@ class ConversationRepository:
             models = session.query(ConversationModel).filter_by(
                 session_id=session_id
             ).order_by(
-                ConversationModel.sequence.asc(),
-                ConversationModel.timestamp.asc()
+                ConversationModel.timestamp.asc(),
+                ConversationModel.sequence.asc()
             ).all()
 
             return [
