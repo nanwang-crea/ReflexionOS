@@ -1,6 +1,6 @@
 from typing import Iterable
 
-from app.models.conversation import ConversationMessage
+from app.models.transcript import TranscriptRecord
 from app.storage.models import ConversationModel
 
 
@@ -8,7 +8,7 @@ class ConversationRepository:
     def __init__(self, db):
         self.db = db
 
-    def save_messages(self, messages: Iterable[ConversationMessage]) -> None:
+    def save_messages(self, messages: Iterable[TranscriptRecord]) -> None:
         with self.db.get_session() as session:
             for message in messages:
                 existing = session.query(ConversationModel).filter_by(id=message.id).first()
@@ -37,7 +37,7 @@ class ConversationRepository:
                     timestamp=message.created_at,
                 ))
 
-    def list_by_session(self, session_id: str) -> list[ConversationMessage]:
+    def list_by_session(self, session_id: str) -> list[TranscriptRecord]:
         with self.db.get_session() as session:
             models = session.query(ConversationModel).filter_by(
                 session_id=session_id
@@ -47,7 +47,7 @@ class ConversationRepository:
             ).all()
 
             return [
-                ConversationMessage(
+                TranscriptRecord(
                     id=model.id,
                     execution_id=model.execution_id,
                     session_id=model.session_id,

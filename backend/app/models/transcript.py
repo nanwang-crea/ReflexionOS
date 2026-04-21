@@ -1,8 +1,9 @@
 from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
-class ConversationMessage(BaseModel):
+class TranscriptRecord(BaseModel):
     id: str
     execution_id: str
     session_id: str

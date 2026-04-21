@@ -1,4 +1,5 @@
 import { demoProjects, isDemoMode } from '@/demo/demoData'
+import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionLoader'
 import { projectApi } from '@/services/apiClient'
 import { useProjectStore } from '@/stores/projectStore'
 import type { Project } from '@/types/project'
@@ -39,6 +40,11 @@ function createProjectLoader(options: CreateProjectLoaderOptions) {
           : await options.listProjects()
 
         options.setProjects(projects)
+
+        if (!options.isDemoMode()) {
+          await Promise.all(projects.map((project) => ensureProjectSessionsLoaded(project.id)))
+        }
+
         return projects
       } finally {
         options.setLoading(false)

@@ -5,7 +5,7 @@ import { SlideIn } from '@/components/animations/SlideIn'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import type { Project } from '@/types/project'
-import type { ChatSession, WorkspaceChatItem } from '@/types/workspace'
+import type { SessionSummary, WorkspaceChatItem } from '@/types/workspace'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -28,7 +28,7 @@ interface WorkspaceTranscriptProps {
   loaded: boolean
   configured: boolean
   currentProject: Project | null
-  currentSession: ChatSession | null
+  currentSession: SessionSummary | null
   items: WorkspaceChatItem[]
   messagesEndRef: RefObject<HTMLDivElement>
 }

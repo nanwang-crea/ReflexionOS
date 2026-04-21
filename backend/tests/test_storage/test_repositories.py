@@ -5,7 +5,9 @@ from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.execution_repo import ExecutionRepository
-from app.models.conversation import ConversationMessage
+from app.storage.repositories.session_repo import SessionRepository
+from app.models.session import Session
+from app.models.transcript import TranscriptRecord
 from app.models.project import Project
 from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
 
@@ -205,7 +207,7 @@ class TestConversationRepository:
 
     def test_save_and_list_by_session(self, repo):
         repo.save_messages([
-            ConversationMessage(
+            TranscriptRecord(
                 id="msg-1",
                 execution_id="exec-1",
                 session_id="session-a",
@@ -217,7 +219,7 @@ class TestConversationRepository:
                 sequence=0,
                 created_at=__import__('datetime').datetime.now(),
             ),
-            ConversationMessage(
+            TranscriptRecord(
                 id="msg-2",
                 execution_id="exec-1",
                 session_id="session-a",
@@ -238,7 +240,7 @@ class TestConversationRepository:
 
     def test_save_and_list_transcript_items_with_receipts(self, repo):
         repo.save_messages([
-            ConversationMessage(
+            TranscriptRecord(
                 id="receipt-1",
                 execution_id="exec-1",
                 session_id="session-a",
@@ -262,7 +264,7 @@ class TestConversationRepository:
         start = datetime.now()
 
         repo.save_messages([
-            ConversationMessage(
+            TranscriptRecord(
                 id="turn-1-user",
                 execution_id="exec-1",
                 session_id="session-order",
@@ -274,7 +276,7 @@ class TestConversationRepository:
                 sequence=0,
                 created_at=start,
             ),
-            ConversationMessage(
+            TranscriptRecord(
                 id="turn-1-assistant",
                 execution_id="exec-1",
                 session_id="session-order",
@@ -286,7 +288,7 @@ class TestConversationRepository:
                 sequence=3,
                 created_at=start + timedelta(seconds=1),
             ),
-            ConversationMessage(
+            TranscriptRecord(
                 id="turn-2-user",
                 execution_id="exec-2",
                 session_id="session-order",
@@ -298,7 +300,7 @@ class TestConversationRepository:
                 sequence=0,
                 created_at=start + timedelta(seconds=2),
             ),
-            ConversationMessage(
+            TranscriptRecord(
                 id="turn-2-assistant",
                 execution_id="exec-2",
                 session_id="session-order",
@@ -320,3 +322,65 @@ class TestConversationRepository:
             "turn-2-user",
             "turn-2-assistant",
         ]
+
+
+class TestSessionRepository:
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        db_path = str(tmp_path / "test.db")
+        return Database(db_path)
+
+    @pytest.fixture
+    def repo(self, db):
+        return SessionRepository(db)
+
+    def test_get_session_returns_none_when_missing(self, repo):
+        assert repo.get("missing-session") is None
+
+    def test_session_repository_crud(self, repo):
+        created = repo.create(Session(
+            id="session-1",
+            project_id="project-1",
+            title="新建聊天",
+            preferred_provider_id="provider-a",
+            preferred_model_id="model-a",
+        ))
+
+        fetched = repo.get("session-1")
+        project_sessions = repo.list_by_project("project-1")
+
+        assert created.id == "session-1"
+        assert created.title == "新建聊天"
+        assert created.preferred_provider_id == "provider-a"
+        assert created.preferred_model_id == "model-a"
+        assert fetched is not None
+        assert fetched.project_id == "project-1"
+        assert fetched.title == "新建聊天"
+        assert fetched.preferred_provider_id == "provider-a"
+        assert fetched.preferred_model_id == "model-a"
+        assert [session.id for session in project_sessions] == ["session-1"]
+        assert [session.title for session in project_sessions] == ["新建聊天"]
+        assert [session.preferred_provider_id for session in project_sessions] == ["provider-a"]
+        assert [session.preferred_model_id for session in project_sessions] == ["model-a"]
+
+    def test_list_by_project_orders_by_updated_at_desc(self, repo):
+        earlier = datetime.now()
+        later = earlier + timedelta(minutes=5)
+
+        repo.create(Session(
+            id="session-earlier",
+            project_id="project-1",
+            title="Earlier",
+            updated_at=earlier,
+        ))
+        repo.create(Session(
+            id="session-later",
+            project_id="project-1",
+            title="Later",
+            updated_at=later,
+        ))
+
+        project_sessions = repo.list_by_project("project-1")
+
+        assert [session.id for session in project_sessions] == ["session-later", "session-earlier"]

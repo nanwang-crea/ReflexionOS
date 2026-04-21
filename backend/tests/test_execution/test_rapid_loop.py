@@ -362,7 +362,54 @@ class TestRapidExecutionLoop:
         assert result.status.value == "cancelled"
         assert result.result == "执行已取消"
         assert any(event["type"] == "execution:cancelled" for event in events)
-    
+
+    @pytest.mark.asyncio
+    async def test_cancelled_execution_has_no_transcript_items(self, execution_loop, mock_llm):
+        async def mock_stream(messages, tools=None):
+            raise asyncio.CancelledError()
+            yield
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("取消任务", session_id="session-1", project_id="project-1")
+
+        assert result.status.value == "cancelled"
+        assert result.transcript_items == []
+
+    @pytest.mark.asyncio
+    async def test_failed_execution_retains_failure_round(self, execution_loop, mock_llm):
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    content="先执行工具",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
+                return
+
+            raise RuntimeError("boom")
+            yield
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("失败任务", session_id="session-1", project_id="project-1")
+
+        assert result.status.value == "failed"
+        assert [item["item_type"] for item in result.transcript_items] == [
+            "user-message",
+            "agent-update",
+            "action-receipt",
+            "assistant-message",
+        ]
+        assert result.transcript_items[1]["content"] == "先执行工具"
+        assert result.transcript_items[2]["receipt_status"] == "completed"
+        assert result.transcript_items[2]["details_json"][0]["toolName"] == "mock"
+        assert "boom" in result.transcript_items[-1]["content"]
+
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
         """测试工具失败恢复"""

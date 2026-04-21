@@ -11,7 +11,7 @@ from app.api.websocket import ws_manager
 from app.config.settings import config_manager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm import LLMAdapterFactory
-from app.models.conversation import ConversationMessage
+from app.models.transcript import TranscriptRecord
 from app.models.execution import Execution, ExecutionCreate, ExecutionStatus
 from app.models.llm_config import (
     DefaultLLMSelection,
@@ -28,12 +28,17 @@ from app.storage.database import db
 from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.execution_repo import ExecutionRepository
 from app.storage.repositories.project_repo import ProjectRepository
+from app.storage.repositories.session_repo import SessionRepository
 from app.tools.file_tool import FileTool
 from app.tools.patch_tool import PatchTool
 from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
 
 logger = logging.getLogger(__name__)
+
+
+_CANCEL_WAIT_ATTEMPTS = 10
+_CANCEL_WAIT_INTERVAL_SECONDS = 0.01
 
 
 class AgentService:
@@ -43,12 +48,14 @@ class AgentService:
         self,
         execution_repo: Optional[ExecutionRepository] = None,
         project_repo: Optional[ProjectRepository] = None,
+        session_repo: Optional[SessionRepository] = None,
     ):
         self.executions: Dict[str, Execution] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
         self.execution_repo = execution_repo or ExecutionRepository(db)
         self.conversation_repo = ConversationRepository(db)
         self.project_repo = project_repo or ProjectRepository(db)
+        self.session_repo = session_repo or SessionRepository(db)
         self.tool_registry = self._init_tool_registry()
         self.llm_settings = self._load_llm_settings()
 
@@ -410,6 +417,12 @@ class AgentService:
         if not project:
             raise ValueError("项目不存在")
 
+        session = self.session_repo.get(execution_create.session_id)
+        if not session:
+            raise ValueError("会话不存在")
+        if session.project_id != project.id:
+            raise ValueError("会话不属于当前项目")
+
         project_path = project.path
         execution = Execution(
             project_id=project.id,
@@ -470,7 +483,8 @@ class AgentService:
         )
 
         self._persist_execution(result)
-        self._persist_conversation_history(result)
+        if result.status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED} and result.transcript_items:
+            self._persist_conversation_history(result)
         logger.info(
             "任务执行完成: %s - %s - provider=%s model=%s",
             execution_id,
@@ -531,9 +545,13 @@ class AgentService:
         task = self.running_tasks.get(execution_id)
         if task and not task.done():
             task.cancel()
-            await asyncio.sleep(0)
+            for _ in range(_CANCEL_WAIT_ATTEMPTS):
+                if task.done():
+                    break
+                await asyncio.sleep(_CANCEL_WAIT_INTERVAL_SECONDS)
+
             execution = self._load_execution(execution_id) or execution
-            if execution.status != ExecutionStatus.CANCELLED and task.done():
+            if execution.status != ExecutionStatus.CANCELLED:
                 execution.status = ExecutionStatus.CANCELLED
                 execution.result = execution.result or "执行已取消"
                 execution.completed_at = datetime.now()
@@ -572,16 +590,13 @@ class AgentService:
             return self.execution_repo.list_by_project(project_id)
         return self.execution_repo.list_all()
 
-    def get_session_history(self, session_id: str) -> list[ConversationMessage]:
-        return self.conversation_repo.list_by_session(session_id)
-
     def _persist_conversation_history(self, execution: Execution) -> None:
         messages = execution.transcript_items
         if not messages:
             return
 
         self.conversation_repo.save_messages([
-            ConversationMessage(**message)
+            TranscriptRecord(**message)
             for message in messages
         ])
 

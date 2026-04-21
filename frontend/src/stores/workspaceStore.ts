@@ -1,46 +1,53 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { demoWorkspaceState, isDemoMode } from '@/demo/demoData'
-import type { ChatSession, WorkspaceSessionRound } from '@/types/workspace'
-import { trimRecentRounds } from '@/features/workspace/messageFlow'
 
-interface WorkspaceState {
-  sessions: ChatSession[]
+export interface WorkspaceUiState {
   currentSessionId: string | null
   expandedProjectIds: string[]
   expandedSessionProjectIds: string[]
   searchQuery: string
   searchOpen: boolean
+}
 
-  createSession: (
-    projectId: string,
-    title?: string,
-    preferredProviderId?: string | null,
-    preferredModelId?: string | null
-  ) => ChatSession
+interface WorkspaceState extends WorkspaceUiState {
+
   setCurrentSessionId: (sessionId: string | null) => void
-  saveSessionRounds: (sessionId: string, rounds: WorkspaceSessionRound[]) => void
-  updateSessionTitle: (sessionId: string, title: string) => void
-  updateSessionPreferences: (
-    sessionId: string,
-    preferences: { preferredProviderId?: string | null; preferredModelId?: string | null }
-  ) => void
-  removeSession: (sessionId: string) => void
-  touchSession: (sessionId: string) => void
   toggleProjectExpanded: (projectId: string) => void
   setProjectExpanded: (projectId: string, expanded: boolean) => void
   toggleProjectShowAll: (projectId: string) => void
   setSearchQuery: (query: string) => void
   setSearchOpen: (open: boolean) => void
-  removeProjectSessions: (projectId: string) => void
 }
 
-function createSessionId() {
-  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+const noopStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
 }
 
-function createNow() {
-  return new Date().toISOString()
+function partializeWorkspaceUiState(state: WorkspaceState): WorkspaceUiState {
+  return {
+    currentSessionId: state.currentSessionId,
+    expandedProjectIds: state.expandedProjectIds,
+    expandedSessionProjectIds: state.expandedSessionProjectIds,
+    searchQuery: state.searchQuery,
+    searchOpen: state.searchOpen,
+  }
+}
+
+function createInitialWorkspaceUiState(): WorkspaceUiState {
+  if (isDemoMode()) {
+    return demoWorkspaceState
+  }
+
+  return {
+    currentSessionId: null,
+    expandedProjectIds: [],
+    expandedSessionProjectIds: [],
+    searchQuery: '',
+    searchOpen: false,
+  }
 }
 
 function upsertExpanded(list: string[], value: string, expanded: boolean) {
@@ -54,107 +61,9 @@ function upsertExpanded(list: string[], value: string, expanded: boolean) {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
-      sessions: isDemoMode() ? demoWorkspaceState.sessions : [],
-      currentSessionId: isDemoMode() ? demoWorkspaceState.currentSessionId : null,
-      expandedProjectIds: isDemoMode() ? demoWorkspaceState.expandedProjectIds : [],
-      expandedSessionProjectIds: isDemoMode() ? demoWorkspaceState.expandedSessionProjectIds : [],
-      searchQuery: isDemoMode() ? demoWorkspaceState.searchQuery : '',
-      searchOpen: isDemoMode() ? demoWorkspaceState.searchOpen : false,
+      ...createInitialWorkspaceUiState(),
 
-      createSession: (
-        projectId,
-        title = '新建聊天',
-        preferredProviderId = null,
-        preferredModelId = null
-      ) => {
-        const now = createNow()
-        const session: ChatSession = {
-          id: createSessionId(),
-          projectId,
-          title,
-          preferredProviderId: preferredProviderId || undefined,
-          preferredModelId: preferredModelId || undefined,
-          recentRounds: [],
-          createdAt: now,
-          updatedAt: now
-        }
-
-        set((state) => ({
-          sessions: [session, ...state.sessions],
-          currentSessionId: session.id,
-          expandedProjectIds: state.expandedProjectIds.includes(projectId)
-            ? state.expandedProjectIds
-            : [...state.expandedProjectIds, projectId]
-        }))
-
-        return session
-      },
-      
       setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
-
-      saveSessionRounds: (sessionId, rounds) => set((state) => ({
-        sessions: state.sessions.map((session) => (
-          session.id === sessionId
-            ? {
-                ...session,
-                recentRounds: trimRecentRounds(rounds),
-                updatedAt: createNow()
-              }
-            : session
-        ))
-      })),
-
-      updateSessionTitle: (sessionId, title) => set((state) => ({
-        sessions: state.sessions.map((session) => (
-          session.id === sessionId
-            ? {
-                ...session,
-                title,
-                updatedAt: createNow()
-              }
-            : session
-        ))
-      })),
-
-      updateSessionPreferences: (sessionId, preferences) => set((state) => ({
-        sessions: state.sessions.map((session) => (
-          session.id === sessionId
-            ? {
-                ...session,
-                preferredProviderId: preferences.preferredProviderId || undefined,
-                preferredModelId: preferences.preferredModelId || undefined,
-                updatedAt: createNow()
-              }
-            : session
-        ))
-      })),
-
-      removeSession: (sessionId) => set((state) => {
-        const targetSession = state.sessions.find((session) => session.id === sessionId) || null
-        const nextSessions = state.sessions.filter((session) => session.id !== sessionId)
-        const siblingSessionId = targetSession
-          ? nextSessions.find((session) => session.projectId === targetSession.projectId)?.id || null
-          : null
-        const nextCurrentSessionId = state.currentSessionId === sessionId
-          ? siblingSessionId || nextSessions[0]?.id || null
-          : state.currentSessionId
-
-        return {
-          sessions: nextSessions,
-          currentSessionId: nextCurrentSessionId
-        }
-      }),
-
-      touchSession: (sessionId) => set((state) => ({
-        sessions: state.sessions.map((session) => (
-          session.id === sessionId
-            ? {
-                ...session,
-                updatedAt: createNow()
-              }
-            : session
-        ))
-      })),
 
       toggleProjectExpanded: (projectId) => set((state) => ({
         expandedProjectIds: state.expandedProjectIds.includes(projectId)
@@ -173,31 +82,12 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       })),
 
       setSearchQuery: (query) => set({ searchQuery: query }),
-      setSearchOpen: (open) => set({ searchOpen: open }),
-
-      removeProjectSessions: (projectId) => set((state) => {
-        const remainingSessions = state.sessions.filter(session => session.projectId !== projectId)
-        const activeSessionStillExists = remainingSessions.some(session => session.id === state.currentSessionId)
-
-        return {
-          sessions: remainingSessions,
-          currentSessionId: activeSessionStillExists ? state.currentSessionId : null,
-          expandedProjectIds: state.expandedProjectIds.filter(id => id !== projectId),
-          expandedSessionProjectIds: state.expandedSessionProjectIds.filter(id => id !== projectId)
-        }
-      })
+      setSearchOpen: (open) => set({ searchOpen: open })
     }),
     {
       name: isDemoMode() ? 'reflexion-workspace-demo' : 'reflexion-workspace',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        sessions: state.sessions,
-        currentSessionId: state.currentSessionId,
-        expandedProjectIds: state.expandedProjectIds,
-        expandedSessionProjectIds: state.expandedSessionProjectIds,
-        searchQuery: state.searchQuery,
-        searchOpen: state.searchOpen
-      })
+      storage: createJSONStorage(() => (isDemoMode() ? noopStorage : localStorage)),
+      partialize: partializeWorkspaceUiState
     }
   )
 )

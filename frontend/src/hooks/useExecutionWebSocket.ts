@@ -24,7 +24,7 @@ interface ExecutionOverlayBindings {
   handleSummaryToken: (token: string) => void
   handleSummaryComplete: (summary: string) => void
   handleExecutionCancelled: () => void
-  handleExecutionComplete: (data: { status: string; result: string }) => { failed: boolean }
+  handleExecutionComplete: (data: { status: string; result: string }) => { failed: boolean; sessionId?: string | null }
   handleExecutionError: (error: string) => void
 }
 
@@ -38,16 +38,82 @@ interface ExecutionStoreBindings {
   cancelExecution: () => void
 }
 
+interface ExecutionDraftRoundBindings {
+  completeDraftRound: () => void
+  cancelDraftRound: () => void
+  failDraftRound: () => void
+  refreshSessionHistory: (sessionId: string) => Promise<void>
+}
+
+interface ExecutionCompleteResult {
+  failed: boolean
+  sessionId?: string | null
+}
+
+interface ExecutionCompleteOverlayBindings {
+  handleExecutionComplete: (data: { status: string; result: string }) => ExecutionCompleteResult
+}
+
+interface ExecutionCompleteStoreBindings {
+  completeExecution: () => void
+  failExecution: () => void
+}
+
+interface ExecutionCompleteDraftBindings {
+  completeDraftRound: () => void
+  refreshSessionHistory: (sessionId: string) => Promise<void>
+}
+
+export async function runExecutionCompleteSequence(
+  data: { status: string; result: string },
+  overlay: ExecutionCompleteOverlayBindings,
+  draftRound: ExecutionCompleteDraftBindings,
+  execution: ExecutionCompleteStoreBindings
+) {
+  const result = overlay.handleExecutionComplete(data)
+
+  if (result.sessionId) {
+    draftRound.completeDraftRound()
+    await draftRound.refreshSessionHistory(result.sessionId)
+  }
+
+  if (result.failed) {
+    execution.failExecution()
+    return
+  }
+
+  execution.completeExecution()
+}
+
+export async function runExecutionErrorSequence(
+  error: string,
+  overlay: Pick<ExecutionOverlayBindings, 'activeSessionIdRef' | 'handleExecutionError'>,
+  draftRound: Pick<ExecutionDraftRoundBindings, 'failDraftRound' | 'refreshSessionHistory'>,
+  execution: Pick<ExecutionStoreBindings, 'failExecution'>
+) {
+  const sessionId = overlay.activeSessionIdRef.current
+  overlay.handleExecutionError(error)
+
+  draftRound.failDraftRound()
+  if (sessionId) {
+    await draftRound.refreshSessionHistory(sessionId)
+  }
+
+  execution.failExecution()
+}
+
 interface UseExecutionWebSocketOptions {
   initialConnectionStatus: ConnectionStatus
   overlay: ExecutionOverlayBindings
   execution: ExecutionStoreBindings
+  draftRound: ExecutionDraftRoundBindings
 }
 
 export function useExecutionWebSocket({
   initialConnectionStatus,
   overlay,
   execution,
+  draftRound,
 }: UseExecutionWebSocketOptions) {
   const wsRef = useRef<ExecutionWebSocket | null>(null)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialConnectionStatus)
@@ -162,22 +228,16 @@ export function useExecutionWebSocket({
 
     ws.on('execution:cancelled', () => {
       overlay.handleExecutionCancelled()
+      draftRound.cancelDraftRound()
       execution.cancelExecution()
     })
 
-    ws.on('execution:complete', (data) => {
-      const result = overlay.handleExecutionComplete(data)
-      if (result.failed) {
-        execution.failExecution()
-        return
-      }
-
-      execution.completeExecution()
+    ws.on('execution:complete', async (data) => {
+      await runExecutionCompleteSequence(data, overlay, draftRound, execution)
     })
 
-    ws.on('execution:error', (data) => {
-      overlay.handleExecutionError(data.error)
-      execution.failExecution()
+    ws.on('execution:error', async (data) => {
+      await runExecutionErrorSequence(data.error, overlay, draftRound, execution)
     })
 
     try {
@@ -191,7 +251,7 @@ export function useExecutionWebSocket({
       setConnectionStatus('disconnected')
       throw error
     }
-  }, [closeWebSocket, execution, overlay])
+  }, [closeWebSocket, draftRound, execution, overlay])
 
   useEffect(() => {
     return () => {

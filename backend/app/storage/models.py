@@ -51,6 +51,19 @@ class ConversationModel(Base):
     timestamp = Column(DateTime, default=datetime.now)
 
 
+class SessionModel(Base):
+    """会话数据模型"""
+    __tablename__ = "sessions"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, nullable=False, index=True)
+    title = Column(String, nullable=False, default="新建聊天")
+    preferred_provider_id = Column(String)
+    preferred_model_id = Column(String)
+    created_at = Column(DateTime, default=datetime.now, index=True)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+
 class LLMUsageModel(Base):
     """LLM 使用统计模型"""
     __tablename__ = "llm_usage"

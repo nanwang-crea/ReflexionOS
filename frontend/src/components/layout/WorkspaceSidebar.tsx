@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
+  createSession as createSessionAction,
+  deleteSession as deleteSessionAction,
+  renameSession as renameSessionAction,
+} from '@/features/sessions/sessionActions'
+import { useSessionStore } from '@/features/sessions/sessionStore'
+import { demoSessions, isDemoMode } from '@/demo/demoData'
+import {
   ChevronDown,
   ChevronRight,
   Folder,
@@ -21,7 +28,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useExecutionStore } from '@/stores/executionStore'
-import type { ChatSession } from '@/types/workspace'
+import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
 
 const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-slate-700 transition hover:bg-slate-200/60'
@@ -80,23 +87,19 @@ export function WorkspaceSidebar() {
   } = useProjectStore()
   const { defaultProviderId, defaultModelId } = useSettingsStore()
   const {
-    sessions,
     currentSessionId,
     expandedProjectIds,
     expandedSessionProjectIds,
     searchOpen,
     searchQuery,
-    createSession,
-    updateSessionTitle,
-    removeSession,
     setCurrentSessionId,
     toggleProjectExpanded,
     setProjectExpanded,
     toggleProjectShowAll,
     setSearchOpen,
     setSearchQuery,
-    removeProjectSessions
   } = useWorkspaceStore()
+  const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
   const { status } = useExecutionStore()
 
   const [showProjectModal, setShowProjectModal] = useState(false)
@@ -104,6 +107,21 @@ export function WorkspaceSidebar() {
   const canSelectDirectory = isElectronRuntime()
 
   const busy = status === 'running' || status === 'cancelling'
+  const demoMode = isDemoMode()
+  const projectSessionsById = useMemo(() => {
+    if (!demoMode) {
+      return sessionsByProjectId
+    }
+
+    return demoSessions.reduce<Record<string, SessionSummary[]>>((result, session) => {
+      result[session.projectId] = [...(result[session.projectId] || []), session]
+      return result
+    }, {})
+  }, [demoMode, sessionsByProjectId])
+  const sessions = useMemo(
+    () => Object.values(projectSessionsById).flat(),
+    [projectSessionsById]
+  )
   const currentSession = useMemo(
     () => sessions.find(session => session.id === currentSessionId) || null,
     [currentSessionId, sessions]
@@ -136,8 +154,7 @@ export function WorkspaceSidebar() {
 
     return projects
       .map((project) => {
-        const projectSessions = sessions
-          .filter(session => session.projectId === project.id)
+        const projectSessions = [...(projectSessionsById[project.id] || [])]
           .sort((a, b) => (
             new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
           ))
@@ -161,7 +178,7 @@ export function WorkspaceSidebar() {
         }
       })
       .filter(Boolean) as Array<{ project: Project; sessions: typeof sessions }>
-  }, [projects, searchQuery, sessions])
+  }, [projectSessionsById, projects, searchQuery])
 
   const handleCreateProject = async () => {
     try {
@@ -216,7 +233,6 @@ export function WorkspaceSidebar() {
     try {
       await projectApi.delete(project.id)
       removeProject(project.id)
-      removeProjectSessions(project.id)
       if (currentProject?.id === project.id) {
         setCurrentProject(null)
       }
@@ -226,7 +242,7 @@ export function WorkspaceSidebar() {
     }
   }
 
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     if (busy) {
       return
     }
@@ -239,14 +255,17 @@ export function WorkspaceSidebar() {
 
     setCurrentProject(targetProject)
     setProjectExpanded(targetProject.id, true)
-    const session = createSession(
-      targetProject.id,
-      undefined,
-      defaultProviderId,
-      defaultModelId
-    )
-    setCurrentSessionId(session.id)
-    navigate('/agent')
+    try {
+      const session = await createSessionAction(targetProject.id, {
+        preferredProviderId: defaultProviderId,
+        preferredModelId: defaultModelId,
+      })
+      setCurrentSessionId(session.id)
+      navigate('/agent')
+    } catch (error) {
+      console.error('Failed to create session:', error)
+      alert('创建聊天失败')
+    }
   }
 
   const handleSessionSelect = (project: Project, sessionId: string) => {
@@ -260,7 +279,7 @@ export function WorkspaceSidebar() {
     navigate('/agent')
   }
 
-  const handleRenameSession = (session: ChatSession) => {
+  const handleRenameSession = async (session: SessionSummary) => {
     if (busy) {
       return
     }
@@ -270,10 +289,15 @@ export function WorkspaceSidebar() {
       return
     }
 
-    updateSessionTitle(session.id, nextTitle)
+    try {
+      await renameSessionAction(session.id, nextTitle)
+    } catch (error) {
+      console.error('Failed to rename session:', error)
+      alert('重命名聊天失败')
+    }
   }
 
-  const handleDeleteSession = (session: ChatSession) => {
+  const handleDeleteSession = async (session: SessionSummary) => {
     if (busy) {
       return
     }
@@ -282,7 +306,15 @@ export function WorkspaceSidebar() {
       return
     }
 
-    removeSession(session.id)
+    try {
+      await deleteSessionAction(session.projectId, session.id)
+      if (currentSessionId === session.id) {
+        setCurrentSessionId(null)
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error)
+      alert('删除聊天失败')
+    }
   }
 
   const globalEntries = [

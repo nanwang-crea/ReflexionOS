@@ -1,7 +1,9 @@
 import { useCallback, useEffect } from 'react'
+import { ensureSessionHistoryLoaded } from '@/features/sessions/sessionLoader'
 import { agentApi } from '@/services/apiClient'
 import { shouldResetOverlayForSessionChange } from './executionOverlayState'
 import { useExecutionStore } from '@/stores/executionStore'
+import { useExecutionDraftRound } from './useExecutionDraftRound'
 import { useExecutionOverlay } from './useExecutionOverlay'
 import { useExecutionWebSocket } from './useExecutionWebSocket'
 import type { ConnectionStatus } from '@/features/workspace/types'
@@ -26,7 +28,8 @@ export function useExecutionRuntime(
     resetExecution,
   } = useExecutionStore()
 
-  const overlay = useExecutionOverlay()
+  const draftRound = useExecutionDraftRound()
+  const overlay = useExecutionOverlay(draftRound)
   const {
     connectionStatus,
     connectWebSocket,
@@ -43,6 +46,12 @@ export function useExecutionRuntime(
       completeExecution,
       failExecution,
       cancelExecution,
+    },
+    draftRound: {
+      completeDraftRound: draftRound.completeDraftRound,
+      cancelDraftRound: draftRound.cancelDraftRound,
+      failDraftRound: draftRound.failDraftRound,
+      refreshSessionHistory: ensureSessionHistoryLoaded,
     },
   })
 
@@ -88,22 +97,24 @@ export function useExecutionRuntime(
   const resetExecutionRuntime = useCallback(() => {
     closeWebSocket()
     overlay.resetExecutionOverlay()
+    draftRound.clearDraftRound()
     resetExecution()
-  }, [closeWebSocket, overlay, resetExecution])
+  }, [closeWebSocket, draftRound, overlay, resetExecution])
 
   useEffect(() => {
-    if (!shouldResetOverlayForSessionChange(currentSessionId, overlay.activeSessionIdRef.current)) {
+    if (!shouldResetOverlayForSessionChange(currentSessionId, draftRound.sessionIdRef.current)) {
       return
     }
 
     closeWebSocket()
     overlay.resetExecutionOverlay()
+    draftRound.clearDraftRound()
     resetExecution()
-  }, [closeWebSocket, currentSessionId, overlay, resetExecution])
+  }, [closeWebSocket, currentSessionId, draftRound, overlay, resetExecution])
 
   return {
     overlayItems: overlay.overlayItems,
-    activeRoundItems: overlay.activeRoundItems,
+    activeRoundItems: draftRound.items,
     connectionStatus,
     startExecutionRun,
     handleCancel,
