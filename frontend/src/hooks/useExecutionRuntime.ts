@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { ensureSessionHistoryLoaded } from '@/features/sessions/sessionLoader'
+import { ensureSessionHistoryLoaded, refreshSessionHistory } from '@/features/sessions/sessionLoader'
 import { agentApi } from '@/services/apiClient'
 import { shouldResetOverlayForSessionChange } from './executionOverlayState'
 import { useExecutionStore } from '@/stores/executionStore'
@@ -48,12 +48,14 @@ export function useExecutionRuntime(
       cancelExecution,
     },
     draftRound: {
-      completeDraftRound: draftRound.completeDraftRound,
-      cancelDraftRound: draftRound.cancelDraftRound,
-      failDraftRound: draftRound.failDraftRound,
-      refreshSessionHistory: ensureSessionHistoryLoaded,
+      clearDraftRound: draftRound.clearDraftRound,
+      refreshSessionHistory,
     },
   })
+
+  const loadSessionHistory = useCallback(async (sessionId: string) => {
+    await ensureSessionHistoryLoaded(sessionId)
+  }, [])
 
   const startExecutionRun = useCallback(async (payload: {
     sessionId: string
@@ -116,6 +118,7 @@ export function useExecutionRuntime(
     overlayItems: overlay.overlayItems,
     activeRoundItems: draftRound.items,
     connectionStatus,
+    loadSessionHistory,
     startExecutionRun,
     handleCancel,
     resetExecutionRuntime,

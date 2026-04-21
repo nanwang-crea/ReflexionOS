@@ -39,9 +39,7 @@ interface ExecutionStoreBindings {
 }
 
 interface ExecutionDraftRoundBindings {
-  completeDraftRound: () => void
-  cancelDraftRound: () => void
-  failDraftRound: () => void
+  clearDraftRound: () => void
   refreshSessionHistory: (sessionId: string) => Promise<void>
 }
 
@@ -60,7 +58,7 @@ interface ExecutionCompleteStoreBindings {
 }
 
 interface ExecutionCompleteDraftBindings {
-  completeDraftRound: () => void
+  clearDraftRound: () => void
   refreshSessionHistory: (sessionId: string) => Promise<void>
 }
 
@@ -73,8 +71,10 @@ export async function runExecutionCompleteSequence(
   const result = overlay.handleExecutionComplete(data)
 
   if (result.sessionId) {
-    draftRound.completeDraftRound()
-    await draftRound.refreshSessionHistory(result.sessionId)
+    draftRound.clearDraftRound()
+    await draftRound.refreshSessionHistory(result.sessionId).catch((error) => {
+      console.error('Failed to refresh session history after execution completion:', error)
+    })
   }
 
   if (result.failed) {
@@ -88,15 +88,17 @@ export async function runExecutionCompleteSequence(
 export async function runExecutionErrorSequence(
   error: string,
   overlay: Pick<ExecutionOverlayBindings, 'activeSessionIdRef' | 'handleExecutionError'>,
-  draftRound: Pick<ExecutionDraftRoundBindings, 'failDraftRound' | 'refreshSessionHistory'>,
+  draftRound: Pick<ExecutionDraftRoundBindings, 'clearDraftRound' | 'refreshSessionHistory'>,
   execution: Pick<ExecutionStoreBindings, 'failExecution'>
 ) {
   const sessionId = overlay.activeSessionIdRef.current
   overlay.handleExecutionError(error)
 
-  draftRound.failDraftRound()
+  draftRound.clearDraftRound()
   if (sessionId) {
-    await draftRound.refreshSessionHistory(sessionId)
+    await draftRound.refreshSessionHistory(sessionId).catch((refreshError) => {
+      console.error('Failed to refresh session history after execution error:', refreshError)
+    })
   }
 
   execution.failExecution()
@@ -228,7 +230,7 @@ export function useExecutionWebSocket({
 
     ws.on('execution:cancelled', () => {
       overlay.handleExecutionCancelled()
-      draftRound.cancelDraftRound()
+      draftRound.clearDraftRound()
       execution.cancelExecution()
     })
 

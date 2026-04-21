@@ -4,12 +4,10 @@ import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useExecutionRuntime } from '@/hooks/useExecutionRuntime'
 import { useSendMessage } from '@/hooks/useSendMessage'
-import { useSessionActions } from '@/hooks/useSessionActions'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
-  const { updateSessionPreferences } = useSessionActions()
   const {
     overlayItems,
     activeRoundItems,
@@ -23,7 +21,6 @@ export default function AgentWorkspace() {
     activeRoundItems,
     connectionStatus,
     onReset: resetExecutionRuntime,
-    updateSessionPreferences,
   })
   const { sendMessage } = useSendMessage({
     currentSession: viewModel.currentSession,

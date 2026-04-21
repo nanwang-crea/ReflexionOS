@@ -4,7 +4,6 @@ import type {
   ProviderConnectionTestRequest,
   ProviderInstance,
 } from '@/types/llm'
-import type { SessionHistory } from '@/types/workspace'
 import { getApiBaseUrl } from './runtimeConfig'
 
 export const apiClient = axios.create({
@@ -25,8 +24,6 @@ export const projectApi = {
 export const agentApi = {
   cancel: (executionId: string) =>
     apiClient.post(`/api/agent/cancel/${executionId}`),
-  getSessionHistory: (sessionId: string) =>
-    apiClient.get<SessionHistory>(`/api/sessions/${sessionId}/history`),
 }
 
 export const llmApi = {

@@ -119,6 +119,8 @@ describe('ensureProjectsLoaded', () => {
     await ensureProjectsLoaded({ force: true })
 
     expect(listProjectSessionsMock).toHaveBeenCalledTimes(2)
+    expect(listProjectSessionsMock).toHaveBeenNthCalledWith(1, 'project-a')
+    expect(listProjectSessionsMock).toHaveBeenNthCalledWith(2, 'project-b')
     expect(useSessionStore.getState().sessionsByProjectId).toEqual({
       'project-a': [{
         id: 'session-a',
@@ -136,4 +138,24 @@ describe('ensureProjectsLoaded', () => {
       }],
     })
   })
+
+  it('preloads project sessions during project loading', async () => {
+    listProjectsMock.mockResolvedValue({
+      data: [createProject('project-1')],
+    })
+
+    const { useProjectStore } = await import('@/stores/projectStore')
+    useProjectStore.setState({
+      loaded: false,
+      loading: false,
+      projects: [],
+      currentProject: null,
+    })
+
+    const { ensureProjectsLoaded } = await import('./projectLoader')
+    await ensureProjectsLoaded({ force: true })
+
+    expect(listProjectSessionsMock).toHaveBeenCalledWith('project-1')
+  })
+
 })

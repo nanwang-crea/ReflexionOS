@@ -4,6 +4,7 @@ import { useSessionStore } from './sessionStore'
 const createSessionMock = vi.fn()
 const updateSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
+const ensureProjectSessionsLoadedMock = vi.fn()
 
 vi.mock('./sessionApi', () => ({
   sessionApi: {
@@ -13,11 +14,17 @@ vi.mock('./sessionApi', () => ({
   },
 }))
 
+vi.mock('./sessionLoader', () => ({
+  ensureProjectSessionsLoaded: ensureProjectSessionsLoadedMock,
+}))
+
 describe('sessionActions', () => {
   beforeEach(() => {
     createSessionMock.mockReset()
     updateSessionMock.mockReset()
     deleteSessionMock.mockReset()
+    ensureProjectSessionsLoadedMock.mockReset()
+    ensureProjectSessionsLoadedMock.mockResolvedValue(undefined)
     useSessionStore.setState({
       sessionsByProjectId: {},
       historyBySessionId: {},
@@ -47,6 +54,7 @@ describe('sessionActions', () => {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')
     expect(session.id).toBe('session-1')
     expect(useSessionStore.getState().sessionsByProjectId['project-1']).toEqual([session])
   })
@@ -73,8 +81,47 @@ describe('sessionActions', () => {
     const session = await renameSession('session-1', '新标题')
 
     expect(updateSessionMock).toHaveBeenCalledWith('session-1', { title: '新标题' })
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')
+    expect(ensureProjectSessionsLoadedMock).not.toHaveBeenCalledWith('project-2')
     expect(session.title).toBe('新标题')
     expect(useSessionStore.getState().sessionsByProjectId['project-1'][0]?.title).toBe('新标题')
+  })
+
+  it('writes session preferences through a dedicated narrow action', async () => {
+    useSessionStore.getState().setProjectSessions('project-1', [{
+      id: 'session-1',
+      projectId: 'project-1',
+      title: '现有会话',
+      preferredProviderId: 'provider-old',
+      preferredModelId: 'model-old',
+      createdAt: '2026-04-20T00:00:00Z',
+      updatedAt: '2026-04-20T00:00:00Z',
+    }])
+    updateSessionMock.mockResolvedValue({
+      data: {
+        id: 'session-1',
+        projectId: 'project-1',
+        title: '现有会话',
+        preferredProviderId: 'provider-a',
+        preferredModelId: 'model-a',
+        createdAt: '2026-04-20T00:00:00Z',
+        updatedAt: '2026-04-20T00:01:00Z',
+      },
+    })
+
+    const { writeSessionPreferences } = await import('./sessionActions')
+    const session = await writeSessionPreferences('session-1', {
+      preferredProviderId: 'provider-a',
+      preferredModelId: 'model-a',
+    })
+
+    expect(updateSessionMock).toHaveBeenCalledWith('session-1', {
+      preferredProviderId: 'provider-a',
+      preferredModelId: 'model-a',
+    })
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')
+    expect(session.preferredProviderId).toBe('provider-a')
+    expect(session.preferredModelId).toBe('model-a')
   })
 
   it('deletes a session through the api and removes it from sessionStore', async () => {
@@ -90,6 +137,9 @@ describe('sessionActions', () => {
     await deleteSession('project-1', 'session-1')
 
     expect(deleteSessionMock).toHaveBeenCalledWith('session-1')
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')
+    expect(ensureProjectSessionsLoadedMock).not.toHaveBeenCalledWith('project-2')
     expect(useSessionStore.getState().sessionsByProjectId['project-1']).toEqual([])
   })
+
 })

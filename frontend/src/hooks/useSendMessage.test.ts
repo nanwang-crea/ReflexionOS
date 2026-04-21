@@ -14,7 +14,7 @@ describe('createSendMessage', () => {
       updatedAt: '2026-04-21T00:00:00Z',
     }
     const createSession = vi.fn().mockResolvedValue(createdSession)
-    const updateSessionPreferences = vi.fn()
+    const writeSessionPreferences = vi.fn()
     const startExecutionRun = vi.fn().mockResolvedValue(undefined)
     const notify = vi.fn()
 
@@ -24,7 +24,7 @@ describe('createSendMessage', () => {
       configured: true,
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession,
-      updateSessionPreferences,
+      writeSessionPreferences,
       startExecutionRun,
       notify,
     })
@@ -35,7 +35,7 @@ describe('createSendMessage', () => {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })
-    expect(updateSessionPreferences).not.toHaveBeenCalled()
+    expect(writeSessionPreferences).not.toHaveBeenCalled()
     expect(startExecutionRun).toHaveBeenCalledWith({
       sessionId: 'session-1',
       message: 'hello',
@@ -48,7 +48,7 @@ describe('createSendMessage', () => {
 
   it('reuses the current session and refreshes preferences before sending', async () => {
     const createSession = vi.fn()
-    const updateSessionPreferences = vi.fn().mockResolvedValue(undefined)
+    const writeSessionPreferences = vi.fn().mockResolvedValue(undefined)
     const startExecutionRun = vi.fn().mockResolvedValue(undefined)
 
     const sendMessage = createSendMessage({
@@ -65,7 +65,7 @@ describe('createSendMessage', () => {
       configured: true,
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession,
-      updateSessionPreferences,
+      writeSessionPreferences,
       startExecutionRun,
       notify: vi.fn(),
     })
@@ -73,7 +73,7 @@ describe('createSendMessage', () => {
     await sendMessage('ship it')
 
     expect(createSession).not.toHaveBeenCalled()
-    expect(updateSessionPreferences).toHaveBeenCalledWith('session-2', {
+    expect(writeSessionPreferences).toHaveBeenCalledWith('session-2', {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })
@@ -87,7 +87,7 @@ describe('createSendMessage', () => {
   })
 
   it('does not require persisted rounds on the current session summary', async () => {
-    const updateSessionPreferences = vi.fn().mockResolvedValue(undefined)
+    const writeSessionPreferences = vi.fn().mockResolvedValue(undefined)
     const startExecutionRun = vi.fn().mockResolvedValue(undefined)
 
     const sendMessage = createSendMessage({
@@ -104,14 +104,14 @@ describe('createSendMessage', () => {
       configured: true,
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession: vi.fn(),
-      updateSessionPreferences,
+      writeSessionPreferences,
       startExecutionRun,
       notify: vi.fn(),
     })
 
     await sendMessage('summary boundary')
 
-    expect(updateSessionPreferences).toHaveBeenCalledWith('session-3', {
+    expect(writeSessionPreferences).toHaveBeenCalledWith('session-3', {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })

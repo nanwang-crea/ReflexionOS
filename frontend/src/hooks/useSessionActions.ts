@@ -1,10 +1,12 @@
 import { useCallback } from 'react'
 import {
   createSession as createSessionAction,
-  updateSession as updateSessionAction,
+  deleteSession as deleteSessionAction,
+  renameSession as renameSessionAction,
 } from '@/features/sessions/sessionActions'
+import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionLoader'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import type { SessionCreatePayload, SessionSummary, SessionUpdatePayload } from '@/types/workspace'
+import type { SessionCreatePayload, SessionSummary } from '@/types/workspace'
 
 export function useSessionActions() {
   const setCurrentSessionId = useWorkspaceStore((state) => state.setCurrentSessionId)
@@ -18,23 +20,22 @@ export function useSessionActions() {
     return session
   }, [setCurrentSessionId])
 
-  const updateSession = useCallback(async (
-    sessionId: string,
-    payload: SessionUpdatePayload
-  ): Promise<SessionSummary> => {
-    return updateSessionAction(sessionId, payload)
+  const renameSession = useCallback(async (sessionId: string, title: string): Promise<SessionSummary> => {
+    return renameSessionAction(sessionId, title)
   }, [])
 
-  const updateSessionPreferences = useCallback(async (
-    sessionId: string,
-    payload: Pick<SessionUpdatePayload, 'preferredProviderId' | 'preferredModelId'>
-  ) => {
-    return updateSession(sessionId, payload)
-  }, [updateSession])
+  const deleteSession = useCallback(async (projectId: string, sessionId: string) => {
+    await deleteSessionAction(projectId, sessionId)
+  }, [])
+
+  const refreshProjectSessions = useCallback(async (projectId: string) => {
+    await ensureProjectSessionsLoaded(projectId)
+  }, [])
 
   return {
     createSession,
-    updateSession,
-    updateSessionPreferences,
+    renameSession,
+    deleteSession,
+    refreshProjectSessions,
   }
 }

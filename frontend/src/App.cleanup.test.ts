@@ -110,6 +110,42 @@ describe('App cleanup', () => {
     expect(workspaceTypesSource.includes('recentRounds')).toBe(false)
   })
 
+  it('does not expose legacy session history fetch from agentApi', async () => {
+    const { agentApi } = await import('@/services/apiClient')
+
+    expect(agentApi).not.toHaveProperty('getSessionHistory')
+  })
+
+  it('removes obsolete local session helpers from messageFlow', async () => {
+    const messageFlow = await import('@/features/workspace/messageFlow')
+
+    expect(messageFlow).not.toHaveProperty('deriveSessionTitle')
+    expect(messageFlow).not.toHaveProperty('trimRecentRounds')
+  })
+
+  it('does not expose a public generic updateSession hook action', () => {
+    const sessionActionsSource = readFileSync(
+      path.resolve(__dirname, 'hooks/useSessionActions.ts'),
+      'utf8'
+    )
+
+    expect(sessionActionsSource).not.toMatch(/return\s*\{[\s\S]*\bupdateSession\b/)
+  })
+
+  it('exposes only the narrow business session actions from useSessionActions', () => {
+    const sessionActionsSource = readFileSync(
+      path.resolve(__dirname, 'hooks/useSessionActions.ts'),
+      'utf8'
+    )
+
+    expect(sessionActionsSource).toMatch(/return\s*\{[\s\S]*\bcreateSession\b/)
+    expect(sessionActionsSource).toMatch(/return\s*\{[\s\S]*\brenameSession\b/)
+    expect(sessionActionsSource).toMatch(/return\s*\{[\s\S]*\bdeleteSession\b/)
+    expect(sessionActionsSource).toMatch(/return\s*\{[\s\S]*\brefreshProjectSessions\b/)
+    expect(sessionActionsSource).not.toMatch(/return\s*\{[\s\S]*\bupdateSessionPreferences\b/)
+    expect(sessionActionsSource).not.toMatch(/return\s*\{[\s\S]*\bloadSessionHistory\b/)
+  })
+
   it('ignores previously persisted demo workspace payload and uses deterministic demo ui seeding', async () => {
     localStorage.setItem('reflexion-workspace-demo', JSON.stringify({
       state: {

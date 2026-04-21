@@ -17,6 +17,11 @@ export function createExecutionDraftRoundState() {
   let sessionId: string | null = null
   let items: WorkspaceChatItem[] = []
 
+  const clearDraftRound = () => {
+    items = []
+    sessionId = null
+  }
+
   return {
     get sessionId() {
       return sessionId
@@ -41,22 +46,7 @@ export function createExecutionDraftRoundState() {
 
       items = [...items, ...nextItems.map(normalizeDraftItem)]
     },
-    completeDraftRound() {
-      items = []
-      sessionId = null
-    },
-    cancelDraftRound() {
-      items = []
-      sessionId = null
-    },
-    failDraftRound() {
-      items = []
-      sessionId = null
-    },
-    clearDraftRound() {
-      items = []
-      sessionId = null
-    },
+    clearDraftRound,
   }
 }
 
@@ -88,26 +78,11 @@ export function useExecutionDraftRound() {
     setItems([])
   }, [])
 
-  const completeDraftRound = useCallback(() => {
-    clearDraftRound()
-  }, [clearDraftRound])
-
-  const cancelDraftRound = useCallback(() => {
-    clearDraftRound()
-  }, [clearDraftRound])
-
-  const failDraftRound = useCallback(() => {
-    clearDraftRound()
-  }, [clearDraftRound])
-
   return {
     items,
     sessionIdRef,
     startDraftRound,
     appendItems,
-    completeDraftRound,
-    cancelDraftRound,
-    failDraftRound,
     clearDraftRound,
   }
 }

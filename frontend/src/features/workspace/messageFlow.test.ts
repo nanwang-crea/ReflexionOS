@@ -1,32 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
 import {
-  deriveSessionTitle,
   flattenRoundsToItems,
   finalizeReceiptItem,
   formatExecutionFailureMessage,
   mergeRenderItems,
-  trimRecentRounds,
 } from './messageFlow'
-
-describe('deriveSessionTitle', () => {
-  it('uses the first user message and truncates long content', () => {
-    const items: WorkspaceChatItem[] = [
-      {
-        id: 'assistant-1',
-        type: 'assistant-message',
-        content: 'hello',
-      },
-      {
-        id: 'user-1',
-        type: 'user-message',
-        content: 'This is a very long message that should be truncated for the title',
-      },
-    ]
-
-    expect(deriveSessionTitle(items)).toBe('This is a very long message...')
-  })
-})
 
 describe('finalizeReceiptItem', () => {
   it('marks pending and running details as successful when the receipt completes', () => {
@@ -112,18 +91,6 @@ describe('mergeRenderItems', () => {
   })
 })
 
-describe('trimRecentRounds', () => {
-  it('keeps only the latest 10 rounds', () => {
-    const rounds: WorkspaceSessionRound[] = Array.from({ length: 12 }, (_, index) => ({
-      id: `round-${index + 1}`,
-      createdAt: `${index + 1}`,
-      items: [],
-    }))
-
-    expect(trimRecentRounds(rounds)).toHaveLength(10)
-    expect(trimRecentRounds(rounds)[0].id).toBe('round-3')
-  })
-})
 
 describe('flattenRoundsToItems', () => {
   it('returns render items in round order', () => {

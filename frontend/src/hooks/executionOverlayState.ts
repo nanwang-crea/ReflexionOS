@@ -1,4 +1,4 @@
-interface OverlayRuntimeState {
+export interface OverlayRuntimeState {
   llmStreaming: string
   summaryStarted: boolean
   finalMessageHandled: boolean

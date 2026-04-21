@@ -10,21 +10,22 @@ import {
   updateFirstMatchingDetail,
 } from '@/features/workspace/messageFlow'
 import { createStreamingBuffer } from '@/features/workspace/streamingBuffer'
+import {
+  createAssistantMessageItem,
+  createExecutionRunState,
+  createOverlayItemId,
+  createReceiptOverlayItem,
+} from './executionOverlayHelpers'
 import { useExecutionOverlayUi } from './useExecutionOverlayUi'
 import { createOverlayRuntimeState } from './executionOverlayState'
 import type { WorkspaceChatItem } from '@/types/workspace'
 
 const LONG_STREAM_FLUSH_INTERVAL_MS = 80
 
-function createItemId(prefix: string) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-}
-
 interface ExecutionDraftRoundBindings {
   startDraftRound: (sessionId: string, message: string) => void
   appendItems: (items: WorkspaceChatItem[]) => void
-  cancelDraftRound: () => void
-  failDraftRound: () => void
+  clearDraftRound: () => void
 }
 
 export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
@@ -108,14 +109,9 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
       return activeReceiptIdRef.current
     }
 
-    const receiptId = createItemId('receipt')
-    addOverlayItem({
-      id: receiptId,
-      type: 'action-receipt',
-      receiptStatus: 'running',
-      details: [],
-      transient: true,
-    })
+    const receiptItem = createReceiptOverlayItem()
+    addOverlayItem(receiptItem)
+    const receiptId = receiptItem.id
     activeReceiptIdRef.current = receiptId
     return receiptId
   }, [addOverlayItem])
@@ -163,7 +159,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
       return messageId
     }
 
-    const messageId = createItemId('llm')
+    const messageId = createOverlayItemId('llm')
     addOverlayItem({
       id: messageId,
       type: 'agent-update',
@@ -208,7 +204,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
 
     if (sessionId) {
       appendRoundItemsToActiveSession([{
-        id: createItemId('update'),
+        id: createOverlayItemId('update'),
         type: 'agent-update',
         content,
       }])
@@ -235,11 +231,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
     }
 
     if (sessionId && content) {
-      appendRoundItemsToActiveSession([{
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content,
-      }])
+      appendRoundItemsToActiveSession([createAssistantMessageItem(content)])
     }
 
     currentLlmMessageIdRef.current = null
@@ -269,7 +261,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
       }
     }
 
-    const messageId = createItemId('assistant')
+    const messageId = createOverlayItemId('assistant')
     addOverlayItem({
       id: messageId,
       type: 'assistant-message',
@@ -329,11 +321,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
     }
 
     if (sessionId && content) {
-      appendRoundItemsToActiveSession([{
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content,
-      }])
+      appendRoundItemsToActiveSession([createAssistantMessageItem(content)])
     }
 
     currentAssistantMessageIdRef.current = null
@@ -341,7 +329,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
 
   const appendReceiptDetail = useCallback((toolName: string, args?: Record<string, unknown>) => {
     const receiptId = ensureReceiptItem()
-    const detail = buildReceiptDetail(createItemId('detail'), toolName, args)
+    const detail = buildReceiptDetail(createOverlayItemId('detail'), toolName, args)
 
     updateOverlayItem(receiptId, (item) => ({
       ...item,
@@ -388,27 +376,22 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
     sessionId: string
     message: string
   }) => {
-    const statusItem: WorkspaceChatItem = {
-      id: createItemId('status'),
-      type: 'assistant-status',
-      statusLabel: '正在思考中',
-      transient: true,
-    }
+    const nextState = createExecutionRunState(payload.sessionId)
 
-    setOverlayState([statusItem])
+    setOverlayState([nextState.statusItem])
     draftRound.startDraftRound(payload.sessionId, payload.message)
 
-    llmStreamingRef.current = ''
-    summaryStartedRef.current = false
-    finalMessageHandledRef.current = false
-    activeReceiptIdRef.current = null
-    executionHasReceiptsRef.current = false
-    thoughtFlushedRef.current = false
-    currentStatusItemIdRef.current = statusItem.id
-    currentLlmMessageIdRef.current = null
-    currentAssistantMessageIdRef.current = null
-    currentExecutionIdRef.current = null
-    activeSessionIdRef.current = payload.sessionId
+    llmStreamingRef.current = nextState.runtimeState.llmStreaming
+    summaryStartedRef.current = nextState.runtimeState.summaryStarted
+    finalMessageHandledRef.current = nextState.runtimeState.finalMessageHandled
+    activeReceiptIdRef.current = nextState.runtimeState.activeReceiptId
+    executionHasReceiptsRef.current = nextState.runtimeState.executionHasReceipts
+    thoughtFlushedRef.current = nextState.runtimeState.thoughtFlushed
+    currentStatusItemIdRef.current = nextState.runtimeState.currentStatusItemId
+    currentLlmMessageIdRef.current = nextState.runtimeState.currentLlmMessageId
+    currentAssistantMessageIdRef.current = nextState.runtimeState.currentAssistantMessageId
+    currentExecutionIdRef.current = nextState.runtimeState.currentExecutionId
+    activeSessionIdRef.current = nextState.runtimeState.activeSessionId
   }, [draftRound, setOverlayState])
 
   const handleConnectionFailure = useCallback((message: string) => {
@@ -420,14 +403,10 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
     removeStatusBubble()
 
     if (sessionId && message) {
-      appendRoundItemsToActiveSession([{
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content: message,
-      }])
+      appendRoundItemsToActiveSession([createAssistantMessageItem(message)])
     }
 
-    draftRound.failDraftRound()
+    draftRound.clearDraftRound()
     clearTransientState()
   }, [
     appendRoundItemsToActiveSession,
@@ -558,11 +537,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
       flushStreamingAgentUpdate()
       const failureMessage = formatExecutionFailureMessage(data.result)
       if (failureMessage && sessionId) {
-        appendRoundItemsToActiveSession([{
-          id: createItemId('assistant'),
-          type: 'assistant-message',
-          content: failureMessage,
-        }])
+        appendRoundItemsToActiveSession([createAssistantMessageItem(failureMessage)])
       }
       clearTransientState()
       return { failed: true, sessionId }
@@ -597,11 +572,7 @@ export function useExecutionOverlay(draftRound: ExecutionDraftRoundBindings) {
     removeStatusBubble()
 
     if (sessionId) {
-      appendRoundItemsToActiveSession([{
-        id: createItemId('assistant'),
-        type: 'assistant-message',
-        content: `错误: ${error}`,
-      }])
+      appendRoundItemsToActiveSession([createAssistantMessageItem(`错误: ${error}`)])
     }
 
     clearTransientState()

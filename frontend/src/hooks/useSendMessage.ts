@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/sessionActions'
 import { useProjectStore } from '@/stores/projectStore'
 import type { SessionSummary } from '@/types/workspace'
 import { useSessionActions } from './useSessionActions'
@@ -17,7 +18,7 @@ interface SendMessageDependencies {
     projectId: string,
     payload: { preferredProviderId?: string | null; preferredModelId?: string | null }
   ) => Promise<SessionSummary>
-  updateSessionPreferences: (
+  writeSessionPreferences: (
     sessionId: string,
     payload: { preferredProviderId?: string | null; preferredModelId?: string | null }
   ) => Promise<unknown>
@@ -72,7 +73,7 @@ export function createSendMessage(dependencies: SendMessageDependencies) {
     }
 
     if (!requiresFreshSession) {
-      await dependencies.updateSessionPreferences(targetSession.id, {
+      await dependencies.writeSessionPreferences(targetSession.id, {
         preferredProviderId: dependencies.selection.providerId,
         preferredModelId: dependencies.selection.modelId,
       })
@@ -95,7 +96,7 @@ export function useSendMessage(options: {
   startExecutionRun: SendMessageDependencies['startExecutionRun']
 }) {
   const { currentProject } = useProjectStore()
-  const { createSession, updateSessionPreferences } = useSessionActions()
+  const { createSession } = useSessionActions()
 
   const sendMessage = useCallback(createSendMessage({
     currentProject,
@@ -103,7 +104,7 @@ export function useSendMessage(options: {
     configured: options.configured,
     selection: options.selection,
     createSession,
-    updateSessionPreferences,
+    writeSessionPreferences: writeSessionPreferencesAction,
     startExecutionRun: options.startExecutionRun,
     notify: (message) => {
       window.alert(message)
@@ -115,7 +116,6 @@ export function useSendMessage(options: {
     options.configured,
     options.selection,
     options.startExecutionRun,
-    updateSessionPreferences,
   ])
 
   return {

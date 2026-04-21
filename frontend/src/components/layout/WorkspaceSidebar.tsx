@@ -1,10 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import {
-  createSession as createSessionAction,
-  deleteSession as deleteSessionAction,
-  renameSession as renameSessionAction,
-} from '@/features/sessions/sessionActions'
 import { useSessionStore } from '@/features/sessions/sessionStore'
 import { demoSessions, isDemoMode } from '@/demo/demoData'
 import {
@@ -21,15 +16,17 @@ import {
   Trash2,
   Workflow
 } from 'lucide-react'
-import { projectApi } from '@/services/apiClient'
 import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
-import { isElectronRuntime, selectProjectDirectory } from '@/services/desktopClient'
+import { isElectronRuntime } from '@/services/desktopClient'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { useExecutionStore } from '@/stores/executionStore'
 import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
+import { useSidebarFilteredProjects } from './useSidebarFilteredProjects'
+import { useSidebarProjectActions } from './useSidebarProjectActions'
+import { useSidebarSessionActions } from './useSidebarSessionActions'
 
 const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-slate-700 transition hover:bg-slate-200/60'
 
@@ -149,63 +146,47 @@ export function WorkspaceSidebar() {
     }
   }, [currentProject, currentSession?.projectId, projects, setCurrentProject])
 
-  const filteredProjects = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLowerCase()
+  const filteredProjects = useSidebarFilteredProjects({
+    projects,
+    projectSessionsById,
+    searchQuery,
+  })
 
-    return projects
-      .map((project) => {
-        const projectSessions = [...(projectSessionsById[project.id] || [])]
-          .sort((a, b) => (
-            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-          ))
+  const {
+    handleCreateProject,
+    handleDeleteProject,
+    handleSelectDirectory,
+  } = useSidebarProjectActions({
+    busy,
+    currentProject,
+    addProject,
+    removeProject,
+    setCurrentProject,
+    setProjectExpanded,
+    setShowProjectModal,
+    setFormData,
+    navigate,
+  })
 
-        if (!normalizedQuery) {
-          return { project, sessions: projectSessions }
-        }
+  const {
+    handleCreateSession,
+    handleRenameSession,
+    handleDeleteSession,
+  } = useSidebarSessionActions({
+    busy,
+    projects,
+    currentProject,
+    currentSessionId,
+    defaultProviderId,
+    defaultModelId,
+    setCurrentProject,
+    setProjectExpanded,
+    setCurrentSessionId,
+    setShowProjectModal,
+    navigate,
+  })
 
-        const matchesProject = project.name.toLowerCase().includes(normalizedQuery)
-        const matchedSessions = projectSessions.filter(session => (
-          session.title.toLowerCase().includes(normalizedQuery)
-        ))
-
-        if (!matchesProject && matchedSessions.length === 0) {
-          return null
-        }
-
-        return {
-          project,
-          sessions: matchesProject ? projectSessions : matchedSessions
-        }
-      })
-      .filter(Boolean) as Array<{ project: Project; sessions: typeof sessions }>
-  }, [projectSessionsById, projects, searchQuery])
-
-  const handleCreateProject = async () => {
-    try {
-      const response = await projectApi.create(formData)
-      addProject(response.data)
-      setCurrentProject(response.data)
-      setProjectExpanded(response.data.id, true)
-      setShowProjectModal(false)
-      setFormData({ name: '', path: '', language: 'python' })
-      navigate('/agent')
-    } catch (error) {
-      console.error('Failed to create project:', error)
-      alert('创建项目失败')
-    }
-  }
-
-  const handleSelectDirectory = async () => {
-    const selectedPath = await selectProjectDirectory()
-
-    if (!selectedPath) {
-      return
-    }
-
-    setFormData((current) => ({ ...current, path: selectedPath }))
-  }
-
-  const handleProjectSelect = (project: Project, projectSessions: typeof sessions) => {
+  const handleProjectSelect = (project: Project, projectSessions: SessionSummary[]) => {
     if (busy) {
       return
     }
@@ -220,54 +201,6 @@ export function WorkspaceSidebar() {
     navigate('/agent')
   }
 
-  const handleDeleteProject = async (project: Project) => {
-    if (busy) {
-      return
-    }
-
-    const confirmed = confirm(`确定删除项目“${project.name}”吗？项目下的聊天也会一并移除。`)
-    if (!confirmed) {
-      return
-    }
-
-    try {
-      await projectApi.delete(project.id)
-      removeProject(project.id)
-      if (currentProject?.id === project.id) {
-        setCurrentProject(null)
-      }
-    } catch (error) {
-      console.error('Failed to delete project:', error)
-      alert('删除项目失败')
-    }
-  }
-
-  const handleNewChat = async () => {
-    if (busy) {
-      return
-    }
-
-    const targetProject = currentProject || projects[0]
-    if (!targetProject) {
-      setShowProjectModal(true)
-      return
-    }
-
-    setCurrentProject(targetProject)
-    setProjectExpanded(targetProject.id, true)
-    try {
-      const session = await createSessionAction(targetProject.id, {
-        preferredProviderId: defaultProviderId,
-        preferredModelId: defaultModelId,
-      })
-      setCurrentSessionId(session.id)
-      navigate('/agent')
-    } catch (error) {
-      console.error('Failed to create session:', error)
-      alert('创建聊天失败')
-    }
-  }
-
   const handleSessionSelect = (project: Project, sessionId: string) => {
     if (busy) {
       return
@@ -279,50 +212,12 @@ export function WorkspaceSidebar() {
     navigate('/agent')
   }
 
-  const handleRenameSession = async (session: SessionSummary) => {
-    if (busy) {
-      return
-    }
-
-    const nextTitle = prompt('重命名聊天', session.title)?.trim()
-    if (!nextTitle || nextTitle === session.title) {
-      return
-    }
-
-    try {
-      await renameSessionAction(session.id, nextTitle)
-    } catch (error) {
-      console.error('Failed to rename session:', error)
-      alert('重命名聊天失败')
-    }
-  }
-
-  const handleDeleteSession = async (session: SessionSummary) => {
-    if (busy) {
-      return
-    }
-
-    if (!confirm(`确定删除聊天“${session.title}”吗？`)) {
-      return
-    }
-
-    try {
-      await deleteSessionAction(session.projectId, session.id)
-      if (currentSessionId === session.id) {
-        setCurrentSessionId(null)
-      }
-    } catch (error) {
-      console.error('Failed to delete session:', error)
-      alert('删除聊天失败')
-    }
-  }
-
   const globalEntries = [
     {
       key: 'new-chat',
       label: '新建聊天',
       icon: SquarePen,
-      onClick: handleNewChat,
+      onClick: handleCreateSession,
       disabled: false,
       path: null
     },
@@ -404,17 +299,17 @@ export function WorkspaceSidebar() {
           <div className="mb-3 flex items-center justify-between px-2 text-sm text-slate-400">
             <span className="font-medium">聊天</span>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handleNewChat}
+                 <button
+                 type="button"
+                 onClick={handleCreateSession}
                 disabled={busy}
                 className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
                 title="新建聊天"
               >
                 <SquarePen className="h-4 w-4" />
               </button>
-              <button
-                type="button"
+                               <button
+                                 type="button"
                 onClick={() => setShowProjectModal(true)}
                 disabled={busy}
                 className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
@@ -447,7 +342,7 @@ export function WorkspaceSidebar() {
                         busy ? 'opacity-75' : 'hover:bg-slate-200/70'
                       } ${isCurrentProject ? 'text-slate-900' : 'text-slate-600'}`}
                     >
-                      <button
+                               <button
                         type="button"
                         onClick={() => {
                           if (!busy) {
@@ -592,9 +487,10 @@ export function WorkspaceSidebar() {
                     placeholder="/path/to/project"
                   />
                   {canSelectDirectory && (
-                    <button
+                     <button
                       type="button"
                       onClick={handleSelectDirectory}
+                      disabled={busy}
                       className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
                     >
                       选择目录
@@ -626,9 +522,9 @@ export function WorkspaceSidebar() {
               >
                 取消
               </button>
-              <button
-                type="button"
-                onClick={handleCreateProject}
+               <button
+                 type="button"
+                 onClick={() => handleCreateProject(formData)}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-white transition hover:bg-slate-800"
               >
                 创建

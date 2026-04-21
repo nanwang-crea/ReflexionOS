@@ -5,17 +5,6 @@ import type {
 } from '@/components/execution/receiptUtils'
 import type { WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
 
-export function deriveSessionTitle(items: WorkspaceChatItem[]) {
-  const firstUserMessage = items.find((item) => item.type === 'user-message' && item.content)?.content?.trim()
-  if (!firstUserMessage) {
-    return null
-  }
-
-  return firstUserMessage.length > 28
-    ? `${firstUserMessage.slice(0, 28).trimEnd()}...`
-    : firstUserMessage
-}
-
 export function updateFirstMatchingDetail(
   details: ActionReceiptDetail[],
   matcher: (detail: ActionReceiptDetail) => boolean,
@@ -68,10 +57,6 @@ export function mergeRenderItems(
   overlayItems: WorkspaceChatItem[]
 ) {
   return [...persistedItems, ...overlayItems]
-}
-
-export function trimRecentRounds(rounds: WorkspaceSessionRound[]) {
-  return rounds.slice(-10)
 }
 
 export function flattenRoundsToItems(rounds: WorkspaceSessionRound[]) {
