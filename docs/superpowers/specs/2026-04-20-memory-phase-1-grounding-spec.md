@@ -7,8 +7,8 @@
 **版本**: v1.0  
 **日期**: 2026-04-20  
 **语言**: 中文  
-**对应上位架构文档**: `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md`  
-**对应第一期主文档**: `docs/plans/2026-04-19-memory-phase-1.md`
+**对应上位架构文档**: `docs/superpowers/plans/2026-04-19-memory-architecture-记忆整体架构.md`  
+**当前相关实现边界文档**: `docs/superpowers/specs/2026-04-20-session-transcript-boundary-design.md`
 
 ---
 
@@ -34,7 +34,7 @@
 
 ## 二、上位目标回顾：记忆一期到底要解决什么
 
-根据第一期主文档 `docs/plans/2026-04-19-memory-phase-1.md`，记忆系统第一期并不是完整长期记忆系统，而是一个最小连续性闭环。
+根据记忆一期的原始目标设定，记忆系统第一期并不是完整长期记忆系统，而是一个最小连续性闭环。
 
 它的唯一目标可以压缩为一句话：
 
@@ -64,8 +64,8 @@
 基于当前代码仓库，记忆一期并没有以独立的 `memory` 子系统存在。当前更接近三类能力的组合：
 
 1. 后端执行上下文能力
-2. 后端执行与会话持久化能力
-3. 前端工作区会话状态持久化能力
+2. 后端正式 session 与 transcript/history 能力
+3. 前端轻量会话缓存与工作区 UI 状态能力
 
 ### 3.1 后端执行上下文
 
@@ -110,7 +110,7 @@
 
 但它当前仍然更偏“执行记录系统”，而不是“可治理的记忆归档系统”。
 
-### 3.3 前端工作区会话状态
+### 3.3 前端工作区会话与 UI 状态
 
 关键入口包括：
 
@@ -121,21 +121,21 @@
 
 当前前端已经具备：
 
-- 项目下创建多个聊天 session
-- 为 session 保存最近 `10` 轮 `recentRounds`
-- 按项目组织 session
-- 使用 `zustand persist` 将工作区状态落在本地存储
-- 当前运行轮通过 overlay 内存态承载
-- 按 session 从后端拉取 transcript history 进行恢复
+- 项目下展示多个正式 session
+- 启动时预热各项目的 session summary 列表
+- 当前 session 的 history 按需加载
+- 当前运行轮通过 draft round / overlay 内存态承载
+- `workspaceStore` 只持久化 UI 状态
+- 前端通过 `sessionStore` 缓存 session summary 与已加载 history
 
 这说明前端侧已经具备“工作区会话连续性”的表层承载能力。
 
-但当前保存的是 UI 会话与消息列表，不是结构化的线程状态、任务状态、承诺状态或反思状态。
+但当前前端保存的仍然是 UI 选择状态、session summary 缓存和按需拉取后的 history，不是结构化的线程状态、任务状态、承诺状态或反思状态。
 
 更准确地说，当前前端 store 更适合承载：
 
-- 当前项目下有哪些聊天 session
-- 当前 session 正在展示哪些 render items
+- 当前项目下有哪些正式 session summary
+- 当前 session 的渲染所需缓存
 - 当前 UI 选择状态和局部连续性
 
 而不适合直接承载：
@@ -145,7 +145,7 @@
 - 全量反思历史
 - 全量 execution / receipt 原始记录
 
-这意味着前端可以保存一部分连续性信息，但不应成为记忆一期的唯一真相源。
+这意味着前端可以保存一部分连续性信息，但不应成为记忆一期的真相源。
 
 ### 3.4 当前现实结论
 
@@ -166,7 +166,7 @@
 
 | 第一期开工目标 | 当前代码中对应的现实基础 | 当前状态判断 |
 | --- | --- | --- |
-| Thread continuity | 前端 recentRounds、本地持久化、session transcript history | 部分具备表层能力，但缺少结构化线程状态 |
+| Thread continuity | 正式 session、按需拉取的 session history、前端 UI 会话选择 | 部分具备表层能力，但缺少结构化线程状态 |
 | Task continuity | `ExecutionContext.task`、执行历史、execution history | 部分具备，但主要停留在单次执行上下文 |
 | Commitment continuity | 暂无专门数据结构或持久化入口 | 基本未落地 |
 | Active Workspace | `ExecutionContext` + workspaceStore 的组合基础 | 仅有雏形，未形成统一工作记忆层 |
@@ -214,15 +214,21 @@
 - 运行时并非完全无状态
 - 后续可以在此基础上升级为更明确的 `Active Workspace` 结构
 
-### 5.3 工作区聊天会话具备本地连续性与后端历史恢复能力
+### 5.3 工作区聊天会话具备 UI 连续性与后端历史恢复能力
 
-前端 `workspaceStore` 当前会把会话元信息、最近 `10` 轮、当前会话、项目展开状态等信息通过本地存储持久化；更早的历史则由后端 transcript history 提供。
+当前前端不再把 session/history 当作本地真相源。更准确的说法是：
+
+- `workspaceStore` 只持久化 UI 状态
+- `sessionStore` 缓存已加载的 session summary 与 history
+- session history 的真相源在后端
+- 当前 session 首次可见时按需加载 history
+- execution complete / failed 后主动刷新 history
 
 这部分能力直接支撑了用户感知层面的最小连续性：
 
-- 刷新后会话列表不丢
-- 同项目下历史聊天入口还在
-- 聊天消息不会因为 UI 切换全部消失
+- 刷新后当前 UI 选择与项目视图不丢
+- 同项目下的正式会话入口可恢复
+- 进入会话时可从后端恢复历史 transcript
 
 虽然这不是“记忆系统”的完整实现，但它已经解决了体验上最粗糙的断片问题。
 
@@ -265,11 +271,11 @@
 目前只有：
 
 - `ExecutionContext` 中的 task/history/messages
-- 前端 session items 的消息数组
+- 正式 session + session history + 前端 UI 选择/缓存的组合
 
 这两者都不能等价替代第一期所需的结构化工作记忆层。
 
-这也意味着，如果继续把完整消息历史和工作记忆状态都堆进当前前端 store：
+这也意味着，如果继续把完整消息历史和工作记忆状态都堆进当前前端缓存层：
 
 - 职责会继续混淆
 - 数据边界会继续模糊
@@ -309,11 +315,12 @@
 
 ### 6.4 Archive 已具备最小 transcript 回放能力，但仍不是完整记忆归档层
 
-当前后端已经不只是 execution 持久化基础，而是具备了 session 级 transcript archive 的最小闭环：
+当前后端已经不只是 execution 持久化基础，而是具备了正式 session 资源与 session 级 transcript/history 的最小闭环：
 
-- `session_id` 已贯通到执行与历史查询链路
-- session history API 已可拉取历史
-- transcript archive 已可回放 `user-message / agent-update / action-receipt / assistant-message`
+- `session` 已成为后端正式资源
+- session history API 已按 `round -> items` 提供历史
+- transcript/history 已可回放 `user-message / agent-update / action-receipt / assistant-message`
+- `cancelled` 不进入 history，`failed` 进入 history
 
 但它仍然没有完全形成一期期望中的完整归档区行为模型。
 
@@ -359,25 +366,28 @@
 
 因此它只能算“上下文拼接函数”，还不能算真正的一期 `State Assembler`。
 
-### 6.7 前端当前持久化策略的主要风险已从“全量历史”收缩为“recentRounds + transcript 渲染压力”
+### 6.7 前端当前风险已从“本地全量历史真相源”收缩为“轻量缓存 + transcript 渲染压力”
 
-当前前端的 `workspaceStore` 使用 `zustand persist + localStorage` 保存 workspace 状态，但已经不再长期持久化全量消息历史，而是保存 session 元信息与 `recentRounds`。
+当前前端已经不再承担本地全量历史真相源职责：
 
-这在消息较少时问题不大，但随着会话增长，会出现三个叠加风险：
+- `workspaceStore` 只持久化 UI 状态
+- `sessionStore` 缓存 session summary 与已加载 history
+- session history 的真相源在后端
 
-1. `sessions` 整体序列化与写回仍会随着 session 数量和 recentRounds 增长而变重
-2. rehydrate 时仍需要恢复 recentRounds 与 UI 状态
-3. UI 层仍会对较长 transcript 做渲染与 markdown 解析
+在当前实现下，风险主要集中在两个方向：
 
-因此，如果继续在当前 store 里堆更多结构化状态，而不维持“前端缓存、后端真相源”的边界，后续仍然容易出现：
+1. 前端仍需维护 session summary 缓存与 UI hydration
+2. UI 层仍会对较长 transcript 做渲染与 markdown 解析
 
-- 启动变慢
-- 切换 session 变重
+因此，如果继续在前端缓存层堆更多结构化状态，而不维持“前端缓存、后端真相源”的边界，后续仍然容易出现：
+
+- 前端状态重新膨胀
+- session 切换与 hydration 变重
 - 长消息场景下滚动和输入反馈变差
 
 这个问题的根因不是单纯“localStorage 空间会不会不够”，而是：
 
-**当前持久化模型和渲染模型都在放大大消息、长会话和全量历史带来的成本。**
+**当前渲染模型仍会放大长 transcript 的成本，而前端若重新回到真相源角色，也会再次放大状态复杂度。**
 
 ---
 
@@ -443,19 +453,18 @@
 
 这与一期“最小连续性闭环”的目标相冲突。
 
-### 7.6 差距六：前端尚未从“完整历史持久化思路”切换到“轻量快照缓存思路”
+### 7.6 差距六：前端仍缺少真正面向记忆层的轻量工作快照
 
 当前如果不主动收敛前端职责，后续很容易自然滑向一种错误方向：
 
-- 前端既存 UI session
-- 又存完整消息历史
-- 又存 thread/task/commitment/reflection
-- 甚至继续存更多 receipt 与执行状态
+- 前端既存 UI 选择与摘要缓存
+- 又开始堆 thread/task/commitment/reflection
+- 甚至试图重新承担完整 history 与执行状态
 
 这样做短期看似方便，长期会带来两个问题：
 
-1. 前端 store 变成事实上的真相源，破坏后端记忆系统边界
-2. 前端性能成本随历史规模线性放大，最终影响 workspace 体验
+1. 前端缓存层重新膨胀成事实上的真相源，破坏后端记忆系统边界
+2. 前端性能成本再次持续累积，最终影响 workspace 体验
 
 ---
 
@@ -671,5 +680,5 @@
 
 ### 10.4 已有相关文档
 
-- `docs/plans/2026-04-19-memory-phase-1.md`
-- `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md`
+- `docs/superpowers/plans/2026-04-19-memory-architecture-记忆整体架构.md`
+- `docs/superpowers/specs/2026-04-20-session-transcript-boundary-design.md`

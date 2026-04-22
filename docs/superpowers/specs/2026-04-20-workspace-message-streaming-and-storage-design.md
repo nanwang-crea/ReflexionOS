@@ -40,12 +40,12 @@
    - 高频状态写入会不断驱动 React 更新
 
 3. 持久化成本
-   - `workspaceStore` 当前会把 `sessions` 连同 `items` 一起持久化到同一个 localStorage key
-   - 消息越长、会话越多，整体序列化、写回和 rehydrate 成本越高
+   - 旧方案曾把完整 `sessions.items` 连同会话一起持久化到 localStorage
+   - 当前已收敛为前端轻量缓存 + 后端 history 真相源，但长 transcript 的渲染成本仍然存在
 
 因此，当前问题不能被理解为“某个组件写得慢”，而应被理解为：
 
-**当前消息链路把高频流式更新、长 markdown 渲染和大对象本地持久化耦合在了一起。**
+**旧链路曾把高频流式更新、长 markdown 渲染和大对象本地持久化耦合在一起；当前方案要避免重新回到这条路径。**
 
 ---
 
@@ -87,7 +87,8 @@
 
 前端负责：
 
-- session 元信息与当前选择状态
+- `workspaceStore` 中的 UI 状态
+- `sessionStore` 中的 session summary 缓存与已加载 history
 - 当前可见会话内容的渲染
 - 最近 `10` 轮消息缓存
 - 正在流式输出的 overlay 内存态
@@ -121,9 +122,9 @@ WebSocket 持续接收 token / receipt / 状态
   ↓
 前端按稳定刷新策略更新当前轮 UI
   ↓
-当前轮结束后写入最近 10 轮缓存
+当前轮结束后，前端清理 draft 并刷新后端 session history
   ↓
-更早历史由后端 transcript history 拉取，不再长期驻留前端持久化 store
+前端继续以轻量缓存方式保留当前 UI 所需数据；更早历史由后端 session history 提供
 ```
 
 ---
@@ -146,7 +147,7 @@ WebSocket 持续接收 token / receipt / 状态
 
 前端长期缓存当前只保留最近 `10` 轮。
 
-更早的历史不是删除，而是从前端常驻缓存中移出，改为在需要时由后端拉取并按 transcript archive 恢复。
+更早的历史不是删除，而是由后端正式 session history 提供，前端只在需要时拉取并恢复显示。
 
 ---
 

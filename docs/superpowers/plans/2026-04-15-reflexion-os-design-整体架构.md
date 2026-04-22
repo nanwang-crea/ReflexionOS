@@ -1670,8 +1670,8 @@ class GitTool(BaseTool):
 >
 > 详见：
 >
-> - `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md`
-> - `docs/plans/2026-04-19-memory-phase-1.md`
+> - `docs/superpowers/plans/2026-04-19-memory-architecture-记忆整体架构.md`
+> - `docs/superpowers/specs/2026-04-20-memory-phase-1-grounding-spec.md`
 
 **架构设计:**
 
