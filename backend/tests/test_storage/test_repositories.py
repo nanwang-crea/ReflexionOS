@@ -1,15 +1,16 @@
-import pytest
 from datetime import datetime, timedelta
-from pathlib import Path
-from app.storage.database import Database
-from app.storage.repositories.project_repo import ProjectRepository
-from app.storage.repositories.conversation_repo import ConversationRepository
-from app.storage.repositories.execution_repo import ExecutionRepository
-from app.storage.repositories.session_repo import SessionRepository
+
+import pytest
+
+from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
+from app.models.project import Project
 from app.models.session import Session
 from app.models.transcript import TranscriptRecord
-from app.models.project import Project
-from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
+from app.storage.database import Database
+from app.storage.repositories.conversation_repo import ConversationRepository
+from app.storage.repositories.execution_repo import ExecutionRepository
+from app.storage.repositories.project_repo import ProjectRepository
+from app.storage.repositories.session_repo import SessionRepository
 
 
 class TestProjectRepository:

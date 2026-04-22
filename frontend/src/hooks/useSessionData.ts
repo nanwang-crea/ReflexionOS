@@ -9,6 +9,8 @@ import { useProjectStore } from '@/stores/projectStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { SessionSummary, WorkspaceSessionRound } from '@/types/workspace'
 
+const EMPTY_SESSIONS: SessionSummary[] = []
+
 export function findCurrentSessionSummary(
   projectSessions: SessionSummary[],
   currentSessionId: string | null
@@ -47,7 +49,7 @@ export function useSessionData(): UseSessionDataResult {
   const historyBySessionId = useSessionStore((state) => state.historyBySessionId)
   const demoMode = isDemoMode()
 
-  const projectSessions = currentProject ? sessionsByProjectId[currentProject.id] || [] : []
+  const projectSessions = currentProject ? sessionsByProjectId[currentProject.id] || EMPTY_SESSIONS : EMPTY_SESSIONS
   const hasLoadedProjectSessions = currentProject
     ? Object.prototype.hasOwnProperty.call(sessionsByProjectId, currentProject.id)
     : false

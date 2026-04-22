@@ -1,5 +1,5 @@
-import re
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ class ShellSecurity:
 
         for pattern in self.DANGEROUS_PATTERNS:
             if re.search(pattern, command_lower):
-                logger.warning(f"检测到危险命令: {command}")
+                logger.warning("检测到危险命令: %s", command)
                 raise ShellSecurityError(f"禁止执行危险命令: {command}")
 
-        logger.info(f"命令验证通过: {command}")
+        logger.info("命令验证通过: %s", command)

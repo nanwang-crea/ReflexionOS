@@ -1,9 +1,10 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from app.llm.openai_adapter import OpenAIAdapter
+
 from app.llm.base import LLMMessage
+from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 
 
@@ -48,7 +49,11 @@ class TestOpenAIAdapter:
         mock_response.usage.completion_tokens = 30
         mock_response.choices[0].finish_reason = "stop"
         
-        with patch.object(openai_adapter.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            'create',
+            new_callable=AsyncMock,
+        ) as mock_create:
             mock_create.return_value = mock_response
             
             response = await openai_adapter.complete(messages)
@@ -73,7 +78,11 @@ class TestOpenAIAdapter:
         mock_response.usage.completion_tokens = 30
         mock_response.choices[0].finish_reason = "stop"
 
-        with patch.object(openai_adapter.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            'create',
+            new_callable=AsyncMock,
+        ) as mock_create:
             mock_create.return_value = mock_response
 
             response = await openai_adapter.complete(messages)
@@ -124,7 +133,11 @@ class TestOpenAIAdapter:
                 )]
             )
 
-        with patch.object(openai_adapter.client.chat.completions, 'create', new_callable=AsyncMock) as mock_create:
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            'create',
+            new_callable=AsyncMock,
+        ) as mock_create:
             mock_create.return_value = mock_stream()
 
             chunks = []

@@ -2,7 +2,6 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 from uuid import uuid4
 
 from openai import AsyncOpenAI
@@ -11,7 +10,6 @@ from app.api.websocket import ws_manager
 from app.config.settings import config_manager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm import LLMAdapterFactory
-from app.models.transcript import TranscriptRecord
 from app.models.execution import Execution, ExecutionCreate, ExecutionStatus
 from app.models.llm_config import (
     DefaultLLMSelection,
@@ -22,6 +20,7 @@ from app.models.llm_config import (
     ProviderType,
     ResolvedLLMConfig,
 )
+from app.models.transcript import TranscriptRecord
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
 from app.storage.database import db
@@ -46,12 +45,12 @@ class AgentService:
 
     def __init__(
         self,
-        execution_repo: Optional[ExecutionRepository] = None,
-        project_repo: Optional[ProjectRepository] = None,
-        session_repo: Optional[SessionRepository] = None,
+        execution_repo: ExecutionRepository | None = None,
+        project_repo: ProjectRepository | None = None,
+        session_repo: SessionRepository | None = None,
     ):
-        self.executions: Dict[str, Execution] = {}
-        self.running_tasks: Dict[str, asyncio.Task] = {}
+        self.executions: dict[str, Execution] = {}
+        self.running_tasks: dict[str, asyncio.Task] = {}
         self.execution_repo = execution_repo or ExecutionRepository(db)
         self.conversation_repo = ConversationRepository(db)
         self.project_repo = project_repo or ProjectRepository(db)
@@ -64,7 +63,7 @@ class AgentService:
         self.executions[execution.id] = execution
         return execution
 
-    def _load_execution(self, execution_id: str) -> Optional[Execution]:
+    def _load_execution(self, execution_id: str) -> Execution | None:
         execution = self.executions.get(execution_id)
         if execution is not None:
             return execution
@@ -86,7 +85,7 @@ class AgentService:
         registry.register(ShellTool(shell_security, path_security))
         registry.register(PatchTool(path_security))
 
-        logger.info(f"工具注册中心初始化完成, 允许路径: {allowed_paths}")
+        logger.info("工具注册中心初始化完成, 允许路径: %s", allowed_paths)
         return registry
 
     def _load_llm_settings(self) -> LLMSettings:
@@ -139,7 +138,9 @@ class AgentService:
             raise ValueError("请至少配置一个模型")
 
         enabled_models = [model for model in normalized_models if model.enabled]
-        if provider.default_model_id and any(model.id == provider.default_model_id for model in normalized_models):
+        if provider.default_model_id and any(
+            model.id == provider.default_model_id for model in normalized_models
+        ):
             default_model_id = provider.default_model_id
         elif enabled_models:
             default_model_id = enabled_models[0].id
@@ -161,7 +162,9 @@ class AgentService:
         )
 
     def _normalize_settings(self, settings: LLMSettings) -> LLMSettings:
-        normalized_providers = [self._normalize_provider(provider) for provider in settings.providers]
+        normalized_providers = [
+            self._normalize_provider(provider) for provider in settings.providers
+        ]
 
         normalized = LLMSettings(
             providers=normalized_providers,
@@ -182,7 +185,11 @@ class AgentService:
             return normalized
 
         default_provider = next(
-            (provider for provider in available_providers if provider.id == normalized.default_provider_id),
+            (
+                provider
+                for provider in available_providers
+                if provider.id == normalized.default_provider_id
+            ),
             available_providers[0]
         )
         available_models = self._available_models(default_provider)
@@ -193,7 +200,11 @@ class AgentService:
         )
         if not default_model:
             default_model = next(
-                (model for model in available_models if model.id == default_provider.default_model_id),
+                (
+                    model
+                    for model in available_models
+                    if model.id == default_provider.default_model_id
+                ),
                 available_models[0]
             )
 
@@ -204,7 +215,7 @@ class AgentService:
     def _resolve_provider_model(
         self,
         provider: ProviderInstanceConfig,
-        model_id: Optional[str],
+        model_id: str | None,
         *,
         strict_model: bool,
         temperature: float,
@@ -216,7 +227,10 @@ class AgentService:
 
         selected_model = None
         if model_id:
-            selected_model = next((model for model in available_models if model.id == model_id), None)
+            selected_model = next(
+                (model for model in available_models if model.id == model_id),
+                None,
+            )
             if not selected_model and strict_model:
                 raise ValueError("所选模型不存在或已禁用")
 
@@ -258,9 +272,17 @@ class AgentService:
 
         settings.providers.append(normalized_provider)
         self._persist_llm_settings(settings)
-        return next(item for item in self.llm_settings.providers if item.id == normalized_provider.id)
+        return next(
+            item
+            for item in self.llm_settings.providers
+            if item.id == normalized_provider.id
+        )
 
-    def update_provider(self, provider_id: str, provider: ProviderInstanceConfig) -> ProviderInstanceConfig:
+    def update_provider(
+        self,
+        provider_id: str,
+        provider: ProviderInstanceConfig,
+    ) -> ProviderInstanceConfig:
         settings = self.get_llm_settings().model_copy(deep=True)
         target_index = next(
             (index for index, item in enumerate(settings.providers) if item.id == provider_id),
@@ -269,7 +291,9 @@ class AgentService:
         if target_index is None:
             raise ValueError("供应商不存在")
 
-        normalized_provider = self._normalize_provider(provider.model_copy(update={"id": provider_id}))
+        normalized_provider = self._normalize_provider(
+            provider.model_copy(update={"id": provider_id})
+        )
         settings.providers[target_index] = normalized_provider
         self._persist_llm_settings(settings)
         return next(item for item in self.llm_settings.providers if item.id == provider_id)
@@ -325,7 +349,7 @@ class AgentService:
     async def test_provider_connection(
         self,
         provider: ProviderInstanceConfig,
-        model_id: Optional[str] = None
+        model_id: str | None = None
     ) -> ProviderConnectionTestResult:
         settings = self.get_llm_settings()
         normalized_provider = self._normalize_provider(provider)
@@ -361,8 +385,8 @@ class AgentService:
 
     def resolve_llm_config(
         self,
-        provider_id: Optional[str] = None,
-        model_id: Optional[str] = None
+        provider_id: str | None = None,
+        model_id: str | None = None
     ) -> ResolvedLLMConfig:
         settings = self.get_llm_settings()
         strict_provider = bool(provider_id)
@@ -448,7 +472,7 @@ class AgentService:
             if "shell" in self.tool_registry.tools:
                 self.tool_registry.tools["shell"].path_security = path_security
 
-            logger.info(f"更新允许路径: {allowed_paths}")
+            logger.info("更新允许路径: %s", allowed_paths)
 
         return self._persist_execution(execution)
 
@@ -483,7 +507,10 @@ class AgentService:
         )
 
         self._persist_execution(result)
-        if result.status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED} and result.transcript_items:
+        if (
+            result.status in {ExecutionStatus.COMPLETED, ExecutionStatus.FAILED}
+            and result.transcript_items
+        ):
             self._persist_conversation_history(result)
         logger.info(
             "任务执行完成: %s - %s - provider=%s model=%s",
@@ -580,11 +607,11 @@ class AgentService:
 
         return execution
 
-    def get_execution(self, execution_id: str) -> Optional[Execution]:
+    def get_execution(self, execution_id: str) -> Execution | None:
         """获取执行结果"""
         return self._load_execution(execution_id)
 
-    def list_executions(self, project_id: Optional[str] = None) -> list[Execution]:
+    def list_executions(self, project_id: str | None = None) -> list[Execution]:
         """列出执行历史"""
         if project_id:
             return self.execution_repo.list_by_project(project_id)

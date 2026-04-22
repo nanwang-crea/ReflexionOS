@@ -1,7 +1,7 @@
-from typing import List, Optional
-from app.storage.models import ProjectModel
-from app.models.project import Project
 import logging
+
+from app.models.project import Project
+from app.storage.models import ProjectModel
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class ProjectRepository:
                 existing.name = project.name
                 existing.language = project.language
                 existing.config = {}
-                logger.info(f"更新项目: {project.id}")
+                logger.info("更新项目: %s", project.id)
             else:
                 # 新建
                 model = ProjectModel(
@@ -36,11 +36,11 @@ class ProjectRepository:
                     config={}
                 )
                 session.add(model)
-                logger.info(f"创建项目: {project.id}")
+                logger.info("创建项目: %s", project.id)
             
             return project
     
-    def get(self, project_id: str) -> Optional[Project]:
+    def get(self, project_id: str) -> Project | None:
         """获取项目"""
         with self.db.get_session() as session:
             model = session.query(ProjectModel).filter_by(id=project_id).first()
@@ -55,7 +55,7 @@ class ProjectRepository:
                 )
             return None
     
-    def get_by_path(self, path: str) -> Optional[Project]:
+    def get_by_path(self, path: str) -> Project | None:
         """根据路径获取项目"""
         with self.db.get_session() as session:
             model = session.query(ProjectModel).filter_by(path=path).first()
@@ -70,7 +70,7 @@ class ProjectRepository:
                 )
             return None
     
-    def list_all(self) -> List[Project]:
+    def list_all(self) -> list[Project]:
         """列出所有项目"""
         with self.db.get_session() as session:
             models = session.query(ProjectModel).order_by(
@@ -95,6 +95,6 @@ class ProjectRepository:
             model = session.query(ProjectModel).filter_by(id=project_id).first()
             if model:
                 session.delete(model)
-                logger.info(f"删除项目: {project_id}")
+                logger.info("删除项目: %s", project_id)
                 return True
             return False

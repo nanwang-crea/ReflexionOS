@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
-from typing import Optional
-from pathlib import Path
 import json
+from pathlib import Path
+
+from pydantic import BaseModel, Field
+
 from app.models.llm_config import LLMSettings
 
 
@@ -43,7 +44,7 @@ class ConfigManager:
         """加载配置"""
         if self.config_path.exists():
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(self.config_path, encoding='utf-8') as f:
                     data = json.load(f)
                     return AppSettings(**data)
             except Exception:

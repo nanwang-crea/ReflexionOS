@@ -4,15 +4,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.transcript import TranscriptRecord
 from app.models.project import Project
 from app.models.session import Session
+from app.models.transcript import TranscriptRecord
+from app.services.session_service import SessionService
+from app.services.transcript_service import TranscriptService
 from app.storage.database import Database
 from app.storage.repositories.conversation_repo import ConversationRepository
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
-from app.services.session_service import SessionService
-from app.services.transcript_service import TranscriptService
 
 
 @pytest.fixture
@@ -72,7 +72,11 @@ def seeded_conversation_items(tmp_path):
 def test_get_project_sessions_returns_sessions(client):
     create_response = client.post(
         "/api/projects/project-1/sessions",
-        json={"title": "需求讨论", "preferred_provider_id": "provider-a", "preferred_model_id": "model-a"},
+        json={
+            "title": "需求讨论",
+            "preferred_provider_id": "provider-a",
+            "preferred_model_id": "model-a",
+        },
     )
 
     assert create_response.status_code == 200
@@ -101,7 +105,11 @@ def test_get_project_sessions_returns_404_for_missing_project(client):
 def test_get_session_returns_session_resource(client):
     create_response = client.post(
         "/api/projects/project-1/sessions",
-        json={"title": "需求讨论", "preferred_provider_id": "provider-a", "preferred_model_id": "model-a"},
+        json={
+            "title": "需求讨论",
+            "preferred_provider_id": "provider-a",
+            "preferred_model_id": "model-a",
+        },
     )
     session_id = create_response.json()["id"]
 
@@ -122,7 +130,11 @@ def test_get_session_returns_404_for_missing_resource(client):
 def test_patch_session_updates_existing_resource(client):
     create_response = client.post(
         "/api/projects/project-1/sessions",
-        json={"title": "旧标题", "preferred_provider_id": "provider-a", "preferred_model_id": "model-a"},
+        json={
+            "title": "旧标题",
+            "preferred_provider_id": "provider-a",
+            "preferred_model_id": "model-a",
+        },
     )
     session_id = create_response.json()["id"]
 
@@ -141,7 +153,11 @@ def test_patch_session_updates_existing_resource(client):
 def test_patch_session_preserves_omitted_preference_fields(client):
     create_response = client.post(
         "/api/projects/project-1/sessions",
-        json={"title": "旧标题", "preferred_provider_id": "provider-a", "preferred_model_id": "model-a"},
+        json={
+            "title": "旧标题",
+            "preferred_provider_id": "provider-a",
+            "preferred_model_id": "model-a",
+        },
     )
     session_id = create_response.json()["id"]
 
@@ -189,7 +205,10 @@ def test_session_history_groups_items_into_rounds(seeded_conversation_items, mon
     history_db = seeded_conversation_items
     history_project_repo = ProjectRepository(history_db)
     history_session_repo = SessionRepository(history_db)
-    history_service = SessionService(session_repo=history_session_repo, project_repo=history_project_repo)
+    history_service = SessionService(
+        session_repo=history_session_repo,
+        project_repo=history_project_repo,
+    )
     history_transcript_service = TranscriptService(
         conversation_repo=ConversationRepository(history_db),
         session_repo=history_session_repo,
@@ -215,16 +234,24 @@ def test_session_history_returns_404_for_missing_session(client):
     assert response.json() == {"detail": "会话不存在"}
 
 
-def test_session_history_returns_empty_rounds_for_existing_session_without_items(tmp_path, monkeypatch):
+def test_session_history_returns_empty_rounds_for_existing_session_without_items(
+    tmp_path,
+    monkeypatch,
+):
     import app.api.routes.sessions as sessions_route_module
 
     history_db = Database(str(tmp_path / "session-history-empty.db"))
     history_project_repo = ProjectRepository(history_db)
     history_session_repo = SessionRepository(history_db)
-    history_project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(Path("/tmp/reflexion"))))
+    history_project_repo.save(
+        Project(id="project-1", name="ReflexionOS", path=str(Path("/tmp/reflexion")))
+    )
     history_session_repo.create(Session(id="session-empty", project_id="project-1", title="空会话"))
 
-    history_service = SessionService(session_repo=history_session_repo, project_repo=history_project_repo)
+    history_service = SessionService(
+        session_repo=history_session_repo,
+        project_repo=history_project_repo,
+    )
     history_transcript_service = TranscriptService(
         conversation_repo=ConversationRepository(history_db),
         session_repo=history_session_repo,

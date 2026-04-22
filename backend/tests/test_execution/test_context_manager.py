@@ -1,6 +1,5 @@
-import pytest
 from app.execution.context_manager import ExecutionContext
-from app.models.action import Action, ToolCall
+from app.models.action import ToolCall
 
 
 class TestExecutionContext:

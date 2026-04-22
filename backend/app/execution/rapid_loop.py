@@ -1,22 +1,16 @@
-import time
-from typing import Optional, Callable, Awaitable
-from datetime import datetime
-import uuid
-import logging
 import asyncio
+import logging
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 
-from app.llm.base import (
-    UniversalLLMInterface,
-    LLMMessage,
-    LLMResponse,
-    LLMToolCall,
-    StreamChunk
-)
-from app.models.execution import Execution, ExecutionStep, ExecutionStatus, StepStatus
+from app.config.settings import config_manager
 from app.execution.context_manager import ExecutionContext
 from app.execution.prompt_manager import PromptManager
+from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
 from app.tools.registry import ToolRegistry
-from app.config.settings import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -69,16 +63,16 @@ class RapidExecutionLoop:
             try:
                 await self.event_callback(event_type, data)
             except Exception as e:
-                logger.error(f"事件回调失败: {e}")
+                logger.error("事件回调失败: %s", e)
     
     async def run(
         self,
         task: str,
-        project_path: Optional[str] = None,
-        execution_id: Optional[str] = None,
+        project_path: str | None = None,
+        execution_id: str | None = None,
         session_id: str = "",
         project_id: str = "",
-        created_at: Optional[datetime] = None
+        created_at: datetime | None = None
     ) -> Execution:
         """
         执行任务
@@ -115,7 +109,7 @@ class RapidExecutionLoop:
             "task": task
         })
         
-        logger.info(f"开始执行任务: {task}")
+        logger.info("开始执行任务: %s", task)
         
         try:
             state = ExecutionState.PLANNING
@@ -166,14 +160,12 @@ class RapidExecutionLoop:
                     step_num += 1
                     
                     # 执行所有工具调用
-                    all_success = True
                     for tool_call in response.tool_calls:
                         step = await self._execute_tool(tool_call, context, step_num)
                         execution.steps.append(step)
                         context.add_step(step)
                         
                         if step.status == StepStatus.FAILED:
-                            all_success = False
                             self.consecutive_failures += 1
                             
                             # 发送工具失败事件
@@ -236,7 +228,7 @@ class RapidExecutionLoop:
         except asyncio.CancelledError:
             execution.status = ExecutionStatus.CANCELLED
             execution.result = execution.result or "执行已取消"
-            logger.info(f"执行已取消: {execution.id}")
+            logger.info("执行已取消: %s", execution.id)
 
             await self._emit("execution:cancelled", {
                 "status": execution.status.value,
@@ -248,7 +240,7 @@ class RapidExecutionLoop:
             import traceback
             execution.status = ExecutionStatus.FAILED
             execution.result = f"执行异常: {str(e)}"
-            logger.error(f"执行异常: {str(e)}\n{traceback.format_exc()}")
+            logger.error("执行异常: %s\n%s", e, traceback.format_exc())
             
             await self._emit("execution:error", {
                 "error": str(e)
@@ -493,9 +485,9 @@ class RapidExecutionLoop:
             )
         
         logger.info(
-            f"LLM 响应: "
-            f"{response.content[:50] if response.content else '(无内容)'}"
-            f" | tool_calls: {[tc.name for tc in response.tool_calls]}"
+            "LLM 响应: %s | tool_calls: %s",
+            response.content[:50] if response.content else "(无内容)",
+            [tc.name for tc in response.tool_calls],
         )
         
         return response
@@ -538,7 +530,7 @@ class RapidExecutionLoop:
             return []
 
         grouped_messages: list[list[dict]] = []
-        active_tool_group: Optional[list[dict]] = None
+        active_tool_group: list[dict] | None = None
 
         for msg in context.messages:
             if msg["role"] == "assistant" and msg.get("tool_calls"):
@@ -633,13 +625,17 @@ class RapidExecutionLoop:
                 "duration": step.duration
             })
             
-            logger.info(f"工具 {tool_call.name} 执行{'成功' if result.success else '失败'}")
+            logger.info(
+                "工具 %s 执行%s",
+                tool_call.name,
+                "成功" if result.success else "失败",
+            )
             
         except Exception as e:
             step.status = StepStatus.FAILED
             step.error = str(e)
             step.duration = time.time() - start_time
-            logger.error(f"工具执行异常: {str(e)}")
+            logger.error("工具执行异常: %s", e)
 
             context.update_history(tool_call, str(e))
             context.add_message(
@@ -693,7 +689,7 @@ class RapidExecutionLoop:
                 return summary
             
         except Exception as e:
-            logger.error(f"获取总结失败: {e}")
+            logger.error("获取总结失败: %s", e)
         
         # Fallback: 生成简单总结
         steps_count = len(context.steps)

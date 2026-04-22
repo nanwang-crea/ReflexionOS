@@ -1,5 +1,5 @@
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -17,9 +17,9 @@ class Settings(BaseSettings):
     
     llm_provider: str = "openai"
     # 填入自己的值
-    llm_api_key: Optional[str] = "sk-test"
+    llm_api_key: str | None = "sk-test"
     llm_model: str = "qwen3.6-plus"
-    llm_base_url: Optional[str] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_base_url: str | None = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     
     max_execution_steps: int = 50
     max_file_size: int = 10 * 1024 * 1024

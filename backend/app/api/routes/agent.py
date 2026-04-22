@@ -1,5 +1,6 @@
+
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
+
 from app.models.execution import Execution, ExecutionCreate
 from app.services.agent_service import agent_service
 
@@ -13,7 +14,7 @@ async def execute_task(execution: ExecutionCreate):
         result = await agent_service.execute_task(execution)
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 @router.get("/status/{execution_id}", response_model=Execution)
@@ -25,7 +26,7 @@ async def get_execution_status(execution_id: str):
     return execution
 
 
-@router.get("/history/{project_id}", response_model=List[Execution])
+@router.get("/history/{project_id}", response_model=list[Execution])
 async def get_execution_history(project_id: str):
     """获取执行历史"""
     return agent_service.list_executions(project_id)
@@ -37,4 +38,4 @@ async def cancel_execution(execution_id: str):
     try:
         return await agent_service.cancel_execution(execution_id)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e

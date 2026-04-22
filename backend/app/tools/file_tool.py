@@ -1,10 +1,11 @@
-import os
-import aiofiles
-from typing import Dict, Any, List
-from app.tools.base import BaseTool, ToolResult
-from app.security.path_security import PathSecurity
-from app.config.settings import config_manager
 import logging
+import os
+from typing import Any
+
+import aiofiles
+
+from app.security.path_security import PathSecurity
+from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class FileTool(BaseTool):
     def description(self) -> str:
         return "文件读写和目录操作工具，支持分块读取大文件"
     
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """返回工具的 JSON Schema"""
         return {
             "name": self.name,
@@ -78,7 +79,7 @@ class FileTool(BaseTool):
             ]
         }
     
-    async def execute(self, args: Dict[str, Any]) -> ToolResult:
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
         """执行文件操作"""
         action = args.get("action")
         
@@ -105,10 +106,10 @@ class FileTool(BaseTool):
                 error=f"缺少必需参数: {e}"
             )
         except Exception as e:
-            logger.error(f"文件操作失败: {str(e)}")
+            logger.error("文件操作失败: %s", e)
             return ToolResult(success=False, error=str(e))
     
-    async def _read_file(self, args: Dict[str, Any]) -> ToolResult:
+    async def _read_file(self, args: dict[str, Any]) -> ToolResult:
         """读取文件内容 - 支持分块读取"""
         path = self.security.validate_path(args["path"])
         
@@ -119,7 +120,7 @@ class FileTool(BaseTool):
             return ToolResult(success=False, error=f"路径是目录: {path}，请使用 list 操作")
         
         # 读取文件所有行
-        async with aiofiles.open(path, mode='r', encoding='utf-8') as f:
+        async with aiofiles.open(path, encoding='utf-8') as f:
             all_lines = await f.readlines()
         
         total_lines = len(all_lines)
@@ -165,9 +166,12 @@ class FileTool(BaseTool):
         meta = f"文件: {path}\n总行数: {total_lines}\n显示: 第 {start_line}-{end_line} 行"
         
         if total_lines > end_line:
-            meta += f"\n提示: 文件还有 {total_lines - end_line} 行未显示，可使用 start_line={end_line + 1} 继续读取"
+            meta += (
+                f"\n提示: 文件还有 {total_lines - end_line} 行未显示，"
+                f"可使用 start_line={end_line + 1} 继续读取"
+            )
         
-        logger.info(f"读取文件: {path}, 行 {start_line}-{end_line}/{total_lines}")
+        logger.info("读取文件: %s, 行 %s-%s/%s", path, start_line, end_line, total_lines)
         
         return ToolResult(
             success=True,
@@ -182,7 +186,7 @@ class FileTool(BaseTool):
             }
         )
     
-    async def _search_in_file(self, args: Dict[str, Any]) -> ToolResult:
+    async def _search_in_file(self, args: dict[str, Any]) -> ToolResult:
         """在文件中搜索内容"""
         path = self.security.validate_path(args["path"])
         query = args.get("query", "")
@@ -195,7 +199,7 @@ class FileTool(BaseTool):
             return await self._search_in_directory(path, query)
         
         # 在单个文件搜索
-        async with aiofiles.open(path, mode='r', encoding='utf-8') as f:
+        async with aiofiles.open(path, encoding='utf-8') as f:
             lines = await f.readlines()
         
         matches = []
@@ -229,7 +233,7 @@ class FileTool(BaseTool):
             data={"matches": matches, "count": len(matches)}
         )
     
-    def _get_context(self, lines: List[str], line_num: int, context: int) -> str:
+    def _get_context(self, lines: list[str], line_num: int, context: int) -> str:
         """获取行周围上下文"""
         start = max(0, line_num - context - 1)
         end = min(len(lines), line_num + context)
@@ -247,7 +251,11 @@ class FileTool(BaseTool):
         
         for root, dirs, files in os.walk(dir_path):
             # 跳过隐藏目录和常见排除目录
-            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv']]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv']
+            ]
             
             for file in files:
                 if file.startswith('.'):
@@ -256,11 +264,15 @@ class FileTool(BaseTool):
                 file_path = os.path.join(root, file)
                 
                 # 只处理文本文件
-                if not any(file.endswith(ext) for ext in ['.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs', '.c', '.cpp', '.h', '.md', '.txt', '.json', '.yaml', '.yml']):
+                searchable_extensions = [
+                    '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs',
+                    '.c', '.cpp', '.h', '.md', '.txt', '.json', '.yaml', '.yml',
+                ]
+                if not any(file.endswith(ext) for ext in searchable_extensions):
                     continue
                 
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(file_path, encoding='utf-8') as f:
                         lines = f.readlines()
                     
                     for i, line in enumerate(lines, 1):
@@ -273,7 +285,7 @@ class FileTool(BaseTool):
                             
                             if len(matches) >= 50:  # 限制结果数量
                                 break
-                except:
+                except (OSError, UnicodeDecodeError):
                     continue
                 
                 if len(matches) >= 50:
@@ -303,7 +315,7 @@ class FileTool(BaseTool):
             data={"matches": matches, "count": len(matches)}
         )
     
-    async def _write_file(self, args: Dict[str, Any]) -> ToolResult:
+    async def _write_file(self, args: dict[str, Any]) -> ToolResult:
         """写入文件内容"""
         path = self.security.validate_write_path(args["path"])
         content = args.get("content", "")
@@ -315,10 +327,10 @@ class FileTool(BaseTool):
         async with aiofiles.open(path, mode='w', encoding='utf-8') as f:
             await f.write(content)
         
-        logger.info(f"写入文件: {path}")
+        logger.info("写入文件: %s", path)
         return ToolResult(success=True, output=f"文件已写入: {path}")
     
-    async def _list_directory(self, args: Dict[str, Any]) -> ToolResult:
+    async def _list_directory(self, args: dict[str, Any]) -> ToolResult:
         """列出目录内容"""
         path = self.security.validate_path(args.get("path", "."))
         
@@ -328,7 +340,7 @@ class FileTool(BaseTool):
         if not os.path.isdir(path):
             return ToolResult(success=False, error=f"不是目录: {path}")
         
-        files: List[Dict[str, str]] = []
+        files: list[dict[str, str]] = []
         for item in sorted(os.listdir(path)):
             if item.startswith('.'):
                 continue
@@ -338,14 +350,22 @@ class FileTool(BaseTool):
                 "type": "directory" if os.path.isdir(item_path) else "file"
             })
         
-        logger.info(f"列出目录: {path}, 共 {len(files)} 项")
+        logger.info("列出目录: %s, 共 %s 项", path, len(files))
         return ToolResult(
-            success=True, 
-            output=f"目录 {path} 包含 {len(files)} 项: " + ", ".join([f"{f['name']}({'d' if f['type']=='directory' else 'f'})" for f in files[:15]]),
+            success=True,
+            output=(
+                f"目录 {path} 包含 {len(files)} 项: "
+                + ", ".join(
+                    [
+                        f"{f['name']}({'d' if f['type'] == 'directory' else 'f'})"
+                        for f in files[:15]
+                    ]
+                )
+            ),
             data={"files": files, "path": path, "count": len(files)}
         )
     
-    async def _delete_file(self, args: Dict[str, Any]) -> ToolResult:
+    async def _delete_file(self, args: dict[str, Any]) -> ToolResult:
         """删除文件"""
         path = self.security.validate_write_path(args["path"])
         
@@ -354,9 +374,9 @@ class FileTool(BaseTool):
         
         if os.path.isdir(path):
             os.rmdir(path)
-            logger.info(f"删除目录: {path}")
+            logger.info("删除目录: %s", path)
             return ToolResult(success=True, output=f"目录已删除: {path}")
         
         os.remove(path)
-        logger.info(f"删除文件: {path}")
+        logger.info("删除文件: %s", path)
         return ToolResult(success=True, output=f"文件已删除: {path}")

@@ -1,9 +1,11 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from app.api.websocket import ws_manager
-from app.services.agent_service import agent_service
-from app.models.execution import ExecutionCreate
 import json
 import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from app.api.websocket import ws_manager
+from app.models.execution import ExecutionCreate
+from app.services.agent_service import agent_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +18,8 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
     WebSocket 端点 - 单执行流实时通信
 
     当前只支持一个客户端指令:
-    - {"type": "start", "data": {"task": "...", "project_id": "...", "provider_id": "...", "model_id": "..."}}  启动任务
+    - {"type": "start", "data": {...}} 启动任务，
+      data 包含 task、project_id、session_id、provider_id、model_id
 
     服务端会推送 execution/llm/tool/summary 事件流与最终结果。
     """
@@ -70,13 +73,13 @@ async def websocket_execution(websocket: WebSocket, execution_id: str):
                     agent_service.schedule_execution(execution.id)
 
             except json.JSONDecodeError:
-                logger.error(f"无效的 JSON 消息: {data}")
+                logger.error("无效的 JSON 消息: %s", data)
             except Exception as e:
-                logger.error(f"处理消息失败: {e}")
+                logger.error("处理消息失败: %s", e)
                 
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, current_execution_id)
-        logger.info(f"WebSocket 断开连接: {current_execution_id}")
+        logger.info("WebSocket 断开连接: %s", current_execution_id)
     except Exception as e:
-        logger.error(f"WebSocket 错误: {e}")
+        logger.error("WebSocket 错误: %s", e)
         ws_manager.disconnect(websocket, current_execution_id)

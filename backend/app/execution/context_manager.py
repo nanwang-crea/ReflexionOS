@@ -1,7 +1,8 @@
-from typing import List, Dict, Any, Optional
-from app.models.execution import ExecutionStep, StepStatus
-from datetime import datetime
 import logging
+from datetime import datetime
+from typing import Any
+
+from app.models.execution import ExecutionStep, StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -9,15 +10,15 @@ logger = logging.getLogger(__name__)
 class ExecutionContext:
     """Agent 执行上下文"""
     
-    def __init__(self, task: str, project_path: Optional[str] = None, execution_id: str = None):
+    def __init__(self, task: str, project_path: str | None = None, execution_id: str = None):
         self.task = task
         self.project_path = project_path
         self.execution_id = execution_id or f"exec-{id(self)}"
-        self.history: List[Dict[str, Any]] = []
-        self.steps: List[ExecutionStep] = []
-        self.messages: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
+        self.steps: list[ExecutionStep] = []
+        self.messages: list[dict[str, Any]] = []
         self.current_step_number = 0
-        self.workspace_snapshot: Dict[str, Any] = {}
+        self.workspace_snapshot: dict[str, Any] = {}
     
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""
@@ -26,23 +27,23 @@ class ExecutionContext:
             "result": result,
             "timestamp": datetime.now().isoformat()
         })
-        logger.debug(f"更新执行历史")
+        logger.debug("更新执行历史")
     
     def add_step(self, step: ExecutionStep) -> None:
         """添加执行步骤"""
         self.steps.append(step)
         self.current_step_number = step.step_number
-        logger.info(f"添加执行步骤 {step.step_number}: {step.tool}")
+        logger.info("添加执行步骤 %s: %s", step.step_number, step.tool)
     
     def add_message(
         self,
         role: str,
-        content: Optional[str] = None,
-        tool_calls: Optional[List[Dict[str, Any]]] = None,
-        tool_call_id: Optional[str] = None
+        content: str | None = None,
+        tool_calls: list[dict[str, Any]] | None = None,
+        tool_call_id: str | None = None
     ) -> None:
         """添加消息"""
-        message: Dict[str, Any] = {
+        message: dict[str, Any] = {
             "role": role,
             "timestamp": datetime.now().isoformat()
         }
@@ -56,23 +57,23 @@ class ExecutionContext:
 
         self.messages.append(message)
     
-    def get_last_message(self) -> Optional[str]:
+    def get_last_message(self) -> str | None:
         """获取最后一条消息"""
         if self.messages:
             return self.messages[-1].get("content")
         return None
     
-    def update_step(self, step_id: str, status: StepStatus, output: Optional[str] = None) -> None:
+    def update_step(self, step_id: str, status: StepStatus, output: str | None = None) -> None:
         """更新步骤状态"""
         for step in self.steps:
             if step.id == step_id:
                 step.status = status
                 if output:
                     step.output = output
-                logger.info(f"更新步骤 {step_id} 状态为 {status}")
+                logger.info("更新步骤 %s 状态为 %s", step_id, status)
                 break
     
-    def get_recent_history(self, limit: int = 3) -> List[Dict[str, Any]]:
+    def get_recent_history(self, limit: int = 3) -> list[dict[str, Any]]:
         """获取最近的执行历史"""
         return self.history[-limit:] if len(self.history) > limit else self.history
     
@@ -92,7 +93,7 @@ class ExecutionContext:
         
         return "\n".join(context_parts)
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式"""
         return {
             "task": self.task,

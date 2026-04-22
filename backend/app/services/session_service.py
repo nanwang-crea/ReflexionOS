@@ -1,4 +1,3 @@
-from typing import Optional
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -10,22 +9,22 @@ from app.storage.repositories.session_repo import SessionRepository
 
 
 class SessionCreate(BaseModel):
-    title: Optional[str] = None
-    preferred_provider_id: Optional[str] = None
-    preferred_model_id: Optional[str] = None
+    title: str | None = None
+    preferred_provider_id: str | None = None
+    preferred_model_id: str | None = None
 
 
 class SessionUpdate(BaseModel):
-    title: Optional[str] = None
-    preferred_provider_id: Optional[str] = None
-    preferred_model_id: Optional[str] = None
+    title: str | None = None
+    preferred_provider_id: str | None = None
+    preferred_model_id: str | None = None
 
 
 class SessionService:
     def __init__(
         self,
-        session_repo: Optional[SessionRepository] = None,
-        project_repo: Optional[ProjectRepository] = None,
+        session_repo: SessionRepository | None = None,
+        project_repo: ProjectRepository | None = None,
     ):
         self.session_repo = session_repo or SessionRepository(db)
         self.project_repo = project_repo or ProjectRepository(db)
@@ -46,7 +45,7 @@ class SessionService:
         self._get_project_or_raise(project_id)
         return self.session_repo.list_by_project(project_id)
 
-    def get_session(self, session_id: str) -> Optional[Session]:
+    def get_session(self, session_id: str) -> Session | None:
         return self.session_repo.get(session_id)
 
     def update_session(self, session_id: str, payload: SessionUpdate) -> Session:

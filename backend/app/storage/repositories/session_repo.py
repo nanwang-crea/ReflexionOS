@@ -1,4 +1,3 @@
-from typing import Optional
 
 from app.models.session import Session
 from app.storage.models import SessionModel
@@ -16,7 +15,7 @@ class SessionRepository:
             db_session.refresh(model)
             return Session.model_validate(model)
 
-    def get(self, session_id: str) -> Optional[Session]:
+    def get(self, session_id: str) -> Session | None:
         with self.db.get_session() as db_session:
             model = db_session.query(SessionModel).filter_by(id=session_id).first()
             return Session.model_validate(model) if model else None

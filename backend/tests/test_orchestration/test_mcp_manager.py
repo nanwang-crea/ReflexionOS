@@ -1,5 +1,6 @@
 import pytest
-from app.orchestration.mcp_manager import MCPManager, MCPServerConfig, MCPTool, mcp_manager
+
+from app.orchestration.mcp_manager import MCPManager, MCPServerConfig, MCPTool
 
 
 class TestMCPManager:

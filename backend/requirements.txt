@@ -12,3 +12,4 @@ sqlalchemy==2.0.25
 # Test dependencies
 pytest==7.4.4
 pytest-asyncio==0.23.3
+ruff==0.11.8

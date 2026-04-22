@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 
-from app.models.session_history import SessionHistoryResponse
 from app.models.session import Session
+from app.models.session_history import SessionHistoryResponse
 from app.services.session_service import SessionCreate, SessionUpdate, session_service
 from app.services.transcript_service import transcript_service
 
@@ -13,7 +13,7 @@ async def create_session(project_id: str, payload: SessionCreate):
     try:
         return session_service.create_session(project_id, payload)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/projects/{project_id}/sessions", response_model=list[Session])
@@ -21,7 +21,7 @@ async def list_project_sessions(project_id: str):
     try:
         return session_service.list_project_sessions(project_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/sessions/{session_id}", response_model=Session)
@@ -37,7 +37,7 @@ async def get_session_history(session_id: str):
     try:
         return transcript_service.build_session_history(session_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.patch("/sessions/{session_id}", response_model=Session)
@@ -45,7 +45,7 @@ async def update_session(session_id: str, payload: SessionUpdate):
     try:
         return session_service.update_session(session_id, payload)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.delete("/sessions/{session_id}")
@@ -54,4 +54,4 @@ async def delete_session(session_id: str):
         session_service.delete_session(session_id)
         return {"message": "会话已删除"}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

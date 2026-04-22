@@ -19,7 +19,7 @@ def test_core_models_import_without_deprecation_warnings():
 
     relevant_warnings = [
         warning for warning in caught
-        if issubclass(warning.category, (DeprecationWarning, MovedIn20Warning))
+        if issubclass(warning.category, DeprecationWarning | MovedIn20Warning)
     ]
 
     assert relevant_warnings == []

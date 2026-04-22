@@ -1,16 +1,17 @@
 import json
 import logging
-from typing import List, AsyncIterator, Dict, Any, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from openai import AsyncOpenAI
 
 from app.llm.base import (
-    UniversalLLMInterface,
     LLMMessage,
     LLMResponse,
     LLMToolCall,
     LLMToolDefinition,
-    StreamChunk
+    StreamChunk,
+    UniversalLLMInterface,
 )
 from app.models.llm_config import ResolvedLLMConfig
 
@@ -29,12 +30,12 @@ class OpenAIAdapter(UniversalLLMInterface):
             base_url=config.base_url if config.base_url else None
         )
         
-        logger.info(f"OpenAI 适配器初始化完成, 模型: {self.model}")
+        logger.info("OpenAI 适配器初始化完成, 模型: %s", self.model)
     
     async def complete(
         self, 
-        messages: List[LLMMessage],
-        tools: List[LLMToolDefinition] = None
+        messages: list[LLMMessage],
+        tools: list[LLMToolDefinition] = None
     ) -> LLMResponse:
         """
         同步补全（支持工具调用）
@@ -66,13 +67,13 @@ class OpenAIAdapter(UniversalLLMInterface):
             return self._parse_response(response)
             
         except Exception as e:
-            logger.error(f"OpenAI API 调用失败: {str(e)}")
+            logger.error("OpenAI API 调用失败: %s", e)
             raise
     
     async def stream_complete(
         self, 
-        messages: List[LLMMessage],
-        tools: List[LLMToolDefinition] = None
+        messages: list[LLMMessage],
+        tools: list[LLMToolDefinition] = None
     ) -> AsyncIterator[StreamChunk]:
         """
         流式补全（支持工具调用）
@@ -103,7 +104,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             stream = await self.client.chat.completions.create(**kwargs)
             
             # 收集 tool_calls（流式时需要聚合）
-            current_tool_calls: Dict[int, Dict] = {}
+            current_tool_calls: dict[int, dict] = {}
             
             async for chunk in stream:
                 delta = chunk.choices[0].delta
@@ -163,7 +164,7 @@ class OpenAIAdapter(UniversalLLMInterface):
                     break
                     
         except Exception as e:
-            logger.error(f"OpenAI 流式 API 调用失败: {str(e)}")
+            logger.error("OpenAI 流式 API 调用失败: %s", e)
             yield StreamChunk(type="error", error=str(e))
             raise
     
@@ -171,12 +172,12 @@ class OpenAIAdapter(UniversalLLMInterface):
         """获取模型名称"""
         return self.model
     
-    def _convert_messages(self, messages: List[LLMMessage]) -> List[Dict[str, Any]]:
+    def _convert_messages(self, messages: list[LLMMessage]) -> list[dict[str, Any]]:
         """将内部消息格式转换为 OpenAI 格式"""
         openai_messages = []
         
         for msg in messages:
-            openai_msg: Dict[str, Any] = {"role": msg.role}
+            openai_msg: dict[str, Any] = {"role": msg.role}
             
             if msg.content:
                 openai_msg["content"] = msg.content
@@ -201,7 +202,7 @@ class OpenAIAdapter(UniversalLLMInterface):
         
         return openai_messages
     
-    def _convert_tools(self, tools: List[LLMToolDefinition]) -> List[Dict[str, Any]]:
+    def _convert_tools(self, tools: list[LLMToolDefinition]) -> list[dict[str, Any]]:
         """将内部工具定义转换为 OpenAI 格式"""
         return [
             {
@@ -227,7 +228,7 @@ class OpenAIAdapter(UniversalLLMInterface):
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
-                    logger.warning(f"工具参数解析失败: {tc.function.arguments}")
+                    logger.warning("工具参数解析失败: %s", tc.function.arguments)
                     args = {}
                 
                 tool_calls.append(LLMToolCall(
@@ -245,7 +246,9 @@ class OpenAIAdapter(UniversalLLMInterface):
         
         if not content and not tool_calls:
             logger.warning(
-                f"OpenAI 返回空响应, model={response.model}, finish_reason={choice.finish_reason}"
+                "OpenAI 返回空响应, model=%s, finish_reason=%s",
+                response.model,
+                choice.finish_reason,
             )
         
         return LLMResponse(

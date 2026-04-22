@@ -1,12 +1,13 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
-from app.execution.rapid_loop import RapidExecutionLoop, ExecutionState
+
 from app.execution.context_manager import ExecutionContext
-from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, StreamChunk
-from app.tools.registry import ToolRegistry
+from app.execution.rapid_loop import RapidExecutionLoop
+from app.llm.base import LLMToolCall, StreamChunk
 from app.tools.base import BaseTool, ToolResult
+from app.tools.registry import ToolRegistry
 
 
 class MockTool(BaseTool):
@@ -186,7 +187,11 @@ class TestRapidExecutionLoop:
         ]
 
     @pytest.mark.asyncio
-    async def test_final_response_fallback_when_no_content_after_tools(self, execution_loop, mock_llm):
+    async def test_final_response_fallback_when_no_content_after_tools(
+        self,
+        execution_loop,
+        mock_llm,
+    ):
         """测试工具执行后没有直接答案时，走兜底最终回答"""
         captured_calls = []
 
@@ -241,7 +246,11 @@ class TestRapidExecutionLoop:
         assert len(result.steps) == 5
 
     @pytest.mark.asyncio
-    async def test_execution_metadata_contains_receipt_and_agent_update_items(self, execution_loop, mock_llm):
+    async def test_execution_metadata_contains_receipt_and_agent_update_items(
+        self,
+        execution_loop,
+        mock_llm,
+    ):
         async def mock_stream(messages, tools=None):
             async for chunk in self._stream_response(
                 content="先检查文件",
@@ -329,7 +338,11 @@ class TestRapidExecutionLoop:
         assert thought_index < tool_call_index
 
     @pytest.mark.asyncio
-    async def test_execution_returns_cancelled_when_task_is_cancelled(self, mock_llm, tool_registry):
+    async def test_execution_returns_cancelled_when_task_is_cancelled(
+        self,
+        mock_llm,
+        tool_registry,
+    ):
         """测试取消运行中的执行会返回 cancelled 状态并发送事件"""
         events = []
 
@@ -371,7 +384,11 @@ class TestRapidExecutionLoop:
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run("取消任务", session_id="session-1", project_id="project-1")
+        result = await execution_loop.run(
+            "取消任务",
+            session_id="session-1",
+            project_id="project-1",
+        )
 
         assert result.status.value == "cancelled"
         assert result.transcript_items == []
@@ -396,7 +413,11 @@ class TestRapidExecutionLoop:
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run("失败任务", session_id="session-1", project_id="project-1")
+        result = await execution_loop.run(
+            "失败任务",
+            session_id="session-1",
+            project_id="project-1",
+        )
 
         assert result.status.value == "failed"
         assert [item["item_type"] for item in result.transcript_items] == [

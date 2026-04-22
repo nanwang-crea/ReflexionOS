@@ -1,6 +1,6 @@
-import pytest
 import logging
-from app.utils.logger import setup_logger, get_logger
+
+from app.utils.logger import get_logger, setup_logger
 
 
 class TestLogger:

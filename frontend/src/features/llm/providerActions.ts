@@ -1,3 +1,4 @@
+import axios from 'axios'
 import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { DefaultLLMSelection, ProviderConnectionTestRequest, ProviderConnectionTestResult, ProviderInstance } from '@/types/llm'
@@ -26,6 +27,14 @@ interface CreateProviderActionsOptions {
 }
 
 export function createProviderActions(options: CreateProviderActionsOptions) {
+  const getErrorMessage = (error: unknown, fallback: string) => {
+    if (axios.isAxiosError<{ detail?: string }>(error)) {
+      return error.response?.data?.detail || fallback
+    }
+
+    return fallback
+  }
+
   return {
     async saveProvider({
       selectedSavedProvider,
@@ -53,9 +62,9 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
 
         await options.loadSettings(payload.id)
         options.onSavedMessage('供应商已保存')
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to save provider:', error)
-        options.onError(error.response?.data?.detail || '保存供应商失败')
+        options.onError(getErrorMessage(error, '保存供应商失败'))
       } finally {
         options.setSaving(false)
       }
@@ -83,9 +92,9 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
         await options.api.deleteProvider(selectedSavedProvider.id)
         await options.loadSettings()
         options.onSavedMessage('供应商已删除')
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to delete provider:', error)
-        options.onError(error.response?.data?.detail || '删除供应商失败')
+        options.onError(getErrorMessage(error, '删除供应商失败'))
       }
     },
 
@@ -115,11 +124,11 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
           type: 'success',
           message: `${response.data.message}，模型：${response.data.model}`,
         })
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to test provider connection:', error)
         options.onTestResult({
           type: 'error',
-          message: error.response?.data?.detail || '连接测试失败',
+          message: getErrorMessage(error, '连接测试失败'),
         })
       } finally {
         options.setTesting(false)
@@ -154,9 +163,9 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
         options.onSavedMessage('默认模型已保存')
 
         return response.data
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Failed to save default selection:', error)
-        options.onError(error.response?.data?.detail || '保存默认模型失败')
+        options.onError(getErrorMessage(error, '保存默认模型失败'))
         return null
       } finally {
         options.setSavingDefault(false)

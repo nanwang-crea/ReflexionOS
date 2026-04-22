@@ -1,19 +1,19 @@
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
-from enum import Enum
 
 
 class ToolCall(BaseModel):
     """工具调用"""
     name: str
-    args: Dict[str, Any] = Field(default_factory=dict)
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class Action(BaseModel):
     """Agent 动作 - OpenAI Assistant 风格"""
-    content: Optional[str] = None
-    tool_calls: List[ToolCall] = Field(default_factory=list)
-    thought: Optional[str] = None
+    content: str | None = None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    thought: str | None = None
     
     @property
     def has_tool_calls(self) -> bool:
@@ -27,6 +27,6 @@ class Action(BaseModel):
 
 class ActionResult(BaseModel):
     success: bool
-    output: Optional[str] = None
-    error: Optional[str] = None
-    duration: Optional[float] = None
+    output: str | None = None
+    error: str | None = None
+    duration: float | None = None

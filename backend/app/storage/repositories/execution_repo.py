@@ -1,7 +1,7 @@
-from typing import List, Optional
-from app.storage.models import ExecutionModel
-from app.models.execution import Execution, ExecutionStep, ExecutionStatus
 import logging
+
+from app.models.execution import Execution, ExecutionStatus, ExecutionStep
+from app.storage.models import ExecutionModel
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +27,13 @@ class ExecutionRepository:
                 existing.session_id = execution.session_id
                 existing.steps = self._serialize_steps(execution)
                 existing.result = execution.result
-                existing.total_duration = int(execution.total_duration * 1000) if execution.total_duration else None
+                existing.total_duration = (
+                    int(execution.total_duration * 1000)
+                    if execution.total_duration
+                    else None
+                )
                 existing.completed_at = execution.completed_at
-                logger.info(f"更新执行记录: {execution.id}")
+                logger.info("更新执行记录: %s", execution.id)
             else:
                 # 新建
                 model = ExecutionModel(
@@ -41,16 +45,20 @@ class ExecutionRepository:
                     status=execution.status.value,
                     steps=self._serialize_steps(execution),
                     result=execution.result,
-                    total_duration=int(execution.total_duration * 1000) if execution.total_duration else None,
+                    total_duration=(
+                        int(execution.total_duration * 1000)
+                        if execution.total_duration
+                        else None
+                    ),
                     created_at=execution.created_at,
                     completed_at=execution.completed_at
                 )
                 session.add(model)
-                logger.info(f"创建执行记录: {execution.id}")
+                logger.info("创建执行记录: %s", execution.id)
             
             return execution
     
-    def get(self, execution_id: str) -> Optional[Execution]:
+    def get(self, execution_id: str) -> Execution | None:
         """获取执行记录"""
         with self.db.get_session() as session:
             model = session.query(ExecutionModel).filter_by(id=execution_id).first()
@@ -70,7 +78,7 @@ class ExecutionRepository:
                 )
             return None
 
-    def list_all(self, limit: Optional[int] = None) -> List[Execution]:
+    def list_all(self, limit: int | None = None) -> list[Execution]:
         """列出所有执行记录"""
         with self.db.get_session() as session:
             query = session.query(ExecutionModel).order_by(
@@ -98,7 +106,7 @@ class ExecutionRepository:
                 for m in models
             ]
     
-    def list_by_project(self, project_id: str, limit: int = 10) -> List[Execution]:
+    def list_by_project(self, project_id: str, limit: int = 10) -> list[Execution]:
         """获取项目的执行历史"""
         with self.db.get_session() as session:
             models = session.query(ExecutionModel).filter_by(
@@ -130,6 +138,6 @@ class ExecutionRepository:
             model = session.query(ExecutionModel).filter_by(id=execution_id).first()
             if model:
                 session.delete(model)
-                logger.info(f"删除执行记录: {execution_id}")
+                logger.info("删除执行记录: %s", execution_id)
                 return True
             return False

@@ -1,8 +1,9 @@
-from typing import Dict, Any, List
-from app.tools.base import BaseTool, ToolResult
-from app.security.path_security import PathSecurity
-from app.tools.diff_parser import DiffParser, Hunk
 import logging
+from typing import Any
+
+from app.security.path_security import PathSecurity
+from app.tools.base import BaseTool, ToolResult
+from app.tools.diff_parser import DiffParser, Hunk
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class PatchTool(BaseTool):
     def description(self) -> str:
         return "应用 Unified Diff 格式的代码补丁,进行精确的代码修改"
     
-    async def execute(self, args: Dict[str, Any]) -> ToolResult:
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
         """
         执行 Patch
         
@@ -54,10 +55,10 @@ class PatchTool(BaseTool):
             
             # 读取原文件
             try:
-                with open(file_path, 'r', encoding='utf-8') as f:
+                with open(file_path, encoding='utf-8') as f:
                     original_lines = f.readlines()
             except FileNotFoundError:
-                logger.info(f"目标文件不存在,将创建新文件: {file_path}")
+                logger.info("目标文件不存在,将创建新文件: %s", file_path)
                 original_lines = []
             
             # 应用 Patch
@@ -68,7 +69,7 @@ class PatchTool(BaseTool):
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.writelines(result_lines)
                 
-                logger.info(f"成功应用 Patch: {file_path}, {applied} 个 Hunk")
+                logger.info("成功应用 Patch: %s, %s 个 Hunk", file_path, applied)
                 return ToolResult(
                     success=True,
                     output=f"成功应用 {applied} 个修改到 {file_path}",
@@ -79,7 +80,7 @@ class PatchTool(BaseTool):
                     }
                 )
             else:
-                logger.warning(f"Patch 部分失败: {rejected} 个 Hunk 被拒绝")
+                logger.warning("Patch 部分失败: %s 个 Hunk 被拒绝", rejected)
                 return ToolResult(
                     success=False,
                     error=f"Patch 冲突: {rejected}/{len(hunks)} 个修改无法应用",
@@ -91,10 +92,10 @@ class PatchTool(BaseTool):
                 )
         
         except Exception as e:
-            logger.error(f"Patch 执行失败: {str(e)}")
+            logger.error("Patch 执行失败: %s", e)
             return ToolResult(success=False, error=str(e))
     
-    def _apply_hunks(self, original_lines: List[str], hunks: List[Hunk]) -> tuple:
+    def _apply_hunks(self, original_lines: list[str], hunks: list[Hunk]) -> tuple:
         """
         应用所有 Hunk
         
@@ -119,7 +120,7 @@ class PatchTool(BaseTool):
         
         return result_lines, applied, rejected
     
-    def _apply_hunk(self, lines: List[str], hunk: Hunk) -> bool:
+    def _apply_hunk(self, lines: list[str], hunk: Hunk) -> bool:
         """
         应用单个 Hunk
         
@@ -163,10 +164,10 @@ class PatchTool(BaseTool):
                 lines.extend(new_lines)
                 return True
         except Exception as e:
-            logger.error(f"应用 Hunk 失败: {e}")
+            logger.error("应用 Hunk 失败: %s", e)
             return False
     
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """获取工具的 JSON Schema"""
         return {
             "name": self.name,

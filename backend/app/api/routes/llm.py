@@ -23,7 +23,7 @@ async def create_provider(provider: ProviderInstanceConfig):
     try:
         return agent_service.create_provider(provider)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put("/providers/{provider_id}", response_model=ProviderInstanceConfig)
@@ -32,7 +32,7 @@ async def update_provider(provider_id: str, provider: ProviderInstanceConfig):
     try:
         return agent_service.update_provider(provider_id, provider)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.delete("/providers/{provider_id}")
@@ -42,7 +42,7 @@ async def delete_provider(provider_id: str):
         agent_service.delete_provider(provider_id)
         return {"message": "供应商已删除"}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/providers/test", response_model=ProviderConnectionTestResult)
@@ -54,9 +54,9 @@ async def test_provider_connection(request: ProviderConnectionTestRequest):
             request.model_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/default", response_model=DefaultLLMSelection)
@@ -71,4 +71,4 @@ async def set_default_selection(selection: DefaultLLMSelection):
     try:
         return agent_service.set_default_selection(selection)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

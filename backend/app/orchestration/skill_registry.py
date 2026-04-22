@@ -1,6 +1,6 @@
-from typing import Dict, List, Optional
-from pydantic import BaseModel
 import logging
+
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -9,7 +9,7 @@ class Skill(BaseModel):
     """技能定义"""
     name: str
     description: str
-    tools: List[str] = []
+    tools: list[str] = []
     prompt_template: str = ""
     enabled: bool = True
 
@@ -18,7 +18,7 @@ class SkillRegistry:
     """技能注册中心 - 第一阶段仅提供基础接口"""
     
     def __init__(self):
-        self.skills: Dict[str, Skill] = {}
+        self.skills: dict[str, Skill] = {}
         self._register_default_skills()
         logger.info("技能注册中心初始化完成")
     
@@ -51,25 +51,25 @@ class SkillRegistry:
     def register_skill(self, skill: Skill) -> None:
         """注册技能"""
         self.skills[skill.name] = skill
-        logger.info(f"注册技能: {skill.name}")
+        logger.info("注册技能: %s", skill.name)
     
     def unregister_skill(self, name: str) -> bool:
         """注销技能"""
         if name in self.skills:
             del self.skills[name]
-            logger.info(f"注销技能: {name}")
+            logger.info("注销技能: %s", name)
             return True
         return False
     
-    def get_skill(self, name: str) -> Optional[Skill]:
+    def get_skill(self, name: str) -> Skill | None:
         """获取技能"""
         return self.skills.get(name)
     
-    def list_skills(self) -> List[Skill]:
+    def list_skills(self) -> list[Skill]:
         """列出所有技能"""
         return list(self.skills.values())
     
-    def list_enabled_skills(self) -> List[Skill]:
+    def list_enabled_skills(self) -> list[Skill]:
         """列出所有启用的技能"""
         return [s for s in self.skills.values() if s.enabled]
     
@@ -78,7 +78,7 @@ class SkillRegistry:
         skill = self.get_skill(name)
         if skill:
             skill.enabled = True
-            logger.info(f"启用技能: {name}")
+            logger.info("启用技能: %s", name)
             return True
         return False
     
@@ -87,7 +87,7 @@ class SkillRegistry:
         skill = self.get_skill(name)
         if skill:
             skill.enabled = False
-            logger.info(f"禁用技能: {name}")
+            logger.info("禁用技能: %s", name)
             return True
         return False
 

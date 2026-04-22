@@ -1,6 +1,5 @@
-import os
-from typing import List, Optional
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +12,17 @@ class SecurityError(Exception):
 class PathSecurity:
     """文件系统访问安全控制"""
     
-    def __init__(self, allowed_base_paths: List[str], base_dir: Optional[str] = None):
+    def __init__(self, allowed_base_paths: list[str], base_dir: str | None = None):
         self.allowed_base_paths = [os.path.realpath(os.path.abspath(p)) for p in allowed_base_paths]
         # 基准目录用于解析相对路径
         self.base_dir = os.path.realpath(os.path.abspath(base_dir)) if base_dir else (
             allowed_base_paths[0] if allowed_base_paths else os.getcwd()
         )
-        logger.info(f"路径安全控制初始化,允许的路径: {self.allowed_base_paths}, 基准目录: {self.base_dir}")
+        logger.info(
+            "路径安全控制初始化,允许的路径: %s, 基准目录: %s",
+            self.allowed_base_paths,
+            self.base_dir,
+        )
     
     def validate_path(self, path: str) -> str:
         """

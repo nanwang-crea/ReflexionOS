@@ -1,8 +1,7 @@
 import pytest
 
 from app.main import app
-from app.models.execution import ExecutionCreate
-from app.models.execution import ExecutionStatus
+from app.models.execution import ExecutionCreate, ExecutionStatus
 from app.models.project import Project, ProjectCreate
 from app.models.session import Session
 from app.services.agent_service import AgentService
@@ -39,12 +38,20 @@ async def test_agent_service_recovers_executions_from_repository(db):
     session_repo = SessionRepository(db)
     session = session_repo.create(Session(id="session-1", project_id=project.id, title="需求讨论"))
     repo = ExecutionRepository(db)
-    first_service = AgentService(execution_repo=repo, project_repo=project_repo, session_repo=session_repo)
+    first_service = AgentService(
+        execution_repo=repo,
+        project_repo=project_repo,
+        session_repo=session_repo,
+    )
     execution = await first_service.create_execution(
         ExecutionCreate(project_id=project.id, session_id=session.id, task="inspect repo")
     )
 
-    second_service = AgentService(execution_repo=repo, project_repo=project_repo, session_repo=session_repo)
+    second_service = AgentService(
+        execution_repo=repo,
+        project_repo=project_repo,
+        session_repo=session_repo,
+    )
     loaded = second_service.get_execution(execution.id)
 
     assert loaded is not None
@@ -73,7 +80,11 @@ async def test_agent_service_rejects_unknown_project_ids(db):
     project_repo = ProjectRepository(db)
     session_repo = SessionRepository(db)
     session_repo.create(Session(id="session-1", project_id="project-1", title="需求讨论"))
-    service = AgentService(execution_repo=repo, project_repo=project_repo, session_repo=session_repo)
+    service = AgentService(
+        execution_repo=repo,
+        project_repo=project_repo,
+        session_repo=session_repo,
+    )
 
     with pytest.raises(ValueError, match="项目不存在"):
         await service.create_execution(

@@ -1,4 +1,4 @@
-from typing import Iterable
+from collections.abc import Iterable
 
 from app.models.transcript import TranscriptRecord
 from app.storage.models import ConversationModel

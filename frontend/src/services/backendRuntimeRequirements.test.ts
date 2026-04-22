@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-// @ts-ignore CommonJS helper used by the Electron bootstrap.
+// @ts-expect-error CommonJS helper used by the Electron bootstrap.
 import { probeModuleNamesFromRequirements } from '../../electron/backend-runtime-requirements.cjs'
 
 describe('probeModuleNamesFromRequirements', () => {

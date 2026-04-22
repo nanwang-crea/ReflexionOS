@@ -19,7 +19,10 @@ class FakeSessionRepo:
         return [session for session in self.created_sessions if session.project_id == project_id]
 
     def get(self, session_id: str) -> Session | None:
-        return next((session for session in self.created_sessions if session.id == session_id), None)
+        return next(
+            (session for session in self.created_sessions if session.id == session_id),
+            None,
+        )
 
     def update(self, session: Session) -> Session:
         for index, existing in enumerate(self.created_sessions):
@@ -122,7 +125,11 @@ def test_update_session_updates_existing_session_fields():
     service = SessionService(session_repo=repo, project_repo=FakeProjectRepo(project=project))
     created = service.create_session(
         "project-1",
-        SessionCreate(title="旧标题", preferred_provider_id="provider-a", preferred_model_id="model-a"),
+        SessionCreate(
+            title="旧标题",
+            preferred_provider_id="provider-a",
+            preferred_model_id="model-a",
+        ),
     )
 
     updated = service.update_session(
@@ -142,7 +149,11 @@ def test_update_session_preserves_omitted_preference_fields():
     service = SessionService(session_repo=repo, project_repo=FakeProjectRepo(project=project))
     created = service.create_session(
         "project-1",
-        SessionCreate(title="旧标题", preferred_provider_id="provider-a", preferred_model_id="model-a"),
+        SessionCreate(
+            title="旧标题",
+            preferred_provider_id="provider-a",
+            preferred_model_id="model-a",
+        ),
     )
 
     updated = service.update_session(created.id, SessionUpdate(title="只改标题"))

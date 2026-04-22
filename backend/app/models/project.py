@@ -1,13 +1,13 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional
-from datetime import datetime
 import uuid
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectBase(BaseModel):
     name: str
     path: str
-    language: Optional[str] = None
+    language: str | None = None
 
 
 class ProjectCreate(ProjectBase):

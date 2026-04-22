@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -10,10 +9,10 @@ class Session(BaseModel):
     id: str
     project_id: str
     title: str = "新建聊天"
-    preferred_provider_id: Optional[str] = None
-    preferred_model_id: Optional[str] = None
+    preferred_provider_id: str | None = None
+    preferred_model_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     @model_validator(mode="after")
     def default_updated_at_to_created_at(self):

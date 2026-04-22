@@ -1,5 +1,4 @@
-import pytest
-from app.orchestration.skill_registry import SkillRegistry, Skill, skill_registry
+from app.orchestration.skill_registry import Skill, SkillRegistry
 
 
 class TestSkillRegistry:

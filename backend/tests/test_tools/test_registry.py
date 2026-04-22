@@ -1,11 +1,13 @@
-import pytest
-import tempfile
 import os
-from app.tools.registry import ToolRegistry
-from app.tools.file_tool import FileTool
-from app.tools.shell_tool import ShellTool
+import tempfile
+
+import pytest
+
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
+from app.tools.file_tool import FileTool
+from app.tools.registry import ToolRegistry
+from app.tools.shell_tool import ShellTool
 
 
 class TestToolRegistry:

@@ -1,4 +1,3 @@
-from typing import List, Dict, Any
 from string import Template
 
 from app.llm.base import LLMToolDefinition
@@ -7,7 +6,7 @@ from app.llm.base import LLMToolDefinition
 class PromptTemplate:
     """Prompt 模板"""
     
-    def __init__(self, name: str, template: str, variables: List[str]):
+    def __init__(self, name: str, template: str, variables: list[str]):
         self.name = name
         self.template = Template(template)
         self.variables = variables
@@ -21,7 +20,7 @@ class PromptManager:
     """Prompt 管理器"""
     
     def __init__(self):
-        self.templates: Dict[str, PromptTemplate] = {}
+        self.templates: dict[str, PromptTemplate] = {}
         self._load_default_templates()
     
     def _load_default_templates(self):
@@ -30,10 +29,13 @@ class PromptManager:
         # System Prompt - 原生工具调用模式
         self.register_template(
             name="system",
-            template="""You are an autonomous coding agent. You help users with coding tasks by using tools.
+            template="""You are an autonomous coding agent.
+You help users with coding tasks by using tools.
 
 ## How to use tools:
-You have access to the following tools. When you need to use a tool, simply call it - the system will handle the execution.
+You have access to the following tools.
+When you need to use a tool, simply call it.
+The system will handle the execution.
 
 ## Available tools:
 $tool_list
@@ -60,9 +62,12 @@ Write the final answer for the user now.
 Requirements:
 - Directly answer the user's real question first
 - Keep the tone natural, clear, and helpful
-- You may briefly mention how you verified or gathered the answer if it helps, but do not write a rigid "operation summary"
-- Do not use headings like "操作总结", "完成的操作", or "获得的结果" unless the user explicitly asked for that format
-- If the answer is based on repository structure or files, summarize the key conclusion instead of dumping unnecessary detail""",
+- You may briefly mention how you verified or gathered the answer if it helps,
+  but do not write a rigid "operation summary"
+- Do not use headings like "操作总结", "完成的操作", or "获得的结果"
+  unless the user explicitly asked for that format
+- If the answer is based on repository structure or files,
+  summarize the key conclusion instead of dumping unnecessary detail""",
             variables=["task"]
         )
         
@@ -78,7 +83,7 @@ Please try a different approach or fix the issue.""",
             variables=["tool", "error", "code_snippet"]
         )
     
-    def register_template(self, name: str, template: str, variables: List[str]):
+    def register_template(self, name: str, template: str, variables: list[str]):
         """注册模板"""
         self.templates[name] = PromptTemplate(name, template, variables)
     
@@ -88,12 +93,12 @@ Please try a different approach or fix the issue.""",
             raise ValueError(f"Template not found: {name}")
         return self.templates[name]
     
-    def get_system_prompt(self, tools: List[LLMToolDefinition]) -> str:
+    def get_system_prompt(self, tools: list[LLMToolDefinition]) -> str:
         """获取系统提示"""
         tool_list = self._format_tools(tools)
         return self.get_template("system").render(tool_list=tool_list)
     
-    def _format_tools(self, tools: List[LLMToolDefinition]) -> str:
+    def _format_tools(self, tools: list[LLMToolDefinition]) -> str:
         """格式化工具列表"""
         lines = []
         for tool in tools:

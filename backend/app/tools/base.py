@@ -1,14 +1,15 @@
 from abc import ABC, abstractmethod
+from typing import Any
+
 from pydantic import BaseModel
-from typing import Any, Dict, Optional
 
 
 class ToolResult(BaseModel):
     """工具执行结果"""
     success: bool
-    output: Optional[str] = None
-    error: Optional[str] = None
-    data: Optional[Dict[str, Any]] = None
+    output: str | None = None
+    error: str | None = None
+    data: dict[str, Any] | None = None
 
 
 class BaseTool(ABC):
@@ -27,7 +28,7 @@ class BaseTool(ABC):
         pass
     
     @abstractmethod
-    async def execute(self, args: Dict[str, Any]) -> ToolResult:
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
         """
         执行工具
         
@@ -39,7 +40,7 @@ class BaseTool(ABC):
         """
         pass
     
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """
         获取工具的 JSON Schema（统一格式）
         
@@ -56,7 +57,7 @@ class BaseTool(ABC):
             }
         }
     
-    def get_tool_definition(self) -> Dict[str, Any]:
+    def get_tool_definition(self) -> dict[str, Any]:
         """
         获取工具定义（用于 LLM tools 参数）
         

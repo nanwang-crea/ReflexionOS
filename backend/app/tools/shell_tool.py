@@ -1,10 +1,11 @@
 import asyncio
-from typing import Dict, Any
-from app.tools.base import BaseTool, ToolResult
-from app.security.shell_security import ShellSecurity, ShellSecurityError
-from app.security.path_security import PathSecurity, SecurityError
-from app.config.settings import config_manager
 import logging
+from typing import Any
+
+from app.config.settings import config_manager
+from app.security.path_security import PathSecurity, SecurityError
+from app.security.shell_security import ShellSecurity, ShellSecurityError
+from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class ShellTool(BaseTool):
     def description(self) -> str:
         return "执行安全的 Shell 命令"
 
-    def get_schema(self) -> Dict[str, Any]:
+    def get_schema(self) -> dict[str, Any]:
         """返回工具的 JSON Schema"""
         return {
             "name": self.name,
@@ -49,7 +50,7 @@ class ShellTool(BaseTool):
             }
         }
     
-    async def execute(self, args: Dict[str, Any]) -> ToolResult:
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
         """
         执行 Shell 命令
         
@@ -82,23 +83,23 @@ class ShellTool(BaseTool):
                     process.communicate(),
                     timeout=timeout
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 process.kill()
-                logger.error(f"命令执行超时: {command}")
+                logger.error("命令执行超时: %s", command)
                 return ToolResult(success=False, error=f"命令执行超时 ({timeout}秒)")
             
             output = stdout.decode('utf-8', errors='ignore')
             error = stderr.decode('utf-8', errors='ignore')
             
             if process.returncode == 0:
-                logger.info(f"命令执行成功: {command}")
+                logger.info("命令执行成功: %s", command)
                 return ToolResult(
                     success=True,
                     output=output,
                     data={"return_code": process.returncode}
                 )
             else:
-                logger.warning(f"命令执行失败: {command}, 返回码: {process.returncode}")
+                logger.warning("命令执行失败: %s, 返回码: %s", command, process.returncode)
                 return ToolResult(
                     success=False,
                     output=output,
@@ -106,11 +107,11 @@ class ShellTool(BaseTool):
                 )
                 
         except ShellSecurityError as e:
-            logger.error(f"Shell 安全错误: {str(e)}")
+            logger.error("Shell 安全错误: %s", e)
             return ToolResult(success=False, error=str(e))
         except SecurityError as e:
-            logger.error(f"Shell 路径安全错误: {str(e)}")
+            logger.error("Shell 路径安全错误: %s", e)
             return ToolResult(success=False, error=str(e))
         except Exception as e:
-            logger.error(f"Shell 执行异常: {str(e)}")
+            logger.error("Shell 执行异常: %s", e)
             return ToolResult(success=False, error=str(e))

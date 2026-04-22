@@ -23,14 +23,14 @@ interface ExecutionEvents {
   'connection:failed': { executionId: string; attempts: number }
   'execution:start': { execution_id: string; task: string }
   'execution:created': { execution_id: string; task: string; status: string }
-  'llm:start': {}
+  'llm:start': Record<string, never>
   'llm:content': { content: string }
   'llm:thought': { content: string }
   'llm:tool_call': { tool_name: string; arguments: object; thought: string }
   'tool:start': { tool_name: string; arguments: object; step_number: number }
   'tool:result': { tool_name: string; success: boolean; output?: string; error?: string; duration: number }
   'tool:error': { tool_name: string; error: string }
-  'summary:start': {}
+  'summary:start': Record<string, never>
   'summary:token': { token: string }
   'summary:complete': { summary: string }
   'execution:cancelled': { status: string; result: string; total_steps: number; duration?: number }
@@ -78,7 +78,6 @@ class ExecutionWebSocket {
       this.ws = new WebSocket(wsUrl)
 
       this.ws.onopen = () => {
-        console.log('[WS] Connected:', executionId)
         this.reconnectAttempts = 0
         this.hasConnectedOnce = true
         this.emit('connection:open', { executionId })
@@ -109,7 +108,6 @@ class ExecutionWebSocket {
       }
 
       this.ws.onclose = (event) => {
-        console.log('[WS] Disconnected')
         this.ws = null
         this.emit('connection:closed', {
           executionId,
@@ -153,7 +151,6 @@ class ExecutionWebSocket {
   private handleReconnect() {
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++
-      console.log(`[WS] Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`)
 
       this.emit('connection:reconnecting', {
         executionId: this.executionId,

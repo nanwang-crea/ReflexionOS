@@ -1,12 +1,11 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def setup_logger(
     name: str = "app",
-    log_file: Optional[str] = None,
+    log_file: str | None = None,
     level: int = logging.DEBUG
 ) -> logging.Logger:
     """设置日志器 - 输出到控制台"""

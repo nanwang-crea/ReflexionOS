@@ -1,5 +1,6 @@
+
 from fastapi import APIRouter, HTTPException
-from typing import List
+
 from app.models.project import Project, ProjectCreate
 from app.services.project_service import project_service
 
@@ -12,7 +13,7 @@ async def create_project(project: ProjectCreate):
     return project_service.create_project(project)
 
 
-@router.get("/", response_model=List[Project])
+@router.get("/", response_model=list[Project])
 async def list_projects():
     """获取项目列表"""
     return project_service.list_projects()

@@ -1,5 +1,4 @@
 import re
-from typing import List, Optional
 from dataclasses import dataclass
 
 
@@ -10,13 +9,13 @@ class Hunk:
     old_count: int      # 原文件行数
     new_start: int      # 新文件起始行号
     new_count: int      # 新文件行数
-    lines: List[str]    # Hunk内容 (+/-/ 开头)
+    lines: list[str]    # Hunk内容 (+/-/ 开头)
 
 
 class DiffParser:
     """Unified Diff 解析器"""
     
-    def parse(self, diff_text: str) -> List[Hunk]:
+    def parse(self, diff_text: str) -> list[Hunk]:
         """
         解析 Unified Diff 格式
         
@@ -60,7 +59,7 @@ class DiffParser:
         
         return hunks
     
-    def extract_file_path(self, diff_text: str) -> Optional[str]:
+    def extract_file_path(self, diff_text: str) -> str | None:
         """
         从 Diff 中提取文件路径
         
@@ -77,16 +76,13 @@ class DiffParser:
             if line.startswith('+++ '):
                 path = line[4:].strip()
                 # 移除 b/ 前缀
-                if path.startswith('b/'):
-                    path = path[2:]
-                # 移除 a/ 前缀
-                elif path.startswith('a/'):
+                if path.startswith('b/') or path.startswith('a/'):
                     path = path[2:]
                 return path if path else None
         
         return None
     
-    def extract_old_file_path(self, diff_text: str) -> Optional[str]:
+    def extract_old_file_path(self, diff_text: str) -> str | None:
         """
         从 Diff 中提取原文件路径
         
@@ -103,9 +99,7 @@ class DiffParser:
             if line.startswith('--- '):
                 path = line[4:].strip()
                 # 移除 a/ 前缀
-                if path.startswith('a/'):
-                    path = path[2:]
-                elif path.startswith('b/'):
+                if path.startswith('a/') or path.startswith('b/'):
                     path = path[2:]
                 return path if path else None
         

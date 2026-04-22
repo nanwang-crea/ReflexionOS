@@ -1,5 +1,4 @@
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -31,15 +30,17 @@ class ProviderInstanceConfig(BaseModel):
     id: str
     name: str
     provider_type: ProviderType
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     models: list[ProviderModelConfig] = Field(default_factory=list)
-    default_model_id: Optional[str] = None
+    default_model_id: str | None = None
     enabled: bool = True
 
     @model_validator(mode="after")
     def validate_default_model(self):
-        if self.default_model_id and not any(model.id == self.default_model_id for model in self.models):
+        if self.default_model_id and not any(
+            model.id == self.default_model_id for model in self.models
+        ):
             raise ValueError("default_model_id must reference an existing model")
         return self
 
@@ -51,16 +52,16 @@ class LLMSettings(BaseModel):
     )
 
     providers: list[ProviderInstanceConfig] = Field(default_factory=list)
-    default_provider_id: Optional[str] = None
-    default_model_id: Optional[str] = None
+    default_provider_id: str | None = None
+    default_model_id: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
 
 class DefaultLLMSelection(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
-    provider_id: Optional[str] = None
-    model_id: Optional[str] = None
+    provider_id: str | None = None
+    model_id: str | None = None
     configured: bool = False
 
 
@@ -74,8 +75,8 @@ class ResolvedLLMConfig(BaseModel):
     provider_type: ProviderType
     model_id: str
     model: str
-    api_key: Optional[str] = None
-    base_url: Optional[str] = None
+    api_key: str | None = None
+    base_url: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
 
@@ -83,7 +84,7 @@ class ProviderConnectionTestRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
     provider: ProviderInstanceConfig
-    model_id: Optional[str] = None
+    model_id: str | None = None
 
 
 class ProviderConnectionTestResult(BaseModel):

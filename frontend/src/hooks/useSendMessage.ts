@@ -1,4 +1,3 @@
-import { useCallback } from 'react'
 import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/sessionActions'
 import { useProjectStore } from '@/stores/projectStore'
 import type { SessionSummary } from '@/types/workspace'
@@ -98,7 +97,7 @@ export function useSendMessage(options: {
   const { currentProject } = useProjectStore()
   const { createSession } = useSessionActions()
 
-  const sendMessage = useCallback(createSendMessage({
+  const sendMessage = createSendMessage({
     currentProject,
     currentSession: options.currentSession,
     configured: options.configured,
@@ -109,14 +108,7 @@ export function useSendMessage(options: {
     notify: (message) => {
       window.alert(message)
     },
-  }), [
-    createSession,
-    currentProject,
-    options.currentSession,
-    options.configured,
-    options.selection,
-    options.startExecutionRun,
-  ])
+  })
 
   return {
     sendMessage,

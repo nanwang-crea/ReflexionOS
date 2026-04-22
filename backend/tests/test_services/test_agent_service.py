@@ -1,21 +1,21 @@
 import asyncio
 import contextlib
-from types import SimpleNamespace
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
 import app.services.agent_service as agent_service_module
-from app.models.transcript import TranscriptRecord
 from app.models.execution import ExecutionCreate
-from app.models.project import Project
-from app.models.session import Session
 from app.models.llm_config import (
     LLMSettings,
     ProviderInstanceConfig,
     ProviderModelConfig,
     ProviderType,
 )
+from app.models.project import Project
+from app.models.session import Session
+from app.models.transcript import TranscriptRecord
 from app.services.transcript_service import TranscriptService
 
 
@@ -153,7 +153,10 @@ def test_resolve_llm_config_rejects_unknown_explicit_model(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_create_execution_creates_execution_for_session_in_same_project(monkeypatch, tmp_path):
+async def test_create_execution_creates_execution_for_session_in_same_project(
+    monkeypatch,
+    tmp_path,
+):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
     service, _ = build_service_with_repos(monkeypatch, project=project, session=session)

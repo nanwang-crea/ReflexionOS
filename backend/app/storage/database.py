@@ -1,12 +1,12 @@
-from sqlalchemy import create_engine
-from sqlalchemy import inspect
-from sqlalchemy.exc import OperationalError
-from sqlalchemy.orm import sessionmaker, Session
+import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session, sessionmaker
+
 from app.storage.models import Base
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 class Database:
     """SQLite 数据库管理"""
     
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         candidate_paths = [Path(db_path)] if db_path else [
             Path.home() / ".reflexion" / "reflexion.db",
             Path.cwd() / ".reflexion" / "reflexion.db",
         ]
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         for candidate in candidate_paths:
             try:
@@ -42,7 +42,7 @@ class Database:
                     bind=self.engine
                 )
 
-                logger.info(f"数据库初始化完成: {candidate}")
+                logger.info("数据库初始化完成: %s", candidate)
                 return
             except OperationalError as exc:
                 last_error = exc
@@ -61,7 +61,9 @@ class Database:
 
         conversation_schema_ok = True
         if "conversations" in inspector.get_table_names():
-            conversation_columns = {column["name"] for column in inspector.get_columns("conversations")}
+            conversation_columns = {
+                column["name"] for column in inspector.get_columns("conversations")
+            }
             conversation_schema_ok = {
                 "item_type",
                 "receipt_status",

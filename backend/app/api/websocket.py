@@ -1,8 +1,8 @@
-from fastapi import WebSocket
-from typing import Dict, Set
-from datetime import datetime
 import json
 import logging
+from datetime import datetime
+
+from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ class ConnectionManager:
     
     def __init__(self):
         # execution_id -> Set[WebSocket]
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self.active_connections: dict[str, set[WebSocket]] = {}
     
     async def connect(self, websocket: WebSocket, execution_id: str):
         """接受新连接"""
@@ -22,7 +22,7 @@ class ConnectionManager:
             self.active_connections[execution_id] = set()
         
         self.active_connections[execution_id].add(websocket)
-        logger.info(f"WebSocket 连接: execution_id={execution_id}")
+        logger.info("WebSocket 连接: execution_id=%s", execution_id)
     
     def disconnect(self, websocket: WebSocket, execution_id: str):
         """断开连接"""
@@ -32,7 +32,7 @@ class ConnectionManager:
             if not self.active_connections[execution_id]:
                 del self.active_connections[execution_id]
         
-        logger.info(f"WebSocket 断开: execution_id={execution_id}")
+        logger.info("WebSocket 断开: execution_id=%s", execution_id)
 
     def move_connection(self, websocket: WebSocket, old_execution_id: str, new_execution_id: str):
         """将连接从临时 execution_id 迁移到真实 execution_id"""
@@ -69,7 +69,7 @@ class ConnectionManager:
             try:
                 await connection.send_text(message)
             except Exception as e:
-                logger.error(f"发送消息失败: {e}")
+                logger.error("发送消息失败: %s", e)
                 disconnected.append(connection)
         
         # 清理断开的连接
