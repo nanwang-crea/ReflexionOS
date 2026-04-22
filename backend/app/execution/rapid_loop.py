@@ -152,9 +152,12 @@ class RapidExecutionLoop:
                                 state = ExecutionState.FINAL_SUMMARY
                         else:
                             # 没执行过工具，直接完成
-                            execution.status = ExecutionStatus.COMPLETED
-                            execution.result = response.content or "任务完成"
-                            state = ExecutionState.DONE
+                            if response.has_content:
+                                execution.status = ExecutionStatus.COMPLETED
+                                execution.result = response.content
+                                state = ExecutionState.DONE
+                            else:
+                                raise RuntimeError("模型未返回任何内容，也未发起工具调用")
                 
                 elif state == ExecutionState.TOOL_EXECUTION:
                     step_num += 1

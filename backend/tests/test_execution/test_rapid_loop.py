@@ -82,6 +82,23 @@ class TestRapidExecutionLoop:
         
         assert result.status.value == "completed"
         assert "任务完成" in result.result
+
+    @pytest.mark.asyncio
+    async def test_execution_fails_when_model_returns_no_content_and_no_tool_calls(
+        self,
+        execution_loop,
+        mock_llm,
+    ):
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(content=""):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("测试空响应")
+
+        assert result.status.value == "failed"
+        assert result.result == "执行异常: 模型未返回任何内容，也未发起工具调用"
     
     @pytest.mark.asyncio
     async def test_execution_with_tool_call(self, execution_loop, mock_llm):
