@@ -690,7 +690,7 @@ append event
 
 ### 10.3 对现有 Agent 运行链路的要求
 
-当前 `rapid_loop` 或 `agent_service` 如果仍以 `execution_id` 作为内部变量，可以在过渡代码中保留局部变量名，但外部持久化和协议语义必须统一映射到 `run_id`。
+当前 `rapid_loop` 或 `agent_service` 如果仍以 `execution_id` 作为内部变量，可以在过渡代码中保留局部变量名，但外部持久化和协议语义必须统一映射到 `run_id`。在执行完成后统一转到run_id, 删除execution_id这个表示方式，转为新架构
 
 原则是：
 

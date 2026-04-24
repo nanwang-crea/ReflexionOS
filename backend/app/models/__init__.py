@@ -1,4 +1,15 @@
 from app.models.action import Action, ActionResult, ToolCall
+from app.models.conversation import (
+    ConversationEvent,
+    EventType,
+    Message,
+    MessageType,
+    Run,
+    RunStatus,
+    StreamState,
+    Turn,
+    TurnStatus,
+)
 from app.models.execution import (
     Execution,
     ExecutionCreate,
@@ -28,6 +39,10 @@ from app.models.transcript import TranscriptRecord
 __all__ = [
     "Project", "ProjectCreate",
     "Session",
+    "Turn", "TurnStatus",
+    "Run", "RunStatus",
+    "Message", "MessageType", "StreamState",
+    "ConversationEvent", "EventType",
     "TranscriptRecord",
     "SessionHistoryItemDto", "SessionHistoryRoundDto", "SessionHistoryResponse",
     "Execution", "ExecutionCreate", "ExecutionStep", "ExecutionStatus", "StepStatus",

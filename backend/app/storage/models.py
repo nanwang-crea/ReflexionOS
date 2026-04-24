@@ -19,39 +19,6 @@ class ProjectModel(Base):
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
 
-class ExecutionModel(Base):
-    """执行记录模型"""
-    __tablename__ = "executions"
-    
-    id = Column(String, primary_key=True)
-    project_id = Column(String, nullable=False, index=True)
-    session_id = Column(String, nullable=False, index=True)
-    project_path = Column(String, nullable=False)
-    task = Column(Text, nullable=False)
-    status = Column(String, default="pending", index=True)
-    steps = Column(JSON, default=[])
-    result = Column(Text)
-    total_duration = Column(Integer)  # 毫秒
-    created_at = Column(DateTime, default=datetime.now, index=True)
-    completed_at = Column(DateTime)
-
-
-class ConversationModel(Base):
-    """对话记录模型"""
-    __tablename__ = "conversations"
-    
-    id = Column(String, primary_key=True)
-    execution_id = Column(String, nullable=False, index=True)
-    session_id = Column(String, nullable=False, index=True)
-    project_id = Column(String, nullable=False, index=True)
-    item_type = Column(String, nullable=False)
-    content = Column(Text, nullable=False, default="")
-    receipt_status = Column(String)
-    details_json = Column(JSON, default=[])
-    sequence = Column(Integer, default=0, nullable=False)
-    timestamp = Column(DateTime, default=datetime.now)
-
-
 class SessionModel(Base):
     """会话数据模型"""
     __tablename__ = "sessions"
@@ -61,8 +28,74 @@ class SessionModel(Base):
     title = Column(String, nullable=False, default="新建聊天")
     preferred_provider_id = Column(String)
     preferred_model_id = Column(String)
+    last_event_seq = Column(Integer, nullable=False, default=0)
+    active_turn_id = Column(String)
     created_at = Column(DateTime, default=datetime.now, index=True)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, index=True)
+
+
+class TurnModel(Base):
+    __tablename__ = "turns"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(String, nullable=False, index=True)
+    turn_index = Column(Integer, nullable=False)
+    root_message_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, index=True)
+    active_run_id = Column(String)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    completed_at = Column(DateTime)
+
+
+class RunModel(Base):
+    __tablename__ = "runs"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(String, nullable=False, index=True)
+    turn_id = Column(String, nullable=False, index=True)
+    attempt_index = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, index=True)
+    provider_id = Column(String)
+    model_id = Column(String)
+    workspace_ref = Column(String)
+    started_at = Column(DateTime)
+    finished_at = Column(DateTime)
+    error_code = Column(String)
+    error_message = Column(Text)
+
+
+class MessageModel(Base):
+    __tablename__ = "messages"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(String, nullable=False, index=True)
+    turn_id = Column(String, nullable=False, index=True)
+    run_id = Column(String, index=True)
+    message_index = Column(Integer, nullable=False)
+    role = Column(String, nullable=False)
+    message_type = Column(String, nullable=False, index=True)
+    stream_state = Column(String, nullable=False)
+    display_mode = Column(String, nullable=False)
+    content_text = Column(Text, nullable=False, default="")
+    payload_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+    completed_at = Column(DateTime)
+
+
+class ConversationEventModel(Base):
+    __tablename__ = "conversation_events"
+
+    id = Column(String, primary_key=True)
+    session_id = Column(String, nullable=False, index=True)
+    seq = Column(Integer, nullable=False)
+    turn_id = Column(String, index=True)
+    run_id = Column(String, index=True)
+    message_id = Column(String, index=True)
+    event_type = Column(String, nullable=False)
+    payload_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
 
 
 class LLMUsageModel(Base):

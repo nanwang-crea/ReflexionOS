@@ -11,6 +11,8 @@ class Session(BaseModel):
     title: str = "新建聊天"
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
+    last_event_seq: int = 0
+    active_turn_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime | None = None
 

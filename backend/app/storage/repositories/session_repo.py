@@ -39,6 +39,8 @@ class SessionRepository:
             model.title = session.title
             model.preferred_provider_id = session.preferred_provider_id
             model.preferred_model_id = session.preferred_model_id
+            model.last_event_seq = session.last_event_seq
+            model.active_turn_id = session.active_turn_id
             db_session.flush()
             db_session.refresh(model)
             return Session.model_validate(model)

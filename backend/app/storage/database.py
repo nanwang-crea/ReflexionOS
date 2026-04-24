@@ -2,7 +2,7 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import MetaData, create_engine, inspect
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -53,30 +53,15 @@ class Database:
 
     def _reset_legacy_schema_if_needed(self) -> None:
         inspector = inspect(self.engine)
-        if "executions" not in inspector.get_table_names():
+        table_names = set(inspector.get_table_names())
+        if "executions" not in table_names and "conversations" not in table_names:
             return
 
-        columns = {column["name"] for column in inspector.get_columns("executions")}
-        execution_schema_ok = "project_path" in columns and "session_id" in columns
-
-        conversation_schema_ok = True
-        if "conversations" in inspector.get_table_names():
-            conversation_columns = {
-                column["name"] for column in inspector.get_columns("conversations")
-            }
-            conversation_schema_ok = {
-                "item_type",
-                "receipt_status",
-                "details_json",
-                "sequence",
-            }.issubset(conversation_columns)
-
-        if execution_schema_ok and conversation_schema_ok:
-            return
-
-        logger.warning("检测到旧版执行表结构，重建数据库以切换到新项目执行模型")
+        logger.warning("检测到旧版 conversation schema，重建数据库以切换到新会话模型")
         try:
-            Base.metadata.drop_all(self.engine)
+            metadata = MetaData()
+            metadata.reflect(bind=self.engine)
+            metadata.drop_all(bind=self.engine)
         except OperationalError:
             logger.warning("旧版数据库当前不可写，跳过自动重建，等待显式清理后再初始化")
     
