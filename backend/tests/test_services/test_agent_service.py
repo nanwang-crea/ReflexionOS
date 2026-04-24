@@ -15,6 +15,7 @@ from app.models.llm_config import (
 from app.models.project import Project
 from app.models.session import Session
 from app.services.conversation_service import ConversationService
+from app.services.llm_provider_service import LLMProviderService
 from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
@@ -57,8 +58,8 @@ def build_provider(
 
 def build_service(monkeypatch, settings: LLMSettings | None = None):
     dummy_config = DummyConfigManager(settings)
-    monkeypatch.setattr(agent_service_module, "config_manager", dummy_config)
-    return agent_service_module.AgentService(), dummy_config
+    provider_service = LLMProviderService(config_manager=dummy_config)
+    return agent_service_module.AgentService(llm_provider_service=provider_service), dummy_config
 
 
 def build_service_with_db(
@@ -71,7 +72,6 @@ def build_service_with_db(
 ):
     db = Database(str(tmp_path / "agent-service.db"))
     dummy_config = DummyConfigManager(settings)
-    monkeypatch.setattr(agent_service_module, "config_manager", dummy_config)
 
     project_repo = ProjectRepository(db)
     session_repo = SessionRepository(db)
@@ -81,58 +81,14 @@ def build_service_with_db(
         session_repo.create(session)
 
     conversation_service = ConversationService(db=db)
+    provider_service = LLMProviderService(config_manager=dummy_config)
     service = agent_service_module.AgentService(
         project_repo=project_repo,
         session_repo=session_repo,
         conversation_service=conversation_service,
+        llm_provider_service=provider_service,
     )
     return service, conversation_service, dummy_config
-
-
-def test_create_provider_initializes_default_selection(monkeypatch):
-    service, dummy_config = build_service(monkeypatch)
-    provider = build_provider("provider-openai", "OpenAI 官方", ["gpt-4.1", "gpt-4.1-mini"])
-
-    saved_provider = service.create_provider(provider)
-    selection = service.get_default_selection()
-
-    assert saved_provider.id == "provider-openai"
-    assert selection.configured is True
-    assert selection.provider_id == "provider-openai"
-    assert selection.model_id == "gpt-4.1"
-    assert dummy_config.settings.llm.default_provider_id == "provider-openai"
-    assert dummy_config.settings.llm.default_model_id == "gpt-4.1"
-
-
-def test_resolve_llm_config_uses_explicit_provider_and_model(monkeypatch):
-    provider_a = build_provider("provider-a", "Provider A", ["model-a"])
-    provider_b = build_provider("provider-b", "Provider B", ["model-b", "model-c"])
-    settings = LLMSettings(
-        providers=[provider_a, provider_b],
-        default_provider_id="provider-a",
-        default_model_id="model-a",
-    )
-    service, _ = build_service(monkeypatch, settings)
-
-    resolved = service.resolve_llm_config("provider-b", "model-c")
-
-    assert resolved.provider_id == "provider-b"
-    assert resolved.model_id == "model-c"
-    assert resolved.model == "model-c"
-    assert resolved.provider_type == ProviderType.OPENAI_COMPATIBLE
-
-
-def test_resolve_llm_config_rejects_unknown_explicit_model(monkeypatch):
-    provider = build_provider("provider-a", "Provider A", ["model-a"])
-    settings = LLMSettings(
-        providers=[provider],
-        default_provider_id="provider-a",
-        default_model_id="model-a",
-    )
-    service, _ = build_service(monkeypatch, settings)
-
-    with pytest.raises(ValueError, match="所选模型不存在或已禁用"):
-        service.resolve_llm_config("provider-a", "missing-model")
 
 
 @pytest.mark.asyncio
