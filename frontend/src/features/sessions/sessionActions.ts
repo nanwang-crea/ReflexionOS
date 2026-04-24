@@ -1,7 +1,11 @@
 import { sessionApi } from './sessionApi'
-import { ensureProjectSessionsLoaded } from './sessionLoader'
 import { useSessionStore } from './sessionStore'
 import type { SessionCreatePayload, SessionSummary, SessionUpdatePayload } from '@/types/workspace'
+
+export async function ensureProjectSessionsLoaded(projectId: string): Promise<void> {
+  const response = await sessionApi.listProjectSessions(projectId)
+  useSessionStore.getState().setProjectSessions(projectId, response.data)
+}
 
 export async function createSession(
   projectId: string,

@@ -2,9 +2,9 @@ import { useCallback } from 'react'
 import {
   createSession as createSessionAction,
   deleteSession as deleteSessionAction,
+  ensureProjectSessionsLoaded,
   renameSession as renameSessionAction,
 } from '@/features/sessions/sessionActions'
-import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionLoader'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { SessionCreatePayload, SessionSummary } from '@/types/workspace'
 

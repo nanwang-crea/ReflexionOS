@@ -1,0 +1,79 @@
+from datetime import datetime
+
+from app.models.conversation import ConversationEvent, EventType, RunStatus, TurnStatus
+from app.models.session import Session
+from app.services.conversation_projection import ConversationProjection
+from app.storage.database import Database
+from app.storage.repositories.message_repo import MessageRepository
+from app.storage.repositories.run_repo import RunRepository
+from app.storage.repositories.session_repo import SessionRepository
+from app.storage.repositories.turn_repo import TurnRepository
+
+
+def test_projection_run_completed_marks_turn_completed_and_clears_session_active_turn(tmp_path):
+    db = Database(str(tmp_path / "conversation-projection.db"))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    run_repo = RunRepository(db)
+    message_repo = MessageRepository(db)
+    projection = ConversationProjection(
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        run_repo=run_repo,
+        message_repo=message_repo,
+    )
+
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-1",
+            session_id="session-1",
+            event_type=EventType.TURN_CREATED,
+            turn_id="turn-1",
+            payload_json={
+                "turn_id": "turn-1",
+                "turn_index": 1,
+                "root_message_id": "msg-user-1",
+            },
+        ),
+    )
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-2",
+            session_id="session-1",
+            event_type=EventType.RUN_CREATED,
+            turn_id="turn-1",
+            run_id="run-1",
+            payload_json={
+                "run_id": "run-1",
+                "turn_id": "turn-1",
+                "attempt_index": 1,
+            },
+        ),
+    )
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-3",
+            session_id="session-1",
+            event_type=EventType.RUN_COMPLETED,
+            turn_id="turn-1",
+            run_id="run-1",
+            payload_json={"finished_at": datetime(2026, 4, 24, 10, 0, 5).isoformat()},
+        ),
+    )
+
+    session = session_repo.get("session-1")
+    turn = turn_repo.get("turn-1")
+    run = run_repo.get("run-1")
+
+    assert session is not None
+    assert turn is not None
+    assert run is not None
+    assert session.active_turn_id is None
+    assert turn.status == TurnStatus.COMPLETED
+    assert turn.active_run_id is None
+    assert run.status == RunStatus.COMPLETED

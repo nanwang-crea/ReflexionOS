@@ -7,15 +7,11 @@ import {
 
 const {
   ensureLLMSettingsLoadedMock,
-  ensureProjectSessionsLoadedMock,
-  ensureSessionHistoryLoadedMock,
   projectStoreState,
   workspaceStoreState,
   sessionStoreState,
 } = vi.hoisted(() => ({
   ensureLLMSettingsLoadedMock: vi.fn(),
-  ensureProjectSessionsLoadedMock: vi.fn(),
-  ensureSessionHistoryLoadedMock: vi.fn(),
   projectStoreState: {
     currentProject: null as { id: string } | null,
   },
@@ -25,7 +21,6 @@ const {
   },
   sessionStoreState: {
     sessionsByProjectId: {} as Record<string, SessionSummary[]>,
-    historyBySessionId: {} as Record<string, []>,
   },
 }))
 
@@ -38,16 +33,10 @@ vi.mock('react', () => ({
 
 vi.mock('@/demo/demoData', () => ({
   isDemoMode: () => false,
-  demoSessionHistoryById: {},
 }))
 
 vi.mock('@/features/llm/llmSettingsLoader', () => ({
   ensureLLMSettingsLoaded: ensureLLMSettingsLoadedMock,
-}))
-
-vi.mock('@/features/sessions/sessionLoader', () => ({
-  ensureProjectSessionsLoaded: ensureProjectSessionsLoadedMock,
-  ensureSessionHistoryLoaded: ensureSessionHistoryLoadedMock,
 }))
 
 vi.mock('@/stores/projectStore', () => ({
@@ -86,16 +75,11 @@ describe('useSessionData helpers', () => {
   beforeEach(() => {
     vi.resetModules()
     ensureLLMSettingsLoadedMock.mockReset()
-    ensureProjectSessionsLoadedMock.mockReset()
-    ensureSessionHistoryLoadedMock.mockReset()
     ensureLLMSettingsLoadedMock.mockResolvedValue(undefined)
-    ensureProjectSessionsLoadedMock.mockResolvedValue(undefined)
-    ensureSessionHistoryLoadedMock.mockResolvedValue(undefined)
     projectStoreState.currentProject = null
     workspaceStoreState.currentSessionId = null
     workspaceStoreState.setCurrentSessionId.mockReset()
     sessionStoreState.sessionsByProjectId = {}
-    sessionStoreState.historyBySessionId = {}
   })
 
   it('does not clear the currentSessionId before project sessions finish loading', () => {
@@ -146,7 +130,7 @@ describe('useSessionData helpers', () => {
     const result = useSessionData()
 
     expect(result.currentSessionSummary?.id).toBe('session-1')
-    expect(ensureProjectSessionsLoadedMock).not.toHaveBeenCalled()
-    expect(ensureSessionHistoryLoadedMock).toHaveBeenCalledWith('session-1')
+    expect(ensureLLMSettingsLoadedMock).toHaveBeenCalledTimes(1)
+    expect(workspaceStoreState.setCurrentSessionId).not.toHaveBeenCalled()
   })
 })

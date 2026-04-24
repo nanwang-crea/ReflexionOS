@@ -1,9 +1,9 @@
 from fastapi import APIRouter, HTTPException
 
+from app.models.conversation_snapshot import ConversationSnapshot
 from app.models.session import Session
-from app.models.session_history import SessionHistoryResponse
+from app.services.conversation_service import conversation_service
 from app.services.session_service import SessionCreate, SessionUpdate, session_service
-from app.services.transcript_service import transcript_service
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -32,10 +32,10 @@ async def get_session(session_id: str):
     return session
 
 
-@router.get("/sessions/{session_id}/history", response_model=SessionHistoryResponse)
-async def get_session_history(session_id: str):
+@router.get("/sessions/{session_id}/conversation", response_model=ConversationSnapshot)
+async def get_session_conversation(session_id: str):
     try:
-        return transcript_service.build_session_history(session_id)
+        return conversation_service.get_snapshot(session_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

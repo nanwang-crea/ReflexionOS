@@ -1,11 +1,11 @@
 import type { RefObject } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Loader2 } from 'lucide-react'
 import { SlideIn } from '@/components/animations/SlideIn'
-import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
+import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
-import type { SessionSummary, WorkspaceChatItem } from '@/types/workspace'
+import type { ConversationMessage } from '@/types/conversation'
+import type { SessionSummary } from '@/types/workspace'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -29,7 +29,7 @@ interface WorkspaceTranscriptProps {
   configured: boolean
   currentProject: Project | null
   currentSession: SessionSummary | null
-  items: WorkspaceChatItem[]
+  messages: ConversationMessage[]
   messagesEndRef: RefObject<HTMLDivElement>
 }
 
@@ -38,7 +38,7 @@ export function WorkspaceTranscript({
   configured,
   currentProject,
   currentSession,
-  items,
+  messages,
   messagesEndRef,
 }: WorkspaceTranscriptProps) {
   return (
@@ -56,17 +56,17 @@ export function WorkspaceTranscript({
           </div>
         )}
 
-        {currentProject && !currentSession && items.length === 0 && (
+        {currentProject && !currentSession && messages.length === 0 && (
           <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
             这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击“新建聊天”。
           </div>
         )}
 
         <AnimatePresence mode="popLayout">
-          {items.map((item) => {
-            if (item.type === 'user-message') {
+          {messages.map((message) => {
+            if (message.messageType === 'user_message') {
               return (
-                <SlideIn key={item.id} direction="up">
+                <SlideIn key={message.id} direction="up">
                   <div className="mb-8 flex justify-end">
                     <motion.div
                       className="max-w-[720px] rounded-2xl bg-slate-100 px-5 py-4 text-[15px] leading-7 text-slate-700"
@@ -74,60 +74,39 @@ export function WorkspaceTranscript({
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2 }}
                     >
-                      {item.content}
+                      {message.contentText}
                     </motion.div>
                   </div>
                 </SlideIn>
               )
             }
 
-            if (item.type === 'assistant-status') {
+            if (message.messageType === 'tool_trace') {
               return (
-                <SlideIn key={item.id} direction="up">
-                  <div className="mb-7 flex">
-                    <div className="inline-flex items-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-sm text-slate-500">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>{item.statusLabel}</span>
-                    </div>
+                <SlideIn key={message.id} direction="up">
+                  <ToolTraceCard message={message} />
+                </SlideIn>
+              )
+            }
+
+            if (message.messageType === 'system_notice') {
+              return (
+                <SlideIn key={message.id} direction="up">
+                  <div className="mb-6 max-w-[920px] rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    {message.contentText}
                   </div>
                 </SlideIn>
               )
             }
 
-            if (item.type === 'agent-update') {
+            if (message.messageType === 'assistant_message') {
               return (
-                <SlideIn key={item.id} direction="up">
-                  <div className="mb-7">
-                    <MarkdownRenderer
-                      content={item.content || ''}
-                      variant="plain"
-                      isStreaming={item.isStreaming}
-                      className={transcriptClassName}
-                    />
-                  </div>
-                </SlideIn>
-              )
-            }
-
-            if (item.type === 'action-receipt') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <ActionReceipt
-                    status={item.receiptStatus || 'running'}
-                    details={item.details || []}
-                  />
-                </SlideIn>
-              )
-            }
-
-            if (item.type === 'assistant-message') {
-              return (
-                <SlideIn key={item.id} direction="up">
+                <SlideIn key={message.id} direction="up">
                   <div className="mb-10">
                     <MarkdownRenderer
-                      content={item.content || ''}
+                      content={message.contentText || ''}
                       variant="plain"
-                      isStreaming={item.isStreaming}
+                      isStreaming={message.streamState === 'streaming'}
                       className={transcriptClassName}
                     />
                   </div>

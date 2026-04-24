@@ -9,72 +9,54 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     """WebSocket 连接管理器"""
-    
+
     def __init__(self):
-        # execution_id -> Set[WebSocket]
+        # session_id -> Set[WebSocket]
         self.active_connections: dict[str, set[WebSocket]] = {}
-    
-    async def connect(self, websocket: WebSocket, execution_id: str):
+
+    async def connect(self, websocket: WebSocket, session_id: str):
         """接受新连接"""
         await websocket.accept()
-        
-        if execution_id not in self.active_connections:
-            self.active_connections[execution_id] = set()
-        
-        self.active_connections[execution_id].add(websocket)
-        logger.info("WebSocket 连接: execution_id=%s", execution_id)
-    
-    def disconnect(self, websocket: WebSocket, execution_id: str):
+
+        if session_id not in self.active_connections:
+            self.active_connections[session_id] = set()
+
+        self.active_connections[session_id].add(websocket)
+        logger.info("WebSocket 连接: session_id=%s", session_id)
+
+    def disconnect(self, websocket: WebSocket, session_id: str):
         """断开连接"""
-        if execution_id in self.active_connections:
-            self.active_connections[execution_id].discard(websocket)
-            
-            if not self.active_connections[execution_id]:
-                del self.active_connections[execution_id]
-        
-        logger.info("WebSocket 断开: execution_id=%s", execution_id)
+        if session_id in self.active_connections:
+            self.active_connections[session_id].discard(websocket)
 
-    def move_connection(self, websocket: WebSocket, old_execution_id: str, new_execution_id: str):
-        """将连接从临时 execution_id 迁移到真实 execution_id"""
-        if old_execution_id == new_execution_id:
+            if not self.active_connections[session_id]:
+                del self.active_connections[session_id]
+
+        logger.info("WebSocket 断开: session_id=%s", session_id)
+
+    async def send_event(self, session_id: str, event_type: str, data: dict):
+        """发送事件到所有订阅该会话的客户端"""
+        if session_id not in self.active_connections:
             return
 
-        if old_execution_id in self.active_connections:
-            self.active_connections[old_execution_id].discard(websocket)
-            if not self.active_connections[old_execution_id]:
-                del self.active_connections[old_execution_id]
-
-        if new_execution_id not in self.active_connections:
-            self.active_connections[new_execution_id] = set()
-
-        self.active_connections[new_execution_id].add(websocket)
-        logger.info(
-            f"WebSocket 连接迁移: {old_execution_id} -> {new_execution_id}"
-        )
-    
-    async def send_event(self, execution_id: str, event_type: str, data: dict):
-        """发送事件到所有订阅该执行的客户端"""
-        if execution_id not in self.active_connections:
-            return
-        
         message = json.dumps({
             "type": event_type,
             "data": data,
             "timestamp": datetime.now().isoformat()
         }, ensure_ascii=False)
-        
+
         disconnected = []
-        
-        for connection in self.active_connections[execution_id]:
+
+        for connection in self.active_connections[session_id]:
             try:
                 await connection.send_text(message)
             except Exception as e:
                 logger.error("发送消息失败: %s", e)
                 disconnected.append(connection)
-        
+
         # 清理断开的连接
         for conn in disconnected:
-            self.disconnect(conn, execution_id)
+            self.disconnect(conn, session_id)
 
 
 # 全局连接管理器

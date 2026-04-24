@@ -203,6 +203,15 @@ class TestRapidExecutionLoop:
             second_call.id,
         ]
 
+    def test_build_messages_does_not_duplicate_initial_user_task(self, execution_loop):
+        context = ExecutionContext(task="检查重复 user 消息")
+        context.add_message("user", "检查重复 user 消息")
+
+        messages = execution_loop._build_messages(context)
+        user_contents = [message.content for message in messages if message.role == "user"]
+
+        assert user_contents.count("检查重复 user 消息") == 1
+
     @pytest.mark.asyncio
     async def test_final_response_fallback_when_no_content_after_tools(
         self,
@@ -263,28 +272,42 @@ class TestRapidExecutionLoop:
         assert len(result.steps) == 5
 
     @pytest.mark.asyncio
-    async def test_execution_metadata_contains_receipt_and_agent_update_items(
-        self,
-        execution_loop,
-        mock_llm,
-    ):
+    async def test_event_callback_emits_tool_start_and_result(self, mock_llm, tool_registry):
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback
+        )
+        call_count = [0]
+
         async def mock_stream(messages, tools=None):
-            async for chunk in self._stream_response(
-                content="先检查文件",
-                tool_calls=[LLMToolCall(name="mock", arguments={})],
-                finish_reason="tool_calls"
-            ):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    content="先检查文件",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "."})],
+                    finish_reason="tool_calls"
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="检查完成"):
                 yield chunk
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run("检查项目")
+        await execution_loop.run("检查项目")
 
-        transcript = result.transcript_items
-        assert transcript[0]["item_type"] == "user-message"
-        assert transcript[0]["content"] == "检查项目"
-        assert any(item["item_type"] == "agent-update" for item in transcript)
-        assert any(item["item_type"] == "action-receipt" for item in transcript)
+        event_types = [event["type"] for event in events]
+        assert "tool:start" in event_types
+        assert "tool:result" in event_types
+        assert "execution:complete" in event_types
     
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):
@@ -408,10 +431,22 @@ class TestRapidExecutionLoop:
         )
 
         assert result.status.value == "cancelled"
-        assert result.transcript_items == []
+        assert result.result == "执行已取消"
 
     @pytest.mark.asyncio
-    async def test_failed_execution_retains_failure_round(self, execution_loop, mock_llm):
+    async def test_failed_execution_emits_execution_error_event(self, mock_llm, tool_registry):
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=3,
+            event_callback=callback
+        )
+
         call_count = [0]
 
         async def mock_stream(messages, tools=None):
@@ -430,23 +465,10 @@ class TestRapidExecutionLoop:
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run(
-            "失败任务",
-            session_id="session-1",
-            project_id="project-1",
-        )
+        result = await execution_loop.run("失败任务")
 
         assert result.status.value == "failed"
-        assert [item["item_type"] for item in result.transcript_items] == [
-            "user-message",
-            "agent-update",
-            "action-receipt",
-            "assistant-message",
-        ]
-        assert result.transcript_items[1]["content"] == "先执行工具"
-        assert result.transcript_items[2]["receipt_status"] == "completed"
-        assert result.transcript_items[2]["details_json"][0]["toolName"] == "mock"
-        assert "boom" in result.transcript_items[-1]["content"]
+        assert any(event["type"] == "execution:error" for event in events)
 
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):

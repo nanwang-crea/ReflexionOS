@@ -6,23 +6,49 @@ class ConversationEventRepository:
     def __init__(self, db):
         self.db = db
 
-    def append(self, event: ConversationEvent) -> ConversationEvent:
-        with self.db.get_session() as db_session:
-            max_seq = (
-                db_session.query(ConversationEventModel.seq)
-                .filter_by(session_id=event.session_id)
-                .order_by(ConversationEventModel.seq.desc())
-                .limit(1)
-                .scalar()
-            ) or 0
+    def append(self, event: ConversationEvent, *, db_session=None) -> ConversationEvent:
+        return self.append_many([event], db_session=db_session)[0]
+
+    def append_many(
+        self,
+        events: list[ConversationEvent],
+        *,
+        db_session=None,
+    ) -> list[ConversationEvent]:
+        if not events:
+            return []
+
+        session_id = events[0].session_id
+        if any(event.session_id != session_id for event in events):
+            raise ValueError("同批事件必须属于同一个会话")
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.append_many(events, db_session=managed_session)
+
+        max_seq = (
+            db_session.query(ConversationEventModel.seq)
+            .filter_by(session_id=session_id)
+            .order_by(ConversationEventModel.seq.desc())
+            .limit(1)
+            .scalar()
+        ) or 0
+
+        models: list[ConversationEventModel] = []
+        next_seq = max_seq + 1
+        for event in events:
             model = ConversationEventModel(
                 **event.model_dump(exclude={"seq"}),
-                seq=max_seq + 1,
+                seq=next_seq,
             )
             db_session.add(model)
-            db_session.flush()
+            models.append(model)
+            next_seq += 1
+
+        db_session.flush()
+        for model in models:
             db_session.refresh(model)
-            return ConversationEvent.model_validate(model)
+        return [ConversationEvent.model_validate(model) for model in models]
 
     def get(self, event_id: str) -> ConversationEvent | None:
         with self.db.get_session() as db_session:

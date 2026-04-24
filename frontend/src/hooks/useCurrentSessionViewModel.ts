@@ -1,22 +1,21 @@
-import { useExecutionStore } from '@/stores/executionStore'
+import { useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
-import type { SessionSummary, WorkspaceChatItem, WorkspaceSessionRound } from '@/types/workspace'
+import type { ConversationMessage } from '@/types/conversation'
+import type { SessionSummary } from '@/types/workspace'
 import { useSessionData } from './useSessionData'
-import { useSessionRenderItems } from './useSessionRenderItems'
 import { useSessionSelection } from './useSessionSelection'
 
 export function useCurrentSessionViewModel(options: {
-  overlayItems: WorkspaceChatItem[]
-  activeRoundItems: WorkspaceSessionRound['items']
+  messages: ConversationMessage[]
+  isRunning: boolean
+  isCancelling: boolean
   connectionStatus: 'connected' | 'connecting' | 'disconnected'
   onReset: () => void
 }) {
   const { configured, loaded } = useSettingsStore()
-  const { status } = useExecutionStore()
   const {
     currentProject,
     currentSessionSummary,
-    persistedRounds,
   } = useSessionData()
   const {
     selection,
@@ -28,21 +27,19 @@ export function useCurrentSessionViewModel(options: {
     preferredProviderId: currentSessionSummary?.preferredProviderId,
     preferredModelId: currentSessionSummary?.preferredModelId,
   })
-  const { messagesEndRef, renderItems } = useSessionRenderItems({
-    persistedRounds,
-    activeRoundItems: options.activeRoundItems,
-    overlayItems: options.overlayItems,
-  })
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [options.messages])
 
   return {
     currentProject,
     currentSession: currentSessionSummary as SessionSummary | null,
     configured,
     loaded,
-    status,
     selection,
     messagesEndRef,
-    renderItems,
     availableProviders,
     selectedModels,
     headerProps: {
@@ -56,14 +53,14 @@ export function useCurrentSessionViewModel(options: {
       configured,
       currentProject,
       currentSession: currentSessionSummary,
-      items: renderItems,
+      messages: options.messages,
       messagesEndRef,
     },
     inputProps: {
-      disabled: !loaded || !configured || !currentProject || status === 'running' || status === 'cancelling',
-      isLoading: status === 'running' || status === 'cancelling',
-      canCancel: status === 'running',
-      isCancelling: status === 'cancelling',
+      disabled: !loaded || !configured || !currentProject || options.isRunning || options.isCancelling,
+      isLoading: options.isRunning || options.isCancelling,
+      canCancel: options.isRunning && !options.isCancelling,
+      isCancelling: options.isCancelling,
       placeholder: currentProject ? '给当前项目开一个新任务...' : '请先选择项目',
       providerOptions: availableProviders.map((provider) => ({ id: provider.id, label: provider.name })),
       modelOptions: selectedModels.map((model) => ({ id: model.id, label: model.display_name })),
@@ -71,7 +68,7 @@ export function useCurrentSessionViewModel(options: {
       selectedModelId: selection.modelId,
       onProviderChange: handleProviderChange,
       onModelChange: handleModelChange,
-      selectionDisabled: !loaded || status === 'running' || status === 'cancelling' || availableProviders.length === 0,
+      selectionDisabled: !loaded || options.isRunning || options.isCancelling || availableProviders.length === 0,
     },
   }
 }

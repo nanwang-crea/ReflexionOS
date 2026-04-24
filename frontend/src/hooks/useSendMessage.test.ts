@@ -15,7 +15,7 @@ describe('createSendMessage', () => {
     }
     const createSession = vi.fn().mockResolvedValue(createdSession)
     const writeSessionPreferences = vi.fn()
-    const startExecutionRun = vi.fn().mockResolvedValue(undefined)
+    const startTurn = vi.fn().mockResolvedValue(undefined)
     const notify = vi.fn()
 
     const sendMessage = createSendMessage({
@@ -25,7 +25,7 @@ describe('createSendMessage', () => {
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession,
       writeSessionPreferences,
-      startExecutionRun,
+      startTurn,
       notify,
     })
 
@@ -36,10 +36,9 @@ describe('createSendMessage', () => {
       preferredModelId: 'model-a',
     })
     expect(writeSessionPreferences).not.toHaveBeenCalled()
-    expect(startExecutionRun).toHaveBeenCalledWith({
+    expect(startTurn).toHaveBeenCalledWith({
       sessionId: 'session-1',
       message: 'hello',
-      projectId: 'project-1',
       providerId: 'provider-a',
       modelId: 'model-a',
     })
@@ -49,7 +48,7 @@ describe('createSendMessage', () => {
   it('reuses the current session and refreshes preferences before sending', async () => {
     const createSession = vi.fn()
     const writeSessionPreferences = vi.fn().mockResolvedValue(undefined)
-    const startExecutionRun = vi.fn().mockResolvedValue(undefined)
+    const startTurn = vi.fn().mockResolvedValue(undefined)
 
     const sendMessage = createSendMessage({
       currentProject: { id: 'project-1', name: 'Project', path: '/tmp/project' },
@@ -66,7 +65,7 @@ describe('createSendMessage', () => {
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession,
       writeSessionPreferences,
-      startExecutionRun,
+      startTurn,
       notify: vi.fn(),
     })
 
@@ -77,10 +76,9 @@ describe('createSendMessage', () => {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })
-    expect(startExecutionRun).toHaveBeenCalledWith({
+    expect(startTurn).toHaveBeenCalledWith({
       sessionId: 'session-2',
       message: 'ship it',
-      projectId: 'project-1',
       providerId: 'provider-a',
       modelId: 'model-a',
     })
@@ -88,7 +86,7 @@ describe('createSendMessage', () => {
 
   it('does not require persisted rounds on the current session summary', async () => {
     const writeSessionPreferences = vi.fn().mockResolvedValue(undefined)
-    const startExecutionRun = vi.fn().mockResolvedValue(undefined)
+    const startTurn = vi.fn().mockResolvedValue(undefined)
 
     const sendMessage = createSendMessage({
       currentProject: { id: 'project-1', name: 'Project', path: '/tmp/project' },
@@ -105,7 +103,7 @@ describe('createSendMessage', () => {
       selection: { providerId: 'provider-a', modelId: 'model-a' },
       createSession: vi.fn(),
       writeSessionPreferences,
-      startExecutionRun,
+      startTurn,
       notify: vi.fn(),
     })
 
@@ -115,10 +113,9 @@ describe('createSendMessage', () => {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
     })
-    expect(startExecutionRun).toHaveBeenCalledWith({
+    expect(startTurn).toHaveBeenCalledWith({
       sessionId: 'session-3',
       message: 'summary boundary',
-      projectId: 'project-1',
       providerId: 'provider-a',
       modelId: 'model-a',
     })

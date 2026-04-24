@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getApiBaseUrl,
-  getExecutionWebSocketUrl,
+  getSessionConversationWebSocketUrl,
 } from './runtimeConfig'
 
 afterEach(() => {
@@ -25,14 +25,14 @@ describe('runtimeConfig', () => {
       },
     })
 
-    expect(getExecutionWebSocketUrl('exec-1')).toBe('ws://127.0.0.1:5173/ws/execution/exec-1')
+    expect(getSessionConversationWebSocketUrl('session-1')).toBe('ws://127.0.0.1:5173/ws/sessions/session-1/conversation')
   })
 
   it('falls back to the local backend origin outside dev', () => {
     vi.stubEnv('DEV', false)
 
     expect(getApiBaseUrl()).toBe('http://127.0.0.1:8000')
-    expect(getExecutionWebSocketUrl('exec-1')).toBe('ws://127.0.0.1:8000/ws/execution/exec-1')
+    expect(getSessionConversationWebSocketUrl('session-1')).toBe('ws://127.0.0.1:8000/ws/sessions/session-1/conversation')
   })
 
   it('prefers an explicit backend origin override for both HTTP and WebSocket traffic', () => {
@@ -40,6 +40,6 @@ describe('runtimeConfig', () => {
     vi.stubEnv('VITE_BACKEND_ORIGIN', 'https://example.com/')
 
     expect(getApiBaseUrl()).toBe('https://example.com')
-    expect(getExecutionWebSocketUrl('exec-1')).toBe('wss://example.com/ws/execution/exec-1')
+    expect(getSessionConversationWebSocketUrl('session-1')).toBe('wss://example.com/ws/sessions/session-1/conversation')
   })
 })

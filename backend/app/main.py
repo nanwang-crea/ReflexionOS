@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import agent, llm, projects, sessions, skills, websocket
+from app.api.routes import llm, projects, sessions, skills, websocket
 
 app = FastAPI(
     title="ReflexionOS",
@@ -18,7 +18,6 @@ app.add_middleware(
 
 app.include_router(projects.router)
 app.include_router(sessions.router)
-app.include_router(agent.router)
 app.include_router(llm.router)
 app.include_router(skills.router)
 app.include_router(websocket.router)

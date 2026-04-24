@@ -1,13 +1,9 @@
 import { useEffect, useMemo } from 'react'
-import { demoSessionHistoryById, isDemoMode } from '@/demo/demoData'
 import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
 import { useSessionStore } from '@/features/sessions/sessionStore'
-import {
-  ensureSessionHistoryLoaded,
-} from '@/features/sessions/sessionLoader'
 import { useProjectStore } from '@/stores/projectStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import type { SessionSummary, WorkspaceSessionRound } from '@/types/workspace'
+import type { SessionSummary } from '@/types/workspace'
 
 const EMPTY_SESSIONS: SessionSummary[] = []
 
@@ -38,7 +34,6 @@ interface UseSessionDataResult {
   currentProject: ReturnType<typeof useProjectStore.getState>['currentProject']
   currentSessionId: string | null
   currentSessionSummary: SessionSummary | null
-  persistedRounds: WorkspaceSessionRound[]
 }
 
 export function useSessionData(): UseSessionDataResult {
@@ -46,8 +41,6 @@ export function useSessionData(): UseSessionDataResult {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
   const setCurrentSessionId = useWorkspaceStore((state) => state.setCurrentSessionId)
   const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
-  const historyBySessionId = useSessionStore((state) => state.historyBySessionId)
-  const demoMode = isDemoMode()
 
   const projectSessions = currentProject ? sessionsByProjectId[currentProject.id] || EMPTY_SESSIONS : EMPTY_SESSIONS
   const hasLoadedProjectSessions = currentProject
@@ -57,17 +50,6 @@ export function useSessionData(): UseSessionDataResult {
     () => findCurrentSessionSummary(projectSessions, currentSessionId),
     [currentSessionId, projectSessions]
   )
-  const persistedRounds = useMemo(() => {
-    if (!currentSessionSummary) {
-      return []
-    }
-
-    if (demoMode) {
-      return demoSessionHistoryById[currentSessionSummary.id] || []
-    }
-
-    return historyBySessionId[currentSessionSummary.id] || []
-  }, [currentSessionSummary, demoMode, historyBySessionId])
 
   useEffect(() => {
     ensureLLMSettingsLoaded().catch((error) => {
@@ -76,7 +58,7 @@ export function useSessionData(): UseSessionDataResult {
   }, [])
 
   useEffect(() => {
-    if (!currentSessionId || demoMode) {
+    if (!currentSessionId) {
       return
     }
 
@@ -92,16 +74,11 @@ export function useSessionData(): UseSessionDataResult {
     if (!currentSessionSummary) {
       return
     }
-
-    ensureSessionHistoryLoaded(currentSessionSummary.id).catch((error) => {
-      console.error('Failed to load session history:', error)
-    })
-  }, [currentSessionId, currentSessionSummary, demoMode, hasLoadedProjectSessions, setCurrentSessionId])
+  }, [currentSessionId, currentSessionSummary, hasLoadedProjectSessions, setCurrentSessionId])
 
   return {
     currentProject,
     currentSessionId,
     currentSessionSummary,
-    persistedRounds,
   }
 }

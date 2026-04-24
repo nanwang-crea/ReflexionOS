@@ -7,9 +7,9 @@ from datetime import datetime
 
 from app.config.settings import config_manager
 from app.execution.context_manager import ExecutionContext
+from app.execution.models import Execution, ExecutionStatus, ExecutionStep, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
-from app.models.execution import Execution, ExecutionStatus, ExecutionStep, StepStatus
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -253,6 +253,8 @@ class RapidExecutionLoop:
             execution.total_duration = time.time() - start_time
             execution.completed_at = datetime.now()
 
+            # transcript_items 仅保留为过渡期调试数据；
+            # 持久化真相由 runtime callback 事件链负责。
             if execution.status == ExecutionStatus.CANCELLED:
                 execution.transcript_items = []
             elif execution.status == ExecutionStatus.FAILED:
@@ -502,10 +504,7 @@ class RapidExecutionLoop:
         # 系统提示
         system_prompt = self._get_system_prompt()
         messages.append(LLMMessage(role="system", content=system_prompt))
-        
-        # 任务
-        messages.append(LLMMessage(role="user", content=context.task))
-        
+
         # 历史消息
         for msg in self._get_recent_context_messages(context):
             tool_calls = [

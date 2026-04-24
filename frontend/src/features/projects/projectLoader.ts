@@ -1,5 +1,5 @@
 import { demoProjects, isDemoMode } from '@/demo/demoData'
-import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionLoader'
+import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionActions'
 import { projectApi } from '@/services/apiClient'
 import { useProjectStore } from '@/stores/projectStore'
 import type { Project } from '@/types/project'

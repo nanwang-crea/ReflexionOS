@@ -82,6 +82,6 @@ function getWebSocketBaseUrl() {
   })
 }
 
-export function getExecutionWebSocketUrl(executionId: string) {
-  return `${getWebSocketBaseUrl()}/ws/execution/${encodeURIComponent(executionId)}`
+export function getSessionConversationWebSocketUrl(sessionId: string) {
+  return `${getWebSocketBaseUrl()}/ws/sessions/${encodeURIComponent(sessionId)}/conversation`
 }

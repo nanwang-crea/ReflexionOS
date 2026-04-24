@@ -10,13 +10,7 @@ from app.models.conversation import (
     Turn,
     TurnStatus,
 )
-from app.models.execution import (
-    Execution,
-    ExecutionCreate,
-    ExecutionStatus,
-    ExecutionStep,
-    StepStatus,
-)
+from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.models.llm_config import (
     DefaultLLMSelection,
     LLMSettings,
@@ -29,12 +23,6 @@ from app.models.llm_config import (
 )
 from app.models.project import Project, ProjectCreate
 from app.models.session import Session
-from app.models.session_history import (
-    SessionHistoryItemDto,
-    SessionHistoryResponse,
-    SessionHistoryRoundDto,
-)
-from app.models.transcript import TranscriptRecord
 
 __all__ = [
     "Project", "ProjectCreate",
@@ -43,9 +31,7 @@ __all__ = [
     "Run", "RunStatus",
     "Message", "MessageType", "StreamState",
     "ConversationEvent", "EventType",
-    "TranscriptRecord",
-    "SessionHistoryItemDto", "SessionHistoryRoundDto", "SessionHistoryResponse",
-    "Execution", "ExecutionCreate", "ExecutionStep", "ExecutionStatus", "StepStatus",
+    "ConversationSnapshot", "StartTurnResult",
     "Action", "ActionResult", "ToolCall",
     "ProviderType",
     "ProviderModelConfig",

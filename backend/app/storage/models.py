@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, Integer, String, Text
+from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -86,6 +86,7 @@ class MessageModel(Base):
 
 class ConversationEventModel(Base):
     __tablename__ = "conversation_events"
+    __table_args__ = (UniqueConstraint("session_id", "seq", name="uq_conversation_events_session_seq"),)
 
     id = Column(String, primary_key=True)
     session_id = Column(String, nullable=False, index=True)

@@ -112,7 +112,6 @@ describe('ensureProjectsLoaded', () => {
     })
     useSessionStore.setState({
       sessionsByProjectId: {},
-      historyBySessionId: {},
     })
 
     const { ensureProjectsLoaded } = await import('./projectLoader')

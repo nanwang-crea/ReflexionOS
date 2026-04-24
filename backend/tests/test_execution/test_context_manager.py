@@ -31,7 +31,7 @@ class TestExecutionContext:
         assert len(recent) == 3
     
     def test_add_step(self):
-        from app.models.execution import ExecutionStep, StepStatus
+        from app.execution.models import ExecutionStep, StepStatus
         
         context = ExecutionContext(task="测试任务")
         step = ExecutionStep(

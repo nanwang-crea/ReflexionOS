@@ -21,13 +21,12 @@ interface SendMessageDependencies {
     sessionId: string,
     payload: { preferredProviderId?: string | null; preferredModelId?: string | null }
   ) => Promise<unknown>
-  startExecutionRun: (payload: {
+  startTurn: (payload: {
     sessionId: string
     message: string
-    projectId: string
     providerId: string
     modelId: string
-  }) => Promise<void>
+  }) => Promise<void> | void
   notify: (message: string) => void
 }
 
@@ -78,10 +77,9 @@ export function createSendMessage(dependencies: SendMessageDependencies) {
       })
     }
 
-    await dependencies.startExecutionRun({
+    await dependencies.startTurn({
       sessionId: targetSession.id,
       message,
-      projectId: dependencies.currentProject.id,
       providerId: dependencies.selection.providerId,
       modelId: dependencies.selection.modelId,
     })
@@ -92,7 +90,7 @@ export function useSendMessage(options: {
   currentSession: SessionSummary | null
   configured: boolean
   selection: SelectionState
-  startExecutionRun: SendMessageDependencies['startExecutionRun']
+  startTurn: SendMessageDependencies['startTurn']
 }) {
   const { currentProject } = useProjectStore()
   const { createSession } = useSessionActions()
@@ -104,7 +102,7 @@ export function useSendMessage(options: {
     selection: options.selection,
     createSession,
     writeSessionPreferences: writeSessionPreferencesAction,
-    startExecutionRun: options.startExecutionRun,
+    startTurn: options.startTurn,
     notify: (message) => {
       window.alert(message)
     },

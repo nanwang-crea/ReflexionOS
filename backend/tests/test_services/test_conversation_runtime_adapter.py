@@ -1,0 +1,137 @@
+from app.models.conversation import MessageType, RunStatus, StreamState
+from app.models.session import Session
+from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
+from app.services.conversation_service import ConversationService
+from app.storage.database import Database
+
+
+def build_started_turn(tmp_path):
+    db = Database(str(tmp_path / "conversation-runtime-adapter.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+    started = service.start_turn(
+        session_id="session-1",
+        content="请检查项目",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref="/tmp/reflexion",
+    )
+    return service, started
+
+
+def test_maps_llm_content_and_summary_token_to_assistant_message(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "你好"})
+    adapter.handle_event("summary:token", {"token": "，世界"})
+    adapter.handle_event("execution:complete", {"result": "done"})
+
+    snapshot = service.get_snapshot("session-1")
+    assistant_messages = [
+        message
+        for message in snapshot.messages
+        if message.message_type == MessageType.ASSISTANT_MESSAGE
+    ]
+    run = next(run for run in snapshot.runs if run.id == started.run.id)
+
+    assert len(assistant_messages) == 1
+    assert assistant_messages[0].content_text == "你好，世界"
+    assert assistant_messages[0].stream_state == StreamState.COMPLETED
+    assert run.status == RunStatus.COMPLETED
+
+
+def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "shell", "arguments": {"cmd": "ls"}, "step_number": 1},
+    )
+    adapter.handle_event(
+        "tool:result",
+        {
+            "tool_name": "shell",
+            "step_number": 1,
+            "success": True,
+            "output": "README.md",
+            "error": None,
+            "duration": 0.02,
+        },
+    )
+
+    snapshot = service.get_snapshot("session-1")
+    traces = [message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE]
+
+    assert len(traces) == 1
+    assert traces[0].payload_json["tool_name"] == "shell"
+    assert traces[0].payload_json["arguments"] == {"cmd": "ls"}
+    assert traces[0].payload_json["success"] is True
+    assert traces[0].payload_json["output"] == "README.md"
+    assert traces[0].stream_state == StreamState.COMPLETED
+
+
+def test_marks_run_failed_when_execution_error_arrives(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "处理中..."})
+    adapter.handle_event("execution:error", {"error": "boom"})
+
+    snapshot = service.get_snapshot("session-1")
+    run = next(run for run in snapshot.runs if run.id == started.run.id)
+    assistant = next(
+        message
+        for message in snapshot.messages
+        if message.message_type == MessageType.ASSISTANT_MESSAGE
+    )
+
+    assert run.status == RunStatus.FAILED
+    assert run.error_message == "boom"
+    assert assistant.stream_state == StreamState.FAILED
+    assert assistant.payload_json["error_message"] == "boom"
+
+
+def test_tool_error_marks_tool_trace_failed_instead_of_completed(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "shell", "arguments": {"cmd": "bad"}, "step_number": 2},
+    )
+    adapter.handle_event(
+        "tool:error",
+        {"tool_name": "shell", "step_number": 2, "error": "permission denied"},
+    )
+
+    snapshot = service.get_snapshot("session-1")
+    trace = next(
+        message for message in snapshot.messages
+        if message.message_type == MessageType.TOOL_TRACE
+    )
+
+    assert trace.stream_state == StreamState.FAILED
+    assert trace.payload_json["status"] == "failed"
+    assert trace.payload_json["error_message"] == "permission denied"

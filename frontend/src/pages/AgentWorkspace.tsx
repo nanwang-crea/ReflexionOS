@@ -1,32 +1,34 @@
 import { ChatInput } from '@/components/chat/ChatInput'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import { useConversationData } from '@/hooks/useConversationData'
+import { useConversationRuntime } from '@/hooks/useConversationRuntime'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
-import { useExecutionRuntime } from '@/hooks/useExecutionRuntime'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
   const {
-    overlayItems,
-    activeRoundItems,
     connectionStatus,
-    startExecutionRun,
-    handleCancel,
-    resetExecutionRuntime,
-  } = useExecutionRuntime(currentSessionId)
+    isCancelling,
+    startTurn,
+    cancelRun,
+    resetConversationRuntime,
+  } = useConversationRuntime(currentSessionId)
+  const { messages, isRunning } = useConversationData(currentSessionId)
   const viewModel = useCurrentSessionViewModel({
-    overlayItems,
-    activeRoundItems,
+    messages,
+    isRunning,
+    isCancelling,
     connectionStatus,
-    onReset: resetExecutionRuntime,
+    onReset: resetConversationRuntime,
   })
   const { sendMessage } = useSendMessage({
     currentSession: viewModel.currentSession,
     configured: viewModel.configured,
     selection: viewModel.selection,
-    startExecutionRun,
+    startTurn,
   })
 
   return (
@@ -38,7 +40,7 @@ export default function AgentWorkspace() {
       <div className="border-t border-gray-200 bg-white p-4">
         <ChatInput
           onSend={sendMessage}
-          onCancel={handleCancel}
+          onCancel={cancelRun}
           {...viewModel.inputProps}
         />
         {!viewModel.currentProject && (

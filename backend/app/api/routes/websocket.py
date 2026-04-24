@@ -4,82 +4,138 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.websocket import ws_manager
-from app.models.execution import ExecutionCreate
 from app.services.agent_service import agent_service
+from app.services.conversation_service import conversation_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["websocket"])
 
 
-@router.websocket("/ws/execution/{execution_id}")
-async def websocket_execution(websocket: WebSocket, execution_id: str):
-    """
-    WebSocket 端点 - 单执行流实时通信
+async def _send_error(websocket: WebSocket, *, code: str, message: str):
+    await websocket.send_json(
+        {
+            "type": "conversation.error",
+            "data": {
+                "code": code,
+                "message": message,
+            },
+        }
+    )
 
-    当前只支持一个客户端指令:
-    - {"type": "start", "data": {...}} 启动任务，
-      data 包含 task、project_id、session_id、provider_id、model_id
 
-    服务端会推送 execution/llm/tool/summary 事件流与最终结果。
-    """
-    current_execution_id = execution_id
-    await ws_manager.connect(websocket, current_execution_id)
-    
+async def _send_synced(websocket: WebSocket, *, session_id: str):
+    snapshot = conversation_service.get_snapshot(session_id)
+    await websocket.send_json(
+        {
+            "type": "conversation.synced",
+            "data": {
+                "session_id": session_id,
+                "last_event_seq": snapshot.session.last_event_seq,
+            },
+        }
+    )
+
+
+@router.websocket("/ws/sessions/{session_id}/conversation")
+async def websocket_conversation(websocket: WebSocket, session_id: str):
+    await ws_manager.connect(websocket, session_id)
     try:
         while True:
-            # 接收客户端消息
-            data = await websocket.receive_text()
-            
+            raw_message = await websocket.receive_text()
+
             try:
-                message = json.loads(data)
-                msg_type = message.get("type")
-                msg_data = message.get("data", {})
-                
-                if msg_type == "start":
-                    # 启动任务
-                    task = msg_data.get("task", "")
-                    project_id = msg_data.get("project_id", "")
-                    session_id = msg_data.get("session_id", "")
-                    provider_id = msg_data.get("provider_id")
-                    model_id = msg_data.get("model_id")
-                    
-                    # 创建执行
-                    execution_create = ExecutionCreate(
-                        project_id=project_id,
+                message = json.loads(raw_message)
+            except json.JSONDecodeError:
+                await _send_error(websocket, code="invalid_json", message="无效 JSON 消息")
+                continue
+
+            msg_type = message.get("type")
+            msg_data = message.get("data", {})
+
+            if msg_type == "conversation.sync":
+                try:
+                    after_seq = int(msg_data.get("after_seq", 0))
+                except (TypeError, ValueError):
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="after_seq 必须是整数",
+                    )
+                    continue
+
+                try:
+                    events = conversation_service.list_events_after(session_id, after_seq)
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
+                    continue
+
+                for event in events:
+                    await websocket.send_json(
+                        {
+                            "type": "conversation.event",
+                            "data": event.model_dump(mode="json"),
+                        }
+                    )
+
+                try:
+                    await _send_synced(websocket, session_id=session_id)
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
+                continue
+
+            if msg_type == "conversation.start_turn":
+                content = msg_data.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="content 不能为空",
+                    )
+                    continue
+
+                provider_id = msg_data.get("provider_id")
+                model_id = msg_data.get("model_id")
+
+                try:
+                    snapshot = conversation_service.get_snapshot(session_id)
+                    await agent_service.start_turn(
+                        project_id=snapshot.session.project_id,
                         session_id=session_id,
-                        task=task,
+                        content=content,
                         provider_id=provider_id,
                         model_id=model_id,
                     )
-                    
-                    # 更新 execution_id
-                    execution = await agent_service.create_execution(execution_create)
-                    ws_manager.move_connection(
-                        websocket,
-                        current_execution_id,
-                        execution.id
-                    )
-                    current_execution_id = execution.id
-                    
-                    # 发送确认
-                    await ws_manager.send_event(current_execution_id, "execution:created", {
-                        "execution_id": execution.id,
-                        "task": task,
-                        "status": "pending"
-                    })
-                    
-                    # 后台运行执行
-                    agent_service.schedule_execution(execution.id)
+                except ValueError as exc:
+                    await _send_error(websocket, code="invalid_request", message=str(exc))
+                    continue
 
-            except json.JSONDecodeError:
-                logger.error("无效的 JSON 消息: %s", data)
-            except Exception as e:
-                logger.error("处理消息失败: %s", e)
-                
+                continue
+
+            if msg_type == "conversation.cancel_run":
+                run_id = msg_data.get("run_id")
+                if not isinstance(run_id, str) or not run_id:
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="run_id 不能为空",
+                    )
+                    continue
+
+                try:
+                    await agent_service.cancel_run(run_id)
+                except ValueError as exc:
+                    await _send_error(websocket, code="invalid_request", message=str(exc))
+                continue
+
+            await _send_error(
+                websocket,
+                code="invalid_request",
+                message=f"未知消息类型: {msg_type}",
+            )
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket, current_execution_id)
-        logger.info("WebSocket 断开连接: %s", current_execution_id)
-    except Exception as e:
-        logger.error("WebSocket 错误: %s", e)
-        ws_manager.disconnect(websocket, current_execution_id)
+        ws_manager.disconnect(websocket, session_id)
+        logger.info("WebSocket 断开连接: %s", session_id)
+    except Exception as exc:  # pragma: no cover
+        logger.error("WebSocket 错误: %s", exc)
+        ws_manager.disconnect(websocket, session_id)

@@ -40,6 +40,7 @@ class ExecutionBase(BaseModel):
     provider_id: str | None = None
     model_id: str | None = None
 
+
 class ExecutionCreate(ExecutionBase):
     project_id: str
     session_id: str

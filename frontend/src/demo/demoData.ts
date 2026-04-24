@@ -1,7 +1,6 @@
-import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 import type { Project } from '@/types/project'
-import type { SessionSummary, WorkspaceSessionRound } from '@/types/workspace'
+import type { SessionSummary } from '@/types/workspace'
 import type { WorkspaceUiState } from '@/stores/workspaceStore'
 
 function createIso(offsetMinutes = 0) {
@@ -45,41 +44,6 @@ export const demoProjects: Project[] = [
 
 export const demoCurrentProject = demoProjects[0]
 
-const workspaceReceiptDetails: ActionReceiptDetail[] = [
-  {
-    id: 'demo-detail-1',
-    toolName: 'file',
-    status: 'success',
-    summary: '探索 electron/main.cjs',
-    category: 'explore',
-    target: 'electron/main.cjs',
-  },
-  {
-    id: 'demo-detail-2',
-    toolName: 'file',
-    status: 'success',
-    summary: '探索 electron/backend-manager.cjs',
-    category: 'explore',
-    target: 'electron/backend-manager.cjs',
-  },
-  {
-    id: 'demo-detail-3',
-    toolName: 'patch',
-    status: 'success',
-    summary: '编辑 electron/backend-manager.cjs',
-    category: 'edit',
-    target: 'electron/backend-manager.cjs',
-  },
-  {
-    id: 'demo-detail-4',
-    toolName: 'shell',
-    status: 'success',
-    summary: '运行 pnpm start',
-    category: 'command',
-    duration: 1.7,
-  },
-]
-
 export const demoSessions: SessionSummary[] = [
   {
     id: 'demo-session-desktop',
@@ -105,44 +69,6 @@ export const demoSessions: SessionSummary[] = [
     updatedAt: createIso(130),
   },
 ]
-
-export const demoSessionHistoryById: Record<string, WorkspaceSessionRound[]> = {
-  'demo-session-desktop': [
-    {
-      id: 'demo-round-1',
-      createdAt: createIso(58),
-      items: [
-        {
-          id: 'demo-user-1',
-          type: 'user-message',
-          content: 'Make the Electron desktop bootstrap more reliable and easier to inspect.',
-        },
-        {
-          id: 'demo-update-1',
-          type: 'agent-update',
-          content: 'I checked the Electron entrypoint and the backend manager first so I could verify the full startup path before changing anything.',
-        },
-        {
-          id: 'demo-receipt-1',
-          type: 'action-receipt',
-          receiptStatus: 'completed',
-          details: workspaceReceiptDetails,
-        },
-        {
-          id: 'demo-assistant-1',
-          type: 'assistant-message',
-          content: [
-            'Updated the desktop bootstrap so the app is easier to start and diagnose.',
-            '',
-            '- The backend manager now prefers a Python interpreter that already has the required runtime packages.',
-            '- Electron can start the local FastAPI backend and verify `/health` before opening the workspace.',
-            '- The README now defaults to the desktop flow with `pnpm` commands.',
-          ].join('\n'),
-        },
-      ],
-    },
-  ],
-}
 
 export const demoWorkspaceState: WorkspaceUiState = {
   currentSessionId: 'demo-session-desktop',

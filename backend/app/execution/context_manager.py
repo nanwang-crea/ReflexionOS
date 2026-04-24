@@ -2,7 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from app.models.execution import ExecutionStep, StepStatus
+from app.execution.models import ExecutionStep, StepStatus
 
 logger = logging.getLogger(__name__)
 
