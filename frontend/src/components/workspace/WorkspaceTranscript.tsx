@@ -6,6 +6,7 @@ import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
+import { Loader2 } from 'lucide-react'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -30,6 +31,7 @@ interface WorkspaceTranscriptProps {
   currentProject: Project | null
   currentSession: SessionSummary | null
   messages: ConversationMessage[]
+  isRunning?: boolean
   messagesEndRef: RefObject<HTMLDivElement>
 }
 
@@ -39,8 +41,21 @@ export function WorkspaceTranscript({
   currentProject,
   currentSession,
   messages,
+  isRunning = false,
   messagesEndRef,
 }: WorkspaceTranscriptProps) {
+  const hasVisibleStreamingMessage = messages.some((message) => {
+    if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
+      return true
+    }
+    if (message.messageType === 'tool_trace' && (message.streamState === 'streaming' || message.streamState === 'idle')) {
+      return true
+    }
+    return false
+  })
+
+  const showThinkingIndicator = isRunning && !hasVisibleStreamingMessage
+
   return (
     <div className="flex-1 overflow-y-auto bg-white">
       <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
@@ -117,6 +132,13 @@ export function WorkspaceTranscript({
             return null
           })}
         </AnimatePresence>
+
+        {showThinkingIndicator && (
+          <div className="mb-8 flex items-center gap-3 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+            <span>思考中</span>
+          </div>
+        )}
 
         <div ref={messagesEndRef} />
       </div>

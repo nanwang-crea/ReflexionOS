@@ -14,7 +14,12 @@ function trimOutput(value: string, maxLength = 800) {
 
 export function ActionReceipt({ status, details }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
-  const label = useMemo(() => summarizeReceipt(details, status), [details, status])
+  const label = useMemo(() => {
+    if (details.length === 1) {
+      return details[0].summary
+    }
+    return summarizeReceipt(details, status)
+  }, [details, status])
 
   const lineClassName = status === 'failed'
     ? 'text-red-500 hover:text-red-600'

@@ -1,59 +1,65 @@
+import { ActionReceipt } from '@/components/execution/ActionReceipt'
+import { buildReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ConversationMessage } from '@/types/conversation'
 
-function toJson(value: unknown) {
-  if (value === undefined) {
-    return null
-  }
+function toActionReceiptStatus(message: ConversationMessage): 'running' | 'completed' | 'failed' | 'cancelled' {
+  const status = typeof message.payloadJson.status === 'string'
+    ? message.payloadJson.status
+    : message.streamState
 
-  try {
-    return JSON.stringify(value, null, 2)
-  } catch (_error) {
-    return String(value)
+  if (status === 'failed') {
+    return 'failed'
   }
-}
-
-function formatDuration(duration: unknown) {
-  if (typeof duration !== 'number' || !Number.isFinite(duration)) {
-    return null
+  if (status === 'cancelled') {
+    return 'cancelled'
   }
-
-  return `${duration}ms`
+  if (status === 'running' || status === 'streaming' || status === 'idle') {
+    return 'running'
+  }
+  return 'completed'
 }
 
 export function ToolTraceCard({ message }: { message: ConversationMessage }) {
   const payload = message.payloadJson
   const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : 'tool'
-  const status = typeof payload.status === 'string'
-    ? payload.status
-    : message.streamState === 'failed'
+  const detail = buildReceiptDetail(
+    message.id,
+    toolName,
+    (payload.arguments as Record<string, unknown> | undefined) ?? undefined
+  )
+
+  detail.status = (
+    message.streamState === 'failed'
       ? 'failed'
-      : message.streamState
-  const argumentsJson = toJson(payload.arguments)
-  const output = toJson(payload.output)
-  const error = typeof payload.error === 'string' ? payload.error : null
-  const duration = formatDuration(payload.duration)
+      : message.streamState === 'cancelled'
+        ? 'cancelled'
+        : message.streamState === 'streaming' || message.streamState === 'idle'
+          ? 'running'
+          : 'success'
+  )
+
+  if (typeof payload.output === 'string') {
+    detail.output = payload.output
+  } else if (payload.output !== undefined) {
+    try {
+      detail.output = JSON.stringify(payload.output, null, 2)
+    } catch (_error) {
+      detail.output = String(payload.output)
+    }
+  }
+
+  if (typeof payload.error === 'string') {
+    detail.error = payload.error
+  }
+
+  if (typeof payload.duration === 'number' && Number.isFinite(payload.duration)) {
+    detail.duration = payload.duration
+  }
 
   return (
-    <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-        <span className="font-semibold text-slate-800">{toolName}</span>
-        <span>{status}</span>
-        {duration && <span>· {duration}</span>}
-      </div>
-
-      {argumentsJson && (
-        <pre className="mt-3 overflow-x-auto rounded-lg bg-white p-3 text-xs text-slate-600">{argumentsJson}</pre>
-      )}
-
-      {output && (
-        <pre className="mt-3 overflow-x-auto rounded-lg bg-white p-3 text-xs text-slate-700">{output}</pre>
-      )}
-
-      {error && (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-          {error}
-        </div>
-      )}
-    </div>
+    <ActionReceipt
+      status={toActionReceiptStatus(message)}
+      details={[detail]}
+    />
   )
 }

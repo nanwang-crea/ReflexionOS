@@ -54,6 +54,7 @@ export function useCurrentSessionViewModel(options: {
       currentProject,
       currentSession: currentSessionSummary,
       messages: options.messages,
+      isRunning: options.isRunning,
       messagesEndRef,
     },
     inputProps: {
