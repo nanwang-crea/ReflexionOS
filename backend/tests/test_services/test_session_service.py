@@ -4,7 +4,15 @@ import pytest
 
 from app.models.project import Project
 from app.models.session import Session
+from app.services.conversation_service import ConversationService
 from app.services.session_service import SessionCreate, SessionService, SessionUpdate
+from app.storage.database import Database
+from app.storage.repositories.conversation_event_repo import ConversationEventRepository
+from app.storage.repositories.message_repo import MessageRepository
+from app.storage.repositories.project_repo import ProjectRepository
+from app.storage.repositories.run_repo import RunRepository
+from app.storage.repositories.session_repo import SessionRepository
+from app.storage.repositories.turn_repo import TurnRepository
 
 
 class FakeSessionRepo:
@@ -18,7 +26,7 @@ class FakeSessionRepo:
     def list_by_project(self, project_id: str) -> list[Session]:
         return [session for session in self.created_sessions if session.project_id == project_id]
 
-    def get(self, session_id: str) -> Session | None:
+    def get(self, session_id: str, *, db_session=None) -> Session | None:
         return next(
             (session for session in self.created_sessions if session.id == session_id),
             None,
@@ -31,7 +39,7 @@ class FakeSessionRepo:
                 return session
         raise AssertionError(f"missing session {session.id}")
 
-    def delete(self, session_id: str) -> bool:
+    def delete(self, session_id: str, *, db_session=None) -> bool:
         for index, session in enumerate(self.created_sessions):
             if session.id == session_id:
                 del self.created_sessions[index]
@@ -194,3 +202,47 @@ def test_delete_session_rejects_missing_session():
 
     with pytest.raises(ValueError, match="会话不存在"):
         service.delete_session("missing-session")
+
+
+def test_delete_session_cleans_up_conversation_history(tmp_path):
+    db = Database(str(tmp_path / "session-delete-cleanup.db"))
+    project_repo = ProjectRepository(db)
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    run_repo = RunRepository(db)
+    message_repo = MessageRepository(db)
+    event_repo = ConversationEventRepository(db)
+
+    project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(Path("/tmp/reflexion"))))
+    session_service = SessionService(session_repo=session_repo, project_repo=project_repo)
+    conversation_service = ConversationService(
+        db=db,
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        run_repo=run_repo,
+        message_repo=message_repo,
+        event_repo=event_repo,
+    )
+
+    session = session_service.create_session("project-1", SessionCreate(title="需求讨论"))
+    conversation_service.start_turn(
+        session_id=session.id,
+        content="帮我分析这个问题",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=None,
+    )
+
+    assert turn_repo.list_by_session(session.id)
+    assert run_repo.list_by_session(session.id)
+    assert message_repo.list_by_session(session.id)
+    assert event_repo.list_after_seq(session.id, after_seq=0)
+
+    deleted = session_service.delete_session(session.id)
+
+    assert deleted is True
+    assert session_service.get_session(session.id) is None
+    assert turn_repo.list_by_session(session.id) == []
+    assert run_repo.list_by_session(session.id) == []
+    assert message_repo.list_by_session(session.id) == []
+    assert event_repo.list_after_seq(session.id, after_seq=0) == []

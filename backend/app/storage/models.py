@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -38,7 +38,12 @@ class TurnModel(Base):
     __tablename__ = "turns"
 
     id = Column(String, primary_key=True)
-    session_id = Column(String, nullable=False, index=True)
+    session_id = Column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     turn_index = Column(Integer, nullable=False)
     root_message_id = Column(String, nullable=False)
     status = Column(String, nullable=False, index=True)
@@ -52,7 +57,12 @@ class RunModel(Base):
     __tablename__ = "runs"
 
     id = Column(String, primary_key=True)
-    session_id = Column(String, nullable=False, index=True)
+    session_id = Column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     turn_id = Column(String, nullable=False, index=True)
     attempt_index = Column(Integer, nullable=False)
     status = Column(String, nullable=False, index=True)
@@ -69,7 +79,12 @@ class MessageModel(Base):
     __tablename__ = "messages"
 
     id = Column(String, primary_key=True)
-    session_id = Column(String, nullable=False, index=True)
+    session_id = Column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     turn_id = Column(String, nullable=False, index=True)
     run_id = Column(String, index=True)
     message_index = Column(Integer, nullable=False)
@@ -86,10 +101,17 @@ class MessageModel(Base):
 
 class ConversationEventModel(Base):
     __tablename__ = "conversation_events"
-    __table_args__ = (UniqueConstraint("session_id", "seq", name="uq_conversation_events_session_seq"),)
+    __table_args__ = (
+        UniqueConstraint("session_id", "seq", name="uq_conversation_events_session_seq"),
+    )
 
     id = Column(String, primary_key=True)
-    session_id = Column(String, nullable=False, index=True)
+    session_id = Column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
     seq = Column(Integer, nullable=False)
     turn_id = Column(String, index=True)
     run_id = Column(String, index=True)

@@ -3,7 +3,7 @@ from uuid import uuid4
 from pydantic import BaseModel
 
 from app.models.session import Session
-from app.storage.database import db
+from app.storage.database import db as default_db
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 
@@ -23,11 +23,19 @@ class SessionUpdate(BaseModel):
 class SessionService:
     def __init__(
         self,
+        db=None,
         session_repo: SessionRepository | None = None,
         project_repo: ProjectRepository | None = None,
     ):
-        self.session_repo = session_repo or SessionRepository(db)
-        self.project_repo = project_repo or ProjectRepository(db)
+        resolved_db = db
+        if resolved_db is None:
+            resolved_db = getattr(session_repo, "db", None) or getattr(project_repo, "db", None)
+        if resolved_db is None and session_repo is None and project_repo is None:
+            resolved_db = default_db
+
+        self.db = resolved_db
+        self.session_repo = session_repo or SessionRepository(self.db)
+        self.project_repo = project_repo or ProjectRepository(self.db)
 
     def create_session(self, project_id: str, payload: SessionCreate) -> Session:
         self._get_project_or_raise(project_id)

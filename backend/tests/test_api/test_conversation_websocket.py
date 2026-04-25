@@ -47,7 +47,7 @@ def client_with_services(tmp_path, monkeypatch):
         conversation_service=conversation_service,
     )
     monkeypatch.setattr(
-        agent_service,
+        agent_service.llm_provider_service,
         "resolve_llm_config",
         lambda provider_id=None, model_id=None: ResolvedLLMConfig(
             provider_id=provider_id or "provider-a",

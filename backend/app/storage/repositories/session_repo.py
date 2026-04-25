@@ -54,11 +54,14 @@ class SessionRepository:
         db_session.refresh(model)
         return Session.model_validate(model)
 
-    def delete(self, session_id: str) -> bool:
-        with self.db.get_session() as db_session:
-            model = db_session.query(SessionModel).filter_by(id=session_id).first()
-            if model is None:
-                return False
+    def delete(self, session_id: str, *, db_session=None) -> bool:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.delete(session_id, db_session=managed_session)
 
-            db_session.delete(model)
-            return True
+        model = db_session.query(SessionModel).filter_by(id=session_id).first()
+        if model is None:
+            return False
+
+        db_session.delete(model)
+        return True
