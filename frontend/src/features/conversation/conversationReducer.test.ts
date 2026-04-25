@@ -183,4 +183,23 @@ describe('conversationReducer', () => {
     expect(next.messagesById['msg-2'].contentText).toBe('最终回答')
     expect(next.lastEventSeq).toBe(5)
   })
+
+  it('preserves a live streaming assistant message across snapshot refresh while the run is still active', () => {
+    const base = applyConversationSnapshot(undefined, buildSnapshot())
+    const liveState = applyConversationLiveState(base, {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-live',
+      messageType: 'assistant_message',
+      contentText: '正在流式输出',
+      streamState: 'streaming',
+    })
+
+    const refreshed = applyConversationSnapshot(liveState, buildSnapshot())
+
+    expect(refreshed.messageOrder).toEqual(['msg-1', 'msg-2', 'msg-live'])
+    expect(refreshed.messagesById['msg-live'].contentText).toBe('正在流式输出')
+    expect(refreshed.messagesById['msg-live'].streamState).toBe('streaming')
+  })
 })

@@ -23,6 +23,55 @@ function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
     .map((message) => message.id)
 }
 
+function mergeStreamingMessages(
+  previous: ConversationState | undefined,
+  snapshot: ConversationSnapshot
+): { messageOrder: string[]; messagesById: Record<string, ConversationMessage> } {
+  const snapshotMessageOrder = buildMessageOrder(snapshot)
+  const snapshotMessagesById = Object.fromEntries(snapshot.messages.map((message) => [message.id, message]))
+
+  if (!previous || !snapshot.session.activeTurnId) {
+    return {
+      messageOrder: snapshotMessageOrder,
+      messagesById: snapshotMessagesById,
+    }
+  }
+
+  const activeRunId = snapshot.turns
+    .find((turn) => turn.id === snapshot.session.activeTurnId)
+    ?.activeRunId
+
+  if (!activeRunId) {
+    return {
+      messageOrder: snapshotMessageOrder,
+      messagesById: snapshotMessagesById,
+    }
+  }
+
+  const carriedMessages = previous.messageOrder
+    .map((messageId) => previous.messagesById[messageId])
+    .filter((message): message is ConversationMessage => {
+      return Boolean(
+        message &&
+        message.messageType === 'assistant_message' &&
+        message.streamState === 'streaming' &&
+        message.runId === activeRunId &&
+        !(message.id in snapshotMessagesById)
+      )
+    })
+
+  return {
+    messageOrder: [
+      ...snapshotMessageOrder,
+      ...carriedMessages.map((message) => message.id),
+    ],
+    messagesById: {
+      ...snapshotMessagesById,
+      ...Object.fromEntries(carriedMessages.map((message) => [message.id, message])),
+    },
+  }
+}
+
 function nextMessageIndex(state: ConversationState, turnId: string): number {
   const current = Object.values(state.messagesById)
     .filter((message) => message.turnId === turnId)
@@ -85,9 +134,10 @@ export function createEmptyConversationState(sessionId: string | null = null): C
 }
 
 export function applyConversationSnapshot(
-  _previous: ConversationState | undefined,
+  previous: ConversationState | undefined,
   snapshot: ConversationSnapshot
 ): ConversationState {
+  const { messageOrder, messagesById } = mergeStreamingMessages(previous, snapshot)
   return {
     sessionId: snapshot.session.id,
     lastEventSeq: snapshot.session.lastEventSeq,
@@ -98,8 +148,8 @@ export function applyConversationSnapshot(
       .map((turn) => turn.id),
     turnsById: Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn])),
     runsById: Object.fromEntries(snapshot.runs.map((run) => [run.id, run])),
-    messageOrder: buildMessageOrder(snapshot),
-    messagesById: Object.fromEntries(snapshot.messages.map((message) => [message.id, message])),
+    messageOrder,
+    messagesById,
   }
 }
 
