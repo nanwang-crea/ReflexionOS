@@ -76,6 +76,17 @@ export interface ConversationEvent {
   createdAt: string
 }
 
+export interface ConversationLiveMessage {
+  sessionId: string
+  turnId: string
+  runId: string
+  messageId: string
+  messageType: ConversationMessageType
+  contentText: string
+  streamState: ConversationStreamState
+  delta?: string
+}
+
 export interface ConversationSnapshot {
   session: ConversationSession
   turns: ConversationTurn[]

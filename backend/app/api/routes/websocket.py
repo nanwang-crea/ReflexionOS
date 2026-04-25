@@ -37,6 +37,31 @@ async def _send_synced(websocket: WebSocket, *, session_id: str):
     )
 
 
+async def _send_resync_required(websocket: WebSocket, *, session_id: str, after_seq: int):
+    await websocket.send_json(
+        {
+            "type": "conversation.resync_required",
+            "data": {
+                "session_id": session_id,
+                "after_seq": after_seq,
+                "reason": "stale_after_seq",
+            },
+        }
+    )
+
+
+async def _send_live_state(websocket: WebSocket, *, session_id: str):
+    live_state = agent_service.get_live_state(session_id)
+    if live_state is None:
+        return
+    await websocket.send_json(
+        {
+            "type": "conversation.live_state",
+            "data": live_state,
+        }
+    )
+
+
 @router.websocket("/ws/sessions/{session_id}/conversation")
 async def websocket_conversation(websocket: WebSocket, session_id: str):
     await ws_manager.connect(websocket, session_id)
@@ -65,6 +90,13 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     continue
 
                 try:
+                    if conversation_service.requires_resync(session_id, after_seq):
+                        await _send_resync_required(
+                            websocket,
+                            session_id=session_id,
+                            after_seq=after_seq,
+                        )
+                        continue
                     events = conversation_service.list_events_after(session_id, after_seq)
                 except ValueError as exc:
                     await _send_error(websocket, code="not_found", message=str(exc))
@@ -79,6 +111,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     )
 
                 try:
+                    await _send_live_state(websocket, session_id=session_id)
                     await _send_synced(websocket, session_id=session_id)
                 except ValueError as exc:
                     await _send_error(websocket, code="not_found", message=str(exc))

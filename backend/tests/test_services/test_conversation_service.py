@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
 from threading import Barrier, BrokenBarrierError
 
 import pytest
@@ -180,6 +181,118 @@ def test_append_events_batch_is_atomic_when_projection_fails(tmp_path):
     assert snapshot.runs == []
     assert snapshot.messages == []
     assert service.list_events_after("session-1", after_seq=0) == []
+
+
+def test_cleanup_events_removes_terminal_turn_events_but_keeps_snapshot_state(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-cleanup.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    first = service.start_turn(
+        session_id="session-1",
+        content="first",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=None,
+    )
+    service.append_events(
+        "session-1",
+        [
+            ConversationEvent(
+                id="evt-msg-1",
+                session_id="session-1",
+                turn_id=first.turn.id,
+                run_id=first.run.id,
+                message_id="msg-assistant-1",
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={
+                    "message_id": "msg-assistant-1",
+                    "turn_id": first.turn.id,
+                    "run_id": first.run.id,
+                    "role": "assistant",
+                    "message_type": "assistant_message",
+                    "message_index": 2,
+                    "display_mode": "default",
+                    "content_text": "",
+                    "payload_json": {},
+                },
+            ),
+            ConversationEvent(
+                id="evt-msg-2",
+                session_id="session-1",
+                turn_id=first.turn.id,
+                run_id=first.run.id,
+                message_id="msg-assistant-1",
+                event_type=EventType.MESSAGE_CONTENT_COMMITTED,
+                payload_json={"content_text": "done"},
+            ),
+            ConversationEvent(
+                id="evt-msg-3",
+                session_id="session-1",
+                turn_id=first.turn.id,
+                run_id=first.run.id,
+                message_id="msg-assistant-1",
+                event_type=EventType.MESSAGE_COMPLETED,
+                payload_json={"completed_at": datetime.now().isoformat()},
+            ),
+            ConversationEvent(
+                id="evt-run-1",
+                session_id="session-1",
+                turn_id=first.turn.id,
+                run_id=first.run.id,
+                event_type=EventType.RUN_COMPLETED,
+                payload_json={"finished_at": datetime.now().isoformat()},
+            ),
+        ],
+    )
+
+    cleaned = service.cleanup_events(
+        now=datetime.now() + timedelta(hours=2),
+        completed_retention=timedelta(minutes=30),
+        failed_retention=timedelta(days=7),
+    )
+
+    snapshot = service.get_snapshot("session-1")
+
+    assert cleaned > 0
+    assert snapshot.messages[-1].content_text == "done"
+    assert service.list_events_after("session-1", after_seq=0) == []
+
+
+def test_cleanup_events_keeps_seq_monotonic_and_marks_old_after_seq_for_resync(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-cleanup-monotonic.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    first = service.start_turn(
+        session_id="session-1",
+        content="first",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=None,
+    )
+    service.cancel_run(first.run.id)
+    first_last_seq = service.get_snapshot("session-1").session.last_event_seq
+
+    cleaned = service.cleanup_events(
+        now=datetime.now() + timedelta(days=8),
+        completed_retention=timedelta(minutes=30),
+        failed_retention=timedelta(days=7),
+    )
+
+    second = service.start_turn(
+        session_id="session-1",
+        content="second",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=None,
+    )
+    events = service.list_events_after("session-1", after_seq=0)
+
+    assert cleaned == first_last_seq
+    assert service.requires_resync("session-1", after_seq=0) is True
+    assert events[0].seq > first_last_seq
+    assert second.user_message.content_text == "second"
 
 
 def test_start_turn_concurrent_requests_only_allow_one_active_turn(tmp_path, monkeypatch):

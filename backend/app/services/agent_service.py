@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
+_EVENT_CLEANUP_INTERVAL_SECONDS = 300
 
 
 class AgentService:
@@ -43,7 +44,9 @@ class AgentService:
         execution_repo=None,  # backward-compatible arg, no longer used
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
+        self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
         self._run_metadata: dict[str, dict] = {}
+        self._cleanup_task: asyncio.Task | None = None
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
@@ -182,6 +185,7 @@ class AgentService:
 
         def _cleanup(_: asyncio.Task) -> None:
             self.running_tasks.pop(run_id, None)
+            self._runtime_adapters.pop(run_id, None)
 
         execution_task.add_done_callback(_cleanup)
         return execution_task
@@ -198,6 +202,54 @@ class AgentService:
                 "conversation.event",
                 event.model_dump(mode="json"),
             )
+
+    async def _broadcast_conversation_live_event(
+        self,
+        *,
+        session_id: str,
+        data: dict,
+    ) -> None:
+        await ws_manager.send_event(
+            session_id,
+            "conversation.live_event",
+            data,
+        )
+
+    def get_live_state(self, session_id: str) -> dict | None:
+        for runtime_adapter in self._runtime_adapters.values():
+            if runtime_adapter.session_id != session_id:
+                continue
+            live_state = runtime_adapter.get_live_state()
+            if live_state is not None:
+                return live_state
+        return None
+
+    def start_background_tasks(self, cleanup_interval_seconds: int = _EVENT_CLEANUP_INTERVAL_SECONDS) -> None:
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return
+        self._cleanup_task = asyncio.create_task(
+            self._event_cleanup_loop(cleanup_interval_seconds),
+            name="conversation-event-cleanup",
+        )
+
+    async def stop_background_tasks(self) -> None:
+        cleanup_task = self._cleanup_task
+        if cleanup_task is None:
+            return
+        self._cleanup_task = None
+        cleanup_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await cleanup_task
+
+    async def _event_cleanup_loop(self, cleanup_interval_seconds: int) -> None:
+        while True:
+            try:
+                cleaned = self.conversation_service.cleanup_events()
+                if cleaned:
+                    logger.info("清理过期 conversation_events: deleted=%s", cleaned)
+            except Exception:
+                logger.exception("清理 conversation_events 失败")
+            await asyncio.sleep(cleanup_interval_seconds)
 
     async def _run_turn(
         self,
@@ -219,9 +271,16 @@ class AgentService:
             turn_id=turn_id,
             run_id=run_id,
         )
+        self._runtime_adapters[run_id] = runtime_adapter
 
         async def persist_and_broadcast(event_type: str, data: dict) -> None:
             persisted_events = runtime_adapter.handle_event(event_type, data)
+            live_event = runtime_adapter.build_live_event(event_type, data)
+            if live_event is not None:
+                await self._broadcast_conversation_live_event(
+                    session_id=session_id,
+                    data=live_event,
+                )
             await self._broadcast_conversation_events(
                 session_id=session_id,
                 events=persisted_events,
@@ -250,6 +309,8 @@ class AgentService:
         except Exception as exc:
             logger.exception("运行失败: run_id=%s", run_id)
             await persist_and_broadcast("execution:error", {"error": str(exc)})
+        finally:
+            self._runtime_adapters.pop(run_id, None)
 
     async def cancel_run(self, run_id: str) -> Run:
         running = self.running_tasks.get(run_id)
@@ -268,12 +329,14 @@ class AgentService:
         if run.status in {RunStatus.CANCELLED, RunStatus.COMPLETED, RunStatus.FAILED}:
             return run
 
-        runtime_adapter = ConversationRuntimeAdapter(
-            conversation_service=self.conversation_service,
-            session_id=run.session_id,
-            turn_id=run.turn_id,
-            run_id=run_id,
-        )
+        runtime_adapter = self._runtime_adapters.get(run_id)
+        if runtime_adapter is None:
+            runtime_adapter = ConversationRuntimeAdapter(
+                conversation_service=self.conversation_service,
+                session_id=run.session_id,
+                turn_id=run.turn_id,
+                run_id=run_id,
+            )
         persisted_events = runtime_adapter.handle_event("execution:cancelled", {})
         await self._broadcast_conversation_events(
             session_id=run.session_id,

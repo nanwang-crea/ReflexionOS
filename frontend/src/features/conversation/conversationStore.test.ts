@@ -66,25 +66,43 @@ function buildSnapshot(): ConversationSnapshot {
 }
 
 describe('createConversationStore', () => {
-  it('sets snapshot and applies events by session id', () => {
+  it('sets snapshot, applies live updates, and keeps durable seq unchanged for live streaming', () => {
     const store = createConversationStore()
     store.getState().setSnapshot('session-1', buildSnapshot())
 
-    store.getState().applyEvent('session-1', {
-      id: 'evt-3',
+    store.getState().applyLiveEvent('session-1', {
       sessionId: 'session-1',
-      seq: 3,
       turnId: 'turn-1',
       runId: 'run-1',
       messageId: 'msg-1',
-      eventType: 'message.delta_appended',
-      payloadJson: { delta: '分析项目结构' },
-      createdAt: '2026-04-24T10:00:03Z',
+      messageType: 'assistant_message',
+      delta: '分析项目结构',
+      contentText: '正在分析项目结构',
+      streamState: 'streaming',
     })
 
-    expect(store.getState().conversationsBySessionId['session-1'].lastEventSeq).toBe(3)
+    expect(store.getState().conversationsBySessionId['session-1'].lastEventSeq).toBe(2)
     expect(store.getState().conversationsBySessionId['session-1'].messagesById['msg-1'].contentText).toBe(
       '正在分析项目结构'
+    )
+  })
+
+  it('stores live state for a not-yet-durable assistant message', () => {
+    const store = createConversationStore()
+    store.getState().setSnapshot('session-1', buildSnapshot())
+
+    store.getState().setLiveState('session-1', {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-live',
+      messageType: 'assistant_message',
+      contentText: '继续输出中',
+      streamState: 'streaming',
+    })
+
+    expect(store.getState().conversationsBySessionId['session-1'].messagesById['msg-live'].contentText).toBe(
+      '继续输出中'
     )
   })
 

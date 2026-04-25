@@ -1,5 +1,7 @@
 import type {
   ConversationEvent,
+  ConversationLiveMessage,
+  ConversationMessage,
   ConversationSnapshot,
   ConversationState,
 } from '@/types/conversation'
@@ -19,6 +21,54 @@ function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
       return leftTurnIndex - rightTurnIndex || left.messageIndex - right.messageIndex
     })
     .map((message) => message.id)
+}
+
+function nextMessageIndex(state: ConversationState, turnId: string): number {
+  const current = Object.values(state.messagesById)
+    .filter((message) => message.turnId === turnId)
+    .reduce((maxIndex, message) => Math.max(maxIndex, message.messageIndex), 0)
+  return current + 1
+}
+
+function upsertLiveAssistantMessage(
+  state: ConversationState,
+  liveMessage: ConversationLiveMessage
+): ConversationState {
+  const currentMessage = state.messagesById[liveMessage.messageId]
+  const timestamp = new Date().toISOString()
+
+  const nextMessage: ConversationMessage = currentMessage
+    ? {
+        ...currentMessage,
+        contentText: liveMessage.contentText,
+        streamState: liveMessage.streamState,
+        updatedAt: timestamp,
+      }
+    : {
+        id: liveMessage.messageId,
+        sessionId: liveMessage.sessionId,
+        turnId: liveMessage.turnId,
+        runId: liveMessage.runId,
+        messageIndex: nextMessageIndex(state, liveMessage.turnId),
+        role: 'assistant',
+        messageType: liveMessage.messageType,
+        streamState: liveMessage.streamState,
+        displayMode: 'default',
+        contentText: liveMessage.contentText,
+        payloadJson: {},
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        completedAt: null,
+      }
+
+  return {
+    ...state,
+    messageOrder: currentMessage ? state.messageOrder : [...state.messageOrder, liveMessage.messageId],
+    messagesById: {
+      ...state.messagesById,
+      [liveMessage.messageId]: nextMessage,
+    },
+  }
 }
 
 export function createEmptyConversationState(sessionId: string | null = null): ConversationState {
@@ -112,8 +162,37 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     }
   }
 
+  if (event.eventType === 'message.content_committed') {
+    return {
+      ...currentState,
+      lastEventSeq: event.seq,
+      messagesById: {
+        ...currentState.messagesById,
+        [event.messageId]: {
+          ...currentMessage,
+          contentText: String(event.payloadJson.content_text ?? ''),
+          updatedAt: event.createdAt,
+        },
+      },
+    }
+  }
+
   return {
     ...currentState,
     lastEventSeq: event.seq,
   }
+}
+
+export function applyConversationLiveEvent(
+  state: ConversationState,
+  liveMessage: ConversationLiveMessage
+): ConversationState {
+  return upsertLiveAssistantMessage(state, liveMessage)
+}
+
+export function applyConversationLiveState(
+  state: ConversationState,
+  liveMessage: ConversationLiveMessage
+): ConversationState {
+  return upsertLiveAssistantMessage(state, liveMessage)
 }

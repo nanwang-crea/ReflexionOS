@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 import {
   applyConversationEvent,
+  applyConversationLiveEvent,
+  applyConversationLiveState,
   applyConversationSnapshot,
 } from './conversationReducer'
 
@@ -92,53 +94,48 @@ describe('conversationReducer', () => {
     expect(state.lastEventSeq).toBe(2)
   })
 
-  it('appends delta events to existing assistant messages', () => {
+  it('applies live assistant chunks without advancing durable seq', () => {
     const base = applyConversationSnapshot(undefined, buildSnapshot())
 
-    const next = applyConversationEvent(base, {
-      id: 'evt-3',
+    const next = applyConversationLiveEvent(base, {
       sessionId: 'session-1',
-      seq: 3,
       turnId: 'turn-1',
       runId: 'run-1',
       messageId: 'msg-2',
-      eventType: 'message.delta_appended',
-      payloadJson: { message_id: 'msg-2', delta: '分析项目结构' },
-      createdAt: '2026-04-24T10:00:02Z',
+      messageType: 'assistant_message',
+      delta: '分析项目结构',
+      contentText: '正在分析项目结构',
+      streamState: 'streaming',
     })
 
     expect(next.messagesById['msg-2'].contentText).toBe('正在分析项目结构')
-    expect(next.lastEventSeq).toBe(3)
+    expect(next.lastEventSeq).toBe(2)
   })
 
-  it('ignores duplicate incremental events with the same seq', () => {
+  it('creates an ephemeral assistant message from live state when durable snapshot has none yet', () => {
     const base = applyConversationSnapshot(undefined, buildSnapshot())
-    const first = applyConversationEvent(base, {
-      id: 'evt-3',
+    const withoutAssistant = {
+      ...base,
+      messageOrder: ['msg-1'],
+      messagesById: {
+        'msg-1': base.messagesById['msg-1'],
+      },
+    }
+
+    const next = applyConversationLiveState(withoutAssistant, {
       sessionId: 'session-1',
-      seq: 3,
       turnId: 'turn-1',
       runId: 'run-1',
-      messageId: 'msg-2',
-      eventType: 'message.delta_appended',
-      payloadJson: { message_id: 'msg-2', delta: '分析项目结构' },
-      createdAt: '2026-04-24T10:00:02Z',
+      messageId: 'msg-live',
+      messageType: 'assistant_message',
+      contentText: '继续输出中',
+      streamState: 'streaming',
     })
 
-    const duplicate = applyConversationEvent(first, {
-      id: 'evt-3-replay',
-      sessionId: 'session-1',
-      seq: 3,
-      turnId: 'turn-1',
-      runId: 'run-1',
-      messageId: 'msg-2',
-      eventType: 'message.delta_appended',
-      payloadJson: { message_id: 'msg-2', delta: '分析项目结构' },
-      createdAt: '2026-04-24T10:00:03Z',
-    })
-
-    expect(duplicate.messagesById['msg-2'].contentText).toBe('正在分析项目结构')
-    expect(duplicate.lastEventSeq).toBe(3)
+    expect(next.messageOrder).toEqual(['msg-1', 'msg-live'])
+    expect(next.messagesById['msg-live'].contentText).toBe('继续输出中')
+    expect(next.messagesById['msg-live'].streamState).toBe('streaming')
+    expect(next.lastEventSeq).toBe(2)
   })
 
   it('applies payload updates to existing messages', () => {
@@ -166,5 +163,24 @@ describe('conversationReducer', () => {
       status: 'ok',
     })
     expect(next.lastEventSeq).toBe(4)
+  })
+
+  it('updates durable assistant content when a terminal content commit arrives', () => {
+    const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+    const next = applyConversationEvent(base, {
+      id: 'evt-5',
+      sessionId: 'session-1',
+      seq: 5,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      eventType: 'message.content_committed',
+      payloadJson: { content_text: '最终回答' },
+      createdAt: '2026-04-24T10:00:04Z',
+    })
+
+    expect(next.messagesById['msg-2'].contentText).toBe('最终回答')
+    expect(next.lastEventSeq).toBe(5)
   })
 })

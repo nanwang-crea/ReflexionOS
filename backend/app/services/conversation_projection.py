@@ -101,6 +101,19 @@ class ConversationProjection:
                     db_session=db_session,
                 )
 
+            case EventType.MESSAGE_CONTENT_COMMITTED:
+                message = self._get_message_or_raise(event.message_id, db_session=db_session)
+                self.message_repo.update(
+                    message.model_copy(
+                        update={
+                            "content_text": str(payload.get("content_text", "")),
+                            "stream_state": StreamState.STREAMING,
+                            "updated_at": datetime.now(),
+                        }
+                    ),
+                    db_session=db_session,
+                )
+
             case EventType.MESSAGE_PAYLOAD_UPDATED:
                 message = self._get_message_or_raise(event.message_id, db_session=db_session)
                 next_payload = dict(message.payload_json)

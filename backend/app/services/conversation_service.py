@@ -1,9 +1,9 @@
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from threading import Lock, RLock
 from uuid import uuid4
 
-from app.models.conversation import ConversationEvent, EventType, RunStatus
+from app.models.conversation import ConversationEvent, EventType, RunStatus, TurnStatus
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
@@ -57,7 +57,11 @@ class ConversationService:
             if session is None:
                 raise ValueError("会话不存在")
 
-            persisted = self.event_repo.append_many(events, db_session=db_session)
+            persisted = self.event_repo.append_many(
+                events,
+                db_session=db_session,
+                start_seq=session.last_event_seq + 1,
+            )
             for persisted_event in persisted:
                 self.projection.apply(session_id, persisted_event, db_session=db_session)
 
@@ -102,6 +106,38 @@ class ConversationService:
 
     def list_events_after(self, session_id: str, after_seq: int) -> list[ConversationEvent]:
         return self.event_repo.list_after_seq(session_id, after_seq)
+
+    def requires_resync(self, session_id: str, after_seq: int) -> bool:
+        session = self.session_repo.get(session_id)
+        if session is None:
+            raise ValueError("会话不存在")
+
+        first_seq = self.event_repo.first_seq(session_id)
+        if first_seq is None:
+            return False
+        return after_seq < first_seq - 1 and after_seq < session.last_event_seq
+
+    def cleanup_events(
+        self,
+        *,
+        now: datetime | None = None,
+        completed_retention: timedelta = timedelta(hours=1),
+        failed_retention: timedelta = timedelta(days=7),
+    ) -> int:
+        current_time = now or datetime.now()
+        completed_cutoff = current_time - completed_retention
+        failed_cutoff = current_time - failed_retention
+
+        completed_turns = self.turn_repo.list_terminal_before(
+            [TurnStatus.COMPLETED.value],
+            completed_cutoff,
+        )
+        failed_turns = self.turn_repo.list_terminal_before(
+            [TurnStatus.FAILED.value, TurnStatus.CANCELLED.value],
+            failed_cutoff,
+        )
+        turn_ids = list(dict.fromkeys([turn.id for turn in completed_turns + failed_turns]))
+        return self.event_repo.delete_by_turn_ids(turn_ids)
 
     def start_turn(
         self,

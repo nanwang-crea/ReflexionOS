@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from app.models.conversation import Turn
 from app.storage.models import TurnModel
 
@@ -65,3 +67,20 @@ class TurnRepository:
             .scalar()
         ) or 0
         return current + 1
+
+    def list_terminal_before(self, statuses: list[str], before: datetime, *, db_session=None) -> list[Turn]:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.list_terminal_before(statuses, before, db_session=managed_session)
+
+        models = (
+            db_session.query(TurnModel)
+            .filter(
+                TurnModel.status.in_(statuses),
+                TurnModel.completed_at.isnot(None),
+                TurnModel.completed_at < before,
+            )
+            .order_by(TurnModel.completed_at.asc(), TurnModel.turn_index.asc())
+            .all()
+        )
+        return [Turn.model_validate(model) for model in models]

@@ -14,6 +14,7 @@ class ConversationEventRepository:
         events: list[ConversationEvent],
         *,
         db_session=None,
+        start_seq: int | None = None,
     ) -> list[ConversationEvent]:
         if not events:
             return []
@@ -24,18 +25,20 @@ class ConversationEventRepository:
 
         if db_session is None:
             with self.db.get_session() as managed_session:
-                return self.append_many(events, db_session=managed_session)
-
-        max_seq = (
-            db_session.query(ConversationEventModel.seq)
-            .filter_by(session_id=session_id)
-            .order_by(ConversationEventModel.seq.desc())
-            .limit(1)
-            .scalar()
-        ) or 0
+                return self.append_many(events, db_session=managed_session, start_seq=start_seq)
 
         models: list[ConversationEventModel] = []
-        next_seq = max_seq + 1
+        if start_seq is None:
+            max_seq = (
+                db_session.query(ConversationEventModel.seq)
+                .filter_by(session_id=session_id)
+                .order_by(ConversationEventModel.seq.desc())
+                .limit(1)
+                .scalar()
+            ) or 0
+            next_seq = max_seq + 1
+        else:
+            next_seq = start_seq
         for event in events:
             model = ConversationEventModel(
                 **event.model_dump(exclude={"seq"}),
@@ -67,3 +70,32 @@ class ConversationEventRepository:
                 .all()
             )
             return [ConversationEvent.model_validate(model) for model in models]
+
+    def first_seq(self, session_id: str, *, db_session=None) -> int | None:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.first_seq(session_id, db_session=managed_session)
+
+        return (
+            db_session.query(ConversationEventModel.seq)
+            .filter_by(session_id=session_id)
+            .order_by(ConversationEventModel.seq.asc())
+            .limit(1)
+            .scalar()
+        )
+
+    def delete_by_turn_ids(self, turn_ids: list[str], *, db_session=None) -> int:
+        if not turn_ids:
+            return 0
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.delete_by_turn_ids(turn_ids, db_session=managed_session)
+
+        deleted = (
+            db_session.query(ConversationEventModel)
+            .filter(ConversationEventModel.turn_id.in_(turn_ids))
+            .delete(synchronize_session=False)
+        )
+        db_session.flush()
+        return int(deleted or 0)

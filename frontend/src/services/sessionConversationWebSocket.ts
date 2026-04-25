@@ -19,9 +19,26 @@ export interface SessionConversationEventDto {
   created_at: string
 }
 
+export interface SessionConversationLiveMessageDto {
+  session_id: string
+  turn_id: string
+  run_id: string
+  message_id: string
+  message_type: string
+  content_text: string
+  stream_state: string
+  delta?: string
+}
+
 interface ConversationSyncedDto {
   session_id: string
   last_event_seq: number
+}
+
+interface ConversationResyncRequiredDto {
+  session_id: string
+  after_seq: number
+  reason: string
 }
 
 interface ConversationErrorDto {
@@ -40,6 +57,9 @@ interface SessionConversationEvents {
     manuallyClosed: boolean
   }
   'conversation:event': SessionConversationEventDto
+  'conversation:live_event': SessionConversationLiveMessageDto
+  'conversation:live_state': SessionConversationLiveMessageDto
+  'conversation:resync_required': ConversationResyncRequiredDto
   'conversation:synced': ConversationSyncedDto
   'conversation:error': ConversationErrorDto
 }
@@ -145,8 +165,23 @@ class SessionConversationWebSocket {
       return
     }
 
+    if (message.type === 'conversation.live_event') {
+      this.emit('conversation:live_event', message.data as SessionConversationLiveMessageDto)
+      return
+    }
+
+    if (message.type === 'conversation.live_state') {
+      this.emit('conversation:live_state', message.data as SessionConversationLiveMessageDto)
+      return
+    }
+
     if (message.type === 'conversation.synced') {
       this.emit('conversation:synced', message.data as ConversationSyncedDto)
+      return
+    }
+
+    if (message.type === 'conversation.resync_required') {
+      this.emit('conversation:resync_required', message.data as ConversationResyncRequiredDto)
       return
     }
 

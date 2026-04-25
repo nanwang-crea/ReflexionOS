@@ -5,6 +5,8 @@ const {
   getConversationMock,
   setSnapshotMock,
   applyEventMock,
+  applyLiveEventMock,
+  setLiveStateMock,
   clearConversationMock,
   wsConnectMock,
   wsCloseMock,
@@ -21,6 +23,8 @@ const {
     getConversationMock: vi.fn(),
     setSnapshotMock: vi.fn(),
     applyEventMock: vi.fn(),
+    applyLiveEventMock: vi.fn(),
+    setLiveStateMock: vi.fn(),
     clearConversationMock: vi.fn(),
     wsConnectMock: vi.fn(),
     wsCloseMock: vi.fn(),
@@ -35,6 +39,8 @@ const {
       conversationsBySessionId: {} as Record<string, unknown>,
       setSnapshot: vi.fn(),
       applyEvent: vi.fn(),
+      applyLiveEvent: vi.fn(),
+      setLiveState: vi.fn(),
       clearConversation: vi.fn(),
     },
   }
@@ -131,6 +137,8 @@ describe('useConversationRuntime', () => {
     getConversationMock.mockReset()
     setSnapshotMock.mockReset()
     applyEventMock.mockReset()
+    applyLiveEventMock.mockReset()
+    setLiveStateMock.mockReset()
     clearConversationMock.mockReset()
     wsConnectMock.mockReset()
     wsCloseMock.mockReset()
@@ -143,6 +151,8 @@ describe('useConversationRuntime', () => {
     conversationStoreState.conversationsBySessionId = {}
     conversationStoreState.setSnapshot = setSnapshotMock
     conversationStoreState.applyEvent = applyEventMock
+    conversationStoreState.applyLiveEvent = applyLiveEventMock
+    conversationStoreState.setLiveState = setLiveStateMock
     conversationStoreState.clearConversation = clearConversationMock
 
     wsConnectMock.mockResolvedValue(undefined)
@@ -151,7 +161,7 @@ describe('useConversationRuntime', () => {
     wsCancelRunMock.mockImplementation(() => {})
   })
 
-  it('loads snapshot, connects websocket, sends sync, and maps conversation.event into store events', async () => {
+  it('loads snapshot, connects websocket, sends sync, and routes durable/live conversation updates into the store', async () => {
     const snapshot = buildSnapshot()
     getConversationMock.mockResolvedValue({ data: snapshot })
 
@@ -172,8 +182,8 @@ describe('useConversationRuntime', () => {
       turn_id: 'turn-1',
       run_id: 'run-1',
       message_id: 'msg-2',
-      event_type: 'message.delta_appended',
-      payload_json: { delta: '继续' },
+      event_type: 'message.content_committed',
+      payload_json: { content_text: '最终回答' },
       created_at: '2026-04-24T10:00:03Z',
     })
 
@@ -184,9 +194,51 @@ describe('useConversationRuntime', () => {
       turnId: 'turn-1',
       runId: 'run-1',
       messageId: 'msg-2',
-      eventType: 'message.delta_appended',
-      payloadJson: { delta: '继续' },
+      eventType: 'message.content_committed',
+      payloadJson: { content_text: '最终回答' },
       createdAt: '2026-04-24T10:00:03Z',
+    })
+
+    wsHandlers.get('conversation:live_event')?.({
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      run_id: 'run-1',
+      message_id: 'msg-2',
+      message_type: 'assistant_message',
+      delta: '继',
+      content_text: '继续',
+      stream_state: 'streaming',
+    })
+
+    expect(applyLiveEventMock).toHaveBeenCalledWith('session-1', {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      messageType: 'assistant_message',
+      delta: '继',
+      contentText: '继续',
+      streamState: 'streaming',
+    })
+
+    wsHandlers.get('conversation:live_state')?.({
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      run_id: 'run-1',
+      message_id: 'msg-2',
+      message_type: 'assistant_message',
+      content_text: '继续输出中',
+      stream_state: 'streaming',
+    })
+
+    expect(setLiveStateMock).toHaveBeenCalledWith('session-1', {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      messageType: 'assistant_message',
+      contentText: '继续输出中',
+      streamState: 'streaming',
     })
   })
 
@@ -262,5 +314,26 @@ describe('useConversationRuntime', () => {
     await flushAsyncEffects()
 
     expect(refreshCalls).toEqual(['session-1', 'session-2'])
+  })
+
+  it('refreshes the snapshot when the backend requests a resync', async () => {
+    const snapshot = buildSnapshot()
+    getConversationMock.mockResolvedValue({ data: snapshot })
+
+    const { useConversationRuntime } = await import('./useConversationRuntime')
+    useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    wsHandlers.get('conversation:resync_required')?.({
+      session_id: 'session-1',
+      reason: 'stale_after_seq',
+      after_seq: 0,
+    })
+
+    await flushAsyncEffects()
+
+    expect(getConversationMock).toHaveBeenCalledTimes(2)
+    expect(setSnapshotMock).toHaveBeenLastCalledWith('session-1', snapshot)
   })
 })

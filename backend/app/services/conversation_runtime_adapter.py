@@ -28,6 +28,7 @@ class ConversationRuntimeAdapter:
         self.turn_id = turn_id
         self.run_id = run_id
         self.assistant_message_id: str | None = None
+        self._assistant_content = ""
         self.tool_message_ids: dict[str, str] = {}
         self._latest_tool_key: str | None = None
         self._run_terminal = False
@@ -47,7 +48,8 @@ class ConversationRuntimeAdapter:
             delta = data.get("content") if event_type == "llm:content" else data.get("token")
             if not delta:
                 return []
-            return self._append_events(self._assistant_delta_events(str(delta)))
+            self._buffer_assistant_delta(str(delta))
+            return []
 
         if event_type == "tool:start":
             return self._append_events(self._tool_start_events(data))
@@ -77,38 +79,42 @@ class ConversationRuntimeAdapter:
 
         return []
 
-    def _assistant_delta_events(self, delta: str) -> list[ConversationEvent]:
-        events: list[ConversationEvent] = []
+    def build_live_event(self, event_type: str, data: dict) -> dict | None:
+        if event_type not in {"llm:content", "summary:token"}:
+            return None
+        delta = data.get("content") if event_type == "llm:content" else data.get("token")
+        if not delta:
+            return None
+        if self.assistant_message_id is None or not self._assistant_content or self._run_terminal:
+            return None
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "run_id": self.run_id,
+            "message_id": self.assistant_message_id,
+            "message_type": "assistant_message",
+            "delta": str(delta),
+            "content_text": self._assistant_content,
+            "stream_state": "streaming",
+        }
+
+    def get_live_state(self) -> dict | None:
+        if self.assistant_message_id is None or not self._assistant_content or self._run_terminal:
+            return None
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "run_id": self.run_id,
+            "message_id": self.assistant_message_id,
+            "message_type": "assistant_message",
+            "content_text": self._assistant_content,
+            "stream_state": "streaming",
+        }
+
+    def _buffer_assistant_delta(self, delta: str) -> None:
         if self.assistant_message_id is None:
             self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
-            events.append(
-                self._new_event(
-                    event_type=EventType.MESSAGE_CREATED,
-                    message_id=self.assistant_message_id,
-                    run_id=self.run_id,
-                    payload_json={
-                        "message_id": self.assistant_message_id,
-                        "turn_id": self.turn_id,
-                        "run_id": self.run_id,
-                        "role": "assistant",
-                        "message_type": "assistant_message",
-                        "message_index": self._next_message_index(),
-                        "display_mode": "default",
-                        "content_text": "",
-                        "payload_json": {},
-                    },
-                )
-            )
-
-        events.append(
-            self._new_event(
-                event_type=EventType.MESSAGE_DELTA_APPENDED,
-                message_id=self.assistant_message_id,
-                run_id=self.run_id,
-                payload_json={"delta": delta},
-            )
-        )
-        return events
+        self._assistant_content = f"{self._assistant_content}{delta}"
 
     def _tool_start_events(self, data: dict) -> list[ConversationEvent]:
         tool_key = self._tool_key(data)
@@ -198,19 +204,13 @@ class ConversationRuntimeAdapter:
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
-        events: list[ConversationEvent] = []
-        if self.assistant_message_id:
-            events.append(
-                self._new_event(
-                    event_type=EventType.MESSAGE_FAILED,
-                    message_id=self.assistant_message_id,
-                    run_id=self.run_id,
-                    payload_json={
-                        "error_code": "execution_error",
-                        "error_message": error_message,
-                    },
-                )
-            )
+        events = self._assistant_terminal_events(
+            terminal_event_type=EventType.MESSAGE_FAILED,
+            payload_json={
+                "error_code": "execution_error",
+                "error_message": error_message,
+            },
+        )
 
         terminal_event = self._run_terminal_event(
             EventType.RUN_FAILED,
@@ -225,16 +225,10 @@ class ConversationRuntimeAdapter:
         return events
 
     def _execution_complete_events(self) -> list[ConversationEvent]:
-        events: list[ConversationEvent] = []
-        if self.assistant_message_id and not self._message_is_terminal(self.assistant_message_id):
-            events.append(
-                self._new_event(
-                    event_type=EventType.MESSAGE_COMPLETED,
-                    message_id=self.assistant_message_id,
-                    run_id=self.run_id,
-                    payload_json={"completed_at": datetime.now().isoformat()},
-                )
-            )
+        events = self._assistant_terminal_events(
+            terminal_event_type=EventType.MESSAGE_COMPLETED,
+            payload_json={"completed_at": datetime.now().isoformat()},
+        )
 
         terminal_event = self._run_terminal_event(
             EventType.RUN_COMPLETED,
@@ -257,7 +251,13 @@ class ConversationRuntimeAdapter:
         return events
 
     def _close_open_messages_for_cancel(self) -> list[ConversationEvent]:
-        events: list[ConversationEvent] = []
+        events = self._assistant_terminal_events(
+            terminal_event_type=EventType.MESSAGE_FAILED,
+            payload_json={
+                "error_code": "run_cancelled",
+                "error_message": "本次执行已取消",
+            },
+        )
         open_ids: set[str] = {
             message.id
             for message in self.conversation_service.message_repo.list_by_turn(self.turn_id)
@@ -267,7 +267,7 @@ class ConversationRuntimeAdapter:
         }
 
         if self.assistant_message_id:
-            open_ids.add(self.assistant_message_id)
+            open_ids.discard(self.assistant_message_id)
         open_ids.update(self.tool_message_ids.values())
 
         for message_id in sorted(open_ids):
@@ -293,6 +293,56 @@ class ConversationRuntimeAdapter:
                 )
             )
 
+        return events
+
+    def _assistant_terminal_events(
+        self,
+        *,
+        terminal_event_type: EventType,
+        payload_json: dict,
+    ) -> list[ConversationEvent]:
+        if self.assistant_message_id is None or self._message_is_terminal(self.assistant_message_id):
+            return []
+
+        events: list[ConversationEvent] = []
+        if self.conversation_service.message_repo.get(self.assistant_message_id) is None:
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_CREATED,
+                    message_id=self.assistant_message_id,
+                    run_id=self.run_id,
+                    payload_json={
+                        "message_id": self.assistant_message_id,
+                        "turn_id": self.turn_id,
+                        "run_id": self.run_id,
+                        "role": "assistant",
+                        "message_type": "assistant_message",
+                        "message_index": self._next_message_index(),
+                        "display_mode": "default",
+                        "content_text": "",
+                        "payload_json": {},
+                    },
+                )
+            )
+
+        if self._assistant_content:
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_CONTENT_COMMITTED,
+                    message_id=self.assistant_message_id,
+                    run_id=self.run_id,
+                    payload_json={"content_text": self._assistant_content},
+                )
+            )
+
+        events.append(
+            self._new_event(
+                event_type=terminal_event_type,
+                message_id=self.assistant_message_id,
+                run_id=self.run_id,
+                payload_json=payload_json,
+            )
+        )
         return events
 
     def _cancel_notice_event(self) -> ConversationEvent:

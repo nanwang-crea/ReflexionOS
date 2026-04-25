@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -120,6 +121,60 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
     assert replayed_events == []
     snapshot = conversation_service.get_snapshot("session-1")
     assert snapshot.session.last_event_seq == seed_event_seqs[-1]
+
+
+def test_session_conversation_websocket_sync_includes_live_state_before_synced(client_with_services, monkeypatch):
+    client, _ = client_with_services
+
+    import app.api.routes.websocket as websocket_route_module
+
+    monkeypatch.setattr(
+        websocket_route_module.agent_service,
+        "get_live_state",
+        lambda session_id: {
+            "session_id": session_id,
+            "turn_id": "turn-live",
+            "run_id": "run-live",
+            "message_id": "msg-live",
+            "message_type": "assistant_message",
+            "content_text": "streaming...",
+            "stream_state": "streaming",
+        },
+    )
+
+    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
+        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": 0}})
+        messages = _drain_until_synced(websocket)
+
+    assert [message["type"] for message in messages[-2:]] == [
+        "conversation.live_state",
+        "conversation.synced",
+    ]
+    assert messages[-2]["data"]["content_text"] == "streaming..."
+
+
+def test_session_conversation_websocket_requests_resync_for_stale_after_seq(client_with_services):
+    client, conversation_service = client_with_services
+
+    conversation_service.cleanup_events(
+        now=datetime.now() + timedelta(days=8),
+        completed_retention=timedelta(minutes=30),
+        failed_retention=timedelta(days=7),
+    )
+    conversation_service.start_turn(
+        session_id="session-1",
+        content="新的活动轮次",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(Path("/tmp/reflexion")),
+    )
+
+    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
+        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": 0}})
+        message = websocket.receive_json()
+
+    assert message["type"] == "conversation.resync_required"
+    assert message["data"]["reason"] == "stale_after_seq"
 
 
 def test_session_conversation_websocket_supports_live_cancel_run_update(client_with_services):

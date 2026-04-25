@@ -1,4 +1,4 @@
-from app.models.conversation import MessageType, RunStatus, StreamState
+from app.models.conversation import EventType, MessageType, RunStatus, StreamState
 from app.models.session import Session
 from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
 from app.services.conversation_service import ConversationService
@@ -19,7 +19,7 @@ def build_started_turn(tmp_path):
     return service, started
 
 
-def test_maps_llm_content_and_summary_token_to_assistant_message(tmp_path):
+def test_buffers_llm_content_until_execution_completes(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
         conversation_service=service,
@@ -28,9 +28,17 @@ def test_maps_llm_content_and_summary_token_to_assistant_message(tmp_path):
         run_id=started.run.id,
     )
 
-    adapter.handle_event("llm:content", {"content": "你好"})
-    adapter.handle_event("summary:token", {"token": "，世界"})
-    adapter.handle_event("execution:complete", {"result": "done"})
+    llm_events = adapter.handle_event("llm:content", {"content": "你好"})
+    summary_events = adapter.handle_event("summary:token", {"token": "，世界"})
+
+    snapshot_before_terminal = service.get_snapshot("session-1")
+    assistant_messages_before_terminal = [
+        message
+        for message in snapshot_before_terminal.messages
+        if message.message_type == MessageType.ASSISTANT_MESSAGE
+    ]
+
+    completion_events = adapter.handle_event("execution:complete", {"result": "done"})
 
     snapshot = service.get_snapshot("session-1")
     assistant_messages = [
@@ -40,6 +48,15 @@ def test_maps_llm_content_and_summary_token_to_assistant_message(tmp_path):
     ]
     run = next(run for run in snapshot.runs if run.id == started.run.id)
 
+    assert llm_events == []
+    assert summary_events == []
+    assert assistant_messages_before_terminal == []
+    assert [event.event_type for event in completion_events] == [
+        EventType.MESSAGE_CREATED,
+        EventType.MESSAGE_CONTENT_COMMITTED,
+        EventType.MESSAGE_COMPLETED,
+        EventType.RUN_COMPLETED,
+    ]
     assert len(assistant_messages) == 1
     assert assistant_messages[0].content_text == "你好，世界"
     assert assistant_messages[0].stream_state == StreamState.COMPLETED
@@ -92,7 +109,7 @@ def test_marks_run_failed_when_execution_error_arrives(tmp_path):
     )
 
     adapter.handle_event("llm:content", {"content": "处理中..."})
-    adapter.handle_event("execution:error", {"error": "boom"})
+    error_events = adapter.handle_event("execution:error", {"error": "boom"})
 
     snapshot = service.get_snapshot("session-1")
     run = next(run for run in snapshot.runs if run.id == started.run.id)
@@ -104,7 +121,14 @@ def test_marks_run_failed_when_execution_error_arrives(tmp_path):
 
     assert run.status == RunStatus.FAILED
     assert run.error_message == "boom"
+    assert [event.event_type for event in error_events] == [
+        EventType.MESSAGE_CREATED,
+        EventType.MESSAGE_CONTENT_COMMITTED,
+        EventType.MESSAGE_FAILED,
+        EventType.RUN_FAILED,
+    ]
     assert assistant.stream_state == StreamState.FAILED
+    assert assistant.content_text == "处理中..."
     assert assistant.payload_json["error_message"] == "boom"
 
 

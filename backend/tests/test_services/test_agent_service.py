@@ -140,6 +140,7 @@ async def test_start_turn_creates_turn_run_and_tracks_running_task(monkeypatch, 
     await asyncio.wait_for(service.running_tasks[result.run.id], timeout=0.5)
     await asyncio.sleep(0)
     assert result.run.id not in service.running_tasks
+    assert result.run.id not in getattr(service, "_runtime_adapters", {})
 
 
 @pytest.mark.asyncio
@@ -249,7 +250,7 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_run_turn_persists_events_before_websocket_broadcast(monkeypatch, tmp_path):
+async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events(monkeypatch, tmp_path):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
     provider = build_provider("provider-a", "Provider A", ["model-a"])
@@ -271,7 +272,7 @@ async def test_run_turn_persists_events_before_websocket_broadcast(monkeypatch, 
     class StubPersistedEvent:
         def model_dump(self, mode="python"):
             assert mode == "json"
-            return {"id": "evt-1", "seq": 7, "event_type": "message.delta_appended"}
+            return {"id": "evt-1", "seq": 7, "event_type": "message.content_committed"}
 
     class StubRuntimeAdapter:
         def __init__(self, **kwargs):
@@ -279,11 +280,37 @@ async def test_run_turn_persists_events_before_websocket_broadcast(monkeypatch, 
 
         def handle_event(self, event_type, data):
             call_order.append(("persist", event_type))
+            if event_type == "llm:content":
+                return []
             return [StubPersistedEvent()]
+
+        def build_live_event(self, event_type, data):
+            if event_type != "llm:content":
+                return None
+            return {
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "turn_id": "turn-1",
+                "message_id": "msg-1",
+                "content_text": data["content"],
+                "delta": data["content"],
+                "stream_state": "streaming",
+            }
+
+        def get_live_state(self):
+            return {
+                "session_id": "session-1",
+                "run_id": "run-1",
+                "turn_id": "turn-1",
+                "message_id": "msg-1",
+                "content_text": "hello",
+                "stream_state": "streaming",
+            }
 
     class StubWsManager:
         async def send_event(self, session_id, event_type, data):
-            call_order.append(("broadcast", event_type, data["id"]))
+            identifier = data.get("id") or data.get("message_id")
+            call_order.append(("broadcast", event_type, identifier))
 
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
@@ -291,6 +318,7 @@ async def test_run_turn_persists_events_before_websocket_broadcast(monkeypatch, 
 
         async def run(self, **kwargs):
             await self.event_callback("llm:content", {"content": "hello"})
+            await self.event_callback("execution:complete", {})
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
@@ -309,7 +337,10 @@ async def test_run_turn_persists_events_before_websocket_broadcast(monkeypatch, 
     )
 
     assert call_order[0] == ("persist", "llm:content")
-    assert call_order[1] == ("broadcast", "conversation.event", "evt-1")
+    assert call_order[1] == ("broadcast", "conversation.live_event", "msg-1")
+    assert call_order[2] == ("persist", "execution:complete")
+    assert call_order[3] == ("broadcast", "conversation.event", "evt-1")
+    assert service.get_live_state("session-1") is None
 
 
 @pytest.mark.asyncio

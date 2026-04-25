@@ -5,8 +5,9 @@ import type { ConnectionStatus } from '@/features/workspace/types'
 import {
   SessionConversationWebSocket,
   type SessionConversationEventDto,
+  type SessionConversationLiveMessageDto,
 } from '@/services/sessionConversationWebSocket'
-import type { ConversationEvent, ConversationState } from '@/types/conversation'
+import type { ConversationEvent, ConversationLiveMessage, ConversationState } from '@/types/conversation'
 
 interface StartTurnPayload {
   sessionId: string
@@ -16,7 +17,6 @@ interface StartTurnPayload {
 }
 
 const INCREMENTAL_EVENT_TYPES = new Set([
-  'message.delta_appended',
   'message.payload_updated',
 ])
 
@@ -73,6 +73,19 @@ function toConversationEvent(event: SessionConversationEventDto): ConversationEv
     eventType: event.event_type,
     payloadJson: event.payload_json,
     createdAt: event.created_at,
+  }
+}
+
+function toConversationLiveMessage(message: SessionConversationLiveMessageDto): ConversationLiveMessage {
+  return {
+    sessionId: message.session_id,
+    turnId: message.turn_id,
+    runId: message.run_id,
+    messageId: message.message_id,
+    messageType: message.message_type as ConversationLiveMessage['messageType'],
+    contentText: message.content_text,
+    streamState: message.stream_state as ConversationLiveMessage['streamState'],
+    delta: message.delta,
   }
 }
 
@@ -170,6 +183,15 @@ export function useConversationRuntime(
       if (event.eventType === 'run.cancelled' || event.eventType === 'run.failed' || event.eventType === 'run.completed') {
         setIsCancelling(false)
       }
+    })
+    ws.on('conversation:live_event', (rawLiveEvent) => {
+      useConversationStore.getState().applyLiveEvent(sessionId, toConversationLiveMessage(rawLiveEvent))
+    })
+    ws.on('conversation:live_state', (rawLiveState) => {
+      useConversationStore.getState().setLiveState(sessionId, toConversationLiveMessage(rawLiveState))
+    })
+    ws.on('conversation:resync_required', () => {
+      queueSnapshotRefresh(sessionId)
     })
 
     await ws.connect(sessionId)
