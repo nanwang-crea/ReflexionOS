@@ -126,7 +126,7 @@ class LLMUsageModel(Base):
     __tablename__ = "llm_usage"
     
     id = Column(String, primary_key=True)
-    execution_id = Column(String, nullable=False, index=True)
+    run_id = Column(String, nullable=False, index=True)
     provider = Column(String, nullable=False)
     model = Column(String, nullable=False)
     prompt_tokens = Column(Integer, default=0)

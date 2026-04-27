@@ -10,10 +10,10 @@ logger = logging.getLogger(__name__)
 class ExecutionContext:
     """Agent 执行上下文"""
     
-    def __init__(self, task: str, project_path: str | None = None, execution_id: str = None):
+    def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None):
         self.task = task
         self.project_path = project_path
-        self.execution_id = execution_id or f"exec-{id(self)}"
+        self.run_id = run_id or f"run-{id(self)}"
         self.history: list[dict[str, Any]] = []
         self.steps: list[ExecutionStep] = []
         self.messages: list[dict[str, Any]] = []
@@ -98,7 +98,7 @@ class ExecutionContext:
         return {
             "task": self.task,
             "project_path": self.project_path,
-            "execution_id": self.execution_id,
+            "run_id": self.run_id,
             "current_step": self.current_step_number,
             "total_steps": len(self.steps),
             "history_count": len(self.history),

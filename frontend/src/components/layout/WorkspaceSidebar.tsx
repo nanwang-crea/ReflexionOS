@@ -18,12 +18,13 @@ import {
 } from 'lucide-react'
 import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
 import { isElectronRuntime } from '@/services/desktopClient'
+import { useConversationStore } from '@/features/conversation/conversationStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
-import { useExecutionStore } from '@/stores/executionStore'
 import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
+import { isConversationBusy } from './sidebarBusy'
 import { useSidebarFilteredProjects } from './useSidebarFilteredProjects'
 import { useSidebarProjectActions } from './useSidebarProjectActions'
 import { useSidebarSessionActions } from './useSidebarSessionActions'
@@ -96,14 +97,16 @@ export function WorkspaceSidebar() {
     setSearchOpen,
     setSearchQuery,
   } = useWorkspaceStore()
+  const currentConversation = useConversationStore((state) => (
+    currentSessionId ? state.conversationsBySessionId[currentSessionId] : undefined
+  ))
   const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
-  const { status } = useExecutionStore()
 
   const [showProjectModal, setShowProjectModal] = useState(false)
   const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
   const canSelectDirectory = isElectronRuntime()
 
-  const busy = status === 'running' || status === 'cancelling'
+  const busy = isConversationBusy(currentConversation)
   const demoMode = isDemoMode()
   const projectSessionsById = useMemo(() => {
     if (!demoMode) {

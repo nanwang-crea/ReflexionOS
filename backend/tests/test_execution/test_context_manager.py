@@ -8,6 +8,7 @@ class TestExecutionContext:
         context = ExecutionContext(task="测试任务")
         
         assert context.task == "测试任务"
+        assert context.run_id is not None
         assert len(context.history) == 0
     
     def test_update_history(self):
@@ -61,3 +62,11 @@ class TestExecutionContext:
         workspace_context = context.get_workspace_context()
         
         assert "测试任务" in workspace_context
+
+    def test_to_dict_uses_run_id(self):
+        context = ExecutionContext(task="测试任务", run_id="run-123")
+
+        payload = context.to_dict()
+
+        assert payload["run_id"] == "run-123"
+        assert "execution_id" not in payload

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.execution.context_manager import ExecutionContext
+from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
 from app.tools.base import BaseTool, ToolResult
@@ -80,8 +81,14 @@ class TestRapidExecutionLoop:
         
         result = await execution_loop.run("测试任务")
         
-        assert result.status.value == "completed"
+        assert isinstance(result, LoopResult)
+        assert result.status == LoopStatus.COMPLETED
         assert "任务完成" in result.result
+        assert not hasattr(result, "project_id")
+        assert not hasattr(result, "session_id")
+        assert not hasattr(result, "project_path")
+        assert not hasattr(result, "provider_id")
+        assert not hasattr(result, "model_id")
 
     @pytest.mark.asyncio
     async def test_execution_fails_when_model_returns_no_content_and_no_tool_calls(
@@ -97,7 +104,7 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("测试空响应")
 
-        assert result.status.value == "failed"
+        assert result.status == LoopStatus.FAILED
         assert result.result == "执行异常: 模型未返回任何内容，也未发起工具调用"
     
     @pytest.mark.asyncio
@@ -153,7 +160,7 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("帮我看一下当前 README")
 
-        assert result.status.value == "completed"
+        assert result.status == LoopStatus.COMPLETED
         assert result.result == "README 已读取完成"
         assert len(captured_calls) == 2
 
@@ -243,7 +250,7 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("其项目结构是怎么样的呢？")
 
-        assert result.status.value == "completed"
+        assert result.status == LoopStatus.COMPLETED
         assert result.result == "项目采用前后端分离结构。"
         assert len(captured_calls) == 3
 
@@ -268,7 +275,7 @@ class TestRapidExecutionLoop:
         
         result = await execution_loop.run("无限循环任务")
         
-        assert result.status.value == "completed"
+        assert result.status == LoopStatus.COMPLETED
         assert len(result.steps) == 5
 
     @pytest.mark.asyncio
@@ -331,15 +338,17 @@ class TestRapidExecutionLoop:
         mock_llm.stream_complete = mock_stream
         
         await execution_loop.run("测试任务")
-        
+
         # 检查事件
-        assert any(e["type"] == "execution:start" for e in events)
+        execution_start = next(e for e in events if e["type"] == "execution:start")
+        assert execution_start["data"]["run_id"].startswith("run-")
+        assert "execution_id" not in execution_start["data"]
         assert any(e["type"] == "llm:content" for e in events)
         assert any(e["type"] == "execution:complete" for e in events)
+        assert not any(e["type"] == "llm:start" for e in events)
 
     @pytest.mark.asyncio
-    async def test_emits_llm_thought_before_tool_receipts(self, mock_llm, tool_registry):
-        """测试带工具调用的 content 会作为中间思考事件发出"""
+    async def test_does_not_emit_legacy_llm_thought_or_tool_call_events(self, mock_llm, tool_registry):
         events = []
 
         async def callback(event_type, data):
@@ -371,11 +380,11 @@ class TestRapidExecutionLoop:
 
         await execution_loop.run("介绍一下当前项目结构")
 
-        thought_index = next(i for i, e in enumerate(events) if e["type"] == "llm:thought")
-        tool_call_index = next(i for i, e in enumerate(events) if e["type"] == "llm:tool_call")
-
-        assert events[thought_index]["data"]["content"] == "我先查看项目结构，再继续探索。"
-        assert thought_index < tool_call_index
+        event_types = [event["type"] for event in events]
+        assert "llm:thought" not in event_types
+        assert "llm:tool_call" not in event_types
+        assert "summary:start" not in event_types
+        assert "summary:complete" not in event_types
 
     @pytest.mark.asyncio
     async def test_execution_returns_cancelled_when_task_is_cancelled(
@@ -404,15 +413,15 @@ class TestRapidExecutionLoop:
         mock_llm.stream_complete = mock_stream
 
         task = asyncio.create_task(
-            execution_loop.run("请检查项目结构", execution_id="exec-cancel-test")
+            execution_loop.run("请检查项目结构", run_id="run-cancel-test")
         )
         await asyncio.sleep(0)
         task.cancel()
 
         result = await task
 
-        assert result.id == "exec-cancel-test"
-        assert result.status.value == "cancelled"
+        assert result.id == "run-cancel-test"
+        assert result.status == LoopStatus.CANCELLED
         assert result.result == "执行已取消"
         assert any(event["type"] == "execution:cancelled" for event in events)
 
@@ -450,7 +459,7 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("失败任务")
 
-        assert result.status.value == "failed"
+        assert result.status == LoopStatus.FAILED
         assert any(event["type"] == "execution:error" for event in events)
 
     @pytest.mark.asyncio

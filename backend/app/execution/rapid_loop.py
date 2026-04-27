@@ -7,7 +7,7 @@ from datetime import datetime
 
 from app.config.settings import config_manager
 from app.execution.context_manager import ExecutionContext
-from app.execution.models import Execution, ExecutionStatus, ExecutionStep, StepStatus
+from app.execution.models import ExecutionStep, LoopResult, LoopStatus, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
 from app.tools.registry import ToolRegistry
@@ -15,8 +15,8 @@ from app.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-# 执行状态
-class ExecutionState:
+# loop 阶段
+class LoopPhase:
     PLANNING = "planning"
     TOOL_EXECUTION = "tool_execution"
     ERROR_RECOVERY = "error_recovery"
@@ -69,11 +69,9 @@ class RapidExecutionLoop:
         self,
         task: str,
         project_path: str | None = None,
-        execution_id: str | None = None,
-        session_id: str = "",
-        project_id: str = "",
+        run_id: str | None = None,
         created_at: datetime | None = None
-    ) -> Execution:
+    ) -> LoopResult:
         """
         执行任务
         
@@ -82,90 +80,74 @@ class RapidExecutionLoop:
             project_path: 项目路径
             
         Returns:
-            Execution: 执行结果
+            LoopResult: 执行结果
         """
         start_time = time.time()
         
-        execution = Execution(
-            id=execution_id or f"exec-{uuid.uuid4().hex[:8]}",
-            project_id=project_id,
-            session_id=session_id,
-            project_path=project_path or "",
+        loop_result = LoopResult(
+            id=run_id or f"run-{uuid.uuid4().hex[:8]}",
             task=task,
-            status=ExecutionStatus.RUNNING,
+            status=LoopStatus.RUNNING,
             created_at=created_at or datetime.now()
         )
         
         context = ExecutionContext(
             task=task,
             project_path=project_path,
-            execution_id=execution.id
+            run_id=loop_result.id
         )
         context.add_message("user", task)
 
         # 发送开始事件
         await self._emit("execution:start", {
-            "execution_id": execution.id,
+            "run_id": loop_result.id,
             "task": task
         })
         
         logger.info("开始执行任务: %s", task)
         
         try:
-            state = ExecutionState.PLANNING
+            state = LoopPhase.PLANNING
             step_num = 0
             turn_retries = 0
             
-            while state != ExecutionState.DONE and step_num < self.max_steps:
+            while state != LoopPhase.DONE and step_num < self.max_steps:
                 
-                if state == ExecutionState.PLANNING:
+                if state == LoopPhase.PLANNING:
                     # 调用 LLM 决策
                     response = await self._call_llm(context)
                     
                     # 检查是否有工具调用
                     if response.has_tool_calls:
-                        if response.has_content:
-                            await self._emit("llm:thought", {
-                                "content": response.content
-                            })
-
-                        # 发送工具调用事件
-                        for tc in response.tool_calls:
-                            await self._emit("llm:tool_call", {
-                                "tool_name": tc.name,
-                                "arguments": tc.arguments,
-                                "thought": response.content
-                            })
-                        
-                        state = ExecutionState.TOOL_EXECUTION
+                        state = LoopPhase.TOOL_EXECUTION
                         turn_retries = 0
                     else:
                         # 没有工具调用
                         if self.has_executed_tools:
                             if response.has_content:
                                 # 已经有可直接返回给用户的答案，不再强制进入总结
-                                execution.status = ExecutionStatus.COMPLETED
-                                execution.result = response.content
-                                state = ExecutionState.DONE
+                                loop_result.status = LoopStatus.COMPLETED
+                                loop_result.result = response.content
+                                state = LoopPhase.DONE
                             else:
                                 # 没有最终回答时，再进入兜底总结阶段
-                                state = ExecutionState.FINAL_SUMMARY
+                                state = LoopPhase.FINAL_SUMMARY
                         else:
                             # 没执行过工具，直接完成
                             if response.has_content:
-                                execution.status = ExecutionStatus.COMPLETED
-                                execution.result = response.content
-                                state = ExecutionState.DONE
+                                loop_result.status = LoopStatus.COMPLETED
+                                loop_result.result = response.content
+                                state = LoopPhase.DONE
                             else:
                                 raise RuntimeError("模型未返回任何内容，也未发起工具调用")
                 
-                elif state == ExecutionState.TOOL_EXECUTION:
+                elif state == LoopPhase.TOOL_EXECUTION:
                     step_num += 1
                     
                     # 执行所有工具调用
                     for tool_call in response.tool_calls:
                         step = await self._execute_tool(tool_call, context, step_num)
-                        execution.steps.append(step)
+                        loop_result.steps.append(step)
                         context.add_step(step)
                         
                         if step.status == StepStatus.FAILED:
@@ -180,19 +162,19 @@ class RapidExecutionLoop:
                             
                             # 检查是否需要进入错误恢复
                             if self.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                                state = ExecutionState.ERROR_RECOVERY
+                                state = LoopPhase.ERROR_RECOVERY
                                 break
                         else:
                             self.consecutive_failures = 0
                             self.has_executed_tools = True
                     
-                    if state == ExecutionState.TOOL_EXECUTION:
+                    if state == LoopPhase.TOOL_EXECUTION:
                         # 工具执行完成，回到规划状态
-                        state = ExecutionState.PLANNING
+                        state = LoopPhase.PLANNING
                 
-                elif state == ExecutionState.ERROR_RECOVERY:
+                elif state == LoopPhase.ERROR_RECOVERY:
                     # 错误恢复：给 LLM 错误信息，让它修正
-                    last_step = execution.steps[-1] if execution.steps else None
+                    last_step = loop_result.steps[-1] if loop_result.steps else None
                     
                     if last_step:
                         error_prompt = self.prompt_manager.get_error_prompt(
@@ -208,41 +190,41 @@ class RapidExecutionLoop:
                         self.consecutive_failures = 0
                         
                         # 回到规划状态
-                        state = ExecutionState.PLANNING
+                        state = LoopPhase.PLANNING
                         turn_retries += 1
                         
                         if turn_retries > self.MAX_TURN_RETRIES:
                             # 超过重试次数，强制总结
-                            state = ExecutionState.FINAL_SUMMARY
+                            state = LoopPhase.FINAL_SUMMARY
                 
-                elif state == ExecutionState.FINAL_SUMMARY:
+                elif state == LoopPhase.FINAL_SUMMARY:
                     # 强制获取最终总结
                     summary = await self._get_final_summary(context)
-                    execution.result = summary
-                    execution.status = ExecutionStatus.COMPLETED
-                    state = ExecutionState.DONE
+                    loop_result.result = summary
+                    loop_result.status = LoopStatus.COMPLETED
+                    state = LoopPhase.DONE
             
             # 超过最大步数
             if step_num >= self.max_steps:
-                execution.status = ExecutionStatus.COMPLETED
-                execution.result = execution.result or "执行完成（达到最大步数）"
+                loop_result.status = LoopStatus.COMPLETED
+                loop_result.result = loop_result.result or "执行完成（达到最大步数）"
                 logger.warning("执行达到最大步数")
         
         except asyncio.CancelledError:
-            execution.status = ExecutionStatus.CANCELLED
-            execution.result = execution.result or "执行已取消"
-            logger.info("执行已取消: %s", execution.id)
+            loop_result.status = LoopStatus.CANCELLED
+            loop_result.result = loop_result.result or "执行已取消"
+            logger.info("执行已取消: %s", loop_result.id)
 
             await self._emit("execution:cancelled", {
-                "status": execution.status.value,
-                "result": execution.result,
-                "total_steps": len(execution.steps)
+                "status": loop_result.status.value,
+                "result": loop_result.result,
+                "total_steps": len(loop_result.steps)
             })
 
         except Exception as e:
             import traceback
-            execution.status = ExecutionStatus.FAILED
-            execution.result = f"执行异常: {str(e)}"
+            loop_result.status = LoopStatus.FAILED
+            loop_result.result = f"执行异常: {str(e)}"
             logger.error("执行异常: %s\n%s", e, traceback.format_exc())
             
             await self._emit("execution:error", {
@@ -250,19 +232,19 @@ class RapidExecutionLoop:
             })
         
         finally:
-            execution.total_duration = time.time() - start_time
-            execution.completed_at = datetime.now()
+            loop_result.total_duration = time.time() - start_time
+            loop_result.completed_at = datetime.now()
             
             # 发送完成事件
-            if execution.status != ExecutionStatus.CANCELLED:
+            if loop_result.status != LoopStatus.CANCELLED:
                 await self._emit("execution:complete", {
-                    "status": execution.status.value,
-                    "result": execution.result,
-                    "total_steps": len(execution.steps),
-                    "duration": execution.total_duration
+                    "status": loop_result.status.value,
+                    "result": loop_result.result,
+                    "total_steps": len(loop_result.steps),
+                    "duration": loop_result.total_duration
                 })
         
-        return execution
+        return loop_result
     
     async def _call_llm(self, context: ExecutionContext) -> LLMResponse:
         """
@@ -280,9 +262,6 @@ class RapidExecutionLoop:
         # 获取工具定义
         tools = self.tool_registry.get_tool_definitions()
         
-        # 发送 LLM 开始事件
-        await self._emit("llm:start", {})
-
         # 流式调用 LLM，并在接收内容时持续推送到前端
         content_parts = []
         tool_calls = []
@@ -501,9 +480,7 @@ class RapidExecutionLoop:
         
         # 调用 LLM
         messages = self._build_messages(context)
-        
-        await self._emit("summary:start", {})
-        
+
         try:
             # 流式获取总结
             summary_parts = []
@@ -517,7 +494,6 @@ class RapidExecutionLoop:
             summary = "".join(summary_parts)
             
             if summary:
-                await self._emit("summary:complete", {"summary": summary})
                 return summary
             
         except Exception as e:
@@ -526,5 +502,4 @@ class RapidExecutionLoop:
         # Fallback: 生成简单总结
         steps_count = len(context.steps)
         fallback = f"任务执行完成，共执行了 {steps_count} 个步骤。"
-        await self._emit("summary:complete", {"summary": fallback})
         return fallback

@@ -5,7 +5,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class ExecutionStatus(str, Enum):
+class LoopStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -32,25 +32,12 @@ class ExecutionStep(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.now)
 
 
-class ExecutionBase(BaseModel):
+class LoopResult(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
+    id: str = Field(default_factory=lambda: f"loop-{uuid.uuid4().hex[:8]}")
     task: str
-    provider_id: str | None = None
-    model_id: str | None = None
-
-
-class Execution(ExecutionBase):
-    model_config = ConfigDict(
-        protected_namespaces=(),
-        from_attributes=True,
-    )
-
-    project_id: str = ""
-    session_id: str = ""
-    project_path: str = ""
-    id: str = Field(default_factory=lambda: f"exec-{uuid.uuid4().hex[:8]}")
-    status: ExecutionStatus = ExecutionStatus.PENDING
+    status: LoopStatus = LoopStatus.PENDING
     steps: list[ExecutionStep] = []
     result: str | None = None
     total_duration: float | None = None

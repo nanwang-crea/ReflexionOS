@@ -288,9 +288,7 @@ class AgentService:
             await execution_loop.run(
                 task=task,
                 project_path=project_path,
-                execution_id=run_id,
-                session_id=session_id,
-                project_id=project_id,
+                run_id=run_id,
             )
         except asyncio.CancelledError:
             raise
