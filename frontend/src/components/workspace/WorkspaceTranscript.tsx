@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import type { RefObject, UIEventHandler } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SlideIn } from '@/components/animations/SlideIn'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
@@ -32,6 +32,8 @@ interface WorkspaceTranscriptProps {
   currentSession: SessionSummary | null
   messages: ConversationMessage[]
   isRunning?: boolean
+  transcriptScrollRef?: RefObject<HTMLDivElement>
+  onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   messagesEndRef: RefObject<HTMLDivElement>
 }
 
@@ -42,6 +44,8 @@ export function WorkspaceTranscript({
   currentSession,
   messages,
   isRunning = false,
+  transcriptScrollRef,
+  onTranscriptScroll,
   messagesEndRef,
 }: WorkspaceTranscriptProps) {
   const hasVisibleStreamingMessage = messages.some((message) => {
@@ -57,7 +61,11 @@ export function WorkspaceTranscript({
   const showThinkingIndicator = isRunning && !hasVisibleStreamingMessage
 
   return (
-    <div className="flex-1 overflow-y-auto bg-white">
+    <div
+      ref={transcriptScrollRef}
+      onScroll={onTranscriptScroll}
+      className="flex-1 overflow-y-auto bg-white"
+    >
       <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
         {loaded && !configured && (
           <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">

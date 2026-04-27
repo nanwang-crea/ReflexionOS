@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ConversationMessage } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
+import { shouldFollowTranscript } from '@/features/workspace/autoScroll'
 import { useSessionData } from './useSessionData'
 import { useSessionSelection } from './useSessionSelection'
 
@@ -27,10 +28,28 @@ export function useCurrentSessionViewModel(options: {
     preferredProviderId: currentSessionSummary?.preferredProviderId,
     preferredModelId: currentSessionSummary?.preferredModelId,
   })
+  const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const shouldAutoScrollRef = useRef(true)
+
+  const handleTranscriptScroll = useCallback(() => {
+    const container = transcriptScrollRef.current
+    if (!container) {
+      return
+    }
+
+    shouldAutoScrollRef.current = shouldFollowTranscript({
+      scrollTop: container.scrollTop,
+      clientHeight: container.clientHeight,
+      scrollHeight: container.scrollHeight,
+    })
+  }, [])
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!shouldAutoScrollRef.current) {
+      return
+    }
+    messagesEndRef.current?.scrollIntoView({ block: 'end' })
   }, [options.messages])
 
   return {
@@ -55,6 +74,8 @@ export function useCurrentSessionViewModel(options: {
       currentSession: currentSessionSummary,
       messages: options.messages,
       isRunning: options.isRunning,
+      transcriptScrollRef,
+      onTranscriptScroll: handleTranscriptScroll,
       messagesEndRef,
     },
     inputProps: {
