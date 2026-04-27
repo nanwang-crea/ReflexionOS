@@ -417,23 +417,6 @@ class TestRapidExecutionLoop:
         assert any(event["type"] == "execution:cancelled" for event in events)
 
     @pytest.mark.asyncio
-    async def test_cancelled_execution_has_no_transcript_items(self, execution_loop, mock_llm):
-        async def mock_stream(messages, tools=None):
-            raise asyncio.CancelledError()
-            yield
-
-        mock_llm.stream_complete = mock_stream
-
-        result = await execution_loop.run(
-            "取消任务",
-            session_id="session-1",
-            project_id="project-1",
-        )
-
-        assert result.status.value == "cancelled"
-        assert result.result == "执行已取消"
-
-    @pytest.mark.asyncio
     async def test_failed_execution_emits_execution_error_event(self, mock_llm, tool_registry):
         events = []
 

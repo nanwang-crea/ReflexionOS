@@ -88,19 +88,6 @@ class ConversationProjection:
                     db_session=db_session,
                 )
 
-            case EventType.MESSAGE_DELTA_APPENDED:
-                message = self._get_message_or_raise(event.message_id, db_session=db_session)
-                self.message_repo.update(
-                    message.model_copy(
-                        update={
-                            "content_text": f"{message.content_text}{payload['delta']}",
-                            "stream_state": StreamState.STREAMING,
-                            "updated_at": datetime.now(),
-                        }
-                    ),
-                    db_session=db_session,
-                )
-
             case EventType.MESSAGE_CONTENT_COMMITTED:
                 message = self._get_message_or_raise(event.message_id, db_session=db_session)
                 self.message_repo.update(

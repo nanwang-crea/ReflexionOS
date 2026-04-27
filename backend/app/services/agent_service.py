@@ -1,14 +1,12 @@
 import asyncio
 import contextlib
 import logging
-from datetime import datetime
 from pathlib import Path
 
 from app.api.websocket import ws_manager
 from app.execution.rapid_loop import RapidExecutionLoop
-from app.execution.models import Execution, ExecutionCreate, ExecutionStatus
 from app.llm import LLMAdapterFactory
-from app.models.conversation import ConversationEvent, MessageType, Run, RunStatus
+from app.models.conversation import ConversationEvent, Run, RunStatus
 from app.models.conversation_snapshot import StartTurnResult
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
@@ -45,7 +43,6 @@ class AgentService:
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
-        self._run_metadata: dict[str, dict] = {}
         self._cleanup_task: asyncio.Task | None = None
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
@@ -127,15 +124,6 @@ class AgentService:
             workspace_ref=project.path,
         )
 
-        self._run_metadata[started.run.id] = {
-            "task": content,
-            "project_id": project.id,
-            "project_path": project.path,
-            "provider_id": resolved_llm.provider_id,
-            "model_id": resolved_llm.model_id,
-            "session_id": session_id,
-            "turn_id": started.turn.id,
-        }
         seed_events = self.conversation_service.list_events_after(session_id, before_seq)
         await self._broadcast_conversation_events(
             session_id=session_id,
@@ -347,161 +335,6 @@ class AgentService:
         if cancelled is None:
             raise ValueError("运行不存在")
         return cancelled
-
-    async def execute_task(self, execution_create: ExecutionCreate) -> Execution:
-        started = await self.start_turn(
-            project_id=execution_create.project_id,
-            session_id=execution_create.session_id,
-            content=execution_create.task,
-            provider_id=execution_create.provider_id,
-            model_id=execution_create.model_id,
-        )
-        running = self.running_tasks.get(started.run.id)
-        if running is not None:
-            with contextlib.suppress(asyncio.CancelledError):
-                await running
-        execution = self._execution_from_run(started.run.id, fallback_task=execution_create.task)
-        if execution is None:
-            raise ValueError(f"执行不存在: {started.run.id}")
-        return execution
-
-    async def create_execution(self, execution_create: ExecutionCreate) -> Execution:
-        started = await self.start_turn(
-            project_id=execution_create.project_id,
-            session_id=execution_create.session_id,
-            content=execution_create.task,
-            provider_id=execution_create.provider_id,
-            model_id=execution_create.model_id,
-        )
-        execution = self._execution_from_run(started.run.id, fallback_task=execution_create.task)
-        if execution is None:
-            raise ValueError(f"执行不存在: {started.run.id}")
-        return execution
-
-    async def run_execution(self, execution_id: str) -> Execution:
-        running = self.running_tasks.get(execution_id)
-        if running is not None and not running.done():
-            with contextlib.suppress(asyncio.CancelledError):
-                await running
-
-        execution = self._execution_from_run(execution_id)
-        if execution is None:
-            raise ValueError(f"执行不存在: {execution_id}")
-        return execution
-
-    async def start_execution_async(self, execution_create: ExecutionCreate) -> str:
-        started = await self.start_turn(
-            project_id=execution_create.project_id,
-            session_id=execution_create.session_id,
-            content=execution_create.task,
-            provider_id=execution_create.provider_id,
-            model_id=execution_create.model_id,
-        )
-        return started.run.id
-
-    def schedule_execution(self, execution_id: str) -> asyncio.Task:
-        task = self.running_tasks.get(execution_id)
-        if task is None:
-            raise ValueError("执行不存在或已不支持单独调度，请使用 start_turn")
-        return task
-
-    async def cancel_execution(self, execution_id: str) -> Execution:
-        await self.cancel_run(execution_id)
-        execution = self._execution_from_run(execution_id)
-        if execution is None:
-            raise ValueError(f"执行不存在: {execution_id}")
-        return execution
-
-    def get_execution(self, execution_id: str) -> Execution | None:
-        return self._execution_from_run(execution_id)
-
-    def list_executions(self, project_id: str | None = None) -> list[Execution]:
-        if project_id:
-            projects = [project_id]
-        else:
-            projects = [project.id for project in self.project_repo.list_all()]
-
-        executions: list[Execution] = []
-        for pid in projects:
-            sessions = self.session_repo.list_by_project(pid)
-            for session in sessions:
-                runs = self.conversation_service.run_repo.list_by_session(session.id)
-                for run in runs:
-                    execution = self._execution_from_run(run.id)
-                    if execution is not None:
-                        executions.append(execution)
-
-        return sorted(executions, key=lambda item: item.created_at, reverse=True)
-
-    def _execution_from_run(self, run_id: str, *, fallback_task: str | None = None) -> Execution | None:
-        run = self.conversation_service.run_repo.get(run_id)
-        if run is None:
-            return None
-
-        metadata = self._run_metadata.get(run_id, {})
-        session = self.session_repo.get(run.session_id)
-        project_id = metadata.get("project_id") or (session.project_id if session else "")
-        project = self.project_repo.get(project_id) if project_id else None
-        project_path = metadata.get("project_path") or (project.path if project else "")
-        task = metadata.get("task") or fallback_task or self._task_from_run(run) or ""
-        result = self._result_from_run(run)
-
-        return Execution(
-            id=run.id,
-            project_id=project_id,
-            session_id=run.session_id,
-            project_path=project_path,
-            task=task,
-            provider_id=run.provider_id,
-            model_id=run.model_id,
-            status=self._execution_status_from_run(run.status),
-            result=result,
-            transcript_items=[],
-            created_at=self._created_at_from_run(run),
-            completed_at=run.finished_at,
-        )
-
-    def _task_from_run(self, run: Run) -> str | None:
-        turn = self.conversation_service.turn_repo.get(run.turn_id)
-        if turn is None:
-            return None
-
-        root_message = self.conversation_service.message_repo.get(turn.root_message_id)
-        return root_message.content_text if root_message else None
-
-    def _result_from_run(self, run: Run) -> str | None:
-        if run.status == RunStatus.FAILED:
-            return run.error_message
-
-        messages = self.conversation_service.message_repo.list_by_turn(run.turn_id)
-        assistant_messages = [
-            message for message in messages
-            if message.run_id == run.id and message.message_type == MessageType.ASSISTANT_MESSAGE
-        ]
-        if not assistant_messages:
-            return None
-        return assistant_messages[-1].content_text or run.error_message
-
-    def _created_at_from_run(self, run: Run) -> datetime:
-        turn = self.conversation_service.turn_repo.get(run.turn_id)
-        if turn is None:
-            return datetime.now()
-
-        root_message = self.conversation_service.message_repo.get(turn.root_message_id)
-        if root_message:
-            return root_message.created_at
-        if run.started_at:
-            return run.started_at
-        return datetime.now()
-
-    def _execution_status_from_run(self, status: RunStatus) -> ExecutionStatus:
-        return {
-            RunStatus.CREATED: ExecutionStatus.PENDING,
-            RunStatus.RUNNING: ExecutionStatus.RUNNING,
-            RunStatus.COMPLETED: ExecutionStatus.COMPLETED,
-            RunStatus.FAILED: ExecutionStatus.FAILED,
-            RunStatus.CANCELLED: ExecutionStatus.CANCELLED,
-        }[status]
 
 
 agent_service = AgentService()

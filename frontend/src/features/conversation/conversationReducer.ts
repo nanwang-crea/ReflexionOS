@@ -174,23 +174,6 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     }
   }
 
-  if (event.eventType === 'message.delta_appended') {
-    const delta = String(event.payloadJson.delta ?? '')
-    return {
-      ...currentState,
-      lastEventSeq: event.seq,
-      messagesById: {
-        ...currentState.messagesById,
-        [event.messageId]: {
-          ...currentMessage,
-          contentText: `${currentMessage.contentText}${delta}`,
-          streamState: 'streaming',
-          updatedAt: event.createdAt,
-        },
-      },
-    }
-  }
-
   if (event.eventType === 'message.payload_updated') {
     const payloadPatch = event.payloadJson.payload_json
     const nextPayload = isRecord(payloadPatch) ? payloadPatch : event.payloadJson

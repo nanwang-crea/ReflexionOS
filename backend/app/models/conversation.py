@@ -43,7 +43,6 @@ class EventType(str, Enum):
     RUN_FAILED = "run.failed"
     RUN_CANCELLED = "run.cancelled"
     MESSAGE_CREATED = "message.created"
-    MESSAGE_DELTA_APPENDED = "message.delta_appended"
     MESSAGE_CONTENT_COMMITTED = "message.content_committed"
     MESSAGE_PAYLOAD_UPDATED = "message.payload_updated"
     MESSAGE_COMPLETED = "message.completed"

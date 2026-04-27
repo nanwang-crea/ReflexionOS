@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -41,11 +40,6 @@ class ExecutionBase(BaseModel):
     model_id: str | None = None
 
 
-class ExecutionCreate(ExecutionBase):
-    project_id: str
-    session_id: str
-
-
 class Execution(ExecutionBase):
     model_config = ConfigDict(
         protected_namespaces=(),
@@ -59,7 +53,6 @@ class Execution(ExecutionBase):
     status: ExecutionStatus = ExecutionStatus.PENDING
     steps: list[ExecutionStep] = []
     result: str | None = None
-    transcript_items: list[dict[str, Any]] = Field(default_factory=list)
     total_duration: float | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
