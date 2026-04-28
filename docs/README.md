@@ -23,6 +23,20 @@
    - 当前会话底座设计方案。
    - 当讨论 `Session / Turn / Run / Message / Event` 会话事实层时，优先参考这份。
 
+6. `backend/README.md`（补充：Phase 1 记忆管线快照）
+   - 后端 README 除了运行方式，也会维护一份“当前落地的记忆管线”快照。
+   - 当你需要确认 `messages / conversation_events / curated memory / recall / continuation artifacts` 在代码里如何落地时，优先以此为准。
+
+## Phase 1 记忆管线（快速定位）
+
+这部分是为了让读文档的人快速落到“当前代码已经实现的事实面”，完整设计与边界仍以规格文档为准。
+
+- 读取对话内容：以 `messages` 为主（HTTP conversation snapshot 与 runtime seed 都基于 messages）。
+- 增量同步与回放：`conversation_events` 保持 append-only，用于 WebSocket 的 `after_seq` 同步，不作为主阅读面。
+- Curated memory：项目级条目化存储，渲染为 `USER.md` / `MEMORY.md`，目录在 `{memory.base_dir}/projects/<project_id>/`。
+- Recall：读取派生的 `message_search_documents`（由消息投影自动维护，非向量检索）。
+- Continuation artifacts：run 结束后由压缩/收敛步骤生成的 system notice（`kind=continuation_artifact`），作为 supplemental context 注入下一轮执行，并默认从 recall/记忆提升中排除。
+
 ## 历史参考
 
 这些文档保留是为了追溯上下文,默认不需要继续维护:
