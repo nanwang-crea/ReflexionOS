@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 class CuratedEntry(BaseModel):
     target: Literal["user", "memory"]
     type: Literal["preference", "rule", "constraint", "fact"]
-    scope: Literal["project", "global"]
+    # Task 3 is scoped to project-level curated memory. Keep the field for
+    # forward compatibility, but do not accept global scope yet.
+    scope: Literal["project"]
     source: Literal["user_explicit", "user_implied", "derived"]
     confidence: Literal["high", "medium"]
     status: Literal["active", "superseded"] = "active"
@@ -37,7 +39,12 @@ class CuratedMemoryStore:
     """
 
     def __init__(self, base_dir: str | Path | None = None):
-        self.base_dir = Path(base_dir) if base_dir is not None else (Path.home() / ".reflexion" / "memory")
+        if base_dir is None:
+            # Late import to avoid tight coupling and keep module load order simple.
+            from app.config.settings import config_manager
+
+            base_dir = config_manager.settings.memory.base_dir
+        self.base_dir = Path(base_dir)
 
     def add_entry(self, *, project_id: str, entry: CuratedEntry) -> CuratedWriteResult:
         conflict = self._find_conflict(project_id=project_id, entry=entry)
@@ -229,4 +236,3 @@ class CuratedMemoryStore:
             text = text.replace(token, "")
 
         return text.strip()
-

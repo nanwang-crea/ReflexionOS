@@ -14,6 +14,7 @@ from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.tools.file_tool import FileTool
+from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
 from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
@@ -61,6 +62,7 @@ class AgentService:
         registry.register(FileTool(path_security))
         registry.register(ShellTool(shell_security, path_security))
         registry.register(PatchTool(path_security))
+        registry.register(MemoryTool())
 
         logger.info("工具注册中心初始化完成, 允许路径: %s", allowed_paths)
         return registry
@@ -89,6 +91,7 @@ class AgentService:
         registry.register(FileTool(path_security))
         registry.register(ShellTool(ShellSecurity(), path_security))
         registry.register(PatchTool(path_security))
+        registry.register(MemoryTool())
 
         logger.info("构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths)
         return registry

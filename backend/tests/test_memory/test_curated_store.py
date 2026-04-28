@@ -1,3 +1,5 @@
+import pytest
+
 from app.memory.curated_store import CuratedEntry, CuratedMemoryStore
 
 
@@ -42,3 +44,20 @@ def test_add_entry_returns_conflict_when_active_rule_disagrees(tmp_path):
     assert result.conflicting_entry is not None
     assert result.conflicting_entry.summary == "默认不要直接写入用户仓库。"
 
+
+def test_rejects_global_scope_for_task3(tmp_path):
+    store = CuratedMemoryStore(base_dir=tmp_path)
+    # Task 3 should remain project-scoped only; "global" scope must be rejected.
+    entry_dict = {
+        "target": "user",
+        "type": "preference",
+        "scope": "global",
+        "source": "user_explicit",
+        "confidence": "high",
+        "status": "active",
+        "source_refs": ["msg-1"],
+        "summary": "不要使用 emojis。",
+    }
+
+    with pytest.raises(Exception):
+        CuratedEntry(**entry_dict)

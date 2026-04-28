@@ -427,6 +427,68 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_runtime_and_shared_tool_registries_include_memory_tool(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    captured_registries = []
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            captured_registries.append(kwargs["tool_registry"])
+
+        async def run(self, **kwargs):
+            return None
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert "memory" in service.tool_registry.list_tools()
+    assert len(captured_registries) == 1
+    assert "memory" in captured_registries[0].list_tools()
+
+    shared_tool_names = {definition.name for definition in service.tool_registry.get_tool_definitions()}
+    run_tool_names = {definition.name for definition in captured_registries[0].get_tool_definitions()}
+    assert "memory" in shared_tool_names
+    assert "memory" in run_tool_names
+
+
+@pytest.mark.asyncio
 async def test_cancel_run_fallback_adapter_closes_existing_open_messages(monkeypatch, tmp_path):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
