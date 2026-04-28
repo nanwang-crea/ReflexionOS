@@ -21,11 +21,6 @@ export const projectApi = {
   delete: (id: string) => apiClient.delete(`/api/projects/${id}`),
 }
 
-export const agentApi = {
-  cancel: (executionId: string) =>
-    apiClient.post(`/api/agent/cancel/${executionId}`),
-}
-
 export const llmApi = {
   getProviders: () => apiClient.get<ProviderInstance[]>('/api/llm/providers'),
   createProvider: (data: ProviderInstance) => apiClient.post<ProviderInstance>('/api/llm/providers', data),
