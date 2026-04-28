@@ -10,6 +10,7 @@
 
 2. `backend/README.md`
    - 后端依赖来源、桌面启动探测和手动调试说明。
+   - 同时维护 Phase 1 记忆管线的“实现事实快照”（`messages / conversation_events / curated memory / recall / continuation artifacts`）。
 
 3. `docs/superpowers/plans/2026-04-15-reflexion-os-design-整体架构.md`
    - 当前长期设计参考文档。
@@ -23,13 +24,9 @@
    - 当前会话底座设计方案。
    - 当讨论 `Session / Turn / Run / Message / Event` 会话事实层时，优先参考这份。
 
-6. `backend/README.md`（补充：Phase 1 记忆管线快照）
-   - 后端 README 除了运行方式，也会维护一份“当前落地的记忆管线”快照。
-   - 当你需要确认 `messages / conversation_events / curated memory / recall / continuation artifacts` 在代码里如何落地时，优先以此为准。
-
 ## Phase 1 记忆管线（快速定位）
 
-这部分是为了让读文档的人快速落到“当前代码已经实现的事实面”，完整设计与边界仍以规格文档为准。
+这部分是为了让读文档的人快速落到“当前代码已经实现的事实面”。更完整、更精确的落地细节以 `backend/README.md` 为准；设计与边界以规格文档为准。
 
 - 读取对话内容：以 `messages` 为主（HTTP conversation snapshot 与 runtime seed 都基于 messages）。
 - 增量同步与回放：`conversation_events` 保持 append-only，用于 WebSocket 的 `after_seq` 同步，不作为主阅读面。

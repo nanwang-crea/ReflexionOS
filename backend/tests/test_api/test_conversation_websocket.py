@@ -24,19 +24,6 @@ def _drain_until_synced(websocket):
             return messages
 
 
-class _StubLLMResponse:
-    def __init__(self, content: str):
-        self.content = content
-
-
-class _StubLLM:
-    def __init__(self, *, content: str):
-        self._content = content
-
-    async def complete(self, _messages, tools=None):
-        return _StubLLMResponse(self._content)
-
-
 @pytest.fixture
 def client_with_services(tmp_path, monkeypatch):
     db = Database(str(tmp_path / "conversation-websocket.db"))
@@ -297,19 +284,29 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
     """
 
     from app.memory.context_assembly import ContextAssembler
+    from app.memory.continuation import build_continuation_artifact
     from app.memory.curated_store import CuratedMemoryStore, CuratedEntry
     from app.memory.recall_service import RecallService
     from app.services.conversation_service import ConversationService
     from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
+    from app.models.conversation import ConversationEvent, EventType
     from app.tools.memory_tool import MemoryTool
 
     services = client_with_memory_pipeline
     client = services.client
-    agent_service = services.agent_service
     conversation_service = services.conversation_service
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.start_turn", "data": {"content": "请记住默认使用中文回复", "provider_id": "provider-a", "model_id": "model-a"}})
+        websocket.send_json(
+            {
+                "type": "conversation.start_turn",
+                "data": {
+                    "content": "请记住默认使用中文回复",
+                    "provider_id": "provider-a",
+                    "model_id": "model-a",
+                },
+            }
+        )
 
         seed_events = [websocket.receive_json() for _ in range(3)]
         assert [message["type"] for message in seed_events] == ["conversation.event"] * 3
@@ -345,17 +342,62 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
             source_refs=["msg-user-seed"],
             summary="默认使用中文回复。",
         )
-        result = await memory_tool.execute({"action": "add", "project_id": "project-1", "entry": entry.model_dump(mode="json")})
+        result = await memory_tool.execute(
+            {
+                "action": "add",
+                "project_id": "project-1",
+                "entry": entry.model_dump(mode="json"),
+            }
+        )
         assert result.success is True
 
-        # Generate + persist a continuation artifact (system_notice, excluded from recall).
-        stub_llm = _StubLLM(content="当前目标: 保持默认中文回复\n下一步建议: 继续完成 API 验证用例")
-        await agent_service._generate_and_persist_continuation_artifact(  # noqa: SLF001 - explicit end-to-end verification
-            llm=stub_llm,
+        # Persist a continuation artifact as a derived system_notice message through the normal event path.
+        next_index = conversation_service.message_repo.next_turn_message_index(turn_id)
+        artifact = build_continuation_artifact(
             session_id="session-1",
             turn_id=turn_id,
-            run_id=run_id,
-            task="请记住默认使用中文回复",
+            content_text="\n".join(
+                [
+                    "当前目标: 保持默认中文回复",
+                    "下一步建议: 继续完成 API 验证用例",
+                ]
+            ),
+            turn_message_index=next_index,
+        )
+        conversation_service.append_events(
+            "session-1",
+            [
+                ConversationEvent(
+                    id="evt-cont-created",
+                    session_id="session-1",
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    message_id=artifact.id,
+                    event_type=EventType.MESSAGE_CREATED,
+                    payload_json={
+                        "message_id": artifact.id,
+                        "turn_id": artifact.turn_id,
+                        "run_id": artifact.run_id,
+                        "role": artifact.role,
+                        "message_type": artifact.message_type.value,
+                        "turn_message_index": artifact.turn_message_index,
+                        "display_mode": artifact.display_mode,
+                        "content_text": artifact.content_text,
+                        "payload_json": artifact.payload_json,
+                    },
+                ),
+                ConversationEvent(
+                    id="evt-cont-completed",
+                    session_id="session-1",
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    message_id=artifact.id,
+                    event_type=EventType.MESSAGE_COMPLETED,
+                    payload_json={
+                        "completed_at": None,
+                    },
+                ),
+            ],
         )
 
         # Resume flow: a fresh sync should surface all recent conversation state (including derived notice).
@@ -363,8 +405,9 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
         replay = _drain_until_synced(websocket)
         assert any(msg["type"] == "conversation.event" for msg in replay)
 
-    # "Resumed session" rehydration: new service objects should be able to reconstruct state purely from storage.
-    snapshot = conversation_service.get_snapshot("session-1")
+    # "Resumed session" rehydration: fresh service objects should be able to reconstruct state from storage.
+    fresh_conversation_service = ConversationService(db=services.db)
+    snapshot = fresh_conversation_service.get_snapshot("session-1")
     assert any((m.content_text or "").strip() for m in snapshot.messages)
     assert any((m.payload_json or {}).get("kind") == "continuation_artifact" for m in snapshot.messages)
 

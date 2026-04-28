@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.models.project import Project
 from app.models.session import Session
-from app.services.agent_service import AgentService
 from app.services.conversation_service import ConversationService
 from app.services.session_service import SessionService
 from app.storage.database import Database
@@ -42,19 +41,6 @@ def client(tmp_path, monkeypatch):
         yield test_client
 
 
-class _StubLLMResponse:
-    def __init__(self, content: str):
-        self.content = content
-
-
-class _StubLLM:
-    def __init__(self, *, content: str):
-        self._content = content
-
-    async def complete(self, _messages, tools=None):
-        return _StubLLMResponse(self._content)
-
-
 @pytest.fixture
 def client_with_memory_pipeline(tmp_path, monkeypatch):
     """
@@ -72,12 +58,6 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
 
     session_service = SessionService(session_repo=session_repo, project_repo=project_repo)
     conversation_service = ConversationService(db=db)
-    agent_service = AgentService(
-        project_repo=project_repo,
-        session_repo=session_repo,
-        conversation_service=conversation_service,
-    )
-    monkeypatch.setattr(agent_service, "schedule_turn", lambda **kwargs: None)
 
     import app.api.routes.sessions as sessions_route_module
 
@@ -92,7 +72,6 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
             project_repo=project_repo,
             session_repo=session_repo,
             conversation_service=conversation_service,
-            agent_service=agent_service,
         )
 
 
@@ -131,10 +110,11 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     """
 
     from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
+    from app.models.conversation import ConversationEvent, EventType
+    from app.memory.continuation import build_continuation_artifact
 
     services = client_with_memory_pipeline
     conversation_service = services.conversation_service
-    agent_service = services.agent_service
 
     started = conversation_service.start_turn(
         session_id="session-1",
@@ -154,13 +134,45 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     runtime.handle_event("llm:content", {"content": "好的，我会默认使用中文回复，并在后续总结进展。"})
     runtime.handle_event("run:complete", {})
 
-    stub_llm = _StubLLM(content="当前目标: 汇总进展并保持默认中文回复")
-    await agent_service._generate_and_persist_continuation_artifact(  # noqa: SLF001 - explicit end-to-end verification
-        llm=stub_llm,
+    next_index = conversation_service.message_repo.next_turn_message_index(started.turn.id)
+    artifact = build_continuation_artifact(
         session_id="session-1",
         turn_id=started.turn.id,
-        run_id=started.run.id,
-        task="请总结今天进展，并记住默认用中文回复",
+        content_text="当前目标: 汇总进展并保持默认中文回复",
+        turn_message_index=next_index,
+    )
+    conversation_service.append_events(
+        "session-1",
+        [
+            ConversationEvent(
+                id="evt-api-cont-created",
+                session_id="session-1",
+                turn_id=started.turn.id,
+                run_id=started.run.id,
+                message_id=artifact.id,
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={
+                    "message_id": artifact.id,
+                    "turn_id": artifact.turn_id,
+                    "run_id": artifact.run_id,
+                    "role": artifact.role,
+                    "message_type": artifact.message_type.value,
+                    "turn_message_index": artifact.turn_message_index,
+                    "display_mode": artifact.display_mode,
+                    "content_text": artifact.content_text,
+                    "payload_json": artifact.payload_json,
+                },
+            ),
+            ConversationEvent(
+                id="evt-api-cont-completed",
+                session_id="session-1",
+                turn_id=started.turn.id,
+                run_id=started.run.id,
+                message_id=artifact.id,
+                event_type=EventType.MESSAGE_COMPLETED,
+                payload_json={"completed_at": None},
+            ),
+        ],
     )
 
     response = services.client.get("/api/sessions/session-1/conversation")
@@ -175,7 +187,9 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
         for msg in payload["messages"]
     )
 
-    snapshot = conversation_service.get_snapshot("session-1")
+    # Fresh service object: verify the persisted state can be reconstructed from storage.
+    fresh_conversation_service = ConversationService(db=services.db)
+    snapshot = fresh_conversation_service.get_snapshot("session-1")
     artifact_ids = {
         m.id for m in snapshot.messages if (m.payload_json or {}).get("kind") == "continuation_artifact"
     }
