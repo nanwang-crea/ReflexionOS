@@ -38,32 +38,10 @@
 
 这些文档保留是为了追溯上下文,默认不需要继续维护:
 
-- `设计方案.md`
-  - 早期草稿版设计,已被主设计文档替代。
+- `docs/superpowers/plans/2026-04-28-agent-memory-phase1-implementation.md`
+  - Agent memory Phase 1 的实施计划归档,适合回看任务拆分和实现顺序,不等同于当前代码事实。
 
-- `docs/superpowers/specs/2026-04-15-architecture-completeness.md`
-  - 一次性的架构完整性分析,不是当前事实来源。
-
-- `docs/superpowers/specs/2026-04-16-frontend-ui-enhancement-design.md`
-  - 已完成阶段的前端专题设计,仅供回看。
-
-- `docs/superpowers/plans/README.md`
-  - 旧进度看板,数字已经过时。
-
-- `docs/superpowers/plans/2026-04-15-phase1-implementation.md`
-  - 第一阶段实施计划归档。
-
-- `docs/superpowers/plans/2026-04-15-phase1-progress.md`
-  - 第一阶段进度快照归档。
-
-- `docs/superpowers/plans/2026-04-16-frontend-ui-enhancement.md`
-  - 前端 UI 完善实施计划归档。
-
-- `docs/superpowers/status/implementation-status-2026-04-16.md`
-  - 2026-04-16 状态快照,不等同于当前实现现状。
-
-- `docs/superpowers/status/frontend-phase2-completion-2026-04-16.md`
-  - 前端第二阶段完成报告归档。
+旧版本 README 里曾出现过的一些一次性分析/状态文档已经不在当前仓库中,因此这里不再继续链接它们,以免把不存在的路径误当成可读来源。
 
 ## 维护规则
 

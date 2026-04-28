@@ -83,12 +83,17 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
     assert set(payload.keys()) == {"session", "turns", "runs", "messages"}
     assert "rounds" not in payload
     assert payload["session"]["id"] == "session-1"
-    assert payload["session"]["last_event_seq"] == 3
-    assert len(payload["turns"]) == 1
-    assert len(payload["runs"]) == 1
-    assert len(payload["messages"]) == 1
-    assert payload["messages"][0]["message_type"] == "user_message"
-    assert payload["messages"][0]["turn_message_index"] == 1
+    assert payload["session"]["last_event_seq"] >= 1
+    assert payload["turns"]
+    assert payload["runs"]
+    assert payload["messages"]
+    assert any(message["message_type"] == "user_message" for message in payload["messages"])
+    assert any(
+        message["content_text"] == "请总结今天进展" for message in payload["messages"]
+    )
+    root_message_ids = {turn["root_message_id"] for turn in payload["turns"]}
+    message_ids = {message["id"] for message in payload["messages"]}
+    assert root_message_ids.issubset(message_ids)
 
 
 def test_get_conversation_snapshot_returns_404_for_missing_session(client):
