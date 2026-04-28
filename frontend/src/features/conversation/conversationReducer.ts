@@ -18,7 +18,7 @@ function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
     .sort((left, right) => {
       const leftTurnIndex = turnIndexById[left.turnId] ?? Number.MAX_SAFE_INTEGER
       const rightTurnIndex = turnIndexById[right.turnId] ?? Number.MAX_SAFE_INTEGER
-      return leftTurnIndex - rightTurnIndex || left.messageIndex - right.messageIndex
+      return leftTurnIndex - rightTurnIndex || left.turnMessageIndex - right.turnMessageIndex
     })
     .map((message) => message.id)
 }
@@ -72,10 +72,10 @@ function mergeStreamingMessages(
   }
 }
 
-function nextMessageIndex(state: ConversationState, turnId: string): number {
+function nextTurnMessageIndex(state: ConversationState, turnId: string): number {
   const current = Object.values(state.messagesById)
     .filter((message) => message.turnId === turnId)
-    .reduce((maxIndex, message) => Math.max(maxIndex, message.messageIndex), 0)
+    .reduce((maxIndex, message) => Math.max(maxIndex, message.turnMessageIndex), 0)
   return current + 1
 }
 
@@ -98,7 +98,7 @@ function upsertLiveAssistantMessage(
         sessionId: liveMessage.sessionId,
         turnId: liveMessage.turnId,
         runId: liveMessage.runId,
-        messageIndex: nextMessageIndex(state, liveMessage.turnId),
+        turnMessageIndex: nextTurnMessageIndex(state, liveMessage.turnId),
         role: 'assistant',
         messageType: liveMessage.messageType,
         streamState: liveMessage.streamState,

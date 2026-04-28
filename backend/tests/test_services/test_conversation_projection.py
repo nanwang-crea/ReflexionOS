@@ -123,7 +123,7 @@ def test_projection_message_content_committed_sets_full_message_text(tmp_path):
                 "run_id": "run-1",
                 "role": "assistant",
                 "message_type": "assistant_message",
-                "message_index": 2,
+                "turn_message_index": 2,
                 "display_mode": "default",
                 "content_text": "",
                 "payload_json": {},

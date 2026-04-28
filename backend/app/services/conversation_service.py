@@ -186,7 +186,7 @@ class ConversationService:
                             "run_id": None,
                             "role": "user",
                             "message_type": "user_message",
-                            "message_index": 1,
+                            "turn_message_index": 1,
                             "display_mode": "default",
                             "content_text": content,
                             "payload_json": {},
@@ -256,7 +256,7 @@ class ConversationService:
                         payload_json={
                             "message_id": notice_message_id,
                             "turn_id": turn.id,
-                            "message_index": self.message_repo.next_message_index(turn.id),
+                            "turn_message_index": self.message_repo.next_turn_message_index(turn.id),
                             "notice_code": "run_cancelled",
                             "content_text": "本次执行已取消",
                             "related_run_id": latest_run.id,

@@ -88,7 +88,7 @@ class Message(BaseModel):
     session_id: str
     turn_id: str
     run_id: str | None = None
-    message_index: int
+    turn_message_index: int
     role: str
     message_type: MessageType
     stream_state: StreamState

@@ -41,7 +41,7 @@ class Database:
                 self.db_path = str(candidate)
                 self.engine = engine
                 self._configure_sqlite()
-                self._reset_legacy_schema_if_needed()
+                self._reset_incompatible_schema_if_needed()
                 self._migrate_session_cascade_schema_if_needed()
                 Base.metadata.create_all(self.engine)
 
@@ -67,19 +67,53 @@ class Database:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-    def _reset_legacy_schema_if_needed(self) -> None:
+    def _reset_incompatible_schema_if_needed(self) -> None:
         inspector = inspect(self.engine)
         table_names = set(inspector.get_table_names())
-        if "executions" not in table_names and "conversations" not in table_names:
+
+        reset_reason: str | None = None
+        if "executions" in table_names or "conversations" in table_names:
+            reset_reason = "检测到旧版 conversation schema，重建数据库以切换到新会话模型"
+        elif "messages" in table_names and not self._has_turn_message_index_schema():
+            reset_reason = "检测到不兼容的 messages schema，重建数据库以切换到 turn_message_index"
+
+        if reset_reason is None:
             return
 
-        logger.warning("检测到旧版 conversation schema，重建数据库以切换到新会话模型")
+        logger.warning(reset_reason)
         try:
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
             metadata.drop_all(bind=self.engine)
         except OperationalError:
             logger.warning("旧版数据库当前不可写，跳过自动重建，等待显式清理后再初始化")
+
+    def _has_turn_message_index_schema(self) -> bool:
+        with self.engine.connect() as connection:
+            message_columns = {
+                row["name"]
+                for row in connection.exec_driver_sql('PRAGMA table_info("messages")').mappings().all()
+            }
+            if "turn_message_index" not in message_columns:
+                return False
+
+            unique_index_names = [
+                row["name"]
+                for row in connection.exec_driver_sql('PRAGMA index_list("messages")').mappings().all()
+                if row["unique"]
+            ]
+
+            unique_index_columns = {
+                tuple(
+                    index_row["name"]
+                    for index_row in connection.exec_driver_sql(
+                        f'PRAGMA index_info("{index_name}")'
+                    ).mappings().all()
+                )
+                for index_name in unique_index_names
+            }
+
+        return ("turn_id", "turn_message_index") in unique_index_columns
 
     def _migrate_session_cascade_schema_if_needed(self) -> None:
         inspector = inspect(self.engine)

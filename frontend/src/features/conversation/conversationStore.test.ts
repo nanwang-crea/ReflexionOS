@@ -50,7 +50,7 @@ function buildSnapshot(): ConversationSnapshot {
         sessionId: 'session-1',
         turnId: 'turn-1',
         runId: null,
-        messageIndex: 1,
+        turnMessageIndex: 1,
         role: 'assistant',
         messageType: 'assistant_message',
         streamState: 'streaming',

@@ -52,7 +52,7 @@ export interface ConversationMessage {
   sessionId: string
   turnId: string
   runId: string | null
-  messageIndex: number
+  turnMessageIndex: number
   role: ConversationMessageRole
   messageType: ConversationMessageType
   streamState: ConversationStreamState

@@ -211,7 +211,7 @@ def test_cleanup_events_removes_terminal_turn_events_but_keeps_snapshot_state(tm
                     "run_id": first.run.id,
                     "role": "assistant",
                     "message_type": "assistant_message",
-                    "message_index": 2,
+                    "turn_message_index": 2,
                     "display_mode": "default",
                     "content_text": "",
                     "payload_json": {},

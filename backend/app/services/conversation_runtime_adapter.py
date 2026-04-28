@@ -31,6 +31,7 @@ class ConversationRuntimeAdapter:
         self._assistant_content = ""
         self.tool_message_ids: dict[str, str] = {}
         self._latest_tool_key: str | None = None
+        self._reserved_turn_message_index: int | None = None
         self._run_terminal = False
 
     def handle_event(self, event_type: str, data: dict) -> list[ConversationEvent]:
@@ -132,7 +133,7 @@ class ConversationRuntimeAdapter:
                     "run_id": self.run_id,
                     "role": "assistant",
                     "message_type": "tool_trace",
-                    "message_index": self._next_message_index(),
+                    "turn_message_index": self._reserve_turn_message_index(),
                     "display_mode": "default",
                     "content_text": "",
                     "payload_json": {
@@ -317,7 +318,7 @@ class ConversationRuntimeAdapter:
                         "run_id": self.run_id,
                         "role": "assistant",
                         "message_type": "assistant_message",
-                        "message_index": self._next_message_index(),
+                        "turn_message_index": self._reserve_turn_message_index(),
                         "display_mode": "default",
                         "content_text": "",
                         "payload_json": {},
@@ -354,7 +355,7 @@ class ConversationRuntimeAdapter:
             payload_json={
                 "message_id": message_id,
                 "turn_id": self.turn_id,
-                "message_index": self._next_message_index(),
+                "turn_message_index": self._reserve_turn_message_index(),
                 "notice_code": "run_cancelled",
                 "content_text": "本次执行已取消",
                 "related_run_id": self.run_id,
@@ -393,13 +394,24 @@ class ConversationRuntimeAdapter:
         tool_name = data.get("tool_name") or "tool"
         return self._latest_tool_key or f"{tool_name}-{len(self.tool_message_ids) + 1}"
 
-    def _next_message_index(self) -> int:
-        return self.conversation_service.message_repo.next_message_index(self.turn_id)
+    def _reserve_turn_message_index(self) -> int:
+        if self._reserved_turn_message_index is None:
+            self._reserved_turn_message_index = self.conversation_service.message_repo.next_turn_message_index(
+                self.turn_id
+            )
+            return self._reserved_turn_message_index
+
+        self._reserved_turn_message_index += 1
+        return self._reserved_turn_message_index
 
     def _append_events(self, events: list[ConversationEvent]) -> list[ConversationEvent]:
         if not events:
+            self._reserved_turn_message_index = None
             return []
-        return self.conversation_service.append_events(self.session_id, events)
+        try:
+            return self.conversation_service.append_events(self.session_id, events)
+        finally:
+            self._reserved_turn_message_index = None
 
     def _new_event(
         self,

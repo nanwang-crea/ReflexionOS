@@ -28,7 +28,7 @@ function buildMessage(overrides: Partial<ConversationMessage> = {}): Conversatio
     sessionId: 'session-1',
     turnId: 'turn-1',
     runId: 'run-1',
-    messageIndex: 1,
+    turnMessageIndex: 1,
     role: 'assistant',
     messageType: 'tool_trace',
     streamState: 'completed',

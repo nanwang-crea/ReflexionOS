@@ -286,7 +286,7 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
             session_id="session-1",
             turn_id="turn-1",
             run_id=None,
-            message_index=1,
+            turn_message_index=1,
             role="user",
             message_type=MessageType.USER_MESSAGE,
             stream_state=StreamState.COMPLETED,
@@ -420,7 +420,7 @@ def test_session_repo_delete_cascades_conversation_rows(tmp_path):
             session_id="session-1",
             turn_id="turn-1",
             run_id=None,
-            message_index=1,
+            turn_message_index=1,
             role="user",
             message_type=MessageType.USER_MESSAGE,
             stream_state=StreamState.COMPLETED,
@@ -451,7 +451,7 @@ def test_session_repo_delete_cascades_conversation_rows(tmp_path):
     assert event_repo.list_after_seq("session-1", after_seq=0) == []
 
 
-def test_database_migrates_existing_conversation_schema_for_session_cascade(tmp_path):
+def test_database_resets_incompatible_conversation_schema(tmp_path):
     db_path = tmp_path / "legacy-conversation-schema.db"
     _create_legacy_conversation_schema(db_path)
 
@@ -462,15 +462,25 @@ def test_database_migrates_existing_conversation_schema_for_session_cascade(tmp_
     message_repo = MessageRepository(db)
     event_repo = ConversationEventRepository(db)
 
-    assert session_repo.get("session-1") is not None
-    assert turn_repo.list_by_session("session-1")
-    assert run_repo.list_by_session("session-1")
-    assert message_repo.list_by_session("session-1")
-    assert event_repo.list_after_seq("session-1", after_seq=0)
+    with sqlite3.connect(db_path) as connection:
+        message_columns = {
+            row[1]
+            for row in connection.execute('PRAGMA table_info("messages")').fetchall()
+        }
+        unique_indexes = connection.execute('PRAGMA index_list("messages")').fetchall()
+        unique_index_columns = {
+            tuple(
+                column_row[2]
+                for column_row in connection.execute(f'PRAGMA index_info("{index_row[1]}")').fetchall()
+            )
+            for index_row in unique_indexes
+            if index_row[2]
+        }
 
-    deleted = session_repo.delete("session-1")
-
-    assert deleted is True
+    assert "message_index" not in message_columns
+    assert "turn_message_index" in message_columns
+    assert ("turn_id", "turn_message_index") in unique_index_columns
+    assert session_repo.get("session-1") is None
     assert turn_repo.list_by_session("session-1") == []
     assert run_repo.list_by_session("session-1") == []
     assert message_repo.list_by_session("session-1") == []

@@ -30,7 +30,7 @@ class MessageRepository:
             models = (
                 db_session.query(MessageModel)
                 .filter_by(session_id=session_id)
-                .order_by(MessageModel.created_at.asc(), MessageModel.message_index.asc())
+                .order_by(MessageModel.created_at.asc(), MessageModel.turn_message_index.asc())
                 .all()
             )
             return [Message.model_validate(model) for model in models]
@@ -40,7 +40,7 @@ class MessageRepository:
             models = (
                 db_session.query(MessageModel)
                 .filter_by(turn_id=turn_id)
-                .order_by(MessageModel.message_index.asc())
+                .order_by(MessageModel.turn_message_index.asc())
                 .all()
             )
             return [Message.model_validate(model) for model in models]
@@ -50,7 +50,7 @@ class MessageRepository:
             models = (
                 db_session.query(MessageModel)
                 .filter_by(run_id=run_id)
-                .order_by(MessageModel.message_index.asc())
+                .order_by(MessageModel.turn_message_index.asc())
                 .all()
             )
             return [Message.model_validate(model) for model in models]
@@ -73,15 +73,15 @@ class MessageRepository:
         db_session.refresh(model)
         return Message.model_validate(model)
 
-    def next_message_index(self, turn_id: str, *, db_session=None) -> int:
+    def next_turn_message_index(self, turn_id: str, *, db_session=None) -> int:
         if db_session is None:
             with self.db.get_session() as managed_session:
-                return self.next_message_index(turn_id, db_session=managed_session)
+                return self.next_turn_message_index(turn_id, db_session=managed_session)
 
         current = (
-            db_session.query(MessageModel.message_index)
+            db_session.query(MessageModel.turn_message_index)
             .filter_by(turn_id=turn_id)
-            .order_by(MessageModel.message_index.desc())
+            .order_by(MessageModel.turn_message_index.desc())
             .limit(1)
             .scalar()
         ) or 0
@@ -99,7 +99,7 @@ class MessageRepository:
             session_id=session_id,
             turn_id=payload["turn_id"],
             run_id=payload.get("run_id"),
-            message_index=payload["message_index"],
+            turn_message_index=payload["turn_message_index"],
             role=payload["role"],
             message_type=message_type,
             stream_state=stream_state,

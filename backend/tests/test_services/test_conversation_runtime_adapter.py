@@ -132,6 +132,27 @@ def test_marks_run_failed_when_run_error_arrives(tmp_path):
     assert assistant.payload_json["error_message"] == "boom"
 
 
+def test_run_cancelled_assigns_unique_turn_message_indexes_with_buffered_assistant_content(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "处理中..."})
+    adapter.handle_event("run:cancelled", {})
+
+    messages = service.message_repo.list_by_turn(started.turn.id)
+
+    assert [(message.message_type, message.turn_message_index) for message in messages] == [
+        (MessageType.USER_MESSAGE, 1),
+        (MessageType.ASSISTANT_MESSAGE, 2),
+        (MessageType.SYSTEM_NOTICE, 3),
+    ]
+
+
 def test_tool_error_marks_tool_trace_failed_instead_of_completed(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(

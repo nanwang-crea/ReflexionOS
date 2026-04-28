@@ -52,7 +52,7 @@ interface ConversationMessageDto {
   session_id: string
   turn_id: string
   run_id: string | null
-  message_index: number
+  turn_message_index: number
   role: ConversationMessage['role']
   message_type: ConversationMessage['messageType']
   stream_state: ConversationMessage['streamState']
@@ -122,7 +122,7 @@ function toConversationMessage(dto: ConversationMessageDto): ConversationMessage
     sessionId: dto.session_id,
     turnId: dto.turn_id,
     runId: dto.run_id,
-    messageIndex: dto.message_index,
+    turnMessageIndex: dto.turn_message_index,
     role: dto.role,
     messageType: dto.message_type,
     streamState: dto.stream_state,

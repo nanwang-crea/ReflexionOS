@@ -210,7 +210,7 @@ class ConversationProjection:
             session_id=session_id,
             turn_id=payload["turn_id"],
             run_id=payload.get("related_run_id"),
-            message_index=payload["message_index"],
+            turn_message_index=payload["turn_message_index"],
             role=payload.get("role", "system"),
             message_type=MessageType.SYSTEM_NOTICE,
             stream_state=StreamState.COMPLETED,

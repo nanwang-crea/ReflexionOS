@@ -53,6 +53,7 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
     assert len(payload["runs"]) == 1
     assert len(payload["messages"]) == 1
     assert payload["messages"][0]["message_type"] == "user_message"
+    assert payload["messages"][0]["turn_message_index"] == 1
 
 
 def test_get_conversation_snapshot_returns_404_for_missing_session(client):

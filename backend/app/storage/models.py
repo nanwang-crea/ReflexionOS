@@ -77,6 +77,9 @@ class RunModel(Base):
 
 class MessageModel(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("turn_id", "turn_message_index", name="uq_messages_turn_turn_message_index"),
+    )
 
     id = Column(String, primary_key=True)
     session_id = Column(
@@ -87,7 +90,7 @@ class MessageModel(Base):
     )
     turn_id = Column(String, nullable=False, index=True)
     run_id = Column(String, index=True)
-    message_index = Column(Integer, nullable=False)
+    turn_message_index = Column(Integer, nullable=False)
     role = Column(String, nullable=False)
     message_type = Column(String, nullable=False, index=True)
     stream_state = Column(String, nullable=False)
