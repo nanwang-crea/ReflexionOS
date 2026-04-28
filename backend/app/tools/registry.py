@@ -69,7 +69,7 @@ class ToolRegistry:
     
     def list_tools(self) -> list[str]:
         """列出所有注册的工具名称"""
-        return list(self.tools.keys())
+        return sorted(self.tools.keys())
 
     def register_if_missing(self, tool: BaseTool) -> bool:
         """

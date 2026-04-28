@@ -7,6 +7,7 @@ from typing import Callable
 
 from pydantic import BaseModel, ConfigDict
 
+from app.models.conversation import MessageType
 from app.storage.database import db as default_db
 from app.storage.models import MessageSearchDocumentModel, SessionModel
 
@@ -57,19 +58,26 @@ class RecallService:
         if not query:
             return []
 
+        resolved_limit = self._resolve_limit(limit)
+        if resolved_limit <= 0:
+            return []
+
+        now = self._now()
         candidates = self._list_project_documents(project_id=project_id, max_candidates=200)
-        ranked = sorted(
-            candidates,
-            key=lambda document: self._score_document(document, query=query),
-            reverse=True,
-        )
+
+        scored: list[tuple[float, float, str, _MessageSearchDocumentSnapshot]] = []
+        for document in candidates:
+            score = self._score_document(document, query=query, now=now)
+            # Deterministic tiebreakers: prefer newer docs, then stable message_id ordering.
+            scored.append((score, document.created_at.timestamp(), document.message_id, document))
+
+        ranked = sorted(scored, key=lambda item: (item[0], item[1], item[2]), reverse=True)
         results: list[RecallResult] = []
-        for document in ranked:
-            score = self._score_document(document, query=query)
+        for score, _created_ts, _message_id, document in ranked:
             if score <= 0:
                 continue
             results.append(self._to_result(document, score=score))
-            if len(results) >= limit:
+            if len(results) >= resolved_limit:
                 break
         return results
 
@@ -103,20 +111,26 @@ class RecallService:
                 for row in rows
             ]
 
-    def _score_document(self, document: _MessageSearchDocumentSnapshot, *, query: str) -> float:
+    def _score_document(self, document: _MessageSearchDocumentSnapshot, *, query: str, now: datetime) -> float:
         match_score = self._match_score(query=query, text=document.search_text or "")
         if match_score <= 0:
             return 0.0
 
         role_boost = 2.0 if (document.role or "").lower() == "user" else 1.0
-        type_boost = 1.5 if document.message_type in {"user_message", "system_notice"} else 1.0
+        boosted_types = {MessageType.USER_MESSAGE.value, MessageType.SYSTEM_NOTICE.value}
+        type_boost = 1.5 if document.message_type in boosted_types else 1.0
 
-        now = self._now()
         age_seconds = max((now - document.created_at).total_seconds(), 0.0)
         age_days = age_seconds / 86400.0
         recency_boost = max(0.5, 1.5 - min(age_days, 30.0) * 0.03)
 
         return float(match_score * role_boost * type_boost * recency_boost)
+
+    def _resolve_limit(self, limit: int) -> int:
+        try:
+            return int(limit)
+        except (TypeError, ValueError):
+            return 0
 
     def _match_score(self, *, query: str, text: str) -> float:
         q_tokens = self._tokens(query)

@@ -97,3 +97,32 @@ def test_recall_service_prefers_recent_user_decision_messages(recall_service: Re
     results = recall_service.search(project_id="project-1", query="messages 表 记忆", limit=3)
 
     assert results[0].message_id == "msg-new"
+
+
+def test_recall_service_excludes_other_projects(recall_service: RecallService):
+    recall_service.seed_document(
+        message_id="msg-p1",
+        project_id="project-1",
+        session_id="session-p1",
+        role="user",
+        message_type="user_message",
+        search_text="messages 表 记忆 设计",
+        turn_index=1,
+        turn_message_index=1,
+        created_at="2026-04-28T10:00:00",
+    )
+    recall_service.seed_document(
+        message_id="msg-p2",
+        project_id="project-2",
+        session_id="session-p2",
+        role="user",
+        message_type="user_message",
+        search_text="messages 表 记忆 设计",
+        turn_index=1,
+        turn_message_index=1,
+        created_at="2026-04-28T10:00:00",
+    )
+
+    results = recall_service.search(project_id="project-1", query="messages 表", limit=10)
+
+    assert {result.message_id for result in results} == {"msg-p1"}
