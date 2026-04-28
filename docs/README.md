@@ -11,21 +11,17 @@
 2. `backend/README.md`
    - 后端依赖来源、桌面启动探测和手动调试说明。
 
-3. `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`
+3. `docs/superpowers/plans/2026-04-15-reflexion-os-design-整体架构.md`
    - 当前长期设计参考文档。
    - 产品定位、整体架构、模块职责可以参考这份,但运行方式、依赖来源、当前协议面仍以 `README.md`、`backend/README.md` 和代码实现为准。
 
-4. `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md`
-   - 当前记忆系统的正式架构方案。
-   - 当讨论长期协作记忆、运行时读取模型、长期记忆边界、晋升原则与召回路径时，优先参考这份。
+4. `docs/superpowers/specs/2026-04-28-agent-memory-overall-design.md`
+   - 当前记忆系统的正式整体设计方案。
+   - 当讨论长期记忆、session 续航、transcript recall、provider 扩展边界时，优先参考这份。
 
-5. `docs/plans/2026-04-19-memory-phase-1.md`
-   - 当前记忆系统第一阶段方案。
-   - 当推进第一阶段记忆能力时，优先参考这份，而不是直接从大而全的记忆目标出发。
-
-6. `docs/plans/2026-04-18-multi-provider-model-plan.md`
-   - 当前关于多供应商实例、模型选择、默认值和会话记忆的实施计划。
-   - 继续推进设置页和聊天模型选择能力时优先参考这份。
+5. `docs/superpowers/specs/2026-04-24-conversation-phase1-direct-cutover-design.md`
+   - 当前会话底座设计方案。
+   - 当讨论 `Session / Turn / Run / Message / Event` 会话事实层时，优先参考这份。
 
 ## 历史参考
 
@@ -60,9 +56,8 @@
 
 ## 维护规则
 
-- 后续如果是整体产品定位或长线架构变更,优先更新 `docs/superpowers/specs/2026-04-15-reflexion-os-design.md`。
-- 当前记忆系统总体方向，以 `docs/superpowers/specs/2026-04-19-memory-architecture-v1.md` 为准；第一阶段范围以 `docs/plans/2026-04-19-memory-phase-1.md` 为准。
-- 当前 LLM 多供应商实例改造的阶段计划，以 `docs/plans/2026-04-18-multi-provider-model-plan.md` 为准。
+- 后续如果是整体产品定位或长线架构变更,优先更新 `docs/superpowers/plans/2026-04-15-reflexion-os-design-整体架构.md`。
+- 当前记忆系统总体方向，以 `docs/superpowers/specs/2026-04-28-agent-memory-overall-design.md` 为准；在新的 Phase 1 实施计划落出前，以该文档中的“第一阶段落地范围”为准。
 - 如果只是运行方式、目录结构、开发命令变化,优先更新 `README.md` 和 `backend/README.md`。
 - Python 依赖当前统一以 `backend/requirements.txt` 为准,不要再在 `backend/pyproject.toml` 里重复声明。
 - 阶段性计划和状态报告可以保留,但应明确标注日期和阶段,不要再把它们当成主设计文档。
