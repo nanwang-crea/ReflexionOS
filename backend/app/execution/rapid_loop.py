@@ -70,7 +70,10 @@ class RapidExecutionLoop:
         task: str,
         project_path: str | None = None,
         run_id: str | None = None,
-        created_at: datetime | None = None
+        created_at: datetime | None = None,
+        seed_messages: list[dict[str, str]] | None = None,
+        supplemental_context: str | None = None,
+        system_sections: list[str] | None = None,
     ) -> LoopResult:
         """
         执行任务
@@ -96,6 +99,10 @@ class RapidExecutionLoop:
             project_path=project_path,
             run_id=loop_result.id
         )
+        for seeded in seed_messages or []:
+            context.add_message(seeded.get("role") or "", seeded.get("content"))
+        context.supplemental_context = supplemental_context
+        context.system_sections = system_sections or []
         context.add_message("user", task)
 
         # 发送开始事件
@@ -313,6 +320,16 @@ class RapidExecutionLoop:
         # 系统提示
         system_prompt = self._get_system_prompt()
         messages.append(LLMMessage(role="system", content=system_prompt))
+
+        # Task 6: layered system context sections (AGENTS/USER/MEMORY/etc.)
+        for section in getattr(context, "system_sections", []) or []:
+            if str(section or "").strip():
+                messages.append(LLMMessage(role="system", content=str(section)))
+
+        # Task 6: supplemental context block (e.g., continuation artifact handoff)
+        supplemental = getattr(context, "supplemental_context", None)
+        if supplemental and str(supplemental).strip():
+            messages.append(LLMMessage(role="system", content=str(supplemental).strip()))
 
         # 历史消息
         for msg in self._get_recent_context_messages(context):

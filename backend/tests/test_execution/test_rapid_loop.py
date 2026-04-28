@@ -258,6 +258,34 @@ class TestRapidExecutionLoop:
         assert summary_tools is None
         assert summary_messages[-1].role == "user"
         assert "Write the final answer for the user now." in summary_messages[-1].content
+
+    @pytest.mark.asyncio
+    async def test_rapid_loop_includes_seeded_history_before_current_user_message(
+        self,
+        execution_loop,
+        mock_llm,
+    ):
+        captured = {}
+
+        async def mock_stream(messages, tools=None):
+            captured["messages"] = messages
+            async for chunk in self._stream_response(content="ok"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        await execution_loop.run(
+            "继续处理",
+            seed_messages=[
+                {"role": "user", "content": "上一轮需求"},
+                {"role": "assistant", "content": "上一轮结论"},
+            ],
+            supplemental_context="当前目标: 修 memory",
+        )
+
+        contents = [message.content for message in captured["messages"] if message.content]
+        assert contents.index("上一轮需求") < contents.index("继续处理")
+        assert any("当前目标: 修 memory" in content for content in contents)
     
     @pytest.mark.asyncio
     async def test_execution_max_steps(self, execution_loop, mock_llm):

@@ -1,10 +1,12 @@
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
 import app.services.agent_service as agent_service_module
+from app.memory.context_assembly import ContextAssemblyResult
 from app.models.conversation import MessageType, RunStatus, StreamState
 from app.models.llm_config import (
     LLMSettings,
@@ -375,6 +377,24 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
         def handle_event(self, event_type, data):
             return []
 
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             captured_registries.append(kwargs["tool_registry"])
@@ -486,6 +506,152 @@ async def test_runtime_and_shared_tool_registries_include_memory_tool(monkeypatc
     run_tool_names = {definition.name for definition in captured_registries[0].get_tool_definitions()}
     assert "memory" in shared_tool_names
     assert "memory" in run_tool_names
+
+
+@pytest.mark.asyncio
+async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    captured = {}
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+
+        async def run(self, **kwargs):
+            captured.update(kwargs)
+            await self.event_callback("run:complete", {})
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+    monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
+
+    service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
+        system_sections=["STATIC"],
+        recent_messages=[{"role": "user", "content": "seeded"}],
+        supplemental_block="handoff",
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert captured["seed_messages"] == [{"role": "user", "content": "seeded"}]
+    assert captured["supplemental_context"] == "handoff"
+    assert captured["system_sections"] == ["STATIC"]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="请继续实现 context assembly",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(project_root),
+    )
+
+    class StubWsManager:
+        async def send_event(self, session_id, event_type, data):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+
+        async def run(self, **kwargs):
+            await self.event_callback("run:complete", {})
+
+    class StubLLM:
+        async def complete(self, messages, tools=None):
+            return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
+
+    monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: StubLLM())
+
+    await service._run_turn(
+        run_id=started.run.id,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        task="请继续实现 context assembly",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    snapshot = conversation_service.get_snapshot("session-1")
+    continuation = [
+        message
+        for message in snapshot.messages
+        if message.turn_id == started.turn.id
+        and message.message_type == MessageType.SYSTEM_NOTICE
+        and isinstance(message.payload_json, dict)
+        and message.payload_json.get("kind") == "continuation_artifact"
+    ]
+    assert len(continuation) == 1
+    assert continuation[0].display_mode == "collapsed"
+    assert continuation[0].payload_json["exclude_from_recall"] is True
+    assert continuation[0].payload_json["exclude_from_memory_promotion"] is True
+    assert "当前目标" in continuation[0].content_text
 
 
 @pytest.mark.asyncio
