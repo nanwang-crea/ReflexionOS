@@ -82,6 +82,7 @@ class ContextAssembler:
         current_turn_id: str | None = None,
         current_user_input: str | None = None,  # reserved for future ranking
         max_seed_messages: int = 8,
+        scan_limit: int = 200,
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []
 
@@ -97,8 +98,11 @@ class ContextAssembler:
             if any(entry.status == "active" for entry in entries):
                 static_blocks.append(self.curated_store.render_markdown(project_id=project_id, target=target))
 
-        # 3) Conversation-derived layers.
-        messages = self.conversation_service.message_repo.list_by_session(session_id)
+        # 3) Conversation-derived layers (bounded scan to avoid full-session walk).
+        messages = self.conversation_service.message_repo.list_recent_by_session(
+            session_id,
+            limit=max(50, int(scan_limit)) if scan_limit else 200,
+        )
 
         supplemental_block: str | None = None
         for message in reversed(messages):
@@ -126,4 +130,3 @@ class ContextAssembler:
             recent_messages=recent_messages,
             supplemental_block=supplemental_block,
         )
-

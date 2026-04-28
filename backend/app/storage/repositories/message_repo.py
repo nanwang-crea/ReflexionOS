@@ -47,6 +47,41 @@ class MessageRepository:
             )
             return [Message.model_validate(model) for model in models]
 
+    def list_recent_by_session(self, session_id: str, *, limit: int = 200) -> list[Message]:
+        """
+        Return the most recent session messages with a bounded query.
+
+        Messages are returned in chronological order (oldest -> newest) within the selected window.
+        """
+        resolved_limit = 0
+        try:
+            resolved_limit = int(limit)
+        except (TypeError, ValueError):
+            resolved_limit = 0
+        if resolved_limit <= 0:
+            return []
+
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(MessageModel)
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(MessageModel.session_id == session_id)
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).asc(),
+                    TurnModel.turn_index.desc(),
+                    MessageModel.turn_message_index.desc(),
+                    MessageModel.created_at.desc(),
+                )
+                .limit(resolved_limit)
+                .all()
+            )
+            # Convert back to chronological order for downstream logic.
+            return [Message.model_validate(model) for model in reversed(models)]
+
     def list_by_turn(self, turn_id: str) -> list[Message]:
         with self.db.get_session() as db_session:
             models = (

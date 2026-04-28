@@ -383,18 +383,6 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
         def get_live_state(self):
             return None
 
-        def build_live_event(self, event_type, data):
-            return None
-
-        def get_live_state(self):
-            return None
-
-        def build_live_event(self, event_type, data):
-            return None
-
-        def get_live_state(self):
-            return None
-
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             captured_registries.append(kwargs["tool_registry"])

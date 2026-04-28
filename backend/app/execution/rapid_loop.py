@@ -99,8 +99,21 @@ class RapidExecutionLoop:
             project_path=project_path,
             run_id=loop_result.id
         )
+
+        allowed_seed_roles = {"user", "assistant", "tool"}
         for seeded in seed_messages or []:
-            context.add_message(seeded.get("role") or "", seeded.get("content"))
+            if not isinstance(seeded, dict):
+                continue
+            role = str(seeded.get("role") or "").strip().lower()
+            if role not in allowed_seed_roles:
+                continue
+            content = seeded.get("content")
+            if not isinstance(content, str):
+                continue
+            content = content.strip()
+            if not content:
+                continue
+            context.add_message(role, content)
         context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []
         context.add_message("user", task)

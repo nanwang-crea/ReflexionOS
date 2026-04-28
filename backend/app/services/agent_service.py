@@ -312,13 +312,17 @@ class AgentService:
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
             )
-            await self._generate_and_persist_continuation_artifact(
-                llm=llm,
-                session_id=session_id,
-                turn_id=turn_id,
-                run_id=run_id,
-                task=task,
-            )
+            try:
+                await self._generate_and_persist_continuation_artifact(
+                    llm=llm,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    task=task,
+                )
+            except Exception:
+                # Best-effort: never fail an already-completed run due to continuation generation.
+                logger.exception("Continuation artifact generation failed: run_id=%s", run_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

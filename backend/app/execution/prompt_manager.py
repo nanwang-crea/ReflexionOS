@@ -88,7 +88,7 @@ Output MUST be plain text with EXACTLY these 4 lines (one per line, keep the lab
 Task (current user input):
 $task
 
-Transcript (most recent first-to-last, may include tool traces):
+Transcript (oldest to newest, may include tool traces):
 $transcript
 """,
             variables=["task", "transcript"],
