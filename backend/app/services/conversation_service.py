@@ -8,6 +8,7 @@ from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResu
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
 from app.storage.repositories.message_repo import MessageRepository
+from app.storage.repositories.message_search_document_repo import MessageSearchDocumentRepository
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
@@ -24,6 +25,7 @@ class ConversationService:
         turn_repo: TurnRepository | None = None,
         run_repo: RunRepository | None = None,
         message_repo: MessageRepository | None = None,
+        message_search_repo: MessageSearchDocumentRepository | None = None,
         event_repo: ConversationEventRepository | None = None,
     ):
         self.db = db
@@ -31,12 +33,14 @@ class ConversationService:
         self.turn_repo = turn_repo or TurnRepository(db)
         self.run_repo = run_repo or RunRepository(db)
         self.message_repo = message_repo or MessageRepository(db)
+        self.message_search_repo = message_search_repo or MessageSearchDocumentRepository(db)
         self.event_repo = event_repo or ConversationEventRepository(db)
         self.projection = ConversationProjection(
             session_repo=self.session_repo,
             turn_repo=self.turn_repo,
             run_repo=self.run_repo,
             message_repo=self.message_repo,
+            message_search_repo=self.message_search_repo,
         )
         self._session_locks_guard = Lock()
         self._session_write_locks: dict[str, RLock] = {}

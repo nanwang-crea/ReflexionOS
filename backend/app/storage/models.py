@@ -102,6 +102,27 @@ class MessageModel(Base):
     completed_at = Column(DateTime)
 
 
+class MessageSearchDocumentModel(Base):
+    __tablename__ = "message_search_documents"
+
+    message_id = Column(String, primary_key=True)
+    session_id = Column(
+        String,
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    turn_id = Column(String, nullable=False, index=True)
+    run_id = Column(String, index=True)
+    role = Column(String, nullable=False, index=True)
+    message_type = Column(String, nullable=False, index=True)
+    turn_index = Column(Integer, nullable=False, index=True)
+    turn_message_index = Column(Integer, nullable=False)
+    search_text = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, nullable=False)
+
+
 class ConversationEventModel(Base):
     __tablename__ = "conversation_events"
     __table_args__ = (
