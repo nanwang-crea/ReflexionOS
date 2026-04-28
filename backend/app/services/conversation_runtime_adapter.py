@@ -35,7 +35,7 @@ class ConversationRuntimeAdapter:
 
     def handle_event(self, event_type: str, data: dict) -> list[ConversationEvent]:
         """消费一条 runtime 事件并追加 conversation 事件。"""
-        if event_type == "execution:start":
+        if event_type == "run:start":
             return self._append_events([
                 self._new_event(
                     event_type=EventType.RUN_STARTED,
@@ -68,13 +68,13 @@ class ConversationRuntimeAdapter:
             }
             return self._append_events(self._tool_result_events(failed_data))
 
-        if event_type == "execution:error":
+        if event_type == "run:error":
             return self._append_events(self._execution_error_events(data))
 
-        if event_type == "execution:complete":
+        if event_type == "run:complete":
             return self._append_events(self._execution_complete_events())
 
-        if event_type == "execution:cancelled":
+        if event_type == "run:cancelled":
             return self._append_events(self._execution_cancelled_events())
 
         return []

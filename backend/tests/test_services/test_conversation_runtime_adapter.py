@@ -19,7 +19,7 @@ def build_started_turn(tmp_path):
     return service, started
 
 
-def test_buffers_llm_content_until_execution_completes(tmp_path):
+def test_buffers_llm_content_until_run_completes(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
         conversation_service=service,
@@ -38,7 +38,7 @@ def test_buffers_llm_content_until_execution_completes(tmp_path):
         if message.message_type == MessageType.ASSISTANT_MESSAGE
     ]
 
-    completion_events = adapter.handle_event("execution:complete", {"result": "done"})
+    completion_events = adapter.handle_event("run:complete", {"result": "done"})
 
     snapshot = service.get_snapshot("session-1")
     assistant_messages = [
@@ -99,7 +99,7 @@ def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     assert traces[0].stream_state == StreamState.COMPLETED
 
 
-def test_marks_run_failed_when_execution_error_arrives(tmp_path):
+def test_marks_run_failed_when_run_error_arrives(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
         conversation_service=service,
@@ -109,7 +109,7 @@ def test_marks_run_failed_when_execution_error_arrives(tmp_path):
     )
 
     adapter.handle_event("llm:content", {"content": "处理中..."})
-    error_events = adapter.handle_event("execution:error", {"error": "boom"})
+    error_events = adapter.handle_event("run:error", {"error": "boom"})
 
     snapshot = service.get_snapshot("session-1")
     run = next(run for run in snapshot.runs if run.id == started.run.id)

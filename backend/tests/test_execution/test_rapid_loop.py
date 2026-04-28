@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.execution.context_manager import ExecutionContext
+from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
@@ -181,7 +181,7 @@ class TestRapidExecutionLoop:
 
     def test_build_messages_keeps_tool_outputs_with_matching_assistant_call(self, execution_loop):
         """测试历史截断时不会留下孤立的 tool 输出消息"""
-        context = ExecutionContext(task="检查工具消息配对")
+        context = LoopContext(task="检查工具消息配对")
         first_call = LLMToolCall(id="call_alpha", name="mock", arguments={"path": "a.txt"})
         second_call = LLMToolCall(id="call_beta", name="mock", arguments={"path": "b.txt"})
 
@@ -211,7 +211,7 @@ class TestRapidExecutionLoop:
         ]
 
     def test_build_messages_does_not_duplicate_initial_user_task(self, execution_loop):
-        context = ExecutionContext(task="检查重复 user 消息")
+        context = LoopContext(task="检查重复 user 消息")
         context.add_message("user", "检查重复 user 消息")
 
         messages = execution_loop._build_messages(context)
@@ -314,7 +314,7 @@ class TestRapidExecutionLoop:
         event_types = [event["type"] for event in events]
         assert "tool:start" in event_types
         assert "tool:result" in event_types
-        assert "execution:complete" in event_types
+        assert "run:complete" in event_types
     
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):
@@ -340,11 +340,11 @@ class TestRapidExecutionLoop:
         await execution_loop.run("测试任务")
 
         # 检查事件
-        execution_start = next(e for e in events if e["type"] == "execution:start")
+        execution_start = next(e for e in events if e["type"] == "run:start")
         assert execution_start["data"]["run_id"].startswith("run-")
         assert "execution_id" not in execution_start["data"]
         assert any(e["type"] == "llm:content" for e in events)
-        assert any(e["type"] == "execution:complete" for e in events)
+        assert any(e["type"] == "run:complete" for e in events)
         assert not any(e["type"] == "llm:start" for e in events)
 
     @pytest.mark.asyncio
@@ -423,7 +423,7 @@ class TestRapidExecutionLoop:
         assert result.id == "run-cancel-test"
         assert result.status == LoopStatus.CANCELLED
         assert result.result == "执行已取消"
-        assert any(event["type"] == "execution:cancelled" for event in events)
+        assert any(event["type"] == "run:cancelled" for event in events)
 
     @pytest.mark.asyncio
     async def test_failed_execution_emits_execution_error_event(self, mock_llm, tool_registry):
@@ -460,7 +460,7 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("失败任务")
 
         assert result.status == LoopStatus.FAILED
-        assert any(event["type"] == "execution:error" for event in events)
+        assert any(event["type"] == "run:error" for event in events)
 
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):

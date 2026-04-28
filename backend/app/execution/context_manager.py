@@ -2,20 +2,20 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from app.execution.models import ExecutionStep, StepStatus
+from app.execution.models import LoopStep, StepStatus
 
 logger = logging.getLogger(__name__)
 
 
-class ExecutionContext:
-    """Agent 执行上下文"""
+class LoopContext:
+    """Agent loop 上下文"""
     
     def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None):
         self.task = task
         self.project_path = project_path
         self.run_id = run_id or f"run-{id(self)}"
         self.history: list[dict[str, Any]] = []
-        self.steps: list[ExecutionStep] = []
+        self.steps: list[LoopStep] = []
         self.messages: list[dict[str, Any]] = []
         self.current_step_number = 0
         self.workspace_snapshot: dict[str, Any] = {}
@@ -29,7 +29,7 @@ class ExecutionContext:
         })
         logger.debug("更新执行历史")
     
-    def add_step(self, step: ExecutionStep) -> None:
+    def add_step(self, step: LoopStep) -> None:
         """添加执行步骤"""
         self.steps.append(step)
         self.current_step_number = step.step_number

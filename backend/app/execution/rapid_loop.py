@@ -6,8 +6,8 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from app.config.settings import config_manager
-from app.execution.context_manager import ExecutionContext
-from app.execution.models import ExecutionStep, LoopResult, LoopStatus, StepStatus
+from app.execution.context_manager import LoopContext
+from app.execution.models import LoopResult, LoopStatus, LoopStep, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
 from app.tools.registry import ToolRegistry
@@ -91,7 +91,7 @@ class RapidExecutionLoop:
             created_at=created_at or datetime.now()
         )
         
-        context = ExecutionContext(
+        context = LoopContext(
             task=task,
             project_path=project_path,
             run_id=loop_result.id
@@ -99,7 +99,7 @@ class RapidExecutionLoop:
         context.add_message("user", task)
 
         # 发送开始事件
-        await self._emit("execution:start", {
+        await self._emit("run:start", {
             "run_id": loop_result.id,
             "task": task
         })
@@ -215,7 +215,7 @@ class RapidExecutionLoop:
             loop_result.result = loop_result.result or "执行已取消"
             logger.info("执行已取消: %s", loop_result.id)
 
-            await self._emit("execution:cancelled", {
+            await self._emit("run:cancelled", {
                 "status": loop_result.status.value,
                 "result": loop_result.result,
                 "total_steps": len(loop_result.steps)
@@ -227,7 +227,7 @@ class RapidExecutionLoop:
             loop_result.result = f"执行异常: {str(e)}"
             logger.error("执行异常: %s\n%s", e, traceback.format_exc())
             
-            await self._emit("execution:error", {
+            await self._emit("run:error", {
                 "error": str(e)
             })
         
@@ -237,7 +237,7 @@ class RapidExecutionLoop:
             
             # 发送完成事件
             if loop_result.status != LoopStatus.CANCELLED:
-                await self._emit("execution:complete", {
+                await self._emit("run:complete", {
                     "status": loop_result.status.value,
                     "result": loop_result.result,
                     "total_steps": len(loop_result.steps),
@@ -246,7 +246,7 @@ class RapidExecutionLoop:
         
         return loop_result
     
-    async def _call_llm(self, context: ExecutionContext) -> LLMResponse:
+    async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """
         调用 LLM（使用原生工具调用）
         
@@ -306,7 +306,7 @@ class RapidExecutionLoop:
         
         return response
     
-    def _build_messages(self, context: ExecutionContext) -> list[LLMMessage]:
+    def _build_messages(self, context: LoopContext) -> list[LLMMessage]:
         """构建消息列表"""
         messages = []
         
@@ -329,7 +329,7 @@ class RapidExecutionLoop:
         
         return messages
 
-    def _get_recent_context_messages(self, context: ExecutionContext) -> list[dict]:
+    def _get_recent_context_messages(self, context: LoopContext) -> list[dict]:
         """
         获取最近的上下文消息。
 
@@ -371,9 +371,9 @@ class RapidExecutionLoop:
     async def _execute_tool(
         self,
         tool_call: LLMToolCall,
-        context: ExecutionContext,
+        context: LoopContext,
         step_number: int
-    ) -> ExecutionStep:
+    ) -> LoopStep:
         """
         执行工具调用
         
@@ -383,9 +383,9 @@ class RapidExecutionLoop:
             step_number: 步骤编号
             
         Returns:
-            ExecutionStep: 执行步骤
+            LoopStep: 执行步骤
         """
-        step = ExecutionStep(
+        step = LoopStep(
             id=f"step-{uuid.uuid4().hex[:8]}",
             step_number=step_number,
             tool=tool_call.name,
@@ -462,7 +462,7 @@ class RapidExecutionLoop:
         
         return step
     
-    async def _get_final_summary(self, context: ExecutionContext) -> str:
+    async def _get_final_summary(self, context: LoopContext) -> str:
         """
         获取最终回答
         

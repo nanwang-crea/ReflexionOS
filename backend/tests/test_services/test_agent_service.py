@@ -199,7 +199,7 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
             turn_id=kwargs["turn_id"],
             run_id=kwargs["run_id"],
         )
-        adapter.handle_event("execution:start", {})
+        adapter.handle_event("run:start", {})
         adapter.handle_event("llm:content", {"content": "正在执行"})
         adapter.handle_event(
             "tool:start",
@@ -209,7 +209,7 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
         try:
             await asyncio.Future()
         except asyncio.CancelledError:
-            adapter.handle_event("execution:cancelled", {})
+            adapter.handle_event("run:cancelled", {})
             cancelled_event.set()
             raise
 
@@ -318,7 +318,7 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
         async def run(self, **kwargs):
             await self.event_callback("llm:content", {"content": "hello"})
-            await self.event_callback("execution:complete", {})
+            await self.event_callback("run:complete", {})
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
@@ -338,7 +338,7 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
     assert call_order[0] == ("persist", "llm:content")
     assert call_order[1] == ("broadcast", "conversation.live_event", "msg-1")
-    assert call_order[2] == ("persist", "execution:complete")
+    assert call_order[2] == ("persist", "run:complete")
     assert call_order[3] == ("broadcast", "conversation.event", "evt-1")
     assert service.get_live_state("session-1") is None
 
@@ -453,7 +453,7 @@ async def test_cancel_run_fallback_adapter_closes_existing_open_messages(monkeyp
             turn_id=kwargs["turn_id"],
             run_id=kwargs["run_id"],
         )
-        adapter.handle_event("execution:start", {})
+        adapter.handle_event("run:start", {})
         adapter.handle_event("llm:content", {"content": "streaming assistant"})
         adapter.handle_event(
             "tool:start",

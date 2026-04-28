@@ -20,7 +20,7 @@ class StepStatus(str, Enum):
     FAILED = "failed"
 
 
-class ExecutionStep(BaseModel):
+class LoopStep(BaseModel):
     id: str = Field(default_factory=lambda: f"step-{uuid.uuid4().hex[:8]}")
     step_number: int
     tool: str
@@ -38,7 +38,7 @@ class LoopResult(BaseModel):
     id: str = Field(default_factory=lambda: f"loop-{uuid.uuid4().hex[:8]}")
     task: str
     status: LoopStatus = LoopStatus.PENDING
-    steps: list[ExecutionStep] = []
+    steps: list[LoopStep] = []
     result: str | None = None
     total_duration: float | None = None
     created_at: datetime = Field(default_factory=datetime.now)

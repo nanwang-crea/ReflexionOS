@@ -119,18 +119,3 @@ class ConversationEventModel(Base):
     event_type = Column(String, nullable=False)
     payload_json = Column(JSON, default=dict, nullable=False)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
-
-
-class LLMUsageModel(Base):
-    """LLM 使用统计模型"""
-    __tablename__ = "llm_usage"
-    
-    id = Column(String, primary_key=True)
-    run_id = Column(String, nullable=False, index=True)
-    provider = Column(String, nullable=False)
-    model = Column(String, nullable=False)
-    prompt_tokens = Column(Integer, default=0)
-    completion_tokens = Column(Integer, default=0)
-    total_tokens = Column(Integer, default=0)
-    cost = Column(Integer, default=0)  # 单位: 分
-    timestamp = Column(DateTime, default=datetime.now)

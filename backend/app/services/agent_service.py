@@ -294,7 +294,7 @@ class AgentService:
             raise
         except Exception as exc:
             logger.exception("运行失败: run_id=%s", run_id)
-            await persist_and_broadcast("execution:error", {"error": str(exc)})
+            await persist_and_broadcast("run:error", {"error": str(exc)})
         finally:
             self._runtime_adapters.pop(run_id, None)
 
@@ -323,7 +323,7 @@ class AgentService:
                 turn_id=run.turn_id,
                 run_id=run_id,
             )
-        persisted_events = runtime_adapter.handle_event("execution:cancelled", {})
+        persisted_events = runtime_adapter.handle_event("run:cancelled", {})
         await self._broadcast_conversation_events(
             session_id=run.session_id,
             events=persisted_events,
