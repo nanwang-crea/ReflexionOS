@@ -116,6 +116,5 @@ class MemoryTool(BaseTool):
 
             return ToolResult(success=False, error=f"unsupported memory action: {action}")
         except Exception as exc:
-            logger.error("memory tool execute failed: %s", exc)
+            logger.exception("memory tool execute failed")
             return ToolResult(success=False, error=str(exc))
-

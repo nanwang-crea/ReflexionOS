@@ -61,3 +61,58 @@ def test_rejects_global_scope_for_task3(tmp_path):
 
     with pytest.raises(Exception):
         CuratedEntry(**entry_dict)
+
+
+def test_rejects_invalid_project_ids(tmp_path):
+    store = CuratedMemoryStore(base_dir=tmp_path)
+    entry = CuratedEntry(
+        target="user",
+        type="preference",
+        scope="project",
+        source="user_explicit",
+        confidence="high",
+        status="active",
+        source_refs=["msg-1"],
+        summary="默认使用中文回复。",
+    )
+
+    bad_project_ids = [
+        "../escape",
+        "..",
+        "/abs/path",
+        "a/b",
+        r"a\\b",
+        "project-1/../../evil",
+    ]
+
+    for project_id in bad_project_ids:
+        with pytest.raises(ValueError):
+            store.add_entry(project_id=project_id, entry=entry)
+
+
+def test_add_entry_conflict_detects_simple_english_negation_pair(tmp_path):
+    store = CuratedMemoryStore(base_dir=tmp_path)
+    first = CuratedEntry(
+        target="memory",
+        type="constraint",
+        scope="project",
+        source="derived",
+        confidence="high",
+        status="active",
+        source_refs=["msg-1"],
+        summary="do not use x",
+    )
+    store.add_entry(project_id="project-1", entry=first)
+
+    second = first.model_copy(update={"summary": "use x", "source_refs": ["msg-2"]})
+    result = store.add_entry(project_id="project-1", entry=second)
+
+    assert result.conflict is True
+    assert result.conflicting_entry is not None
+    assert result.conflicting_entry.summary == "do not use x"
+
+
+def test_drift_key_does_not_corrupt_ordinary_english(tmp_path):
+    store = CuratedMemoryStore(base_dir=tmp_path)
+    assert store._drift_key("status") == "status"
+    assert store._drift_key("settings") == "settings"

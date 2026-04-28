@@ -47,6 +47,7 @@ class CuratedMemoryStore:
         self.base_dir = Path(base_dir)
 
     def add_entry(self, *, project_id: str, entry: CuratedEntry) -> CuratedWriteResult:
+        project_id = self._validate_project_id(project_id)
         conflict = self._find_conflict(project_id=project_id, entry=entry)
         if conflict is not None:
             return CuratedWriteResult(success=False, conflict=True, conflicting_entry=conflict)
@@ -65,6 +66,7 @@ class CuratedMemoryStore:
         old_summary: str,
         entry: CuratedEntry,
     ) -> CuratedWriteResult:
+        project_id = self._validate_project_id(project_id)
         entries = self.load_entries(project_id=project_id, target=target)
         updated_any = False
         now = datetime.now(timezone.utc)
@@ -96,6 +98,7 @@ class CuratedMemoryStore:
         target: Literal["user", "memory"],
         summary: str,
     ) -> bool:
+        project_id = self._validate_project_id(project_id)
         entries = self.load_entries(project_id=project_id, target=target)
         now = datetime.now(timezone.utc)
         removed_any = False
@@ -115,6 +118,7 @@ class CuratedMemoryStore:
         return True
 
     def load_entries(self, *, project_id: str, target: Literal["user", "memory"]) -> list[CuratedEntry]:
+        project_id = self._validate_project_id(project_id)
         path = self._entries_path(project_id=project_id, target=target)
         if not path.exists():
             return []
@@ -130,12 +134,14 @@ class CuratedMemoryStore:
         target: Literal["user", "memory"],
         entries: list[CuratedEntry],
     ) -> None:
+        project_id = self._validate_project_id(project_id)
         path = self._entries_path(project_id=project_id, target=target)
         path.parent.mkdir(parents=True, exist_ok=True)
         serialized = [entry.model_dump(mode="json") for entry in entries]
         path.write_text(json.dumps(serialized, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def render_markdown(self, *, project_id: str, target: Literal["user", "memory"]) -> str:
+        project_id = self._validate_project_id(project_id)
         entries = self.load_entries(project_id=project_id, target=target)
         title = "USER" if target == "user" else "MEMORY"
         lines: list[str] = [f"# {title}", ""]
@@ -152,6 +158,7 @@ class CuratedMemoryStore:
         target: Literal["user", "memory"],
         entries: list[CuratedEntry] | None = None,
     ) -> None:
+        project_id = self._validate_project_id(project_id)
         # Optional fast-path to avoid re-loading entries in tight loops.
         if entries is None:
             entries = self.load_entries(project_id=project_id, target=target)
@@ -204,6 +211,7 @@ class CuratedMemoryStore:
         return None
 
     def _project_dir(self, *, project_id: str) -> Path:
+        project_id = self._validate_project_id(project_id)
         return self.base_dir / "projects" / project_id
 
     def _entries_path(self, *, project_id: str, target: Literal["user", "memory"]) -> Path:
@@ -227,12 +235,56 @@ class CuratedMemoryStore:
         if not text:
             return ""
 
-        # Remove punctuation and whitespace first.
-        text = re.sub(r"[\\s\\t\\r\\n]+", "", text)
-        text = re.sub(r"[。，,;；:：!?！？()（）\\[\\]{}<>\"'“”‘’·`~@#$%^&*_+=|\\\\/]+", "", text)
+        # Normalize whitespace so English phrases like "do not" are detected reliably.
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Replace punctuation with spaces (keep apostrophes for "don't").
+        text = re.sub(r"[。，,;；:：!?！？()（）\[\]{}<>\"“”‘’·`~@#$%^&*_+=|\\/]+", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
 
         # Remove common negation markers (order matters).
-        for token in ("不要", "禁止", "别", "勿", "不", "do not", "don't", "not", "no", "never"):
+        for token in ("不要", "禁止", "别", "勿", "不"):
             text = text.replace(token, "")
 
+        # English negations: use word boundaries to avoid corrupting ordinary words.
+        text = re.sub(r"\bdo\s+not\b", "", text)
+        text = re.sub(r"\bdon't\b", "", text)
+        text = re.sub(r"\bnever\b", "", text)
+        text = re.sub(r"\bnot\b", "", text)
+        text = re.sub(r"\bno\b", "", text)
+
+        text = re.sub(r"\s+", " ", text).strip()
+
+        # Collapse to a stable key: strip remaining spaces and punctuation-ish separators.
+        text = re.sub(r"[\s\-_]+", "", text)
         return text.strip()
+
+    def _validate_project_id(self, project_id: str) -> str:
+        """
+        Prevent path traversal / arbitrary writes via project_id.
+
+        Rules:
+        - non-empty string
+        - must not be absolute-like (leading /, \\ or ~)
+        - must not contain path separators
+        - must not contain traversal patterns (..)
+        - limited charset to keep filesystem layout predictable
+        """
+        if not isinstance(project_id, str) or not project_id.strip():
+            raise ValueError("invalid project_id")
+
+        project_id = project_id.strip()
+
+        if project_id.startswith(("/", "\\", "~")):
+            raise ValueError("invalid project_id")
+
+        if "/" in project_id or "\\" in project_id:
+            raise ValueError("invalid project_id")
+
+        if project_id in {".", ".."} or ".." in project_id:
+            raise ValueError("invalid project_id")
+
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", project_id):
+            raise ValueError("invalid project_id")
+
+        return project_id
