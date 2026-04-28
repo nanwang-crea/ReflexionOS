@@ -249,8 +249,7 @@ def test_projection_skips_indexing_when_message_excluded_from_recall(tmp_path):
     artifact = build_continuation_artifact(
         session_id="session-1",
         turn_id="turn-1",
-        messages=[],
-        active_goal="继续设计 recall",
+        content_text="当前目标: 继续设计 recall\n已确认事实: \n未解决点: \n下一步建议: ",
     )
 
     projection.apply(

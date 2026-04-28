@@ -24,37 +24,17 @@ def test_build_continuation_artifact_from_messages():
     artifact = build_continuation_artifact(
         session_id="session-1",
         turn_id="turn-1",
-        messages=[
-            build_message(
-                id="msg-user-1",
-                role="user",
-                message_type=MessageType.USER_MESSAGE,
-                content_text="继续设计 memory 系统",
-            ),
-            build_message(
-                id="msg-assistant-1",
-                role="assistant",
-                message_type=MessageType.ASSISTANT_MESSAGE,
-                content_text="先把 runtime 三层收敛",
-            ),
-            build_message(
-                id="msg-tool-1",
-                role="tool",
-                message_type=MessageType.TOOL_TRACE,
-                content_text="",
-                payload_json={
-                    "tool_name": "shell",
-                    "arguments": {"cmd": "rg memory"},
-                    "success": True,
-                    "output": "docs/spec.md",
-                },
-            ),
-        ],
-        active_goal="把 message-centric 设计写清楚",
+        content_text="\n".join(
+            [
+                "当前目标: 把 message-centric 设计写清楚",
+                "已确认事实: 继续设计 memory 系统; tool_name=shell; output=docs/spec.md",
+                "未解决点: runtime 三层收敛还没做完",
+                "下一步建议: 先把 context assembly 接入 runtime",
+            ]
+        ),
     )
 
     assert "当前目标" in artifact.content_text
     assert "继续设计 memory 系统" in artifact.content_text
     assert artifact.payload_json["kind"] == "continuation_artifact"
     assert artifact.payload_json["exclude_from_recall"] is True
-
