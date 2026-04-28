@@ -438,5 +438,9 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
     recall = RecallService(db=services.db)
     results = recall.search(project_id="project-1", query="中文 回复", limit=3)
     assert results
-    artifact_message_ids = {m.id for m in snapshot.messages if (m.payload_json or {}).get("kind") == "continuation_artifact"}
+    artifact_message_ids = {
+        m.id
+        for m in snapshot.messages
+        if (m.payload_json or {}).get("kind") == "continuation_artifact"
+    }
     assert not any(result.message_id in artifact_message_ids for result in results)
