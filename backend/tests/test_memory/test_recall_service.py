@@ -1,3 +1,6 @@
+import pytest
+
+from app.memory.recall_service import RecallService
 from app.models.conversation import MessageType
 from app.models.session import Session
 from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
@@ -60,3 +63,37 @@ def test_message_payload_update_refreshes_tool_trace_search_text(tmp_path):
     assert "pytest -q" in document.search_text
     assert "exit status 1" in document.search_text
 
+
+@pytest.fixture
+def recall_service(tmp_path) -> RecallService:
+    db = Database(str(tmp_path / "recall-service.db"))
+    return RecallService(db=db)
+
+
+def test_recall_service_prefers_recent_user_decision_messages(recall_service: RecallService):
+    recall_service.seed_document(
+        message_id="msg-old",
+        project_id="project-1",
+        session_id="session-old",
+        role="assistant",
+        message_type="assistant_message",
+        search_text="memory design used event replay messages table",
+        turn_index=1,
+        turn_message_index=2,
+        created_at="2026-04-01T10:00:00",
+    )
+    recall_service.seed_document(
+        message_id="msg-new",
+        project_id="project-1",
+        session_id="session-new",
+        role="user",
+        message_type="user_message",
+        search_text="当前记忆部分应该是从messages表里面拿数据",
+        turn_index=3,
+        turn_message_index=1,
+        created_at="2026-04-28T10:00:00",
+    )
+
+    results = recall_service.search(project_id="project-1", query="messages 表 记忆", limit=3)
+
+    assert results[0].message_id == "msg-new"

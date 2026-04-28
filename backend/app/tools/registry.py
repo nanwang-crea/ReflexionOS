@@ -42,7 +42,8 @@ class ToolRegistry:
     
     def get_all_schemas(self) -> list[dict]:
         """获取所有工具的 Schema"""
-        return [tool.get_schema() for tool in self.tools.values()]
+        # Keep ordering deterministic for callers/tests.
+        return [self.tools[name].get_schema() for name in sorted(self.tools.keys())]
     
     def get_tool_definitions(self) -> list[LLMToolDefinition]:
         """
@@ -54,7 +55,9 @@ class ToolRegistry:
             List[LLMToolDefinition]: 工具定义列表
         """
         definitions = []
-        for tool in self.tools.values():
+        # Keep ordering deterministic for callers/tests.
+        for name in sorted(self.tools.keys()):
+            tool = self.tools[name]
             schema = tool.get_schema()
             parameters = schema.get("parameters") or schema.get("input_schema", {})
             definitions.append(LLMToolDefinition(
