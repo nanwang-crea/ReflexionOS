@@ -1,5 +1,7 @@
 from app.models.conversation import Message, MessageType, StreamState
-from app.storage.models import MessageModel
+from app.storage.models import MessageModel, TurnModel
+from sqlalchemy import case
+import json
 
 
 class MessageRepository:
@@ -29,8 +31,18 @@ class MessageRepository:
         with self.db.get_session() as db_session:
             models = (
                 db_session.query(MessageModel)
-                .filter_by(session_id=session_id)
-                .order_by(MessageModel.created_at.asc(), MessageModel.turn_message_index.asc())
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(MessageModel.session_id == session_id)
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).asc(),
+                    TurnModel.turn_index.asc(),
+                    MessageModel.turn_message_index.asc(),
+                    MessageModel.created_at.asc(),
+                )
                 .all()
             )
             return [Message.model_validate(model) for model in models]
@@ -88,6 +100,17 @@ class MessageRepository:
         return current + 1
 
     def from_payload(self, *, session_id: str, payload: dict) -> Message:
+        def _coerce_payload_json(value: object) -> dict:
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except (TypeError, ValueError):
+                    return {}
+                return parsed if isinstance(parsed, dict) else {}
+            return {}
+
         message_type = MessageType(payload["message_type"])
         if message_type == MessageType.USER_MESSAGE:
             stream_state = StreamState.COMPLETED
@@ -105,5 +128,5 @@ class MessageRepository:
             stream_state=stream_state,
             display_mode=payload["display_mode"],
             content_text=payload.get("content_text", ""),
-            payload_json=payload.get("payload_json", {}),
+            payload_json=_coerce_payload_json(payload.get("payload_json")),
         )

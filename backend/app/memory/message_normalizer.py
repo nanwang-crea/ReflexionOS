@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import json
+
+from app.models.conversation import Message, MessageType
+
+
+def _as_payload_dict(payload_json: object) -> dict:
+    if isinstance(payload_json, dict):
+        return payload_json
+
+    if isinstance(payload_json, str):
+        try:
+            parsed = json.loads(payload_json)
+        except (TypeError, ValueError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    return {}
+
+
+def normalize_message_text(message: Message) -> str:
+    if message.message_type in {MessageType.USER_MESSAGE, MessageType.ASSISTANT_MESSAGE}:
+        return message.content_text.strip()
+
+    if message.message_type == MessageType.SYSTEM_NOTICE:
+        payload = _as_payload_dict(message.payload_json)
+        notice_code = payload.get("notice_code")
+        parts = [message.content_text.strip()]
+        if notice_code:
+            parts.append(f"notice_code={notice_code}")
+        return "\n".join(part for part in parts if part)
+
+    if message.message_type == MessageType.TOOL_TRACE:
+        payload = _as_payload_dict(message.payload_json)
+        lines = [f"tool_name={payload.get('tool_name', '')}"]
+        if payload.get("arguments") is not None:
+            lines.append(f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}")
+        if payload.get("success") is not None:
+            lines.append(f"success={payload['success']}")
+        if payload.get("output") is not None:
+            lines.append(f"output={payload['output']}")
+        if payload.get("error") is not None:
+            lines.append(f"error={payload['error']}")
+        return "\n".join(line for line in lines if line.strip())
+
+    return message.content_text.strip()
