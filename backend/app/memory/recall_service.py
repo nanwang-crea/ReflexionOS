@@ -65,15 +65,16 @@ class RecallService:
         now = self._now()
         candidates = self._list_project_documents(project_id=project_id, max_candidates=200)
 
-        scored: list[tuple[float, float, str, _MessageSearchDocumentSnapshot]] = []
+        scored: list[tuple[float, datetime, str, _MessageSearchDocumentSnapshot]] = []
         for document in candidates:
             score = self._score_document(document, query=query, now=now)
             # Deterministic tiebreakers: prefer newer docs, then stable message_id ordering.
-            scored.append((score, document.created_at.timestamp(), document.message_id, document))
+            # Note: avoid datetime.timestamp() for naive datetimes (timezone-dependent).
+            scored.append((score, document.created_at, document.message_id, document))
 
         ranked = sorted(scored, key=lambda item: (item[0], item[1], item[2]), reverse=True)
         results: list[RecallResult] = []
-        for score, _created_ts, _message_id, document in ranked:
+        for score, _created_at, _message_id, document in ranked:
             if score <= 0:
                 continue
             results.append(self._to_result(document, score=score))

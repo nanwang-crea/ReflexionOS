@@ -36,3 +36,10 @@ async def test_recall_tool_returns_summary_and_evidence(recall_tool: RecallTool)
     assert "results" in result.data
     assert "evidence" in result.data["results"][0]
 
+
+@pytest.mark.asyncio
+async def test_recall_tool_uses_default_limit_when_invalid(recall_tool: RecallTool):
+    result = await recall_tool.execute({"query": "messages 表", "project_id": "project-1", "limit": "not-an-int"})
+    assert result.success is True
+    assert result.data is not None
+    assert len(result.data["results"]) <= 3

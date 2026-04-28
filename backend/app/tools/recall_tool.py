@@ -42,7 +42,7 @@ class RecallTool(BaseTool):
     async def execute(self, args: dict[str, Any]) -> ToolResult:
         project_id = args.get("project_id")
         query = args.get("query")
-        limit = args.get("limit", 3)
+        limit = args.get("limit")
 
         if not project_id:
             return ToolResult(success=False, error="缺少 project_id 参数")
@@ -50,7 +50,7 @@ class RecallTool(BaseTool):
             return ToolResult(success=False, error="缺少 query 参数")
 
         try:
-            resolved_limit = int(limit) if limit is not None else 3
+            resolved_limit = self._parse_limit(limit, default=3)
             results = self.recall_service.search(
                 project_id=str(project_id),
                 query=str(query),
@@ -65,3 +65,12 @@ class RecallTool(BaseTool):
             logger.exception("recall tool execute failed")
             return ToolResult(success=False, error=str(exc))
 
+    def _parse_limit(self, raw: Any, *, default: int) -> int:
+        if raw is None:
+            return default
+        if isinstance(raw, bool):
+            return default
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
