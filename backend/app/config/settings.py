@@ -21,11 +21,18 @@ class UISettings(BaseModel):
     show_timestamps: bool = True
 
 
+class MemorySettings(BaseModel):
+    """Curated memory 配置（项目级 USER.md / MEMORY.md 存储）"""
+
+    base_dir: str = Field(default_factory=lambda: str(Path.home() / ".reflexion" / "memory"))
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
     llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
     ui: UISettings = UISettings()
+    memory: MemorySettings = MemorySettings()
 
 
 class ConfigManager:
