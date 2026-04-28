@@ -263,6 +263,8 @@ class ConversationProjection:
     def _upsert_search_document(self, message: Message, turn: Turn, *, db_session=None) -> None:
         if self.message_search_repo is None:
             return
+        if message.is_excluded_from_recall():
+            return
         # Derived index used for recall: keep it in sync with message content + payload updates.
         self.message_search_repo.upsert(
             message_id=message.id,
