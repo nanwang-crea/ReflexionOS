@@ -1,6 +1,6 @@
 import pytest
 
-from app.llm.retry import MAX_RETRIES, _retry_delay, retry_async
+from app.llm.retry import MAX_RETRIES, RetryExhaustedError, _retry_delay, retry_async
 
 
 class TestRetryDelay:
@@ -124,3 +124,24 @@ class TestRetryAsync:
 
         # 1 initial + 3 retries = 4 total calls
         assert call_count == 4
+
+    @pytest.mark.asyncio
+    async def test_can_raise_retry_exhausted_error_when_configured(self):
+        call_count = 0
+
+        async def fn():
+            nonlocal call_count
+            call_count += 1
+            raise ValueError("always fails")
+
+        with pytest.raises(RetryExhaustedError) as exc_info:
+            await retry_async(
+                fn,
+                retryable_exceptions=(ValueError,),
+                max_retries=2,
+                raise_retry_exhausted=True,
+            )
+
+        assert call_count == 3
+        assert isinstance(exc_info.value.__cause__, ValueError)
+        assert exc_info.value.max_retries == 2

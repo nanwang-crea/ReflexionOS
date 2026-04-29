@@ -8,6 +8,7 @@ class ProjectBase(BaseModel):
     name: str
     path: str
     language: str | None = None
+    config: dict = Field(default_factory=dict)
 
 
 class ProjectCreate(ProjectBase):

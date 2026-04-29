@@ -7,6 +7,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
+from app.llm.retry import RetryExhaustedError
 from app.tools.base import BaseTool, ToolResult
 from app.tools.registry import ToolRegistry
 
@@ -452,6 +453,38 @@ class TestRapidExecutionLoop:
         assert result.status == LoopStatus.CANCELLED
         assert result.result == "执行已取消"
         assert any(event["type"] == "run:cancelled" for event in events)
+
+    @pytest.mark.asyncio
+    async def test_retry_exhaustion_cancels_execution_without_error_recovery(self, mock_llm, tool_registry):
+        events = []
+        call_count = 0
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=3,
+            event_callback=callback
+        )
+
+        async def mock_stream(messages, tools=None):
+            nonlocal call_count
+            call_count += 1
+            raise RetryExhaustedError(ValueError("network down"), max_retries=5)
+            yield
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("需要联网的任务")
+
+        assert call_count == 1
+        assert result.status == LoopStatus.CANCELLED
+        assert result.result == "执行已取消：LLM 重试次数已达上限"
+        event_types = [event["type"] for event in events]
+        assert "run:cancelled" in event_types
+        assert "run:error" not in event_types
 
     @pytest.mark.asyncio
     async def test_failed_execution_emits_execution_error_event(self, mock_llm, tool_registry):

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import app.services.agent_service as agent_service_module
+from app.execution.models import LoopResult, LoopStatus
 from app.memory.context_assembly import ContextAssemblyResult
 from app.memory.continuation_builder import ContinuationArtifactBuilder
 from app.models.conversation import MessageType, RunStatus, StreamState
@@ -322,11 +323,12 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
         async def run(self, **kwargs):
             await self.event_callback("llm:content", {"content": "hello"})
             await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
 
     await service._run_turn(
         run_id="run-1",
@@ -389,11 +391,11 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
             captured_registries.append(kwargs["tool_registry"])
 
         async def run(self, **kwargs):
-            return None
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
 
     await service._run_turn(
         run_id="run-1",
@@ -470,11 +472,11 @@ async def test_runtime_and_shared_tool_registries_include_memory_tool(monkeypatc
             captured_registries.append(kwargs["tool_registry"])
 
         async def run(self, **kwargs):
-            return None
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
 
     await service._run_turn(
         run_id="run-1",
@@ -540,10 +542,11 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
         async def run(self, **kwargs):
             captured.update(kwargs)
             await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: object())
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
     monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
 
     service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
@@ -607,6 +610,7 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
 
         async def run(self, **kwargs):
             await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     class StubLLM:
         async def complete(self, messages, tools=None):
@@ -614,7 +618,7 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
 
     monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda _: StubLLM())
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
 
     await service._run_turn(
         run_id=started.run.id,
@@ -641,6 +645,76 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
     assert continuation[0].payload_json["exclude_from_recall"] is True
     assert continuation[0].payload_json["exclude_from_memory_promotion"] is True
     assert "当前目标" in continuation[0].content_text
+
+
+@pytest.mark.asyncio
+async def test_run_turn_skips_continuation_after_cancelled_execution(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="请检查远程状态",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(project_root),
+    )
+
+    class StubWsManager:
+        async def send_event(self, session_id, event_type, data):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run(self, **kwargs):
+            return LoopResult(
+                id=kwargs["run_id"],
+                task=kwargs["task"],
+                status=LoopStatus.CANCELLED,
+                result="执行已取消：LLM 重试次数已达上限",
+            )
+
+    class StubLLM:
+        async def complete(self, messages, tools=None):
+            return SimpleNamespace(content="不应该生成")
+
+    continuation_mock = AsyncMock()
+
+    monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
+    monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", continuation_mock)
+
+    await service._run_turn(
+        run_id=started.run.id,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        task="请检查远程状态",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    continuation_mock.assert_not_awaited()
 
 
 @pytest.mark.asyncio

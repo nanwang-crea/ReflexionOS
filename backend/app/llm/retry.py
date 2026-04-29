@@ -15,6 +15,15 @@ BASE_DELAY = 2.0
 MAX_DELAY = 60.0
 
 
+class RetryExhaustedError(Exception):
+    """Raised when a retryable operation exhausts its configured retry budget."""
+
+    def __init__(self, last_exception: Exception, *, max_retries: int):
+        self.last_exception = last_exception
+        self.max_retries = max_retries
+        super().__init__(f"retry exhausted after {max_retries} retries: {last_exception}")
+
+
 def _retry_delay(attempt: int) -> float:
     """Exponential backoff with jitter: 2^attempt * base + random jitter."""
     delay = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
@@ -28,6 +37,7 @@ async def retry_async(
     retryable_exceptions: tuple[type[Exception], ...],
     max_retries: int = MAX_RETRIES,
     on_retry: Callable[[Exception, int, int], None] | None = None,
+    raise_retry_exhausted: bool = False,
 ) -> Any:
     """
     Retry an async callable with exponential backoff.
@@ -58,5 +68,8 @@ async def retry_async(
                     exc,
                 )
             await asyncio.sleep(delay)
+
+    if raise_retry_exhausted and last_exc is not None:
+        raise RetryExhaustedError(last_exc, max_retries=max_retries) from last_exc
 
     raise last_exc  # type: ignore[misc]

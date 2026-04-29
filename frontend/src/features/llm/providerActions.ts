@@ -90,7 +90,7 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
 
       try {
         await options.api.deleteProvider(selectedSavedProvider.id)
-        await options.loadSettings()
+        await options.loadSettings(null)
         options.onSavedMessage('供应商已删除')
       } catch (error: unknown) {
         console.error('Failed to delete provider:', error)

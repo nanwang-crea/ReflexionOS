@@ -10,6 +10,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus, LoopStep, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.llm.retry import RetryExhaustedError
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -239,6 +240,19 @@ class RapidExecutionLoop:
                 "status": loop_result.status.value,
                 "result": loop_result.result,
                 "total_steps": len(loop_result.steps)
+            })
+
+        except RetryExhaustedError as e:
+            loop_result.status = LoopStatus.CANCELLED
+            loop_result.result = "执行已取消：LLM 重试次数已达上限"
+            logger.warning("LLM 重试次数已达上限，取消执行: %s", e)
+
+            await self._emit("run:cancelled", {
+                "status": loop_result.status.value,
+                "result": loop_result.result,
+                "total_steps": len(loop_result.steps),
+                "reason": "llm_retry_exhausted",
+                "error": str(e.last_exception),
             })
 
         except Exception as e:
@@ -526,6 +540,8 @@ class RapidExecutionLoop:
             if summary:
                 return summary
             
+        except RetryExhaustedError:
+            raise
         except Exception as e:
             logger.error("获取总结失败: %s", e)
         

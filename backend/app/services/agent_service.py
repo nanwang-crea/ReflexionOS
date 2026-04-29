@@ -5,6 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.api.websocket import ws_manager
+from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm import LLMAdapterFactory
@@ -328,7 +329,7 @@ class AgentService:
                 current_turn_id=turn_id,
                 current_user_input=task,
             )
-            await execution_loop.run(
+            loop_result = await execution_loop.run(
                 task=task,
                 project_path=project_path,
                 run_id=run_id,
@@ -336,6 +337,8 @@ class AgentService:
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
             )
+            if loop_result.status != LoopStatus.COMPLETED:
+                return
             try:
                 await self._generate_and_persist_continuation_artifact(
                     llm=llm,

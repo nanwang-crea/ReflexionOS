@@ -334,6 +334,45 @@ describe('providerActions', () => {
     expect(setSaving).toHaveBeenLastCalledWith(false)
   })
 
+  it('deletes a provider and forces settings reload instead of reusing cached settings', async () => {
+    const deleteProvider = vi.fn().mockResolvedValue(undefined)
+    const loadSettings = vi.fn().mockResolvedValue(undefined)
+    const onSavedMessage = vi.fn()
+    const onError = vi.fn()
+    const confirmDelete = vi.fn().mockReturnValue(true)
+
+    const { createProviderActions } = await import('./providerActions')
+    const actions = createProviderActions({
+      api: {
+        createProvider: vi.fn(),
+        updateProvider: vi.fn(),
+        deleteProvider,
+        testProvider: vi.fn(),
+        setDefaultSelection: vi.fn(),
+      },
+      loadSettings,
+      setLLMState: vi.fn(),
+      setSaving: vi.fn(),
+      setSavingDefault: vi.fn(),
+      setTesting: vi.fn(),
+      onSavedMessage,
+      onTestResult: vi.fn(),
+      onError,
+    })
+
+    await actions.deleteProvider({
+      selectedSavedProvider: createProvider('provider-a', 'model-a'),
+      resetDraft: vi.fn(),
+      confirmDelete,
+    })
+
+    expect(confirmDelete).toHaveBeenCalledWith(expect.objectContaining({ id: 'provider-a' }))
+    expect(deleteProvider).toHaveBeenCalledWith('provider-a')
+    expect(loadSettings).toHaveBeenCalledWith(null)
+    expect(onSavedMessage).toHaveBeenCalledWith('供应商已删除')
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   it('composes settings page actions without passing api or store orchestration from the page', async () => {
     const loadSettings = vi.fn().mockResolvedValue(undefined)
     const onSavedMessage = vi.fn()

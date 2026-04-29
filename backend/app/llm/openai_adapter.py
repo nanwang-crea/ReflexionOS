@@ -76,6 +76,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             lambda: self.client.chat.completions.create(**kwargs),
             retryable_exceptions=_RETRYABLE,
             on_retry=self.on_retry,
+            raise_retry_exhausted=True,
         )
 
         return self._parse_response(response)
@@ -117,6 +118,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             lambda: self.client.chat.completions.create(**kwargs),
             retryable_exceptions=_RETRYABLE,
             on_retry=self.on_retry,
+            raise_retry_exhausted=True,
         )
 
         # 收集 tool_calls（流式时需要聚合）
