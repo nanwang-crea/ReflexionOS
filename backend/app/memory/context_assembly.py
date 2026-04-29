@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
 
 from app.memory.curated_store import CuratedMemoryStore
+from app.memory.payload_utils import as_payload_dict
 from app.models.conversation import Message, MessageType
 from app.services.conversation_service import ConversationService
 
@@ -37,22 +37,10 @@ def build_context_assembly(
     )
 
 
-def _as_payload_dict(payload_json: object) -> dict:
-    if isinstance(payload_json, dict):
-        return payload_json
-    if isinstance(payload_json, str):
-        try:
-            parsed = json.loads(payload_json)
-        except (TypeError, ValueError):
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
-
-
 def _is_continuation_artifact(message: Message) -> bool:
     if message.message_type != MessageType.SYSTEM_NOTICE:
         return False
-    payload = _as_payload_dict(message.payload_json)
+    payload = as_payload_dict(message.payload_json)
     return payload.get("kind") == "continuation_artifact"
 
 

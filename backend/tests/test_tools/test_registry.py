@@ -80,9 +80,16 @@ class TestToolRegistry:
 
         definitions = registry.get_tool_definitions()
         definitions_by_name = {definition.name: definition for definition in definitions}
+        file_variants = definitions_by_name["file"].parameters["oneOf"]
+        file_read_schema = next(
+            variant
+            for variant in file_variants
+            if variant["properties"]["action"]["enum"] == ["read"]
+        )
 
-        assert definitions_by_name["file"].parameters["properties"]["action"]["type"] == "string"
-        assert definitions_by_name["file"].parameters["properties"]["path"]["type"] == "string"
+        assert file_read_schema["properties"]["action"]["enum"] == ["read"]
+        assert file_read_schema["properties"]["path"]["type"] == "string"
+        assert file_read_schema["properties"]["limit"]["minimum"] == 30
         assert definitions_by_name["shell"].parameters["properties"]["command"]["type"] == "string"
         assert definitions_by_name["shell"].parameters["properties"]["cwd"]["type"] == "string"
 

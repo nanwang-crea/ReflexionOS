@@ -123,44 +123,61 @@ class PatchTool(BaseTool):
     def _apply_hunk(self, lines: list[str], hunk: Hunk) -> bool:
         """
         应用单个 Hunk
-        
+
         Args:
             lines: 文件行列表 (会被修改)
             hunk: 要应用的 Hunk
-            
+
         Returns:
             bool: 是否成功
         """
-        # 计算删除和新增的行
-        delete_count = 0
-        new_lines = []
-        
+        old_count = 0
+        new_lines: list[str] = []
+
         for line in hunk.lines:
             if line.startswith('-'):
-                delete_count += 1
+                old_count += 1
             elif line.startswith('+'):
                 new_lines.append(line[1:] + '\n')
             elif line.startswith(' '):
-                # 上下文行,不计入删除
-                pass
-        
-        # 计算插入位置
+                old_count += 1
+                new_lines.append(line[1:] + '\n')
+
         start = hunk.old_start - 1  # 转为 0-based
-        
-        # 边界检查
-        if start < 0:
+
+        # 新文件创建: old_start=0 → start=-1, old_count=0
+        if start < 0 and old_count == 0:
             start = 0
-        if start > len(lines):
-            start = len(lines)
-        
+        elif start < 0 or start > len(lines):
+            return False
+
+        # 校验上下文行与实际文件内容匹配
+        for i, line in enumerate(hunk.lines):
+            if not line.startswith(' '):
+                continue
+            offset = sum(
+                1 for l in hunk.lines[:i] if l.startswith('-') or l.startswith(' ')
+            )
+            idx = start + offset
+            if idx >= len(lines):
+                return False
+            actual = lines[idx].rstrip('\n').rstrip('\r')
+            expected = line[1:]
+            if actual != expected:
+                logger.warning(
+                    "Hunk 上下文不匹配: 行 %d 期望 %r, 实际 %r",
+                    hunk.old_start + offset,
+                    expected,
+                    actual,
+                )
+                return False
+
         # 执行替换
         try:
-            # 确保有足够的行可以删除
-            if start + delete_count <= len(lines):
-                lines[start:start + delete_count] = new_lines
+            if start + old_count <= len(lines):
+                lines[start:start + old_count] = new_lines
                 return True
             else:
-                # 行数不够,可能是新增文件
                 lines.extend(new_lines)
                 return True
         except Exception as e:

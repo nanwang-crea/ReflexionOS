@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
-from app.models.conversation import Message, MessageType
+from app.memory.payload_utils import as_payload_dict
 from app.memory.text_compaction import truncate_head_tail
+from app.models.conversation import Message, MessageType
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,7 @@ class ContinuationArtifactBuilder:
     def _should_skip(self, message: Message) -> bool:
         if message.message_type != MessageType.SYSTEM_NOTICE:
             return False
-        payload = self._as_payload_dict(message.payload_json)
+        payload = as_payload_dict(message.payload_json)
         return payload.get("kind") == "continuation_artifact"
 
     def _format_message(self, message: Message) -> str:
@@ -94,7 +95,7 @@ class ContinuationArtifactBuilder:
         return f"[{message.role}/{message.message_type.value}] {content}" if content else ""
 
     def _format_tool_trace(self, message: Message) -> str:
-        payload = self._as_payload_dict(message.payload_json)
+        payload = as_payload_dict(message.payload_json)
         lines = [f"[{message.role}/{message.message_type.value}]"]
         lines.append(f"tool_name={payload.get('tool_name', '')}")
 
@@ -172,14 +173,3 @@ class ContinuationArtifactBuilder:
             tail_chars=self.tool_output_tail_chars,
             reason="continuation artifact",
         )
-
-    def _as_payload_dict(self, payload_json: object) -> dict:
-        if isinstance(payload_json, dict):
-            return payload_json
-        if isinstance(payload_json, str):
-            try:
-                parsed = json.loads(payload_json)
-            except (TypeError, ValueError):
-                return {}
-            return parsed if isinstance(parsed, dict) else {}
-        return {}

@@ -12,10 +12,23 @@ logger = logging.getLogger(__name__)
 
 class FileTool(BaseTool):
     """文件操作工具 - 支持分块读取"""
+
+    EXCLUDED_SEARCH_DIRS = frozenset({"node_modules", "__pycache__", "venv"})
+    SEARCHABLE_EXTENSIONS = frozenset({
+        ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs",
+        ".c", ".cpp", ".h", ".md", ".txt", ".json", ".yaml", ".yml",
+    })
+    SEARCH_CONTEXT_LINES = 3
+    MAX_FILE_SEARCH_OUTPUT = 10
+    MAX_DIRECTORY_SEARCH_MATCHES = 50
+    MAX_DIRECTORY_SEARCH_OUTPUT = 20
+    MAX_LIST_DISPLAY_ITEMS = 15
     
     def __init__(self, security: PathSecurity):
         self.security = security
-        self.max_lines = 200  # 默认最大读取行数
+        self.min_read_limit = 30
+        self.default_read_limit = 80
+        self.max_read_limit = 100
     
     @property
     def name(self) -> str:
@@ -32,51 +45,107 @@ class FileTool(BaseTool):
             "description": self.description,
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["read", "write", "list", "delete", "search"],
-                        "description": "操作类型"
-                    },
-                    "path": {
-                        "type": "string",
-                        "description": "文件或目录路径（相对或绝对）"
-                    },
-                    "start_line": {
-                        "type": "integer",
-                        "description": "起始行号（从1开始），用于分块读取"
-                    },
-                    "end_line": {
-                        "type": "integer",
-                        "description": "结束行号，用于分块读取"
-                    },
-                    "line": {
-                        "type": "integer",
-                        "description": "目标行号，配合 context 使用读取周围行"
-                    },
-                    "context": {
-                        "type": "integer",
-                        "description": "上下文行数，配合 line 使用"
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "搜索关键词（search 操作）"
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "写入的内容（write 操作）"
-                    }
-                },
-                "required": ["action", "path"]
+                "oneOf": [
+                    self._action_schema(
+                        "read",
+                        "读取文件内容",
+                        {
+                            "start_line": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": (
+                                    "起始行号（从1开始），推荐与 limit 一起使用"
+                                )
+                            },
+                            "limit": {
+                                "type": "integer",
+                                "minimum": 30,
+                                "maximum": 100,
+                                "default": 80,
+                                "description": (
+                                    "读取行数，推荐与 start_line 一起使用；最小 30，"
+                                    "最大 100，默认 80"
+                                )
+                            },
+                            "line": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": (
+                                    "目标行号，配合 context 使用读取周围行；"
+                                    "使用 start_line/limit 时请省略"
+                                )
+                            },
+                            "context": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "上下文行数，配合 line 使用；省略时默认 10"
+                            },
+                        },
+                    ),
+                    self._action_schema(
+                        "search",
+                        "搜索文件或目录中的文本",
+                        {
+                            "query": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "搜索关键词"
+                            },
+                        },
+                        required_extra=["query"],
+                    ),
+                    self._action_schema(
+                        "write",
+                        "写入文件内容",
+                        {
+                            "content": {
+                                "type": "string",
+                                "description": "写入的内容"
+                            },
+                        },
+                        required_extra=["content"],
+                    ),
+                    self._action_schema("list", "列出目录内容"),
+                    self._action_schema("delete", "删除文件或空目录"),
+                ],
             },
             "examples": [
                 {"action": "read", "path": "README.md"},
-                {"action": "read", "path": "main.py", "start_line": 1, "end_line": 50},
+                {"action": "read", "path": "main.py", "start_line": 1, "limit": 80},
                 {"action": "read", "path": "main.py", "line": 100, "context": 10},
                 {"action": "search", "path": "main.py", "query": "def login"},
                 {"action": "write", "path": "hello.py", "content": "print('hello')"},
                 {"action": "list", "path": "."}
             ]
+        }
+
+    def _action_schema(
+        self,
+        action: str,
+        description: str,
+        extra_properties: dict[str, Any] | None = None,
+        *,
+        required_extra: list[str] | None = None,
+    ) -> dict[str, Any]:
+        properties = {
+            "action": {
+                "type": "string",
+                "enum": [action],
+                "description": f"固定为 {action}"
+            },
+            "path": {
+                "type": "string",
+                "description": "文件或目录路径（相对或绝对）"
+            },
+        }
+        properties.update(extra_properties or {})
+        return {
+            "type": "object",
+            "title": action,
+            "description": description,
+            "additionalProperties": False,
+            "properties": properties,
+            "required": ["action", "path", *(required_extra or [])],
         }
     
     async def execute(self, args: dict[str, Any]) -> ToolResult:
@@ -126,33 +195,33 @@ class FileTool(BaseTool):
         total_lines = len(all_lines)
         
         # 确定读取范围
-        start_line = args.get("start_line")
-        end_line = args.get("end_line")
-        line = args.get("line")
-        context = args.get("context", 10)
+        raw_end_line = args.get("end_line")
+        start_line = self._positive_int(args.get("start_line"))
+        end_line = self._positive_int(raw_end_line)
+        line = self._positive_int(args.get("line"))
+        context = self._positive_int(args.get("context")) or 10
+        limit = self._read_limit(args.get("limit"))
         
-        if line is not None:
+        if start_line is not None:
+            start_line = max(1, start_line)
+            if limit is not None:
+                end_line = min(total_lines, start_line + limit - 1)
+            elif "end_line" in args and raw_end_line not in (None, ""):
+                if end_line is None:
+                    return ToolResult(success=False, error="结束行号必须大于等于起始行号")
+                end_line = min(total_lines, end_line)
+                if end_line < start_line:
+                    return ToolResult(success=False, error="结束行号必须大于等于起始行号")
+            else:
+                end_line = min(total_lines, start_line + self.default_read_limit - 1)
+        elif line is not None:
             # 读取指定行周围
             start_line = max(1, line - context)
             end_line = min(total_lines, line + context)
-        elif start_line is not None and end_line is not None:
-            # 读取指定范围
-            start_line = max(1, start_line)
-            end_line = min(total_lines, end_line)
-            if end_line < start_line:
-                return ToolResult(success=False, error="结束行号必须大于等于起始行号")
-        elif start_line is not None:
-            # 从 start_line 开始读取
-            start_line = max(1, start_line)
-            end_line = min(total_lines, start_line + self.max_lines - 1)
         else:
             # 读取全部（限制最大行数）
-            if total_lines > self.max_lines:
-                start_line = 1
-                end_line = self.max_lines
-            else:
-                start_line = 1
-                end_line = total_lines
+            start_line = 1
+            end_line = min(total_lines, self.default_read_limit)
         
         # 提取目标行
         selected_lines = all_lines[start_line - 1:end_line]
@@ -187,11 +256,29 @@ class FileTool(BaseTool):
                 "has_more": total_lines > end_line
             }
         )
+
+    def _positive_int(self, value: Any) -> int | None:
+        if value in (None, "") or isinstance(value, bool):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _read_limit(self, value: Any) -> int | None:
+        parsed = self._positive_int(value)
+        if parsed is None:
+            return None
+        return max(self.min_read_limit, min(self.max_read_limit, parsed))
     
     async def _search_in_file(self, args: dict[str, Any]) -> ToolResult:
         """在文件中搜索内容"""
         path = self.security.validate_path(args["path"])
         query = args.get("query", "")
+
+        if not query:
+            return ToolResult(success=False, error="缺少 query 参数")
         
         if not os.path.exists(path):
             return ToolResult(success=False, error=f"文件不存在: {path}")
@@ -222,12 +309,12 @@ class FileTool(BaseTool):
         
         # 格式化输出
         output_parts = [f"在 {path} 中找到 {len(matches)} 处匹配:"]
-        for m in matches[:10]:  # 最多显示 10 个
+        for m in matches[:self.MAX_FILE_SEARCH_OUTPUT]:
             output_parts.append(f"\n第 {m['line']} 行:")
             output_parts.append(m["context"])
-        
-        if len(matches) > 10:
-            output_parts.append(f"\n... 还有 {len(matches) - 10} 处匹配")
+
+        if len(matches) > self.MAX_FILE_SEARCH_OUTPUT:
+            output_parts.append(f"\n... 还有 {len(matches) - self.MAX_FILE_SEARCH_OUTPUT} 处匹配")
         
         return ToolResult(
             success=True,
@@ -249,34 +336,31 @@ class FileTool(BaseTool):
     
     async def _search_in_directory(self, dir_path: str, query: str) -> ToolResult:
         """在目录下搜索"""
+        if not query:
+            return ToolResult(success=False, error="缺少 query 参数")
+
         matches = []
-        
+
         for root, dirs, files in os.walk(dir_path):
-            # 跳过隐藏目录和常见排除目录
             dirs[:] = [
                 d
                 for d in dirs
-                if not d.startswith('.') and d not in ['node_modules', '__pycache__', 'venv']
+                if not d.startswith('.') and d not in self.EXCLUDED_SEARCH_DIRS
             ]
-            
+
             for file in files:
                 if file.startswith('.'):
                     continue
-                
+
                 file_path = os.path.join(root, file)
-                
-                # 只处理文本文件
-                searchable_extensions = [
-                    '.py', '.js', '.ts', '.jsx', '.tsx', '.java', '.go', '.rs',
-                    '.c', '.cpp', '.h', '.md', '.txt', '.json', '.yaml', '.yml',
-                ]
-                if not any(file.endswith(ext) for ext in searchable_extensions):
+
+                if not any(file.endswith(ext) for ext in self.SEARCHABLE_EXTENSIONS):
                     continue
-                
+
                 try:
-                    with open(file_path, encoding='utf-8') as f:
-                        lines = f.readlines()
-                    
+                    async with aiofiles.open(file_path, encoding='utf-8') as f:
+                        lines = await f.readlines()
+
                     for i, line in enumerate(lines, 1):
                         if query.lower() in line.lower():
                             matches.append({
@@ -284,16 +368,16 @@ class FileTool(BaseTool):
                                 "line": i,
                                 "content": line.rstrip()[:100]
                             })
-                            
-                            if len(matches) >= 50:  # 限制结果数量
+
+                            if len(matches) >= self.MAX_DIRECTORY_SEARCH_MATCHES:
                                 break
                 except (OSError, UnicodeDecodeError):
                     continue
-                
-                if len(matches) >= 50:
+
+                if len(matches) >= self.MAX_DIRECTORY_SEARCH_MATCHES:
                     break
-            
-            if len(matches) >= 50:
+
+            if len(matches) >= self.MAX_DIRECTORY_SEARCH_MATCHES:
                 break
         
         if not matches:
@@ -304,12 +388,12 @@ class FileTool(BaseTool):
             )
         
         output = f"找到 {len(matches)} 处匹配:\n"
-        for m in matches[:20]:
+        for m in matches[:self.MAX_DIRECTORY_SEARCH_OUTPUT]:
             rel_path = os.path.relpath(m["file"], dir_path)
             output += f"\n{rel_path}:{m['line']}: {m['content']}"
-        
-        if len(matches) > 20:
-            output += f"\n... 还有 {len(matches) - 20} 处"
+
+        if len(matches) > self.MAX_DIRECTORY_SEARCH_OUTPUT:
+            output += f"\n... 还有 {len(matches) - self.MAX_DIRECTORY_SEARCH_OUTPUT} 处"
         
         return ToolResult(
             success=True,
@@ -353,17 +437,16 @@ class FileTool(BaseTool):
             })
         
         logger.info("列出目录: %s, 共 %s 项", path, len(files))
+        display_names = [
+            f"{f['name']}({'d' if f['type'] == 'directory' else 'f'})"
+            for f in files[:self.MAX_LIST_DISPLAY_ITEMS]
+        ]
+        output = f"目录 {path} 包含 {len(files)} 项: " + ", ".join(display_names)
+        if len(files) > self.MAX_LIST_DISPLAY_ITEMS:
+            output += f", ... 还有 {len(files) - self.MAX_LIST_DISPLAY_ITEMS} 项"
         return ToolResult(
             success=True,
-            output=(
-                f"目录 {path} 包含 {len(files)} 项: "
-                + ", ".join(
-                    [
-                        f"{f['name']}({'d' if f['type'] == 'directory' else 'f'})"
-                        for f in files[:15]
-                    ]
-                )
-            ),
+            output=output,
             data={"files": files, "path": path, "count": len(files)}
         )
     
