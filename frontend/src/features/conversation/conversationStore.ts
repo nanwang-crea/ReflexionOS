@@ -4,6 +4,7 @@ import type {
   ConversationLiveMessage,
   ConversationSnapshot,
   ConversationState,
+  Plan,
 } from '@/types/conversation'
 import {
   applyConversationEvent,
@@ -15,15 +16,18 @@ import {
 
 interface ConversationStoreState {
   conversationsBySessionId: Record<string, ConversationState>
+  planBySessionId: Record<string, Plan>
   setSnapshot: (sessionId: string, snapshot: ConversationSnapshot) => void
   applyEvent: (sessionId: string, event: ConversationEvent) => void
   applyLiveEvent: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setLiveState: (sessionId: string, liveMessage: ConversationLiveMessage) => void
+  setPlan: (sessionId: string, plan: Plan | null) => void
   clearConversation: (sessionId: string) => void
 }
 
 export const createConversationStore = () => create<ConversationStoreState>((set) => ({
   conversationsBySessionId: {},
+  planBySessionId: {},
   setSnapshot: (sessionId, snapshot) => set((state) => ({
     conversationsBySessionId: {
       ...state.conversationsBySessionId,
@@ -57,9 +61,24 @@ export const createConversationStore = () => create<ConversationStoreState>((set
       ),
     },
   })),
+  setPlan: (sessionId, plan) => set((state) => {
+    if (plan === null) {
+      const { [sessionId]: _, ...rest } = state.planBySessionId
+      return { planBySessionId: rest }
+    }
+    return {
+      planBySessionId: {
+        ...state.planBySessionId,
+        [sessionId]: plan,
+      },
+    }
+  }),
   clearConversation: (sessionId) => set((state) => ({
     conversationsBySessionId: Object.fromEntries(
       Object.entries(state.conversationsBySessionId).filter(([id]) => id !== sessionId)
+    ),
+    planBySessionId: Object.fromEntries(
+      Object.entries(state.planBySessionId).filter(([id]) => id !== sessionId)
     ),
   })),
 }))

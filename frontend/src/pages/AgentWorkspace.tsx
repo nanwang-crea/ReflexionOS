@@ -17,13 +17,14 @@ export default function AgentWorkspace() {
     cancelRun,
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
-  const { messages, isRunning } = useConversationData(currentSessionId)
+  const { messages, isRunning, plan } = useConversationData(currentSessionId)
   const viewModel = useCurrentSessionViewModel({
     messages,
     isRunning,
     isCancelling,
     connectionStatus,
     retryInfo,
+    plan,
     onReset: resetConversationRuntime,
   })
   const { sendMessage } = useSendMessage({

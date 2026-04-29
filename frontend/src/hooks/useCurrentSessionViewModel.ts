@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
+import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import { shouldFollowTranscript } from '@/features/workspace/autoScroll'
 import { useSessionData } from './useSessionData'
@@ -13,6 +14,7 @@ export function useCurrentSessionViewModel(options: {
   isCancelling: boolean
   connectionStatus: 'connected' | 'connecting' | 'disconnected'
   retryInfo: LlmRetryDto | null
+  plan: Plan | null
   onReset: () => void
 }) {
   const { configured, loaded } = useSettingsStore()
@@ -77,6 +79,7 @@ export function useCurrentSessionViewModel(options: {
       messages: options.messages,
       isRunning: options.isRunning,
       retryInfo: options.retryInfo,
+      plan: options.plan,
       transcriptScrollRef,
       onTranscriptScroll: handleTranscriptScroll,
       messagesEndRef,

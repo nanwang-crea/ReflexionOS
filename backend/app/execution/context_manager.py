@@ -3,13 +3,14 @@ from datetime import datetime
 from typing import Any
 
 from app.execution.models import LoopStep, StepStatus
+from app.execution.plan_engine import Plan
 
 logger = logging.getLogger(__name__)
 
 
 class LoopContext:
     """Agent loop 上下文"""
-    
+
     def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None):
         self.task = task
         self.project_path = project_path
@@ -22,6 +23,8 @@ class LoopContext:
         # Three-layer context assembly (Task 6)
         self.system_sections: list[str] = []
         self.supplemental_context: str | None = None
+        # Plan engine
+        self.plan: Plan | None = None
     
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""

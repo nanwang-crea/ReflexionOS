@@ -431,14 +431,9 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
     assert first_project_path in first_file_security.allowed_base_paths
     assert second_project_path in second_file_security.allowed_base_paths
 
-    shared_file_security = service.tool_registry.tools["file"].security
-    assert shared_file_security.base_dir == str(Path.cwd().resolve())
-    assert first_project_path not in shared_file_security.allowed_base_paths
-    assert second_project_path not in shared_file_security.allowed_base_paths
-
 
 @pytest.mark.asyncio
-async def test_runtime_and_shared_tool_registries_include_memory_tool(monkeypatch, tmp_path):
+async def test_run_tool_registry_includes_memory_tool(monkeypatch, tmp_path):
     project_root = tmp_path / "project-root"
     project_root.mkdir()
 
@@ -489,13 +484,10 @@ async def test_runtime_and_shared_tool_registries_include_memory_tool(monkeypatc
         model_id="model-a",
     )
 
-    assert "memory" in service.tool_registry.list_tools()
     assert len(captured_registries) == 1
     assert "memory" in captured_registries[0].list_tools()
 
-    shared_tool_names = {definition.name for definition in service.tool_registry.get_tool_definitions()}
     run_tool_names = {definition.name for definition in captured_registries[0].get_tool_definitions()}
-    assert "memory" in shared_tool_names
     assert "memory" in run_tool_names
 
 

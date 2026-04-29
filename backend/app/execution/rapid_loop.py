@@ -11,6 +11,7 @@ from app.execution.models import LoopResult, LoopStatus, LoopStep, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
 from app.llm.retry import RetryExhaustedError
+from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -358,6 +359,14 @@ class RapidExecutionLoop:
         if supplemental and str(supplemental).strip():
             messages.append(LLMMessage(role="system", content=str(supplemental).strip()))
 
+        # Plan state — always injected, never truncated by message window
+        if context.plan:
+            messages.append(LLMMessage(role="system", content=context.plan.render_for_context()))
+            completed_findings = context.plan.completed_findings()
+            if completed_findings:
+                findings_text = "\n".join(f"- {f}" for f in completed_findings)
+                messages.append(LLMMessage(role="system", content=f"前序步骤发现:\n{findings_text}"))
+
         # 历史消息
         for msg in self._get_recent_context_messages(context):
             tool_calls = [
@@ -479,6 +488,11 @@ class RapidExecutionLoop:
                 "error": result.error,
                 "duration": step.duration
             })
+
+            # Sync plan state from PlanTool → LoopContext + emit plan event
+            if isinstance(tool, PlanTool) and tool.get_plan() is not None:
+                context.plan = tool.get_plan()
+                await self._emit("plan:updated", context.plan.to_dict())
             
             logger.info(
                 "工具 %s 执行%s",
