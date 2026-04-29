@@ -7,6 +7,7 @@ import pytest
 
 import app.services.agent_service as agent_service_module
 from app.memory.context_assembly import ContextAssemblyResult
+from app.memory.continuation_builder import ContinuationArtifactBuilder
 from app.models.conversation import MessageType, RunStatus, StreamState
 from app.models.llm_config import (
     LLMSettings,
@@ -640,6 +641,93 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
     assert continuation[0].payload_json["exclude_from_recall"] is True
     assert continuation[0].payload_json["exclude_from_memory_promotion"] is True
     assert "当前目标" in continuation[0].content_text
+
+
+@pytest.mark.asyncio
+async def test_continuation_generation_sends_budgeted_transcript_to_llm(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    service.continuation_builder = ContinuationArtifactBuilder(
+        max_transcript_chars=1_500,
+        max_item_chars=800,
+        max_tool_output_chars=400,
+        tool_output_head_chars=120,
+        tool_output_tail_chars=120,
+    )
+
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="请继续实现 context assembly",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(project_root),
+    )
+    adapter = agent_service_module.ConversationRuntimeAdapter(
+        conversation_service=conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "shell", "arguments": {"command": "pytest -q"}, "step_number": 1},
+    )
+    huge_output = (
+        "BEGIN-"
+        + ("head-block-" * 30)
+        + ("huge-middle-" * 5_000)
+        + ("tail-block-" * 30)
+        + "-TAIL-END"
+    )
+    adapter.handle_event(
+        "tool:result",
+        {
+            "tool_name": "shell",
+            "step_number": 1,
+            "success": False,
+            "output": huge_output,
+            "error": None,
+            "duration": 0.1,
+        },
+    )
+
+    captured_prompt = ""
+
+    class StubLLM:
+        async def complete(self, messages, tools=None):
+            nonlocal captured_prompt
+            captured_prompt = messages[0].content
+            return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
+
+    await service._generate_and_persist_continuation_artifact(
+        llm=StubLLM(),
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        task="请继续实现 context assembly",
+    )
+
+    assert len(captured_prompt) < 3_000
+    assert "BEGIN-" in captured_prompt
+    assert "-TAIL-END" in captured_prompt
+    assert "省略" in captured_prompt
+    assert "huge-middle-huge-middle-huge-middle" not in captured_prompt
 
 
 @pytest.mark.asyncio

@@ -11,8 +11,8 @@ from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
-from app.memory.message_normalizer import normalize_message_text
-from app.models.conversation import ConversationEvent, MessageType, Run, RunStatus
+from app.memory.continuation_builder import ContinuationArtifactBuilder
+from app.models.conversation import ConversationEvent, Run, RunStatus
 from app.models.conversation import EventType
 from app.models.conversation_snapshot import StartTurnResult
 from app.security.path_security import PathSecurity
@@ -59,6 +59,7 @@ class AgentService:
         self.tool_registry = self._init_tool_registry()
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
+        self.continuation_builder = ContinuationArtifactBuilder()
 
     def _init_tool_registry(self) -> ToolRegistry:
         """初始化工具注册中心"""
@@ -345,20 +346,17 @@ class AgentService:
         then persist as a real system_notice message (collapsed + excluded from recall/memory promotion).
         """
         turn_messages = self.conversation_service.message_repo.list_by_turn(turn_id)
-        transcript_lines: list[str] = []
-        for message in turn_messages:
-            if message.message_type == MessageType.SYSTEM_NOTICE:
-                # Skip other notices (cancel, etc.) and avoid recursive inclusion.
-                continue
-            normalized = normalize_message_text(message)
-            if not normalized:
-                continue
-            transcript_lines.append(f"[{message.role}/{message.message_type.value}] {normalized}")
-        transcript = "\n".join(transcript_lines).strip()
-        if not transcript:
+        prompt_input = self.continuation_builder.build_prompt_input(
+            task=task,
+            messages=turn_messages,
+        )
+        if not prompt_input.transcript:
             return
 
-        prompt = self.prompt_manager.get_continuation_compression_prompt(task=task, transcript=transcript)
+        prompt = self.prompt_manager.get_continuation_compression_prompt(
+            task=prompt_input.task,
+            transcript=prompt_input.transcript,
+        )
         response = await llm.complete(
             [
                 LLMMessage(role="system", content=prompt),

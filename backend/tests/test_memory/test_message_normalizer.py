@@ -66,6 +66,34 @@ def test_normalize_message_text_handles_tool_trace_payload_json_string():
     )
 
 
+def test_normalize_message_text_compacts_large_tool_output():
+    output = (
+        "BEGIN-"
+        + ("head-block-" * 300)
+        + ("DROP_ME_SEARCH_INDEX_MIDDLE-" * 1_000)
+        + ("tail-block-" * 200)
+        + "-TAIL-END"
+    )
+    message = build_message(
+        message_type=MessageType.TOOL_TRACE,
+        content_text="",
+        payload_json={
+            "tool_name": "shell",
+            "arguments": {"cmd": "pytest -q"},
+            "success": True,
+            "output": output,
+        },
+    )
+
+    normalized = normalize_message_text(message)
+
+    assert len(normalized) < 5_000
+    assert "BEGIN-" in normalized
+    assert "-TAIL-END" in normalized
+    assert "省略" in normalized
+    assert "DROP_ME_SEARCH_INDEX_MIDDLE" not in normalized
+
+
 def test_normalize_message_text_handles_non_dict_payload_shape():
     message = build_message(
         message_type=MessageType.TOOL_TRACE,

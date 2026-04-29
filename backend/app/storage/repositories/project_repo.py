@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 class ProjectRepository:
     """项目数据仓储"""
-    
+
     def __init__(self, db):
         self.db = db
 
@@ -21,7 +21,7 @@ class ProjectRepository:
             created_at=model.created_at,
             updated_at=model.updated_at
         )
-    
+
     def save(self, project: Project) -> Project:
         """保存项目"""
         with self.db.get_session() as session:
@@ -29,12 +29,12 @@ class ProjectRepository:
             existing = session.query(ProjectModel).filter_by(
                 path=project.path
             ).first()
-            
+
             if existing:
                 # 更新
                 existing.name = project.name
                 existing.language = project.language
-                existing.config = {}
+                existing.config = project.config or {}
                 session.flush()
                 session.refresh(existing)
                 logger.info("更新项目: %s", existing.id)
@@ -46,14 +46,14 @@ class ProjectRepository:
                     name=project.name,
                     path=project.path,
                     language=project.language,
-                    config={}
+                    config=project.config or {}
                 )
                 session.add(model)
                 session.flush()
                 session.refresh(model)
                 logger.info("创建项目: %s", model.id)
                 return self._to_project(model)
-    
+
     def get(self, project_id: str) -> Project | None:
         """获取项目"""
         with self.db.get_session() as session:
@@ -61,7 +61,7 @@ class ProjectRepository:
             if model:
                 return self._to_project(model)
             return None
-    
+
     def get_by_path(self, path: str) -> Project | None:
         """根据路径获取项目"""
         with self.db.get_session() as session:
@@ -69,19 +69,13 @@ class ProjectRepository:
             if model:
                 return self._to_project(model)
             return None
-    
+
     def list_all(self) -> list[Project]:
         """列出所有项目"""
         with self.db.get_session() as session:
-            models = session.query(ProjectModel).order_by(
-                ProjectModel.updated_at.desc()
-            ).all()
-            
-            return [
-                self._to_project(m)
-                for m in models
-            ]
-    
+            models = session.query(ProjectModel).all()
+            return [self._to_project(model) for model in models]
+
     def delete(self, project_id: str) -> bool:
         """删除项目"""
         with self.db.get_session() as session:
@@ -91,3 +85,9 @@ class ProjectRepository:
                 logger.info("删除项目: %s", project_id)
                 return True
             return False
+
+    def exists_by_path(self, path: str) -> bool:
+        """检查路径是否已存在"""
+        with self.db.get_session() as session:
+            model = session.query(ProjectModel).filter_by(path=path).first()
+            return model is not None
