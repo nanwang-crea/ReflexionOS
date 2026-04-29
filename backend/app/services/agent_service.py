@@ -61,6 +61,7 @@ class AgentService:
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
+    @staticmethod
     def _build_run_tool_registry(project_path: str | None) -> ToolRegistry:
         resolved_project_path = (
             str(Path(project_path).resolve())

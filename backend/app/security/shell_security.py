@@ -82,8 +82,11 @@ class ShellSecurity:
                 "`python --version`；不要使用 cmd /c、PowerShell、管道、重定向或 Shell 内置命令。"
             )
         return (
-            f"当前平台是 {self.platform_label}。使用 POSIX 可执行命令，例如 `pwd`、"
-            "`ls`、`which python`、`python --version`；不要使用管道、重定向或二级 shell。"
+            f"当前平台是 {self.platform_label}。"
+            "命令按 argv 直接执行，不经过 shell 解析，因此禁止任何 shell 元语法，"
+            "包括但不限于: 管道 `|`、重定向 `>` `>>` `2>` `/dev/null`、"
+            "链式操作 `&&` `||` `;`、命令替换 `` ` `` `$()`。"
+            "请用单条命令完成操作，例如 `pwd`、`ls`、`which python`、`python --version`。"
         )
 
     def validate_command(

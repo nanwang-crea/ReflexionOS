@@ -138,9 +138,23 @@ class RapidExecutionLoop:
                 if state == LoopPhase.PLANNING:
                     # 调用 LLM 决策
                     response = await self._call_llm(context)
-                    
+
                     # 检查是否有工具调用
                     if response.has_tool_calls:
+                        # 首次工具调用且没有 plan → 轻量提醒，引导模型先规划
+                        if (
+                            not self.has_executed_tools
+                            and context.plan is None
+                            and not any(tc.name == "plan" for tc in response.tool_calls)
+                        ):
+                            context.add_message(
+                                "system",
+                                "这是一个多步骤任务，建议先调用 plan.create 规划步骤再执行，"
+                                "这样你的进度和发现会被追踪并传递给下一步。"
+                                "如果认为任务足够简单可以直接完成，也可以跳过规划。",
+                            )
+                            response = await self._call_llm(context)
+
                         state = LoopPhase.TOOL_EXECUTION
                         turn_retries = 0
                     else:
