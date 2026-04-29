@@ -11,6 +11,16 @@ class ProjectRepository:
     
     def __init__(self, db):
         self.db = db
+
+    def _to_project(self, model: ProjectModel) -> Project:
+        return Project(
+            id=model.id,
+            name=model.name,
+            path=model.path,
+            language=model.language,
+            created_at=model.created_at,
+            updated_at=model.updated_at
+        )
     
     def save(self, project: Project) -> Project:
         """保存项目"""
@@ -25,7 +35,10 @@ class ProjectRepository:
                 existing.name = project.name
                 existing.language = project.language
                 existing.config = {}
-                logger.info("更新项目: %s", project.id)
+                session.flush()
+                session.refresh(existing)
+                logger.info("更新项目: %s", existing.id)
+                return self._to_project(existing)
             else:
                 # 新建
                 model = ProjectModel(
@@ -36,23 +49,17 @@ class ProjectRepository:
                     config={}
                 )
                 session.add(model)
-                logger.info("创建项目: %s", project.id)
-            
-            return project
+                session.flush()
+                session.refresh(model)
+                logger.info("创建项目: %s", model.id)
+                return self._to_project(model)
     
     def get(self, project_id: str) -> Project | None:
         """获取项目"""
         with self.db.get_session() as session:
             model = session.query(ProjectModel).filter_by(id=project_id).first()
             if model:
-                return Project(
-                    id=model.id,
-                    name=model.name,
-                    path=model.path,
-                    language=model.language,
-                    created_at=model.created_at,
-                    updated_at=model.updated_at
-                )
+                return self._to_project(model)
             return None
     
     def get_by_path(self, path: str) -> Project | None:
@@ -60,14 +67,7 @@ class ProjectRepository:
         with self.db.get_session() as session:
             model = session.query(ProjectModel).filter_by(path=path).first()
             if model:
-                return Project(
-                    id=model.id,
-                    name=model.name,
-                    path=model.path,
-                    language=model.language,
-                    created_at=model.created_at,
-                    updated_at=model.updated_at
-                )
+                return self._to_project(model)
             return None
     
     def list_all(self) -> list[Project]:
@@ -78,14 +78,7 @@ class ProjectRepository:
             ).all()
             
             return [
-                Project(
-                    id=m.id,
-                    name=m.name,
-                    path=m.path,
-                    language=m.language,
-                    created_at=m.created_at,
-                    updated_at=m.updated_at
-                )
+                self._to_project(m)
                 for m in models
             ]
     
