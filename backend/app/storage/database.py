@@ -14,6 +14,7 @@ SESSION_CASCADE_TABLES = (
     "turns",
     "runs",
     "messages",
+    "message_search_documents",
     "conversation_events",
 )
 

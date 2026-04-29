@@ -12,6 +12,7 @@ export default function AgentWorkspace() {
   const {
     connectionStatus,
     isCancelling,
+    retryInfo,
     startTurn,
     cancelRun,
     resetConversationRuntime,
@@ -22,6 +23,7 @@ export default function AgentWorkspace() {
     isRunning,
     isCancelling,
     connectionStatus,
+    retryInfo,
     onReset: resetConversationRuntime,
   })
   const { sendMessage } = useSendMessage({

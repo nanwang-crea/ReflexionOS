@@ -70,6 +70,29 @@ Requirements:
   summarize the key conclusion instead of dumping unnecessary detail""",
             variables=["task"]
         )
+
+        # Continuation Artifact compression (Task 6): single LLM-driven handoff note.
+        self.register_template(
+            name="continuation_compress",
+            template="""You are generating a Continuation Artifact: a short handoff note for continuing the SAME session in a future turn.
+
+This artifact is DERIVED from the transcript below. Do not invent facts. If unsure, state uncertainty.
+Write in Chinese.
+
+Output MUST be plain text with EXACTLY these 4 lines (one per line, keep the labels):
+当前目标: <one sentence>
+已确认事实: <1-5 bullet-style phrases separated by '; '>
+未解决点: <1-5 bullet-style phrases separated by '; '>
+下一步建议: <one concrete next action>
+
+Task (current user input):
+$task
+
+Transcript (oldest to newest, may include tool traces):
+$transcript
+""",
+            variables=["task", "transcript"],
+        )
         
         # Error Prompt
         self.register_template(
@@ -122,3 +145,10 @@ Please try a different approach or fix the issue.""",
     def get_final_response_prompt(self, task: str) -> str:
         """获取最终回答提示"""
         return self.get_template("final_response").render(task=task)
+
+    def get_continuation_compression_prompt(self, *, task: str, transcript: str) -> str:
+        """Prompt for a single LLM-generated continuation/handoff artifact."""
+        return self.get_template("continuation_compress").render(
+            task=task or "",
+            transcript=transcript or "",
+        )

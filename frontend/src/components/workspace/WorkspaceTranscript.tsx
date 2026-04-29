@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { RefObject, UIEventHandler } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SlideIn } from '@/components/animations/SlideIn'
@@ -5,6 +6,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
+import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { SessionSummary } from '@/types/workspace'
 import { Loader2 } from 'lucide-react'
 
@@ -25,6 +27,12 @@ const transcriptClassName = [
   '[&_blockquote]:my-5',
 ].join(' ')
 
+export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
+  const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
+  return Math.max(0, delaySeconds - elapsedSeconds)
+}
+
 interface WorkspaceTranscriptProps {
   loaded: boolean
   configured: boolean
@@ -32,6 +40,7 @@ interface WorkspaceTranscriptProps {
   currentSession: SessionSummary | null
   messages: ConversationMessage[]
   isRunning?: boolean
+  retryInfo?: LlmRetryDto | null
   transcriptScrollRef?: RefObject<HTMLDivElement>
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   messagesEndRef: RefObject<HTMLDivElement>
@@ -44,6 +53,7 @@ export function WorkspaceTranscript({
   currentSession,
   messages,
   isRunning = false,
+  retryInfo = null,
   transcriptScrollRef,
   onTranscriptScroll,
   messagesEndRef,
@@ -58,7 +68,30 @@ export function WorkspaceTranscript({
     return false
   })
 
-  const showThinkingIndicator = isRunning && !hasVisibleStreamingMessage
+  const [reconnectCountdownSeconds, setReconnectCountdownSeconds] = useState(() => (
+    getRetryCountdownSeconds(retryInfo?.delay ?? 0)
+  ))
+  const hasRetryInfo = retryInfo !== null
+  const retryAttempt = retryInfo?.attempt ?? null
+  const retryDelay = retryInfo?.delay ?? 0
+  const retryMaxRetries = retryInfo?.max_retries ?? null
+  const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
+  const showReconnectIndicator = isRunning && reconnectLabel !== null
+  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage
+
+  useEffect(() => {
+    if (!hasRetryInfo || !isRunning) {
+      setReconnectCountdownSeconds(0)
+      return
+    }
+
+    setReconnectCountdownSeconds(getRetryCountdownSeconds(retryDelay))
+    const intervalId = window.setInterval(() => {
+      setReconnectCountdownSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1000)
+
+    return () => window.clearInterval(intervalId)
+  }, [hasRetryInfo, isRunning, retryAttempt, retryDelay, retryMaxRetries])
 
   return (
     <div
@@ -140,6 +173,13 @@ export function WorkspaceTranscript({
             return null
           })}
         </AnimatePresence>
+
+        {showReconnectIndicator && (
+          <div className="mb-8 flex items-center gap-3 text-sm text-amber-600" aria-live="polite">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+            <span>{reconnectLabel} · {reconnectCountdownSeconds} 秒后重试</span>
+          </div>
+        )}
 
         {showThinkingIndicator && (
           <div className="mb-8 flex items-center gap-3 text-sm text-slate-500">

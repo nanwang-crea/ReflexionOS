@@ -485,3 +485,182 @@ def test_database_resets_incompatible_conversation_schema(tmp_path):
     assert run_repo.list_by_session("session-1") == []
     assert message_repo.list_by_session("session-1") == []
     assert event_repo.list_after_seq("session-1", after_seq=0) == []
+
+
+def test_list_by_session_orders_by_turn_then_turn_message_index(tmp_path):
+    db = Database(str(tmp_path / "message-ordering.db"))
+    project_repo = ProjectRepository(db)
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    message_repo = MessageRepository(db)
+
+    project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(Path("/tmp/reflexion"))))
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+    turn_repo.create(
+        Turn(
+            id="turn-1",
+            session_id="session-1",
+            turn_index=1,
+            root_message_id="msg-turn1-1",
+            status=TurnStatus.CREATED,
+        )
+    )
+    turn_repo.create(
+        Turn(
+            id="turn-2",
+            session_id="session-1",
+            turn_index=2,
+            root_message_id="msg-turn2-1",
+            status=TurnStatus.CREATED,
+        )
+    )
+
+    message_repo.create(
+        Message(
+            id="msg-turn2-1",
+            session_id="session-1",
+            turn_id="turn-2",
+            run_id=None,
+            turn_message_index=1,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="turn2",
+            payload_json={},
+            created_at=datetime(2026, 4, 24, 10, 0, 0),
+            updated_at=datetime(2026, 4, 24, 10, 0, 0),
+            completed_at=datetime(2026, 4, 24, 10, 0, 0),
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-turn1-2",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id=None,
+            turn_message_index=2,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="turn1-2",
+            payload_json={},
+            created_at=datetime(2026, 4, 24, 10, 1, 0),
+            updated_at=datetime(2026, 4, 24, 10, 1, 0),
+            completed_at=datetime(2026, 4, 24, 10, 1, 0),
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-turn1-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="turn1-1",
+            payload_json={},
+            created_at=datetime(2026, 4, 24, 10, 2, 0),
+            updated_at=datetime(2026, 4, 24, 10, 2, 0),
+            completed_at=datetime(2026, 4, 24, 10, 2, 0),
+        )
+    )
+
+    ordered_ids = [message.id for message in message_repo.list_by_session("session-1")]
+    assert ordered_ids == ["msg-turn1-1", "msg-turn1-2", "msg-turn2-1"]
+
+
+def test_list_by_session_keeps_message_when_turn_row_is_missing(tmp_path):
+    db = Database(str(tmp_path / "message-ordering-missing-turn.db"))
+    project_repo = ProjectRepository(db)
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    message_repo = MessageRepository(db)
+
+    project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(Path("/tmp/reflexion"))))
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+    turn_repo.create(
+        Turn(
+            id="turn-1",
+            session_id="session-1",
+            turn_index=1,
+            root_message_id="msg-turn1-1",
+            status=TurnStatus.CREATED,
+        )
+    )
+
+    message_repo.create(
+        Message(
+            id="msg-turn1-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="turn1-1",
+            payload_json={},
+            created_at=datetime(2026, 4, 24, 10, 0, 0),
+            updated_at=datetime(2026, 4, 24, 10, 0, 0),
+            completed_at=datetime(2026, 4, 24, 10, 0, 0),
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-missing-turn",
+            session_id="session-1",
+            turn_id="turn-missing",
+            run_id=None,
+            turn_message_index=1,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="orphan message",
+            payload_json={},
+            created_at=datetime(2026, 4, 24, 10, 1, 0),
+            updated_at=datetime(2026, 4, 24, 10, 1, 0),
+            completed_at=datetime(2026, 4, 24, 10, 1, 0),
+        )
+    )
+
+    ordered_ids = [message.id for message in message_repo.list_by_session("session-1")]
+    assert ordered_ids == ["msg-turn1-1", "msg-missing-turn"]
+
+
+def test_message_repo_from_payload_normalizes_payload_json_shapes():
+    message_repo = MessageRepository(db=None)
+
+    base_payload = {
+        "message_id": "msg-1",
+        "turn_id": "turn-1",
+        "turn_message_index": 1,
+        "role": "assistant",
+        "message_type": MessageType.TOOL_TRACE.value,
+        "display_mode": "default",
+        "content_text": "",
+    }
+
+    message_none = message_repo.from_payload(
+        session_id="session-1",
+        payload={**base_payload, "payload_json": None},
+    )
+    assert message_none.payload_json == {}
+
+    message_json_object = message_repo.from_payload(
+        session_id="session-1",
+        payload={**base_payload, "payload_json": '{"tool_name":"shell"}'},
+    )
+    assert message_json_object.payload_json == {"tool_name": "shell"}
+
+    message_non_dict_json = message_repo.from_payload(
+        session_id="session-1",
+        payload={**base_payload, "payload_json": "[]"},
+    )
+    assert message_non_dict_json.payload_json == {}

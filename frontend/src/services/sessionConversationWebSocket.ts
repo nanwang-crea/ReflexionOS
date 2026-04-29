@@ -46,6 +46,14 @@ interface ConversationErrorDto {
   message: string
 }
 
+export interface LlmRetryDto {
+  error_type: string
+  attempt: number
+  max_retries: number
+  delay: number
+  message: string
+}
+
 interface SessionConversationEvents {
   'connection:open': { sessionId: string }
   'connection:error': { sessionId: string; error: unknown }
@@ -62,6 +70,7 @@ interface SessionConversationEvents {
   'conversation:resync_required': ConversationResyncRequiredDto
   'conversation:synced': ConversationSyncedDto
   'conversation:error': ConversationErrorDto
+  'llm:retry': LlmRetryDto
 }
 
 function buildSyncMessage(afterSeq: number) {
@@ -187,6 +196,12 @@ class SessionConversationWebSocket {
 
     if (message.type === 'conversation.error') {
       this.emit('conversation:error', message.data as ConversationErrorDto)
+      return
+    }
+
+    if (message.type === 'llm:retry') {
+      this.emit('llm:retry', message.data as LlmRetryDto)
+      return
     }
   }
 

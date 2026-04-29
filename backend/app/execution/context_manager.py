@@ -19,6 +19,9 @@ class LoopContext:
         self.messages: list[dict[str, Any]] = []
         self.current_step_number = 0
         self.workspace_snapshot: dict[str, Any] = {}
+        # Three-layer context assembly (Task 6)
+        self.system_sections: list[str] = []
+        self.supplemental_context: str | None = None
     
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""

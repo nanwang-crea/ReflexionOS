@@ -1,5 +1,7 @@
 from app.models.conversation import Message, MessageType, StreamState
-from app.storage.models import MessageModel
+from app.storage.models import MessageModel, TurnModel
+from sqlalchemy import case, func
+import json
 
 
 class MessageRepository:
@@ -29,11 +31,56 @@ class MessageRepository:
         with self.db.get_session() as db_session:
             models = (
                 db_session.query(MessageModel)
-                .filter_by(session_id=session_id)
-                .order_by(MessageModel.created_at.asc(), MessageModel.turn_message_index.asc())
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(MessageModel.session_id == session_id)
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).asc(),
+                    TurnModel.turn_index.asc(),
+                    MessageModel.turn_message_index.asc(),
+                    MessageModel.created_at.asc(),
+                )
                 .all()
             )
             return [Message.model_validate(model) for model in models]
+
+    def list_recent_by_session(self, session_id: str, *, limit: int = 200) -> list[Message]:
+        """
+        Return the most recent session messages with a bounded query.
+
+        Messages are returned in chronological order (oldest -> newest) within the selected window.
+        """
+        resolved_limit = 0
+        try:
+            resolved_limit = int(limit)
+        except (TypeError, ValueError):
+            resolved_limit = 0
+        if resolved_limit <= 0:
+            return []
+
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(MessageModel)
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(MessageModel.session_id == session_id)
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).asc(),
+                    TurnModel.turn_index.desc(),
+                    MessageModel.turn_message_index.desc(),
+                    MessageModel.created_at.desc(),
+                )
+                .limit(resolved_limit)
+                .all()
+            )
+            # Convert back to chronological order for downstream logic.
+            return [Message.model_validate(model) for model in reversed(models)]
 
     def list_by_turn(self, turn_id: str) -> list[Message]:
         with self.db.get_session() as db_session:
@@ -87,7 +134,94 @@ class MessageRepository:
         ) or 0
         return current + 1
 
+    def list_recent_seed_candidates(
+        self,
+        session_id: str,
+        *,
+        current_turn_id: str | None = None,
+        limit: int = 8,
+        scan_limit: int = 200,
+    ) -> list[Message]:
+        """
+        Return recent user/assistant messages suitable for context seeding.
+
+        Filters out continuation artifacts, empty messages, and messages from
+        the current turn — all at the SQL level.
+        """
+        resolved_limit = max(0, int(limit)) if limit else 0
+        resolved_scan = max(50, int(scan_limit)) if scan_limit else 200
+        if resolved_limit <= 0:
+            return []
+
+        with self.db.get_session() as db_session:
+            query = (
+                db_session.query(MessageModel)
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.message_type.in_([
+                        MessageType.USER_MESSAGE.value,
+                        MessageType.ASSISTANT_MESSAGE.value,
+                    ]),
+                    MessageModel.content_text != "",
+                    func.coalesce(
+                        func.json_extract(MessageModel.payload_json, "$.kind"),
+                        "",
+                    ) != "continuation_artifact",
+                )
+            )
+            if current_turn_id:
+                query = query.filter(MessageModel.turn_id != current_turn_id)
+
+            models = (
+                query.order_by(MessageModel.created_at.desc())
+                .limit(resolved_scan)
+                .all()
+            )
+
+            selected = [Message.model_validate(m) for m in reversed(models)][-resolved_limit:]
+            return selected
+
+    def get_latest_continuation_artifact(
+        self,
+        session_id: str,
+        *,
+        db_session=None,
+    ) -> Message | None:
+        """Return the most recent continuation artifact for a session, or None."""
+        def _query(session):
+            model = (
+                session.query(MessageModel)
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.message_type == MessageType.SYSTEM_NOTICE.value,
+                    func.json_extract(MessageModel.payload_json, "$.kind")
+                        == "continuation_artifact",
+                    MessageModel.content_text != "",
+                )
+                .order_by(MessageModel.created_at.desc())
+                .limit(1)
+                .first()
+            )
+            return Message.model_validate(model) if model else None
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return _query(managed_session)
+
+        return _query(db_session)
+
     def from_payload(self, *, session_id: str, payload: dict) -> Message:
+        def _coerce_payload_json(value: object) -> dict:
+            if isinstance(value, dict):
+                return value
+            if isinstance(value, str):
+                try:
+                    parsed = json.loads(value)
+                except (TypeError, ValueError):
+                    return {}
+                return parsed if isinstance(parsed, dict) else {}
+            return {}
+
         message_type = MessageType(payload["message_type"])
         if message_type == MessageType.USER_MESSAGE:
             stream_state = StreamState.COMPLETED
@@ -105,5 +239,5 @@ class MessageRepository:
             stream_state=stream_state,
             display_mode=payload["display_mode"],
             content_text=payload.get("content_text", ""),
-            payload_json=payload.get("payload_json", {}),
+            payload_json=_coerce_payload_json(payload.get("payload_json")),
         )

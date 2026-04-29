@@ -23,7 +23,11 @@ class ShellTool(BaseTool):
     
     @property
     def description(self) -> str:
-        return "执行安全的 Shell 命令"
+        return (
+            f"执行安全的命令（当前平台: {self.security.platform_label}）。"
+            "命令按 argv 执行，不经过 shell；禁止 Shell 元语法、二级 shell、危险命令和越界路径。"
+            f"{self.security.command_hint}"
+        )
 
     def get_schema(self) -> dict[str, Any]:
         """返回工具的 JSON Schema"""
@@ -35,7 +39,7 @@ class ShellTool(BaseTool):
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "要执行的 Shell 命令"
+                        "description": f"要执行的命令。{self.security.command_hint}"
                     },
                     "cwd": {
                         "type": "string",
@@ -68,11 +72,11 @@ class ShellTool(BaseTool):
             return ToolResult(success=False, error="缺少 command 参数")
         
         try:
-            self.security.validate_command(command)
+            argv = self.security.validate_command(command, path_security=self.path_security)
             cwd = self.path_security.validate_path(cwd or ".")
             
-            process = await asyncio.create_subprocess_shell(
-                command,
+            process = await asyncio.create_subprocess_exec(
+                *argv,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd

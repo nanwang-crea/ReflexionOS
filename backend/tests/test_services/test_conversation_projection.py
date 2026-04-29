@@ -5,9 +5,11 @@ from app.models.session import Session
 from app.services.conversation_projection import ConversationProjection
 from app.storage.database import Database
 from app.storage.repositories.message_repo import MessageRepository
+from app.storage.repositories.message_search_document_repo import MessageSearchDocumentRepository
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
+from app.memory.continuation import build_continuation_artifact
 
 
 def test_projection_run_completed_marks_turn_completed_and_clears_session_active_turn(tmp_path):
@@ -148,3 +150,128 @@ def test_projection_message_content_committed_sets_full_message_text(tmp_path):
     assert message is not None
     assert message.content_text == "最终回答"
     assert message.stream_state == StreamState.STREAMING
+
+
+def test_projection_message_created_populates_search_document(tmp_path):
+    db = Database(str(tmp_path / "conversation-projection-message-search.db"))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    run_repo = RunRepository(db)
+    message_repo = MessageRepository(db)
+    message_search_repo = MessageSearchDocumentRepository(db)
+    projection = ConversationProjection(
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        run_repo=run_repo,
+        message_repo=message_repo,
+        message_search_repo=message_search_repo,
+    )
+
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-1",
+            session_id="session-1",
+            event_type=EventType.TURN_CREATED,
+            turn_id="turn-1",
+            payload_json={
+                "turn_id": "turn-1",
+                "turn_index": 1,
+                "root_message_id": "msg-user-1",
+            },
+        ),
+    )
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-2",
+            session_id="session-1",
+            event_type=EventType.MESSAGE_CREATED,
+            turn_id="turn-1",
+            message_id="msg-user-1",
+            payload_json={
+                "message_id": "msg-user-1",
+                "turn_id": "turn-1",
+                "run_id": None,
+                "role": "user",
+                "message_type": "user_message",
+                "turn_message_index": 1,
+                "display_mode": "default",
+                "content_text": "请检查 memory 设计",
+                "payload_json": {},
+            },
+        ),
+    )
+
+    document = message_search_repo.get("msg-user-1")
+
+    assert document is not None
+    assert document.session_id == "session-1"
+    assert document.turn_id == "turn-1"
+    assert document.turn_index == 1
+    assert "请检查 memory 设计" in document.search_text
+
+
+def test_projection_skips_indexing_when_message_excluded_from_recall(tmp_path):
+    db = Database(str(tmp_path / "conversation-projection-message-search-exclude.db"))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    run_repo = RunRepository(db)
+    message_repo = MessageRepository(db)
+    message_search_repo = MessageSearchDocumentRepository(db)
+    projection = ConversationProjection(
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        run_repo=run_repo,
+        message_repo=message_repo,
+        message_search_repo=message_search_repo,
+    )
+
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-1",
+            session_id="session-1",
+            event_type=EventType.TURN_CREATED,
+            turn_id="turn-1",
+            payload_json={
+                "turn_id": "turn-1",
+                "turn_index": 1,
+                "root_message_id": "msg-user-1",
+            },
+        ),
+    )
+
+    artifact = build_continuation_artifact(
+        session_id="session-1",
+        turn_id="turn-1",
+        content_text="当前目标: 继续设计 recall\n已确认事实: \n未解决点: \n下一步建议: ",
+    )
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-2",
+            session_id="session-1",
+            event_type=EventType.MESSAGE_CREATED,
+            turn_id="turn-1",
+            message_id=artifact.id,
+            payload_json={
+                "message_id": artifact.id,
+                "turn_id": "turn-1",
+                "run_id": None,
+                "role": artifact.role,
+                "message_type": artifact.message_type.value,
+                "turn_message_index": artifact.turn_message_index,
+                "display_mode": artifact.display_mode,
+                "content_text": artifact.content_text,
+                "payload_json": artifact.payload_json,
+            },
+        ),
+    )
+
+    assert message_search_repo.get(artifact.id) is None

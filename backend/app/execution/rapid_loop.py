@@ -10,6 +10,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus, LoopStep, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.llm.retry import RetryExhaustedError
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,10 @@ class RapidExecutionLoop:
         task: str,
         project_path: str | None = None,
         run_id: str | None = None,
-        created_at: datetime | None = None
+        created_at: datetime | None = None,
+        seed_messages: list[dict[str, str]] | None = None,
+        supplemental_context: str | None = None,
+        system_sections: list[str] | None = None,
     ) -> LoopResult:
         """
         执行任务
@@ -96,6 +100,23 @@ class RapidExecutionLoop:
             project_path=project_path,
             run_id=loop_result.id
         )
+
+        allowed_seed_roles = {"user", "assistant", "tool"}
+        for seeded in seed_messages or []:
+            if not isinstance(seeded, dict):
+                continue
+            role = str(seeded.get("role") or "").strip().lower()
+            if role not in allowed_seed_roles:
+                continue
+            content = seeded.get("content")
+            if not isinstance(content, str):
+                continue
+            content = content.strip()
+            if not content:
+                continue
+            context.add_message(role, content)
+        context.supplemental_context = supplemental_context
+        context.system_sections = system_sections or []
         context.add_message("user", task)
 
         # 发送开始事件
@@ -221,6 +242,19 @@ class RapidExecutionLoop:
                 "total_steps": len(loop_result.steps)
             })
 
+        except RetryExhaustedError as e:
+            loop_result.status = LoopStatus.CANCELLED
+            loop_result.result = "执行已取消：LLM 重试次数已达上限"
+            logger.warning("LLM 重试次数已达上限，取消执行: %s", e)
+
+            await self._emit("run:cancelled", {
+                "status": loop_result.status.value,
+                "result": loop_result.result,
+                "total_steps": len(loop_result.steps),
+                "reason": "llm_retry_exhausted",
+                "error": str(e.last_exception),
+            })
+
         except Exception as e:
             import traceback
             loop_result.status = LoopStatus.FAILED
@@ -313,6 +347,16 @@ class RapidExecutionLoop:
         # 系统提示
         system_prompt = self._get_system_prompt()
         messages.append(LLMMessage(role="system", content=system_prompt))
+
+        # Task 6: layered system context sections (AGENTS/USER/MEMORY/etc.)
+        for section in getattr(context, "system_sections", []) or []:
+            if str(section or "").strip():
+                messages.append(LLMMessage(role="system", content=str(section)))
+
+        # Task 6: supplemental context block (e.g., continuation artifact handoff)
+        supplemental = getattr(context, "supplemental_context", None)
+        if supplemental and str(supplemental).strip():
+            messages.append(LLMMessage(role="system", content=str(supplemental).strip()))
 
         # 历史消息
         for msg in self._get_recent_context_messages(context):
@@ -496,6 +540,8 @@ class RapidExecutionLoop:
             if summary:
                 return summary
             
+        except RetryExhaustedError:
+            raise
         except Exception as e:
             logger.error("获取总结失败: %s", e)
         

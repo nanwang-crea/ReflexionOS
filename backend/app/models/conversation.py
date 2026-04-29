@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import Enum
+import json
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -98,6 +99,21 @@ class Message(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
+
+    def _as_payload_dict(self) -> dict:
+        payload = self.payload_json
+        if isinstance(payload, dict):
+            return payload
+        if isinstance(payload, str):
+            try:
+                parsed = json.loads(payload)
+            except (TypeError, ValueError):
+                return {}
+            return parsed if isinstance(parsed, dict) else {}
+        return {}
+
+    def is_excluded_from_recall(self) -> bool:
+        return bool(self._as_payload_dict().get("exclude_from_recall", False))
 
 
 class ConversationEvent(BaseModel):
