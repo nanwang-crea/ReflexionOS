@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import random
 from typing import Any, Callable, TypeVar
@@ -44,7 +45,9 @@ async def retry_async(
                 break
             delay = _retry_delay(attempt)
             if on_retry:
-                on_retry(exc, attempt, delay)
+                result = on_retry(exc, attempt, delay)
+                if inspect.isawaitable(result):
+                    await result
             else:
                 logger.warning(
                     "LLM 请求失败 (%s)，第 %d/%d 次重试，%.1fs 后重试: %s",

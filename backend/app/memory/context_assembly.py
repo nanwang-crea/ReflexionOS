@@ -6,8 +6,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.memory.curated_store import CuratedMemoryStore
-from app.memory.payload_utils import as_payload_dict
-from app.models.conversation import Message, MessageType
+from app.models.conversation import Message
 from app.services.conversation_service import ConversationService
 
 
@@ -37,13 +36,6 @@ def build_context_assembly(
     )
 
 
-def _is_continuation_artifact(message: Message) -> bool:
-    if message.message_type != MessageType.SYSTEM_NOTICE:
-        return False
-    payload = as_payload_dict(message.payload_json)
-    return payload.get("kind") == "continuation_artifact"
-
-
 class ContextAssembler:
     """
     Build the three-layer context assembly used by runtime execution:
@@ -68,7 +60,7 @@ class ContextAssembler:
         project_id: str,
         project_path: str | None = None,
         current_turn_id: str | None = None,
-        current_user_input: str | None = None,  # reserved for future ranking
+        current_user_input: str | None = None,
         max_seed_messages: int = 8,
         scan_limit: int = 200,
     ) -> ContextAssemblyResult:
@@ -86,32 +78,18 @@ class ContextAssembler:
             if any(entry.status == "active" for entry in entries):
                 static_blocks.append(self.curated_store.render_markdown(project_id=project_id, target=target))
 
-        # 3) Conversation-derived layers (bounded scan to avoid full-session walk).
-        messages = self.conversation_service.message_repo.list_recent_by_session(
+        # 3) Supplemental block: latest continuation artifact (SQL-level query).
+        artifact = self.conversation_service.message_repo.get_latest_continuation_artifact(session_id)
+        supplemental_block = artifact.content_text.strip() if artifact and (artifact.content_text or "").strip() else None
+
+        # 4) Recent seed candidates (SQL-level filter + slice).
+        candidates = self.conversation_service.message_repo.list_recent_seed_candidates(
             session_id,
-            limit=max(50, int(scan_limit)) if scan_limit else 200,
+            current_turn_id=current_turn_id,
+            limit=max_seed_messages,
+            scan_limit=scan_limit,
         )
-
-        supplemental_block: str | None = None
-        for message in reversed(messages):
-            if _is_continuation_artifact(message) and (message.content_text or "").strip():
-                supplemental_block = message.content_text.strip()
-                break
-
-        recent_seed_candidates: list[Message] = []
-        for message in messages:
-            if current_turn_id and message.turn_id == current_turn_id:
-                continue
-            if message.message_type not in {MessageType.USER_MESSAGE, MessageType.ASSISTANT_MESSAGE}:
-                continue
-            if _is_continuation_artifact(message):
-                continue
-            if not (message.content_text or "").strip():
-                continue
-            recent_seed_candidates.append(message)
-
-        sliced = recent_seed_candidates[-max(0, int(max_seed_messages)) :] if max_seed_messages else []
-        recent_messages = [{"role": msg.role, "content": msg.content_text} for msg in sliced]
+        recent_messages = [{"role": msg.role, "content": msg.content_text} for msg in candidates]
 
         return build_context_assembly(
             static_blocks=static_blocks,

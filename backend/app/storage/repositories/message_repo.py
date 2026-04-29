@@ -1,6 +1,6 @@
 from app.models.conversation import Message, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
-from sqlalchemy import case
+from sqlalchemy import case, func
 import json
 
 
@@ -133,6 +133,82 @@ class MessageRepository:
             .scalar()
         ) or 0
         return current + 1
+
+    def list_recent_seed_candidates(
+        self,
+        session_id: str,
+        *,
+        current_turn_id: str | None = None,
+        limit: int = 8,
+        scan_limit: int = 200,
+    ) -> list[Message]:
+        """
+        Return recent user/assistant messages suitable for context seeding.
+
+        Filters out continuation artifacts, empty messages, and messages from
+        the current turn — all at the SQL level.
+        """
+        resolved_limit = max(0, int(limit)) if limit else 0
+        resolved_scan = max(50, int(scan_limit)) if scan_limit else 200
+        if resolved_limit <= 0:
+            return []
+
+        with self.db.get_session() as db_session:
+            query = (
+                db_session.query(MessageModel)
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.message_type.in_([
+                        MessageType.USER_MESSAGE.value,
+                        MessageType.ASSISTANT_MESSAGE.value,
+                    ]),
+                    MessageModel.content_text != "",
+                    func.coalesce(
+                        func.json_extract(MessageModel.payload_json, "$.kind"),
+                        "",
+                    ) != "continuation_artifact",
+                )
+            )
+            if current_turn_id:
+                query = query.filter(MessageModel.turn_id != current_turn_id)
+
+            models = (
+                query.order_by(MessageModel.created_at.desc())
+                .limit(resolved_scan)
+                .all()
+            )
+
+            selected = [Message.model_validate(m) for m in reversed(models)][-resolved_limit:]
+            return selected
+
+    def get_latest_continuation_artifact(
+        self,
+        session_id: str,
+        *,
+        db_session=None,
+    ) -> Message | None:
+        """Return the most recent continuation artifact for a session, or None."""
+        def _query(session):
+            model = (
+                session.query(MessageModel)
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.message_type == MessageType.SYSTEM_NOTICE.value,
+                    func.json_extract(MessageModel.payload_json, "$.kind")
+                        == "continuation_artifact",
+                    MessageModel.content_text != "",
+                )
+                .order_by(MessageModel.created_at.desc())
+                .limit(1)
+                .first()
+            )
+            return Message.model_validate(model) if model else None
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return _query(managed_session)
+
+        return _query(db_session)
 
     def from_payload(self, *, session_id: str, payload: dict) -> Message:
         def _coerce_payload_json(value: object) -> dict:

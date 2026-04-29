@@ -312,6 +312,7 @@ class AgentService:
         )
 
         try:
+            # 该部分拿回来了最近的历史信息，同时也拿回了supplemental_block,这个也是从message拿到的
             assembly = self.context_assembler.build_for_session(
                 session_id=session_id,
                 project_id=project_id,

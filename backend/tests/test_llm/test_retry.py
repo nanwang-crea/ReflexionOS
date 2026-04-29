@@ -90,6 +90,27 @@ class TestRetryAsync:
         assert attempts[0][2] is True  # delay > 0
 
     @pytest.mark.asyncio
+    async def test_async_on_retry_callback_is_awaited(self):
+        attempts = []
+
+        async def fn():
+            if len(attempts) < 2:
+                raise ValueError("transient")
+            return "ok"
+
+        async def on_retry(exc, attempt, delay):
+            attempts.append((type(exc).__name__, attempt, delay > 0))
+
+        await retry_async(
+            fn,
+            retryable_exceptions=(ValueError,),
+            max_retries=5,
+            on_retry=on_retry,
+        )
+        assert len(attempts) == 2
+        assert attempts[0][0] == "ValueError"
+
+    @pytest.mark.asyncio
     async def test_max_retries_respected(self):
         call_count = 0
 
