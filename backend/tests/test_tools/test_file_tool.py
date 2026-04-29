@@ -51,6 +51,21 @@ class TestFileTool:
         assert result.data["end_line"] == 4
         assert "line2" in result.data["content"]
         assert "line4" in result.data["content"]
+
+    @pytest.mark.asyncio
+    async def test_read_file_rejects_invalid_line_range(self, file_tool, temp_dir):
+        test_file = Path(temp_dir) / "test.py"
+        test_file.write_text("line1\nline2")
+
+        result = await file_tool.execute({
+            "action": "read",
+            "path": str(test_file),
+            "start_line": 1,
+            "end_line": 0
+        })
+
+        assert result.success is False
+        assert "结束行号必须大于等于起始行号" in result.error
     
     @pytest.mark.asyncio
     async def test_read_file_with_context(self, file_tool, temp_dir):

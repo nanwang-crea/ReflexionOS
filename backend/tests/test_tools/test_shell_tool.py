@@ -51,8 +51,8 @@ class TestShellTool:
             "command": "echo hello | wc -c"
         })
 
-        assert result.success is True
-        assert result.output.strip() == "6"
+        assert result.success is False
+        assert "Shell 元语法" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_common_command(self, shell_tool):
@@ -68,6 +68,64 @@ class TestShellTool:
 
         with pytest.raises(ShellSecurityError, match="危险命令"):
             security.validate_command("eval echo hello")
+
+    @pytest.mark.asyncio
+    async def test_execute_rejects_path_arguments_outside_project_root(self, shell_tool):
+        result = await shell_tool.execute({
+            "command": "cat ~/.ssh/id_rsa"
+        })
+
+        assert result.success is False
+        assert "路径不在允许范围内" in result.error
+
+    @pytest.mark.asyncio
+    async def test_execute_rejects_python_inline_code(self, shell_tool):
+        result = await shell_tool.execute({
+            "command": "python -c 'print(123)'"
+        })
+
+        assert result.success is False
+        assert "危险命令" in result.error
+
+    def test_validate_windows_delete_command(self):
+        security = ShellSecurity(platform_name="win32")
+
+        with pytest.raises(ShellSecurityError, match="危险命令"):
+            security.validate_command("del C:\\Users\\me\\secret.txt")
+
+    def test_validate_windows_shell_command(self):
+        security = ShellSecurity(platform_name="win32")
+
+        with pytest.raises(ShellSecurityError, match="危险命令"):
+            security.validate_command("powershell -Command Get-ChildItem")
+
+    def test_schema_describes_posix_platform_for_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = os.path.realpath(tmpdir)
+            tool = ShellTool(
+                ShellSecurity(platform_name="darwin"),
+                PathSecurity([root_dir], base_dir=root_dir),
+            )
+
+            schema = tool.get_schema()
+
+            assert "当前平台: macOS" in schema["description"]
+            assert "pwd" in schema["parameters"]["properties"]["command"]["description"]
+            assert "which python" in schema["parameters"]["properties"]["command"]["description"]
+
+    def test_schema_describes_windows_platform_for_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = os.path.realpath(tmpdir)
+            tool = ShellTool(
+                ShellSecurity(platform_name="win32"),
+                PathSecurity([root_dir], base_dir=root_dir),
+            )
+
+            schema = tool.get_schema()
+
+            assert "当前平台: Windows" in schema["description"]
+            assert "where python" in schema["parameters"]["properties"]["command"]["description"]
+            assert "cmd /c" in schema["parameters"]["properties"]["command"]["description"]
 
     def test_validate_relative_cwd_within_project_root(self):
         with tempfile.TemporaryDirectory() as tmpdir:

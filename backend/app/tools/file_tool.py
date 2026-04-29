@@ -139,6 +139,8 @@ class FileTool(BaseTool):
             # 读取指定范围
             start_line = max(1, start_line)
             end_line = min(total_lines, end_line)
+            if end_line < start_line:
+                return ToolResult(success=False, error="结束行号必须大于等于起始行号")
         elif start_line is not None:
             # 从 start_line 开始读取
             start_line = max(1, start_line)

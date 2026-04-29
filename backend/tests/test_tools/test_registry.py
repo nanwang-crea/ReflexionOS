@@ -85,3 +85,15 @@ class TestToolRegistry:
         assert definitions_by_name["file"].parameters["properties"]["path"]["type"] == "string"
         assert definitions_by_name["shell"].parameters["properties"]["command"]["type"] == "string"
         assert definitions_by_name["shell"].parameters["properties"]["cwd"]["type"] == "string"
+
+    def test_get_tool_definitions_include_shell_platform_guidance(self, registry, temp_dir):
+        shell_tool = ShellTool(
+            ShellSecurity(platform_name="darwin"),
+            PathSecurity([temp_dir], base_dir=temp_dir),
+        )
+        registry.register(shell_tool)
+
+        [definition] = registry.get_tool_definitions()
+
+        assert "当前平台: macOS" in definition.description
+        assert "which python" in definition.parameters["properties"]["command"]["description"]
