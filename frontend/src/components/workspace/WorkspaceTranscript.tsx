@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { RefObject, UIEventHandler } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SlideIn } from '@/components/animations/SlideIn'
@@ -7,7 +8,7 @@ import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { SessionSummary } from '@/types/workspace'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -25,6 +26,12 @@ const transcriptClassName = [
   '[&_pre]:my-4',
   '[&_blockquote]:my-5',
 ].join(' ')
+
+export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
+  const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
+  return Math.max(0, delaySeconds - elapsedSeconds)
+}
 
 interface WorkspaceTranscriptProps {
   loaded: boolean
@@ -61,7 +68,30 @@ export function WorkspaceTranscript({
     return false
   })
 
-  const showThinkingIndicator = isRunning && !hasVisibleStreamingMessage
+  const [reconnectCountdownSeconds, setReconnectCountdownSeconds] = useState(() => (
+    getRetryCountdownSeconds(retryInfo?.delay ?? 0)
+  ))
+  const hasRetryInfo = retryInfo !== null
+  const retryAttempt = retryInfo?.attempt ?? null
+  const retryDelay = retryInfo?.delay ?? 0
+  const retryMaxRetries = retryInfo?.max_retries ?? null
+  const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
+  const showReconnectIndicator = isRunning && reconnectLabel !== null
+  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage
+
+  useEffect(() => {
+    if (!hasRetryInfo || !isRunning) {
+      setReconnectCountdownSeconds(0)
+      return
+    }
+
+    setReconnectCountdownSeconds(getRetryCountdownSeconds(retryDelay))
+    const intervalId = window.setInterval(() => {
+      setReconnectCountdownSeconds((seconds) => Math.max(0, seconds - 1))
+    }, 1000)
+
+    return () => window.clearInterval(intervalId)
+  }, [hasRetryInfo, isRunning, retryAttempt, retryDelay, retryMaxRetries])
 
   return (
     <div
@@ -144,14 +174,10 @@ export function WorkspaceTranscript({
           })}
         </AnimatePresence>
 
-        {retryInfo && isRunning && (
-          <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
-            <span>
-              请求失败 ({retryInfo.error_type})，第 {retryInfo.attempt}/{retryInfo.max_retries} 次重试，
-              {retryInfo.delay}s 后重试
-            </span>
-            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-400" />
+        {showReconnectIndicator && (
+          <div className="mb-8 flex items-center gap-3 text-sm text-amber-600" aria-live="polite">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+            <span>{reconnectLabel} · {reconnectCountdownSeconds} 秒后重试</span>
           </div>
         )}
 
