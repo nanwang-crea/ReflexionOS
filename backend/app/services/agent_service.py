@@ -267,6 +267,14 @@ class AgentService:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
 
         async def on_llm_retry(exc: Exception, attempt: int, delay: float) -> None:
+            logger.warning(
+                "LLM 请求失败 (%s)，第 %d/%d 次重试，%.1fs 后重试: %s",
+                type(exc).__name__,
+                attempt + 1,
+                5,
+                delay,
+                exc,
+            )
             await ws_manager.send_event(
                 session_id,
                 "llm:retry",

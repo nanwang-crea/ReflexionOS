@@ -196,10 +196,12 @@ class SessionConversationWebSocket {
 
     if (message.type === 'conversation.error') {
       this.emit('conversation:error', message.data as ConversationErrorDto)
+      return
     }
 
-    if (message.type === 'llm.retry') {
+    if (message.type === 'llm:retry') {
       this.emit('llm:retry', message.data as LlmRetryDto)
+      return
     }
   }
 
