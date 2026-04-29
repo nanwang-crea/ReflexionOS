@@ -30,11 +30,12 @@ _RETRYABLE = (RateLimitError, APITimeoutError, APIConnectionError, InternalServe
 
 class OpenAIAdapter(UniversalLLMInterface):
     """OpenAI API 适配器 - 支持原生工具调用和流式输出"""
-    
-    def __init__(self, config: ResolvedLLMConfig):
+
+    def __init__(self, config: ResolvedLLMConfig, *, on_retry=None):
         self.config = config
         self.model = config.model
-        
+        self.on_retry = on_retry
+
         self.client = AsyncOpenAI(
             api_key=config.api_key or "reflexion-placeholder-key",
             base_url=config.base_url if config.base_url else None
@@ -74,6 +75,7 @@ class OpenAIAdapter(UniversalLLMInterface):
         response = await retry_async(
             lambda: self.client.chat.completions.create(**kwargs),
             retryable_exceptions=_RETRYABLE,
+            on_retry=self.on_retry,
         )
 
         return self._parse_response(response)
@@ -114,6 +116,7 @@ class OpenAIAdapter(UniversalLLMInterface):
         stream = await retry_async(
             lambda: self.client.chat.completions.create(**kwargs),
             retryable_exceptions=_RETRYABLE,
+            on_retry=self.on_retry,
         )
 
         # 收集 tool_calls（流式时需要聚合）

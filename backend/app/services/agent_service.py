@@ -265,7 +265,21 @@ class AgentService:
         model_id: str | None,
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
-        llm = LLMAdapterFactory.create(resolved_llm)
+
+        async def on_llm_retry(exc: Exception, attempt: int, delay: float) -> None:
+            await ws_manager.send_event(
+                session_id,
+                "llm:retry",
+                {
+                    "error_type": type(exc).__name__,
+                    "attempt": attempt + 1,
+                    "max_retries": 5,
+                    "delay": round(delay, 1),
+                    "message": str(exc),
+                },
+            )
+
+        llm = LLMAdapterFactory.create(resolved_llm, on_retry=on_llm_retry)
         runtime_adapter = ConversationRuntimeAdapter(
             conversation_service=self.conversation_service,
             session_id=session_id,

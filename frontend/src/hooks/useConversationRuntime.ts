@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/conversationApi'
 import { useConversationStore } from '@/features/conversation/conversationStore'
 import type { ConnectionStatus } from '@/features/workspace/types'
+import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import {
   SessionConversationWebSocket,
   type SessionConversationEventDto,
@@ -116,6 +117,7 @@ export function useConversationRuntime(
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialConnectionStatus)
   const [isCancelling, setIsCancelling] = useState(false)
+  const [retryInfo, setRetryInfo] = useState<LlmRetryDto | null>(null)
 
   const closeWebSocket = useCallback(() => {
     wsRef.current?.close()
@@ -182,16 +184,22 @@ export function useConversationRuntime(
 
       if (event.eventType === 'run.cancelled' || event.eventType === 'run.failed' || event.eventType === 'run.completed') {
         setIsCancelling(false)
+        setRetryInfo(null)
       }
     })
     ws.on('conversation:live_event', (rawLiveEvent) => {
       useConversationStore.getState().applyLiveEvent(sessionId, toConversationLiveMessage(rawLiveEvent))
+      setRetryInfo(null)
     })
     ws.on('conversation:live_state', (rawLiveState) => {
       useConversationStore.getState().setLiveState(sessionId, toConversationLiveMessage(rawLiveState))
+      setRetryInfo(null)
     })
     ws.on('conversation:resync_required', () => {
       queueSnapshotRefresh(sessionId)
+    })
+    ws.on('llm:retry', (data) => {
+      setRetryInfo(data)
     })
 
     await ws.connect(sessionId)
@@ -272,6 +280,7 @@ export function useConversationRuntime(
   return {
     connectionStatus,
     isCancelling,
+    retryInfo,
     startTurn,
     cancelRun,
     resetConversationRuntime,

@@ -5,8 +5,9 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
+import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { SessionSummary } from '@/types/workspace'
-import { Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -32,6 +33,7 @@ interface WorkspaceTranscriptProps {
   currentSession: SessionSummary | null
   messages: ConversationMessage[]
   isRunning?: boolean
+  retryInfo?: LlmRetryDto | null
   transcriptScrollRef?: RefObject<HTMLDivElement>
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   messagesEndRef: RefObject<HTMLDivElement>
@@ -44,6 +46,7 @@ export function WorkspaceTranscript({
   currentSession,
   messages,
   isRunning = false,
+  retryInfo = null,
   transcriptScrollRef,
   onTranscriptScroll,
   messagesEndRef,
@@ -140,6 +143,17 @@ export function WorkspaceTranscript({
             return null
           })}
         </AnimatePresence>
+
+        {retryInfo && isRunning && (
+          <div className="mb-6 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+            <span>
+              请求失败 ({retryInfo.error_type})，第 {retryInfo.attempt}/{retryInfo.max_retries} 次重试，
+              {retryInfo.delay}s 后重试
+            </span>
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-400" />
+          </div>
+        )}
 
         {showThinkingIndicator && (
           <div className="mb-8 flex items-center gap-3 text-sm text-slate-500">

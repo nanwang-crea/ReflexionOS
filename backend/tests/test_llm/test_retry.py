@@ -8,10 +8,10 @@ class TestRetryDelay:
         d0 = _retry_delay(0)
         d1 = _retry_delay(1)
         d2 = _retry_delay(2)
-        # base=1.0 → expected ~1, 2, 4 (plus jitter up to 25%)
-        assert 1.0 <= d0 <= 1.25
-        assert 2.0 <= d1 <= 2.5
-        assert 4.0 <= d2 <= 5.0
+        # base=2.0 → expected ~2, 4, 8 (plus jitter up to 25%)
+        assert 2.0 <= d0 <= 2.5
+        assert 4.0 <= d1 <= 5.0
+        assert 8.0 <= d2 <= 10.0
 
     def test_caps_at_max_delay(self):
         delay = _retry_delay(100)
