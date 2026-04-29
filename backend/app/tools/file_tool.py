@@ -45,69 +45,50 @@ class FileTool(BaseTool):
             "description": self.description,
             "parameters": {
                 "type": "object",
-                "oneOf": [
-                    self._action_schema(
-                        "read",
-                        "读取文件内容",
-                        {
-                            "start_line": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "description": (
-                                    "起始行号（从1开始），推荐与 limit 一起使用"
-                                )
-                            },
-                            "limit": {
-                                "type": "integer",
-                                "minimum": 30,
-                                "maximum": 100,
-                                "default": 80,
-                                "description": (
-                                    "读取行数，推荐与 start_line 一起使用；最小 30，"
-                                    "最大 100，默认 80"
-                                )
-                            },
-                            "line": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "description": (
-                                    "目标行号，配合 context 使用读取周围行；"
-                                    "使用 start_line/limit 时请省略"
-                                )
-                            },
-                            "context": {
-                                "type": "integer",
-                                "minimum": 1,
-                                "description": "上下文行数，配合 line 使用；省略时默认 10"
-                            },
-                        },
-                    ),
-                    self._action_schema(
-                        "search",
-                        "搜索文件或目录中的文本",
-                        {
-                            "query": {
-                                "type": "string",
-                                "minLength": 1,
-                                "description": "搜索关键词"
-                            },
-                        },
-                        required_extra=["query"],
-                    ),
-                    self._action_schema(
-                        "write",
-                        "写入文件内容",
-                        {
-                            "content": {
-                                "type": "string",
-                                "description": "写入的内容"
-                            },
-                        },
-                        required_extra=["content"],
-                    ),
-                    self._action_schema("list", "列出目录内容"),
-                    self._action_schema("delete", "删除文件或空目录"),
-                ],
+                "additionalProperties": False,
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["read", "search", "write", "list", "delete"],
+                        "description": "操作类型：read/search/write/list/delete",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "文件或目录路径（相对或绝对）",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "read 使用：起始行号（从1开始），推荐与 limit 一起使用",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 30,
+                        "maximum": 100,
+                        "default": 80,
+                        "description": "read 使用：读取行数，推荐与 start_line 一起使用；最小 30，最大 100，默认 80",
+                    },
+                    "line": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "read 使用：目标行号，配合 context 使用读取周围行；使用 start_line/limit 时请省略",
+                    },
+                    "context": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "read 使用：上下文行数，配合 line 使用；省略时默认 10",
+                    },
+                    "query": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "search 使用：搜索关键词",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "write 使用：写入的内容",
+                    },
+                },
+                "required": ["action", "path"],
             },
             "examples": [
                 {"action": "read", "path": "README.md"},
@@ -115,37 +96,8 @@ class FileTool(BaseTool):
                 {"action": "read", "path": "main.py", "line": 100, "context": 10},
                 {"action": "search", "path": "main.py", "query": "def login"},
                 {"action": "write", "path": "hello.py", "content": "print('hello')"},
-                {"action": "list", "path": "."}
-            ]
-        }
-
-    def _action_schema(
-        self,
-        action: str,
-        description: str,
-        extra_properties: dict[str, Any] | None = None,
-        *,
-        required_extra: list[str] | None = None,
-    ) -> dict[str, Any]:
-        properties = {
-            "action": {
-                "type": "string",
-                "enum": [action],
-                "description": f"固定为 {action}"
-            },
-            "path": {
-                "type": "string",
-                "description": "文件或目录路径（相对或绝对）"
-            },
-        }
-        properties.update(extra_properties or {})
-        return {
-            "type": "object",
-            "title": action,
-            "description": description,
-            "additionalProperties": False,
-            "properties": properties,
-            "required": ["action", "path", *(required_extra or [])],
+                {"action": "list", "path": "."},
+            ],
         }
     
     async def execute(self, args: dict[str, Any]) -> ToolResult:
@@ -404,6 +356,8 @@ class FileTool(BaseTool):
     async def _write_file(self, args: dict[str, Any]) -> ToolResult:
         """写入文件内容"""
         path = self.security.validate_write_path(args["path"])
+        if "content" not in args:
+            return ToolResult(success=False, error="缺少 content 参数")
         content = args.get("content", "")
         
         dir_path = os.path.dirname(path)

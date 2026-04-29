@@ -21,31 +21,23 @@ class TestFileTool:
         return FileTool(security)
 
     def test_schema_exposes_read_limit_for_model_calls(self, file_tool):
-        read_schema = self._schema_for_action(file_tool, "read")
-        limit_schema = read_schema["properties"]["limit"]
+        limit_schema = file_tool.get_schema()["parameters"]["properties"]["limit"]
 
         assert limit_schema["minimum"] == 30
         assert limit_schema["maximum"] == 100
         assert limit_schema["default"] == 80
         assert "start_line" in limit_schema["description"]
 
-    def test_schema_scopes_parameters_by_action(self, file_tool):
-        read_props = self._schema_for_action(file_tool, "read")["properties"]
-        search_props = self._schema_for_action(file_tool, "search")["properties"]
-        write_props = self._schema_for_action(file_tool, "write")["properties"]
+    def test_schema_is_flat_and_openai_compatible(self, file_tool):
+        parameters = file_tool.get_schema()["parameters"]
+        props = parameters["properties"]
 
-        assert {"action", "path", "start_line", "limit", "line", "context"} == set(read_props)
-        assert "end_line" not in read_props
-        assert {"action", "path", "query"} == set(search_props)
-        assert {"action", "path", "content"} == set(write_props)
-
-    def _schema_for_action(self, file_tool, action: str) -> dict:
-        variants = file_tool.get_schema()["parameters"]["oneOf"]
-        return next(
-            variant
-            for variant in variants
-            if variant["properties"]["action"]["enum"] == [action]
-        )
+        assert parameters["type"] == "object"
+        assert "oneOf" not in parameters
+        assert parameters["required"] == ["action", "path"]
+        assert props["action"]["enum"] == ["read", "search", "write", "list", "delete"]
+        assert {"action", "path", "start_line", "limit", "line", "context", "query", "content"} == set(props)
+        assert "end_line" not in props
     
     @pytest.mark.asyncio
     async def test_read_file_success(self, file_tool, temp_dir):
@@ -207,6 +199,19 @@ class TestFileTool:
         
         assert result.success is True
         assert test_file.read_text() == "Hello World"
+
+    @pytest.mark.asyncio
+    async def test_write_requires_content_after_flattening_schema(self, file_tool, temp_dir):
+        test_file = Path(temp_dir) / "output.txt"
+
+        result = await file_tool.execute({
+            "action": "write",
+            "path": str(test_file),
+        })
+
+        assert result.success is False
+        assert "缺少 content 参数" in result.error
+        assert not test_file.exists()
     
     @pytest.mark.asyncio
     async def test_list_directory(self, file_tool, temp_dir):
