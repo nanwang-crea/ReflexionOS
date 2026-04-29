@@ -7,11 +7,14 @@ from datetime import datetime
 
 from app.config.settings import config_manager
 from app.execution.context_manager import LoopContext
-from app.execution.models import LoopResult, LoopStatus, LoopStep, StepStatus
+from app.execution.initial_plan_bootstrapper import InitialPlanBootstrapper
+from app.execution.loop_message_builder import LoopMessageBuilder
+from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
+from app.execution.tool_call_executor import ToolCallExecutor
+from app.llm.base import LLMResponse, LLMToolCall, UniversalLLMInterface
 from app.llm.retry import RetryExhaustedError
-from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -54,6 +57,21 @@ class RapidExecutionLoop:
         self.max_steps = max_steps or config_manager.settings.execution.max_steps
         self.prompt_manager = PromptManager()
         self.event_callback = event_callback
+        self.tool_definitions = RuntimeToolDefinitions(tool_registry)
+        self.message_builder = LoopMessageBuilder(
+            prompt_manager=self.prompt_manager,
+            max_context_groups=self.MAX_CONTEXT_GROUPS,
+        )
+        self.initial_plan_bootstrapper = InitialPlanBootstrapper(
+            llm=self.llm,
+            tool_definitions=self.tool_definitions,
+            message_builder=self.message_builder,
+            emit=self._emit,
+        )
+        self.tool_executor = ToolCallExecutor(
+            tool_registry=self.tool_registry,
+            emit=self._emit,
+        )
         
         # 状态追踪
         self.has_executed_tools = False
@@ -96,29 +114,14 @@ class RapidExecutionLoop:
             created_at=created_at or datetime.now()
         )
         
-        context = LoopContext(
+        context = LoopContext.from_run_input(
             task=task,
             project_path=project_path,
-            run_id=loop_result.id
+            run_id=loop_result.id,
+            seed_messages=seed_messages,
+            supplemental_context=supplemental_context,
+            system_sections=system_sections,
         )
-
-        allowed_seed_roles = {"user", "assistant", "tool"}
-        for seeded in seed_messages or []:
-            if not isinstance(seeded, dict):
-                continue
-            role = str(seeded.get("role") or "").strip().lower()
-            if role not in allowed_seed_roles:
-                continue
-            content = seeded.get("content")
-            if not isinstance(content, str):
-                continue
-            content = content.strip()
-            if not content:
-                continue
-            context.add_message(role, content)
-        context.supplemental_context = supplemental_context
-        context.system_sections = system_sections or []
-        context.add_message("user", task)
 
         # 发送开始事件
         await self._emit("run:start", {
@@ -129,6 +132,8 @@ class RapidExecutionLoop:
         logger.info("开始执行任务: %s", task)
         
         try:
+            await self.initial_plan_bootstrapper.bootstrap(context)
+
             state = LoopPhase.PLANNING
             step_num = 0
             turn_retries = 0
@@ -141,20 +146,6 @@ class RapidExecutionLoop:
 
                     # 检查是否有工具调用
                     if response.has_tool_calls:
-                        # 首次工具调用且没有 plan → 轻量提醒，引导模型先规划
-                        if (
-                            not self.has_executed_tools
-                            and context.plan is None
-                            and not any(tc.name == "plan" for tc in response.tool_calls)
-                        ):
-                            context.add_message(
-                                "system",
-                                "这是一个多步骤任务，建议先调用 plan.create 规划步骤再执行，"
-                                "这样你的进度和发现会被追踪并传递给下一步。"
-                                "如果认为任务足够简单可以直接完成，也可以跳过规划。",
-                            )
-                            response = await self._call_llm(context)
-
                         state = LoopPhase.TOOL_EXECUTION
                         turn_retries = 0
                     else:
@@ -182,7 +173,7 @@ class RapidExecutionLoop:
                     
                     # 执行所有工具调用
                     for tool_call in response.tool_calls:
-                        step = await self._execute_tool(tool_call, context, step_num)
+                        step = await self.tool_executor.execute(tool_call, context, step_num)
                         loop_result.steps.append(step)
                         context.add_step(step)
                         
@@ -305,11 +296,8 @@ class RapidExecutionLoop:
         Returns:
             LLMResponse: LLM 响应
         """
-        # 构建消息
-        messages = self._build_messages(context)
-        
-        # 获取工具定义
-        tools = self.tool_registry.get_tool_definitions()
+        tools = self.tool_definitions.for_context(context)
+        messages = self.message_builder.build(context, tools)
         
         # 流式调用 LLM，并在接收内容时持续推送到前端
         content_parts = []
@@ -355,185 +343,6 @@ class RapidExecutionLoop:
         
         return response
     
-    def _build_messages(self, context: LoopContext) -> list[LLMMessage]:
-        """构建消息列表"""
-        messages = []
-        
-        # 系统提示
-        system_prompt = self._get_system_prompt()
-        messages.append(LLMMessage(role="system", content=system_prompt))
-
-        # Task 6: layered system context sections (AGENTS/USER/MEMORY/etc.)
-        for section in getattr(context, "system_sections", []) or []:
-            if str(section or "").strip():
-                messages.append(LLMMessage(role="system", content=str(section)))
-
-        # Task 6: supplemental context block (e.g., continuation artifact handoff)
-        supplemental = getattr(context, "supplemental_context", None)
-        if supplemental and str(supplemental).strip():
-            messages.append(LLMMessage(role="system", content=str(supplemental).strip()))
-
-        # Plan state — always injected, never truncated by message window
-        if context.plan:
-            messages.append(LLMMessage(role="system", content=context.plan.render_for_context()))
-            completed_findings = context.plan.completed_findings()
-            if completed_findings:
-                findings_text = "\n".join(f"- {f}" for f in completed_findings)
-                messages.append(LLMMessage(role="system", content=f"前序步骤发现:\n{findings_text}"))
-
-        # 历史消息
-        for msg in self._get_recent_context_messages(context):
-            tool_calls = [
-                LLMToolCall(**tool_call)
-                for tool_call in msg.get("tool_calls", [])
-            ]
-            messages.append(LLMMessage(
-                role=msg["role"],
-                content=msg.get("content"),
-                tool_calls=tool_calls,
-                tool_call_id=msg.get("tool_call_id")
-            ))
-        
-        return messages
-
-    def _get_recent_context_messages(self, context: LoopContext) -> list[dict]:
-        """
-        获取最近的上下文消息。
-
-        这里不能直接按消息条数截断，否则一次 assistant 工具调用产生的多条
-        tool 消息可能被保留下来，但对应的 assistant/tool_calls 消息被截掉，
-        从而让下游模型在处理 tool_call_id 时无法配对。
-        """
-        if not context.messages:
-            return []
-
-        grouped_messages: list[list[dict]] = []
-        active_tool_group: list[dict] | None = None
-
-        for msg in context.messages:
-            if msg["role"] == "assistant" and msg.get("tool_calls"):
-                active_tool_group = [msg]
-                grouped_messages.append(active_tool_group)
-                continue
-
-            if msg["role"] == "tool" and active_tool_group is not None:
-                active_tool_group.append(msg)
-                continue
-
-            active_tool_group = None
-            grouped_messages.append([msg])
-
-        recent_groups = grouped_messages[-self.MAX_CONTEXT_GROUPS:]
-        return [
-            message
-            for group in recent_groups
-            for message in group
-        ]
-    
-    def _get_system_prompt(self) -> str:
-        """获取系统提示"""
-        tools = self.tool_registry.get_tool_definitions()
-        return self.prompt_manager.get_system_prompt(tools)
-    
-    async def _execute_tool(
-        self,
-        tool_call: LLMToolCall,
-        context: LoopContext,
-        step_number: int
-    ) -> LoopStep:
-        """
-        执行工具调用
-        
-        Args:
-            tool_call: 工具调用
-            context: 执行上下文
-            step_number: 步骤编号
-            
-        Returns:
-            LoopStep: 执行步骤
-        """
-        step = LoopStep(
-            id=f"step-{uuid.uuid4().hex[:8]}",
-            step_number=step_number,
-            tool=tool_call.name,
-            args=tool_call.arguments,
-            status=StepStatus.RUNNING
-        )
-        
-        start_time = time.time()
-        
-        # 发送工具开始事件
-        await self._emit("tool:start", {
-            "tool_name": tool_call.name,
-            "arguments": tool_call.arguments,
-            "step_number": step_number
-        })
-        
-        try:
-            # 获取工具
-            tool = self.tool_registry.get(tool_call.name)
-            
-            if not tool:
-                raise ValueError(f"工具不存在: {tool_call.name}")
-            
-            # 执行工具
-            result = await tool.execute(tool_call.arguments)
-            
-            # 更新步骤状态
-            step.status = StepStatus.SUCCESS if result.success else StepStatus.FAILED
-            step.output = result.output
-            step.error = result.error
-            step.duration = time.time() - start_time
-            
-            # 更新上下文
-            tool_output = result.output or result.error or ""
-            context.update_history(tool_call, tool_output)
-            context.add_message(
-                "tool",
-                content=tool_output,
-                tool_call_id=tool_call.id
-            )
-            
-            # 发送工具结果事件
-            await self._emit("tool:result", {
-                "tool_name": tool_call.name,
-                "success": result.success,
-                "output": result.output,
-                "error": result.error,
-                "duration": step.duration
-            })
-
-            # Sync plan state from PlanTool → LoopContext + emit plan event
-            if isinstance(tool, PlanTool) and tool.get_plan() is not None:
-                context.plan = tool.get_plan()
-                await self._emit("plan:updated", context.plan.to_dict())
-            
-            logger.info(
-                "工具 %s 执行%s",
-                tool_call.name,
-                "成功" if result.success else "失败",
-            )
-            
-        except Exception as e:
-            step.status = StepStatus.FAILED
-            step.error = str(e)
-            step.duration = time.time() - start_time
-            logger.error("工具执行异常: %s", e)
-
-            context.update_history(tool_call, str(e))
-            context.add_message(
-                "tool",
-                content=str(e),
-                tool_call_id=tool_call.id
-            )
-            
-            await self._emit("tool:error", {
-                "tool_name": tool_call.name,
-                "error": str(e)
-            })
-        
-        return step
-    
     async def _get_final_summary(self, context: LoopContext) -> str:
         """
         获取最终回答
@@ -550,8 +359,8 @@ class RapidExecutionLoop:
             self.prompt_manager.get_final_response_prompt(context.task)
         )
         
-        # 调用 LLM
-        messages = self._build_messages(context)
+        tools = self.tool_definitions.for_context(context)
+        messages = self.message_builder.build(context, tools)
 
         try:
             # 流式获取总结

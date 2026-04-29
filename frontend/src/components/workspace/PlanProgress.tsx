@@ -1,75 +1,73 @@
+import { memo } from 'react'
 import { motion } from 'framer-motion'
 import type { Plan } from '@/types/conversation'
-import { Check, Circle, Loader2, XCircle } from 'lucide-react'
+import { Check, Circle, ListChecks, Loader2, Maximize2, XCircle } from 'lucide-react'
 
 interface PlanProgressProps {
   plan: Plan
 }
 
-export function PlanProgress({ plan }: PlanProgressProps) {
+export const PlanProgress = memo(function PlanProgress({ plan }: PlanProgressProps) {
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
   const totalCount = plan.steps.length
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      initial={{ opacity: 0, y: 14, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.95 }}
+      exit={{ opacity: 0, y: 14, scale: 0.98 }}
       transition={{ duration: 0.2 }}
-      className="fixed bottom-24 right-6 z-10 w-72 rounded-xl border border-slate-200 bg-white shadow-lg"
+      className="sticky bottom-4 z-10 mx-auto mt-10 mb-4 w-full max-w-[920px] rounded-[28px] border border-slate-200 bg-white/95 px-6 py-4 shadow-[0_18px_60px_rgba(15,23,42,0.12)] backdrop-blur"
     >
-      <div className="border-b border-slate-100 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-slate-700 truncate pr-2">
-            {plan.goal}
-          </h3>
-          <span className="shrink-0 text-xs text-slate-400">
-            {completedCount}/{totalCount}
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-2 text-slate-500">
+          <ListChecks className="h-4 w-4 shrink-0 text-slate-700" />
+          <span className="truncate text-[15px]">
+            共 {totalCount} 个任务，已经完成 {completedCount} 个
           </span>
         </div>
-        {/* Progress bar */}
-        <div className="mt-2 h-1 rounded-full bg-slate-100">
-          <div
-            className="h-1 rounded-full bg-emerald-400 transition-all duration-300"
-            style={{ width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }}
-          />
-        </div>
+        <span
+          aria-hidden="true"
+          className="grid h-8 w-8 shrink-0 place-items-center text-slate-400"
+        >
+          <Maximize2 className="h-4 w-4" />
+        </span>
       </div>
-      <ol className="max-h-60 overflow-y-auto px-4 py-3 space-y-2">
+      <ol className="mt-4 max-h-72 overflow-y-auto space-y-2 pr-2">
         {plan.steps.map((step) => (
           <li
             key={step.id}
             className={[
-              'flex items-start gap-2 text-sm',
-              step.status === 'completed' && 'text-slate-400',
-              step.status === 'in_progress' && 'text-slate-900 font-medium',
-              step.status === 'pending' && 'text-slate-400',
+              'flex items-start gap-3 text-[15px] leading-7',
+              step.status === 'completed' && 'text-slate-300',
+              step.status === 'in_progress' && 'font-medium text-slate-900',
+              step.status === 'pending' && 'text-slate-500',
               step.status === 'blocked' && 'text-red-500',
             ]
               .filter(Boolean)
               .join(' ')}
           >
-            <span className="mt-0.5 shrink-0">
+            <span className="mt-1.5 shrink-0">
               {step.status === 'completed' && (
-                <Check className="h-3.5 w-3.5 text-emerald-500" />
+                <Check className="h-4 w-4 text-slate-300" />
               )}
               {step.status === 'in_progress' && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-500" />
+                <Loader2 className="h-4 w-4 animate-spin text-slate-500" />
               )}
               {step.status === 'pending' && (
-                <Circle className="h-3.5 w-3.5 text-slate-300" />
+                <Circle className="h-4 w-4 text-slate-500" />
               )}
               {step.status === 'blocked' && (
-                <XCircle className="h-3.5 w-3.5 text-red-400" />
+                <XCircle className="h-4 w-4 text-red-400" />
               )}
             </span>
             <div className="min-w-0">
               <span className={step.status === 'completed' ? 'line-through' : ''}>
-                {step.description}
+                {step.id}. {step.description}
               </span>
               {step.findings && (
-                <p className="mt-0.5 text-xs text-slate-500 no-underline">
-                  → {step.findings}
+                <p className="mt-0.5 text-sm text-slate-400 no-underline">
+                  {step.findings}
                 </p>
               )}
             </div>
@@ -78,4 +76,4 @@ export function PlanProgress({ plan }: PlanProgressProps) {
       </ol>
     </motion.div>
   )
-}
+})

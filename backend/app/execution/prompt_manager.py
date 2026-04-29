@@ -48,13 +48,25 @@ $tool_list
 - When done, provide a helpful final answer, not a rigid operation log
 - Shell commands are executed via argv, NOT through a shell. NEVER use pipe `|`, redirect `>` `>>` `2>` `/dev/null`, chain `&&` `||` `;`, or command substitution `` ` `` `$()`. Use a single simple command per call.
 
-## When to use the plan tool:
-- If a task clearly requires 3 or more distinct steps (e.g. "refactor the auth module", "debug why the API returns 500"), FIRST call plan.create with a goal and step list, THEN execute step by step
-- After finishing each plan step, call plan.step_done with a brief summary of what you found — this carries key information into the next step
-- If you get stuck on a step, call plan.block with the reason
-- If you discover the plan needs to change, call plan.adjust with updated remaining steps
-- Do NOT call plan for simple tasks that can be answered directly (e.g. "what does this function do", "fix this typo")""",
+## Execution plan:
+- Initial plan creation is handled before normal execution starts.
+- If an execution plan is present and the plan tool is available, use plan.step_done, plan.block, or plan.adjust to keep it current.
+- Do not create a second plan during normal execution.""",
             variables=["tool_list"]
+        )
+
+        self.register_template(
+            name="initial_plan",
+            template="""You decide whether this coding-agent task needs an explicit execution plan.
+
+Call plan.create only if the task clearly needs 3 or more distinct execution steps, such as multi-file implementation, debugging investigation, or a risky refactor.
+If the task can be answered or completed directly, respond exactly: NO_PLAN
+
+When creating a plan:
+- Use concise, high-level steps
+- Do not explain the plan in normal text
+- Do not include code or implementation details in the step text""",
+            variables=[],
         )
 
         self.register_template(
@@ -152,6 +164,10 @@ Please try a different approach or fix the issue.""",
     def get_final_response_prompt(self, task: str) -> str:
         """获取最终回答提示"""
         return self.get_template("final_response").render(task=task)
+
+    def get_initial_plan_prompt(self) -> str:
+        """Prompt for the non-streamed initial planning preflight."""
+        return self.get_template("initial_plan").render()
 
     def get_continuation_compression_prompt(self, *, task: str, transcript: str) -> str:
         """Prompt for a single LLM-generated continuation/handoff artifact."""

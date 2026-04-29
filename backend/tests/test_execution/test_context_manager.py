@@ -70,3 +70,35 @@ class TestLoopContext:
 
         assert payload["run_id"] == "run-123"
         assert "execution_id" not in payload
+
+    def test_from_run_input_filters_seed_messages_and_adds_current_task(self):
+        context = LoopContext.from_run_input(
+            task="继续处理",
+            project_path="/tmp/reflexion",
+            run_id="run-123",
+            seed_messages=[
+                {"role": "user", "content": "上一轮需求"},
+                {"role": "assistant", "content": "  上一轮结论  "},
+                {"role": "system", "content": "should be ignored"},
+                {"role": "tool", "content": ""},
+                {"role": "tool", "content": "tool output"},
+                "bad seed",
+            ],
+            supplemental_context="当前目标: 修 memory",
+            system_sections=["AGENTS instructions"],
+        )
+
+        assert context.task == "继续处理"
+        assert context.project_path == "/tmp/reflexion"
+        assert context.run_id == "run-123"
+        assert context.supplemental_context == "当前目标: 修 memory"
+        assert context.system_sections == ["AGENTS instructions"]
+        assert [
+            (message["role"], message.get("content"))
+            for message in context.messages
+        ] == [
+            ("user", "上一轮需求"),
+            ("assistant", "上一轮结论"),
+            ("tool", "tool output"),
+            ("user", "继续处理"),
+        ]

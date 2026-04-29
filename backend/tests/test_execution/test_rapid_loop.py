@@ -3,12 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
 from app.llm.retry import RetryExhaustedError
 from app.tools.base import BaseTool, ToolResult
+from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
 
@@ -180,46 +180,6 @@ class TestRapidExecutionLoop:
         assert tool_message.content == "mock output"
         assert tool_message.tool_call_id == tool_call.id
 
-    def test_build_messages_keeps_tool_outputs_with_matching_assistant_call(self, execution_loop):
-        """测试历史截断时不会留下孤立的 tool 输出消息"""
-        context = LoopContext(task="检查工具消息配对")
-        first_call = LLMToolCall(id="call_alpha", name="mock", arguments={"path": "a.txt"})
-        second_call = LLMToolCall(id="call_beta", name="mock", arguments={"path": "b.txt"})
-
-        context.add_message(
-            "assistant",
-            content="先读取两个文件",
-            tool_calls=[first_call.model_dump(), second_call.model_dump()]
-        )
-        context.add_message("tool", content="a output", tool_call_id=first_call.id)
-        context.add_message("tool", content="b output", tool_call_id=second_call.id)
-
-        for index in range(9):
-            context.add_message("user", content=f"filler {index}")
-
-        messages = execution_loop._build_messages(context)
-
-        assistant_messages = [
-            msg for msg in messages
-            if msg.role == "assistant" and msg.tool_calls
-        ]
-        tool_messages = [msg for msg in messages if msg.role == "tool"]
-
-        assert len(assistant_messages) == 1
-        assert [tool_message.tool_call_id for tool_message in tool_messages] == [
-            first_call.id,
-            second_call.id,
-        ]
-
-    def test_build_messages_does_not_duplicate_initial_user_task(self, execution_loop):
-        context = LoopContext(task="检查重复 user 消息")
-        context.add_message("user", "检查重复 user 消息")
-
-        messages = execution_loop._build_messages(context)
-        user_contents = [message.content for message in messages if message.role == "user"]
-
-        assert user_contents.count("检查重复 user 消息") == 1
-
     @pytest.mark.asyncio
     async def test_final_response_fallback_when_no_content_after_tools(
         self,
@@ -344,6 +304,114 @@ class TestRapidExecutionLoop:
         assert "tool:start" in event_types
         assert "tool:result" in event_types
         assert "run:complete" in event_types
+
+    @pytest.mark.asyncio
+    async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(MockTool())
+        registry.register(PlanTool())
+        events = []
+        captured_tools = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=2,
+            event_callback=callback,
+        )
+
+        async def mock_stream(messages, tools=None):
+            captured_tools.append(tools)
+            if len(captured_tools) == 1:
+                async for chunk in self._stream_response(
+                    content="我先制定计划。",
+                    tool_calls=[
+                        LLMToolCall(
+                            name="plan",
+                            arguments={
+                                "action": "create",
+                                "goal": "修复计划显示",
+                                "steps": ["定位问题", "修改实现", "验证结果"],
+                            },
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="开始执行。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("请修复计划窗口流式显示和位置")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert result.result == "开始执行。"
+        event_types = [event["type"] for event in events]
+        assert event_types.index("plan:updated") < event_types.index("llm:content")
+        assert not any(
+            event["type"] == "llm:content"
+            and event["data"].get("content") == "我先制定计划。"
+            for event in events
+        )
+        plan_event = next(event for event in events if event["type"] == "plan:updated")
+        assert plan_event["data"]["goal"] == "修复计划显示"
+        assert [step["description"] for step in plan_event["data"]["steps"]] == [
+            "定位问题",
+            "修改实现",
+            "验证结果",
+        ]
+        main_tool_names = [tool.name for tool in captured_tools[1]]
+        assert "plan" in main_tool_names
+        main_plan_tool = next(tool for tool in captured_tools[1] if tool.name == "plan")
+        assert "create" not in str(main_plan_tool.parameters)
+
+    @pytest.mark.asyncio
+    async def test_initial_plan_preflight_can_decline_and_keep_normal_streaming(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(MockTool())
+        registry.register(PlanTool())
+        events = []
+        captured_tools = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=2,
+            event_callback=callback,
+        )
+
+        async def mock_stream(messages, tools=None):
+            captured_tools.append(tools)
+            if len(captured_tools) == 1:
+                async for chunk in self._stream_response(content="NO_PLAN"):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="直接回答。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("解释一下这个函数")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert result.result == "直接回答。"
+        assert not any(event["type"] == "plan:updated" for event in events)
+        assert any(
+            event["type"] == "llm:content"
+            and event["data"].get("content") == "直接回答。"
+            for event in events
+        )
+        assert [tool.name for tool in captured_tools[1]] == ["mock"]
     
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):

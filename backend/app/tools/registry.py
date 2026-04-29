@@ -39,6 +39,15 @@ class ToolRegistry:
         if not tool:
             raise ToolNotFoundError(f"工具不存在: {name}")
         return tool.get_schema()
+
+    @staticmethod
+    def definition_from_schema(schema: dict) -> LLMToolDefinition:
+        parameters = schema.get("parameters") or schema.get("input_schema", {})
+        return LLMToolDefinition(
+            name=schema["name"],
+            description=schema["description"],
+            parameters=parameters,
+        )
     
     def get_all_schemas(self) -> list[dict]:
         """获取所有工具的 Schema"""
@@ -59,12 +68,7 @@ class ToolRegistry:
         for name in sorted(self.tools.keys()):
             tool = self.tools[name]
             schema = tool.get_schema()
-            parameters = schema.get("parameters") or schema.get("input_schema", {})
-            definitions.append(LLMToolDefinition(
-                name=schema["name"],
-                description=schema["description"],
-                parameters=parameters
-            ))
+            definitions.append(self.definition_from_schema(schema))
         return definitions
     
     def list_tools(self) -> list[str]:

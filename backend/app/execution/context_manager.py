@@ -25,6 +25,39 @@ class LoopContext:
         self.supplemental_context: str | None = None
         # Plan engine
         self.plan: Plan | None = None
+
+    @classmethod
+    def from_run_input(
+        cls,
+        *,
+        task: str,
+        project_path: str | None = None,
+        run_id: str | None = None,
+        seed_messages: list[dict[str, str]] | None = None,
+        supplemental_context: str | None = None,
+        system_sections: list[str] | None = None,
+    ) -> "LoopContext":
+        context = cls(task=task, project_path=project_path, run_id=run_id)
+
+        allowed_seed_roles = {"user", "assistant", "tool"}
+        for seeded in seed_messages or []:
+            if not isinstance(seeded, dict):
+                continue
+            role = str(seeded.get("role") or "").strip().lower()
+            if role not in allowed_seed_roles:
+                continue
+            content = seeded.get("content")
+            if not isinstance(content, str):
+                continue
+            content = content.strip()
+            if not content:
+                continue
+            context.add_message(role, content)
+
+        context.supplemental_context = supplemental_context
+        context.system_sections = system_sections or []
+        context.add_message("user", task)
+        return context
     
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""

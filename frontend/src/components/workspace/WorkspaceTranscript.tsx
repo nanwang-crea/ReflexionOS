@@ -81,7 +81,7 @@ export function WorkspaceTranscript({
   const retryMaxRetries = retryInfo?.max_retries ?? null
   const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
   const showReconnectIndicator = isRunning && reconnectLabel !== null
-  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage
+  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage && !plan
 
   useEffect(() => {
     if (!hasRetryInfo || !isRunning) {
@@ -192,12 +192,12 @@ export function WorkspaceTranscript({
           </div>
         )}
 
+        <AnimatePresence>
+          {plan && <PlanProgress plan={plan} />}
+        </AnimatePresence>
+
         <div ref={messagesEndRef} />
       </div>
-
-      <AnimatePresence>
-        {plan && <PlanProgress plan={plan} />}
-      </AnimatePresence>
     </div>
   )
 }
