@@ -57,6 +57,43 @@ def test_pending_approval_store_can_create_with_explicit_approval_id():
     assert stored.id == "approval-explicit"
 
 
+def test_pending_approval_store_rejects_duplicate_explicit_approval_id():
+    store = PendingApprovalStore()
+
+    original = store.create(
+        approval_id="approval-explicit",
+        session_id="session-1",
+        turn_id="turn-1",
+        run_id="run-1",
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+
+    with pytest.raises(ValueError):
+        store.create(
+            approval_id="approval-explicit",
+            session_id="session-2",
+            turn_id="turn-2",
+            run_id="run-2",
+            step_number=2,
+            tool_call_id="call-2",
+            tool_name="write_file",
+            tool_arguments={"path": "README.md"},
+            approval_payload={"summary": "Overwrite README"},
+        )
+
+    stored = store.get("approval-explicit")
+    assert stored is not None
+    assert stored == original
+    assert stored.session_id == "session-1"
+    assert stored.run_id == "run-1"
+    assert stored.tool_name == "shell"
+    assert stored.tool_arguments == {"command": "pytest -q"}
+
+
 def test_pending_approval_store_deep_copies_nested_create_inputs():
     store = PendingApprovalStore()
     tool_arguments = {

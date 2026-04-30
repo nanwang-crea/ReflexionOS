@@ -485,7 +485,10 @@ class AgentService:
         run = self.conversation_service.run_repo.get(run_id)
         if run is None:
             raise ValueError("运行不存在")
-        if run.status in {RunStatus.CANCELLED, RunStatus.COMPLETED, RunStatus.FAILED}:
+        if run.status == RunStatus.CANCELLED:
+            self.pending_approval_store.expire_for_run(run_id)
+            return run
+        if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
             return run
 
         runtime_adapter = self._runtime_adapters.get(run_id)
@@ -497,14 +500,16 @@ class AgentService:
                 run_id=run_id,
             )
         persisted_events = runtime_adapter.handle_event("run:cancelled", {})
+        cancelled = self.conversation_service.run_repo.get(run_id)
+        if cancelled is None:
+            raise ValueError("运行不存在")
+        if cancelled.status == RunStatus.CANCELLED:
+            self.pending_approval_store.expire_for_run(run_id)
         await self._broadcast_conversation_events(
             session_id=run.session_id,
             events=persisted_events,
         )
 
-        cancelled = self.conversation_service.run_repo.get(run_id)
-        if cancelled is None:
-            raise ValueError("运行不存在")
         return cancelled
 
     async def approve_tool_call(
@@ -533,49 +538,50 @@ class AgentService:
         approval_id: str,
         approval_event_type: EventType,
     ) -> None:
-        run = self.conversation_service.run_repo.get(run_id)
-        if run is None:
-            raise ValueError("运行不存在")
-        if run.session_id != session_id:
-            raise ValueError("运行不属于当前会话")
-        if run.status != RunStatus.WAITING_FOR_APPROVAL:
-            raise ValueError("运行未在等待审批")
-        pending = self.pending_approval_store.get(approval_id)
-        if pending is None:
-            raise ValueError("审批不存在")
-        if pending.session_id != session_id:
-            raise ValueError("审批不属于当前会话")
-        if pending.run_id != run_id:
-            raise ValueError("审批不属于当前运行")
-        if pending.status != "pending":
-            raise ValueError("审批已处理")
+        with self.conversation_service._acquire_session_write_lock(session_id):
+            run = self.conversation_service.run_repo.get(run_id)
+            if run is None:
+                raise ValueError("运行不存在")
+            if run.session_id != session_id:
+                raise ValueError("运行不属于当前会话")
+            if run.status != RunStatus.WAITING_FOR_APPROVAL:
+                raise ValueError("运行未在等待审批")
+            pending = self.pending_approval_store.get(approval_id)
+            if pending is None:
+                raise ValueError("审批不存在")
+            if pending.session_id != session_id:
+                raise ValueError("审批不属于当前会话")
+            if pending.run_id != run_id:
+                raise ValueError("审批不属于当前运行")
+            if pending.status != "pending":
+                raise ValueError("审批已处理")
 
-        if approval_event_type == EventType.APPROVAL_APPROVED:
-            self.pending_approval_store.approve(approval_id)
-        else:
-            self.pending_approval_store.deny(approval_id)
+            if approval_event_type == EventType.APPROVAL_APPROVED:
+                self.pending_approval_store.approve(approval_id)
+            else:
+                self.pending_approval_store.deny(approval_id)
 
-        events = self.conversation_service.append_events(
-            session_id,
-            [
-                ConversationEvent(
-                    id=f"evt-{uuid4().hex[:8]}",
-                    session_id=session_id,
-                    turn_id=run.turn_id,
-                    run_id=run_id,
-                    event_type=approval_event_type,
-                    payload_json={"approval_id": approval_id},
-                ),
-                ConversationEvent(
-                    id=f"evt-{uuid4().hex[:8]}",
-                    session_id=session_id,
-                    turn_id=run.turn_id,
-                    run_id=run_id,
-                    event_type=EventType.RUN_RESUMING,
-                    payload_json={"approval_id": approval_id},
-                ),
-            ],
-        )
+            events = self.conversation_service._append_events_locked(
+                session_id,
+                [
+                    ConversationEvent(
+                        id=f"evt-{uuid4().hex[:8]}",
+                        session_id=session_id,
+                        turn_id=run.turn_id,
+                        run_id=run_id,
+                        event_type=approval_event_type,
+                        payload_json={"approval_id": approval_id},
+                    ),
+                    ConversationEvent(
+                        id=f"evt-{uuid4().hex[:8]}",
+                        session_id=session_id,
+                        turn_id=run.turn_id,
+                        run_id=run_id,
+                        event_type=EventType.RUN_RESUMING,
+                        payload_json={"approval_id": approval_id},
+                    ),
+                ],
+            )
         await self._broadcast_conversation_events(session_id=session_id, events=events)
 
 

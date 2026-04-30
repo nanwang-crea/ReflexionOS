@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -9,7 +10,13 @@ import app.services.agent_service as agent_service_module
 from app.execution.models import LoopResult, LoopStatus
 from app.memory.context_assembly import ContextAssemblyResult
 from app.memory.continuation_builder import ContinuationArtifactBuilder
-from app.models.conversation import MessageType, RunStatus, StreamState
+from app.models.conversation import (
+    ConversationEvent,
+    EventType,
+    MessageType,
+    RunStatus,
+    StreamState,
+)
 from app.models.llm_config import (
     LLMSettings,
     ProviderInstanceConfig,
@@ -93,6 +100,22 @@ def build_service_with_db(
         llm_provider_service=provider_service,
     )
     return service, conversation_service, dummy_config
+
+
+def append_waiting_for_approval(conversation_service, *, session_id, turn_id, run_id, approval_id):
+    conversation_service.append_events(
+        session_id,
+        [
+            ConversationEvent(
+                id=f"evt-waiting-{approval_id}",
+                session_id=session_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                payload_json={"approval_id": approval_id},
+            )
+        ],
+    )
 
 
 @pytest.mark.asyncio
@@ -303,6 +326,159 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
     assert notice_messages[0].content_text == "本次执行已取消"
     assert all(message.stream_state != StreamState.STREAMING for message in related_messages)
     assert all(message.stream_state != StreamState.IDLE for message in related_messages)
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_expires_pending_approval_for_cancelled_waiting_run(
+    monkeypatch, tmp_path
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-1",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+    append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+
+    cancelled = await service.cancel_run(started.run.id)
+
+    assert cancelled.status == RunStatus.CANCELLED
+    pending = service.pending_approval_store.get("approval-1")
+    assert pending is not None
+    assert pending.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_approve_tool_call_does_not_revive_run_cancelled_before_append(
+    monkeypatch, tmp_path
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-1",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+    append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+    before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
+    approval_append_attempted = threading.Event()
+    original_acquire_session_write_lock = conversation_service._acquire_session_write_lock
+    original_append_events = conversation_service.append_events
+    approval_errors: list[Exception] = []
+
+    def signal_approval_append(session_id, events):
+        if events and events[0].event_type == EventType.APPROVAL_APPROVED:
+            approval_append_attempted.set()
+        return original_append_events(session_id, events)
+
+    def approve_tool_call_in_thread():
+        try:
+            asyncio.run(
+                service.approve_tool_call(
+                    session_id="session-1",
+                    run_id=started.run.id,
+                    approval_id="approval-1",
+                )
+            )
+        except Exception as exc:
+            approval_errors.append(exc)
+
+    monkeypatch.setattr(conversation_service, "append_events", signal_approval_append)
+
+    with original_acquire_session_write_lock("session-1"):
+        approval_thread = threading.Thread(target=approve_tool_call_in_thread)
+        approval_thread.start()
+        approval_append_attempted.wait(timeout=0.2)
+        conversation_service.cancel_run(started.run.id)
+        service.pending_approval_store.expire_for_run(started.run.id)
+
+    approval_thread.join(timeout=1)
+    assert not approval_thread.is_alive()
+    assert len(approval_errors) == 1
+    assert isinstance(approval_errors[0], ValueError)
+    assert "运行未在等待审批" in str(approval_errors[0])
+
+    with pytest.raises(ValueError, match="运行未在等待审批"):
+        await service.approve_tool_call(
+            session_id="session-1",
+            run_id=started.run.id,
+            approval_id="approval-1",
+        )
+
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run is not None
+    assert run.status == RunStatus.CANCELLED
+    pending = service.pending_approval_store.get("approval-1")
+    assert pending is not None
+    assert pending.status == "expired"
+    events = conversation_service.list_events_after("session-1", before_seq)
+    assert EventType.APPROVAL_APPROVED not in [event.event_type for event in events]
+    assert EventType.RUN_RESUMING not in [event.event_type for event in events]
 
 
 @pytest.mark.asyncio

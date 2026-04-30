@@ -58,6 +58,8 @@ class PendingApprovalStore:
                 "approval_payload": deepcopy(approval_payload),
             }
             if approval_id is not None:
+                if approval_id in self._approvals:
+                    raise ValueError(f"approval already exists: {approval_id}")
                 pending_data["id"] = approval_id
             pending = PendingToolApproval(**pending_data)
             self._approvals[pending.id] = pending
