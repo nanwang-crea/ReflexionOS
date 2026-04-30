@@ -402,6 +402,7 @@ class TestRapidExecutionLoop:
         registry = ToolRegistry()
         registry.register(MissingApprovalMetadataTool())
         events = []
+        captured_calls = []
 
         async def callback(event_type, data):
             events.append({"type": event_type, "data": data})
@@ -409,16 +410,22 @@ class TestRapidExecutionLoop:
         execution_loop = RapidExecutionLoop(
             llm=mock_llm,
             tool_registry=registry,
-            max_steps=1,
+            max_steps=3,
             event_callback=callback,
         )
         tool_call = LLMToolCall(name="missing_approval_metadata", arguments={"value": 1})
 
         async def mock_stream(messages, tools=None):
-            async for chunk in self._stream_response(
-                tool_calls=[tool_call],
-                finish_reason="tool_calls",
-            ):
+            captured_calls.append(messages)
+            if len(captured_calls) == 1:
+                async for chunk in self._stream_response(
+                    tool_calls=[tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="已收到工具错误"):
                 yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -426,13 +433,19 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("执行错误审批工具")
 
         assert result.status == LoopStatus.COMPLETED
+        assert result.result == "已收到工具错误"
         assert result.steps[-1].status == StepStatus.FAILED
         assert result.steps[-1].tool_call_id == tool_call.id
         assert "approval metadata" in result.steps[-1].error
+        assert len(captured_calls) == 2
+
+        tool_message = next(message for message in captured_calls[1] if message.role == "tool")
+        assert tool_message.tool_call_id == tool_call.id
+        assert "approval metadata" in tool_message.content
 
         event_types = [event["type"] for event in events]
         assert "approval:required" not in event_types
-        assert "tool:error" in event_types
+        assert event_types.count("tool:error") == 1
 
     @pytest.mark.asyncio
     async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):

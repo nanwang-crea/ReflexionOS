@@ -65,6 +65,12 @@ class ToolCallExecutor:
                     step.status = StepStatus.FAILED
                     step.error = "approval_required result missing approval metadata"
                     step.duration = time.time() - start_time
+                    context.update_history(tool_call, step.error)
+                    context.add_message(
+                        "tool",
+                        content=step.error,
+                        tool_call_id=tool_call.id,
+                    )
                     return step
 
                 step.status = StepStatus.WAITING_FOR_APPROVAL
