@@ -2,11 +2,11 @@
 
 > A transparent, local-first desktop coding agent with streaming tool receipts and patch-based code edits.
 
-[![Electron](https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
-[![Frontend](https://img.shields.io/badge/Frontend-React%20%2B%20TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](#tech-stack)
-[![Backend](https://img.shields.io/badge/Backend-FastAPI-05998B?style=flat-square&logo=fastapi&logoColor=white)](#tech-stack)
-[![Tests](https://img.shields.io/badge/Backend%20Tests-95%20Passing-2EA043?style=flat-square)](#current-status)
-[![License](https://img.shields.io/badge/License-MIT-black?style=flat-square)](./LICENSE)
+[Electron](https://www.electronjs.org/)
+[Frontend](#tech-stack)
+[Backend](#tech-stack)
+[Tests](#current-status)
+[License](./LICENSE)
 
 ReflexionOS is built for people who want a Codex/Cursor-style agent experience, but with much more visibility into what the agent is actually doing.
 
@@ -21,10 +21,7 @@ If transparent coding agents are your thing, a star helps a lot.
 
 ## Screenshots
 
-<p align="center">
-  <img src=".github/assets/agent-workspace.png" alt="ReflexionOS agent workspace" width="48%" />
-  <img src=".github/assets/projects-board.png" alt="ReflexionOS project management view" width="48%" />
-</p>
+
 
 ## Why ReflexionOS
 
@@ -71,6 +68,8 @@ flowchart LR
     T --> T3["Patch Tool"]
 ```
 
+
+
 ## Quick Start
 
 ### Recommended Desktop Development Path
@@ -80,18 +79,19 @@ flowchart LR
 1. Install backend dependencies:
 
 ```bash
+conda create -n reflexion python=3.12
 cd backend
 python -m pip install -r requirements.txt
 ```
 
-2. Install frontend dependencies:
+1. Install frontend dependencies:
 
 ```bash
 cd frontend
 pnpm install
 ```
 
-3. Start the desktop app:
+1. Start the desktop app:
 
 ```bash
 cd frontend
