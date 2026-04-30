@@ -35,6 +35,28 @@ def test_pending_approval_store_creates_and_reads_pending_approval():
     assert stored.decision is None
 
 
+def test_pending_approval_store_can_create_with_explicit_approval_id():
+    store = PendingApprovalStore()
+
+    pending = store.create(
+        approval_id="approval-explicit",
+        session_id="session-1",
+        turn_id="turn-1",
+        run_id="run-1",
+        step_number=3,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+
+    stored = store.get("approval-explicit")
+
+    assert pending.id == "approval-explicit"
+    assert stored is not None
+    assert stored.id == "approval-explicit"
+
+
 def test_pending_approval_store_deep_copies_nested_create_inputs():
     store = PendingApprovalStore()
     tool_arguments = {

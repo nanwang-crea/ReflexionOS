@@ -405,6 +405,88 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
 
 @pytest.mark.asyncio
+async def test_run_turn_registers_pending_approval_from_runtime_event(monkeypatch, tmp_path):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+
+        async def run(self, **kwargs):
+            await self.event_callback(
+                "approval:required",
+                {
+                    "approval_id": "approval-runtime",
+                    "tool_call_id": "call-runtime",
+                    "tool_name": "shell",
+                    "arguments": {"command": "pytest -q"},
+                    "step_number": 2,
+                    "approval": {"summary": "Run tests"},
+                },
+            )
+            return LoopResult(
+                id=kwargs["run_id"],
+                task=kwargs["task"],
+                status=LoopStatus.WAITING_FOR_APPROVAL,
+            )
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(tmp_path),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    pending = service.pending_approval_store.get("approval-runtime")
+    assert pending is not None
+    assert pending.session_id == "session-1"
+    assert pending.turn_id == "turn-1"
+    assert pending.run_id == "run-1"
+    assert pending.step_number == 2
+    assert pending.tool_call_id == "call-runtime"
+    assert pending.tool_name == "shell"
+    assert pending.tool_arguments == {"command": "pytest -q"}
+    assert pending.approval_payload == {"summary": "Run tests"}
+
+
+@pytest.mark.asyncio
 async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_path):
     project_root = tmp_path / "project-root"
     project_root.mkdir()

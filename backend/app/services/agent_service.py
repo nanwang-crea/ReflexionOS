@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
+from app.execution.approval_store import PendingApprovalStore
 from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
@@ -51,6 +52,7 @@ class AgentService:
         conversation_service: ConversationService | None = None,
         llm_provider_service: LLMProviderService | None = None,
         conversation_broadcaster: ConversationBroadcaster | None = None,
+        pending_approval_store: PendingApprovalStore | None = None,
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
@@ -60,6 +62,7 @@ class AgentService:
         self.conversation_service = conversation_service or default_conversation_service
         self.llm_provider_service = llm_provider_service or default_llm_provider_service
         self.conversation_broadcaster = conversation_broadcaster or NoopConversationBroadcaster()
+        self.pending_approval_store = pending_approval_store or PendingApprovalStore()
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
@@ -284,6 +287,13 @@ class AgentService:
         self._runtime_adapters[run_id] = runtime_adapter
 
         async def persist_and_broadcast(event_type: str, data: dict) -> None:
+            if event_type == "approval:required":
+                self._register_pending_approval(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    run_id=run_id,
+                    data=data,
+                )
             persisted_events = runtime_adapter.handle_event(event_type, data)
             live_event = runtime_adapter.build_live_event(event_type, data)
             if live_event is not None:
@@ -347,6 +357,32 @@ class AgentService:
             await persist_and_broadcast("run:error", {"error": str(exc)})
         finally:
             self._runtime_adapters.pop(run_id, None)
+
+    def _register_pending_approval(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        run_id: str,
+        data: dict,
+    ) -> None:
+        approval_id = data.get("approval_id")
+        if not isinstance(approval_id, str) or not approval_id:
+            raise ValueError("approval_id 不能为空")
+
+        arguments = data.get("arguments")
+        approval_payload = data.get("approval")
+        self.pending_approval_store.create(
+            approval_id=approval_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            step_number=int(data.get("step_number") or 0),
+            tool_call_id=str(data.get("tool_call_id") or ""),
+            tool_name=str(data.get("tool_name") or ""),
+            tool_arguments=arguments if isinstance(arguments, dict) else {},
+            approval_payload=approval_payload if isinstance(approval_payload, dict) else {},
+        )
 
     async def _generate_and_persist_continuation_artifact(
         self,
@@ -504,6 +540,20 @@ class AgentService:
             raise ValueError("运行不属于当前会话")
         if run.status != RunStatus.WAITING_FOR_APPROVAL:
             raise ValueError("运行未在等待审批")
+        pending = self.pending_approval_store.get(approval_id)
+        if pending is None:
+            raise ValueError("审批不存在")
+        if pending.session_id != session_id:
+            raise ValueError("审批不属于当前会话")
+        if pending.run_id != run_id:
+            raise ValueError("审批不属于当前运行")
+        if pending.status != "pending":
+            raise ValueError("审批已处理")
+
+        if approval_event_type == EventType.APPROVAL_APPROVED:
+            self.pending_approval_store.approve(approval_id)
+        else:
+            self.pending_approval_store.deny(approval_id)
 
         events = self.conversation_service.append_events(
             session_id,

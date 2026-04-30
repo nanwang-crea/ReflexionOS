@@ -38,6 +38,36 @@ def _event_seqs(messages):
     return [message["data"]["seq"] for message in _event_messages(messages)]
 
 
+def _create_pending_approval(store, *, session_id, turn_id, run_id, approval_id="approval-1"):
+    return store.create(
+        approval_id=approval_id,
+        session_id=session_id,
+        turn_id=turn_id,
+        run_id=run_id,
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+
+
+def _append_waiting_for_approval(conversation_service, *, session_id, turn_id, run_id, approval_id):
+    conversation_service.append_events(
+        session_id,
+        [
+            ConversationEvent(
+                id=f"evt-waiting-{approval_id}",
+                session_id=session_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                payload_json={"approval_id": approval_id},
+            )
+        ],
+    )
+
+
 @pytest.fixture
 def client_with_services(tmp_path, monkeypatch):
     db = Database(str(tmp_path / "conversation-websocket.db"))
@@ -315,21 +345,22 @@ async def test_agent_service_approve_tool_call_emits_decision_and_resuming_event
         model_id="model-a",
         workspace_ref=str(Path("/tmp/reflexion")),
     )
-    conversation_service.append_events(
-        "session-1",
-        [
-            ConversationEvent(
-                id="evt-waiting",
-                session_id="session-1",
-                turn_id=started.turn.id,
-                run_id=started.run.id,
-                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
-                payload_json={"approval_id": "approval-1"},
-            )
-        ],
-    )
-
     import app.api.routes.websocket as websocket_route_module
+
+    _create_pending_approval(
+        websocket_route_module.agent_service.pending_approval_store,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+    _append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
 
     await websocket_route_module.agent_service.approve_tool_call(
         session_id="session-1",
@@ -345,6 +376,10 @@ async def test_agent_service_approve_tool_call_emits_decision_and_resuming_event
         EventType.APPROVAL_APPROVED,
         EventType.RUN_RESUMING,
     ]
+    assert (
+        websocket_route_module.agent_service.pending_approval_store.get("approval-1").status
+        == "approved"
+    )
 
 
 @pytest.mark.asyncio
@@ -359,21 +394,22 @@ async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
         model_id="model-a",
         workspace_ref=str(Path("/tmp/reflexion")),
     )
-    conversation_service.append_events(
-        "session-1",
-        [
-            ConversationEvent(
-                id="evt-waiting",
-                session_id="session-1",
-                turn_id=started.turn.id,
-                run_id=started.run.id,
-                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
-                payload_json={"approval_id": "approval-1"},
-            )
-        ],
-    )
-
     import app.api.routes.websocket as websocket_route_module
+
+    _create_pending_approval(
+        websocket_route_module.agent_service.pending_approval_store,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+    _append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
 
     await websocket_route_module.agent_service.deny_tool_call(
         session_id="session-1",
@@ -389,6 +425,94 @@ async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
         EventType.APPROVAL_DENIED,
         EventType.RUN_RESUMING,
     ]
+    assert (
+        websocket_route_module.agent_service.pending_approval_store.get("approval-1").status
+        == "denied"
+    )
+
+
+@pytest.mark.asyncio
+async def test_agent_service_approve_tool_call_requires_pending_approval(
+    client_with_services,
+):
+    _, conversation_service = client_with_services
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(Path("/tmp/reflexion")),
+    )
+    _append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="missing-approval",
+    )
+    before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
+
+    import app.api.routes.websocket as websocket_route_module
+
+    with pytest.raises(ValueError):
+        await websocket_route_module.agent_service.approve_tool_call(
+            session_id="session-1",
+            run_id=started.run.id,
+            approval_id="missing-approval",
+        )
+
+    events = conversation_service.list_events_after("session-1", before_seq)
+    assert events == []
+
+
+@pytest.mark.asyncio
+async def test_agent_service_approve_tool_call_rejects_approval_for_another_session_or_run(
+    client_with_services,
+):
+    _, conversation_service = client_with_services
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(Path("/tmp/reflexion")),
+    )
+    _append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-other",
+    )
+    before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
+
+    import app.api.routes.websocket as websocket_route_module
+
+    _create_pending_approval(
+        websocket_route_module.agent_service.pending_approval_store,
+        session_id="session-other",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-other-session",
+    )
+    _create_pending_approval(
+        websocket_route_module.agent_service.pending_approval_store,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id="run-other",
+        approval_id="approval-other-run",
+    )
+
+    for approval_id in ["approval-other-session", "approval-other-run"]:
+        with pytest.raises(ValueError):
+            await websocket_route_module.agent_service.approve_tool_call(
+                session_id="session-1",
+                run_id=started.run.id,
+                approval_id=approval_id,
+            )
+
+    events = conversation_service.list_events_after("session-1", before_seq)
+    assert events == []
 
 
 def test_session_conversation_websocket_supports_approve_tool_action(client_with_services, monkeypatch):

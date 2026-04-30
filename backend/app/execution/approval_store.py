@@ -36,6 +36,7 @@ class PendingApprovalStore:
     def create(
         self,
         *,
+        approval_id: str | None = None,
         session_id: str,
         turn_id: str,
         run_id: str,
@@ -46,16 +47,19 @@ class PendingApprovalStore:
         approval_payload: dict,
     ) -> PendingToolApproval:
         with self._lock:
-            pending = PendingToolApproval(
-                session_id=session_id,
-                turn_id=turn_id,
-                run_id=run_id,
-                step_number=step_number,
-                tool_call_id=tool_call_id,
-                tool_name=tool_name,
-                tool_arguments=deepcopy(tool_arguments),
-                approval_payload=deepcopy(approval_payload),
-            )
+            pending_data = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "run_id": run_id,
+                "step_number": step_number,
+                "tool_call_id": tool_call_id,
+                "tool_name": tool_name,
+                "tool_arguments": deepcopy(tool_arguments),
+                "approval_payload": deepcopy(approval_payload),
+            }
+            if approval_id is not None:
+                pending_data["id"] = approval_id
+            pending = PendingToolApproval(**pending_data)
             self._approvals[pending.id] = pending
             return pending.model_copy(deep=True)
 
