@@ -160,4 +160,33 @@ describe('buildTranscriptItems', () => {
       summary: '运行 git push origin feature/approveRunTime',
     })
   })
+
+  it.each([
+    ['approved', 'completed', 'success'],
+    ['denied', 'cancelled', 'cancelled'],
+  ] as const)(
+    'maps %s approval decisions to terminal non-waiting receipts',
+    (status, expectedGroupStatus, expectedDetailStatus) => {
+      const items = buildTranscriptItems([
+        buildMessage({
+          id: `msg-${status}`,
+          streamState: 'idle',
+          payloadJson: {
+            tool_name: 'shell',
+            status,
+            approval_id: 'approval-1',
+            arguments: { command: 'git push origin feature/approveRunTime' },
+          },
+        }),
+      ])
+
+      expect(items[0]).toMatchObject({
+        kind: 'tool_group',
+        status: expectedGroupStatus,
+      })
+      const detail = items[0].kind === 'tool_group' ? items[0].details[0] : null
+      expect(detail?.status).toBe(expectedDetailStatus)
+      expect(detail?.approval).toBeUndefined()
+    }
+  )
 })

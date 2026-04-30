@@ -16,6 +16,7 @@ from app.models.conversation import (
     MessageType,
     RunStatus,
     StreamState,
+    TurnStatus,
 )
 from app.models.llm_config import (
     LLMSettings,
@@ -103,9 +104,37 @@ def build_service_with_db(
 
 
 def append_waiting_for_approval(conversation_service, *, session_id, turn_id, run_id, approval_id):
+    message_id = f"msg-waiting-{approval_id}"
     conversation_service.append_events(
         session_id,
         [
+            ConversationEvent(
+                id=f"evt-tool-{approval_id}",
+                session_id=session_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                message_id=message_id,
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={
+                    "message_id": message_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "role": "assistant",
+                    "message_type": "tool_trace",
+                    "turn_message_index": conversation_service.message_repo.next_turn_message_index(
+                        turn_id
+                    ),
+                    "display_mode": "default",
+                    "content_text": "",
+                    "payload_json": {
+                        "tool_name": "shell",
+                        "arguments": {"command": "pytest -q"},
+                        "tool_call_id": "call-1",
+                        "approval_id": approval_id,
+                        "status": "waiting_for_approval",
+                    },
+                },
+            ),
             ConversationEvent(
                 id=f"evt-waiting-{approval_id}",
                 session_id=session_id,
@@ -116,6 +145,7 @@ def append_waiting_for_approval(conversation_service, *, session_id, turn_id, ru
             )
         ],
     )
+    return message_id
 
 
 @pytest.mark.asyncio
@@ -379,6 +409,118 @@ async def test_cancel_run_expires_pending_approval_for_cancelled_waiting_run(
     pending = service.pending_approval_store.get("approval-1")
     assert pending is not None
     assert pending.status == "expired"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "expected_status", "expected_event_type", "expected_run_status", "expected_turn_status"),
+    [
+        (
+            "approve",
+            "approved",
+            EventType.APPROVAL_APPROVED,
+            RunStatus.COMPLETED,
+            TurnStatus.COMPLETED,
+        ),
+        (
+            "deny",
+            "denied",
+            EventType.APPROVAL_DENIED,
+            RunStatus.CANCELLED,
+            TurnStatus.CANCELLED,
+        ),
+    ],
+)
+async def test_tool_call_approval_decision_updates_trace_and_terminates_run(
+    monkeypatch,
+    tmp_path,
+    action,
+    expected_status,
+    expected_event_type,
+    expected_run_status,
+    expected_turn_status,
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-1",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={"command": "pytest -q"},
+        approval_payload={"summary": "Run tests"},
+    )
+    message_id = append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+
+    if action == "approve":
+        await service.approve_tool_call(
+            session_id="session-1",
+            run_id=started.run.id,
+            approval_id="approval-1",
+        )
+    else:
+        await service.deny_tool_call(
+            session_id="session-1",
+            run_id=started.run.id,
+            approval_id="approval-1",
+        )
+
+    events = conversation_service.list_events_after("session-1", 0)
+    tail_event_types = [event.event_type for event in events[-3:]]
+    assert tail_event_types == [
+        EventType.MESSAGE_PAYLOAD_UPDATED,
+        expected_event_type,
+        EventType.RUN_COMPLETED if action == "approve" else EventType.RUN_CANCELLED,
+    ]
+    assert EventType.RUN_RESUMING not in tail_event_types
+
+    trace = conversation_service.message_repo.get(message_id)
+    run = conversation_service.run_repo.get(started.run.id)
+    turn = conversation_service.turn_repo.get(started.turn.id)
+    snapshot = conversation_service.get_snapshot("session-1")
+    pending = service.pending_approval_store.get("approval-1")
+
+    assert trace is not None
+    assert trace.payload_json["status"] == expected_status
+    assert trace.payload_json["approval_id"] == "approval-1"
+    assert run is not None
+    assert run.status == expected_run_status
+    assert run.finished_at is not None
+    assert turn is not None
+    assert turn.status == expected_turn_status
+    assert turn.active_run_id is None
+    assert snapshot.session.active_turn_id is None
+    assert pending is not None
+    assert pending.status == expected_status
 
 
 @pytest.mark.asyncio

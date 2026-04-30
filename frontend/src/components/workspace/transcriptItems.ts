@@ -23,9 +23,19 @@ function getMessageTime(message: ConversationMessage) {
   return Number.isFinite(timestamp) ? timestamp : null
 }
 
+function isApprovalDecisionStatus(status: unknown) {
+  return status === 'approved' || status === 'denied'
+}
+
 function getToolTraceStatus(message: ConversationMessage): ActionReceiptDetail['status'] {
   if (message.payloadJson.status === 'waiting_for_approval') {
     return 'waiting_for_approval'
+  }
+  if (message.payloadJson.status === 'approved') {
+    return 'success'
+  }
+  if (message.payloadJson.status === 'denied') {
+    return 'cancelled'
   }
   if (message.streamState === 'failed') {
     return 'failed'
@@ -46,10 +56,16 @@ function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatu
   if (messages.some((message) => message.streamState === 'cancelled')) {
     return 'cancelled'
   }
+  if (messages.some((message) => message.payloadJson.status === 'denied')) {
+    return 'cancelled'
+  }
   if (messages.some((message) => message.payloadJson.status === 'waiting_for_approval')) {
     return 'waiting_for_approval'
   }
-  if (messages.some((message) => message.streamState === 'streaming' || message.streamState === 'idle')) {
+  if (messages.some((message) => (
+    !isApprovalDecisionStatus(message.payloadJson.status) &&
+    (message.streamState === 'streaming' || message.streamState === 'idle')
+  ))) {
     return 'running'
   }
   return 'completed'

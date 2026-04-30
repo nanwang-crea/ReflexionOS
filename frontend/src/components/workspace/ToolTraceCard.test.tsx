@@ -140,6 +140,38 @@ describe('ToolTraceCard', () => {
     expect(html).not.toContain('aria-label="拒绝此操作"')
   })
 
+  it.each([
+    ['approved', 'success', 'completed'],
+    ['denied', 'cancelled', 'cancelled'],
+  ] as const)(
+    'does not render approval controls after a trace is %s',
+    (status, expectedDetailStatus, groupStatus) => {
+      const approvalAction = vi.fn()
+      const detail = buildToolTraceDetail(buildMessage({
+        streamState: 'idle',
+        payloadJson: {
+          tool_name: 'shell',
+          status,
+          approval_id: 'approval-1',
+          arguments: { command: 'git push origin feature/approveRunTime' },
+        },
+      }))
+
+      const html = renderToStaticMarkup(
+        <ToolTraceGroup
+          status={groupStatus}
+          details={[detail]}
+          onApprovalAction={approvalAction}
+        />
+      )
+
+      expect(detail.status).toBe(expectedDetailStatus)
+      expect(detail.approval).toBeUndefined()
+      expect(html).not.toContain('aria-label="批准此操作"')
+      expect(html).not.toContain('aria-label="拒绝此操作"')
+    }
+  )
+
   it('sends approve and deny approval actions with id-only payloads', () => {
     const approvalAction = vi.fn()
     const payload = {

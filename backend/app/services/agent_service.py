@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -13,7 +14,7 @@ from app.llm.base import LLMMessage, MessageRole
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
-from app.models.conversation import ConversationEvent, EventType, Run, RunStatus
+from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus
 from app.models.conversation_snapshot import StartTurnResult
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
@@ -558,11 +559,46 @@ class AgentService:
 
             if approval_event_type == EventType.APPROVAL_APPROVED:
                 self.pending_approval_store.approve(approval_id)
+                trace_status = "approved"
+                terminal_event_type = EventType.RUN_COMPLETED
+                terminal_payload = {
+                    "finished_at": datetime.now().isoformat(),
+                    "result": "approval_recorded_resume_not_implemented",
+                    "notice": "审批已通过；当前版本尚未实现同运行恢复，已结束本次执行。",
+                }
             else:
                 self.pending_approval_store.deny(approval_id)
+                trace_status = "denied"
+                terminal_event_type = EventType.RUN_CANCELLED
+                terminal_payload = {
+                    "finished_at": datetime.now().isoformat(),
+                    "reason": "approval_denied",
+                }
 
-            events = self.conversation_service._append_events_locked(
-                session_id,
+            trace_message = self._find_pending_approval_trace_message(
+                run_id=run_id,
+                approval_id=approval_id,
+            )
+            events_to_append: list[ConversationEvent] = []
+            if trace_message is not None:
+                events_to_append.append(
+                    ConversationEvent(
+                        id=f"evt-{uuid4().hex[:8]}",
+                        session_id=session_id,
+                        turn_id=run.turn_id,
+                        run_id=run_id,
+                        message_id=trace_message.id,
+                        event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                        payload_json={
+                            "payload_json": {
+                                "approval_id": approval_id,
+                                "status": trace_status,
+                            }
+                        },
+                    )
+                )
+
+            events_to_append.extend(
                 [
                     ConversationEvent(
                         id=f"evt-{uuid4().hex[:8]}",
@@ -577,12 +613,27 @@ class AgentService:
                         session_id=session_id,
                         turn_id=run.turn_id,
                         run_id=run_id,
-                        event_type=EventType.RUN_RESUMING,
-                        payload_json={"approval_id": approval_id},
+                        event_type=terminal_event_type,
+                        payload_json=terminal_payload,
                     ),
                 ],
             )
+            events = self.conversation_service._append_events_locked(session_id, events_to_append)
         await self._broadcast_conversation_events(session_id=session_id, events=events)
+
+    def _find_pending_approval_trace_message(
+        self, *, run_id: str, approval_id: str
+    ) -> Message | None:
+        run = self.conversation_service.run_repo.get(run_id)
+        if run is None:
+            return None
+
+        for message in self.conversation_service.message_repo.list_by_turn(run.turn_id):
+            if message.run_id != run_id or message.message_type != MessageType.TOOL_TRACE:
+                continue
+            if message.payload_json.get("approval_id") == approval_id:
+                return message
+        return None
 
 
 agent_service = AgentService()

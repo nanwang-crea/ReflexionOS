@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models.conversation import ConversationEvent, EventType
+from app.models.conversation import ConversationEvent, EventType, MessageType
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 from app.models.project import Project
 from app.models.session import Session
@@ -53,9 +53,37 @@ def _create_pending_approval(store, *, session_id, turn_id, run_id, approval_id=
 
 
 def _append_waiting_for_approval(conversation_service, *, session_id, turn_id, run_id, approval_id):
+    message_id = f"msg-waiting-{approval_id}"
     conversation_service.append_events(
         session_id,
         [
+            ConversationEvent(
+                id=f"evt-tool-{approval_id}",
+                session_id=session_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                message_id=message_id,
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={
+                    "message_id": message_id,
+                    "turn_id": turn_id,
+                    "run_id": run_id,
+                    "role": "assistant",
+                    "message_type": "tool_trace",
+                    "turn_message_index": conversation_service.message_repo.next_turn_message_index(
+                        turn_id
+                    ),
+                    "display_mode": "default",
+                    "content_text": "",
+                    "payload_json": {
+                        "tool_name": "shell",
+                        "arguments": {"command": "pytest -q"},
+                        "tool_call_id": "call-1",
+                        "approval_id": approval_id,
+                        "status": "waiting_for_approval",
+                    },
+                },
+            ),
             ConversationEvent(
                 id=f"evt-waiting-{approval_id}",
                 session_id=session_id,
@@ -66,6 +94,7 @@ def _append_waiting_for_approval(conversation_service, *, session_id, turn_id, r
             )
         ],
     )
+    return message_id
 
 
 @pytest.fixture
@@ -334,7 +363,7 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
 
 
 @pytest.mark.asyncio
-async def test_agent_service_approve_tool_call_emits_decision_and_resuming_events(
+async def test_agent_service_approve_tool_call_updates_trace_and_completes_run(
     client_with_services,
 ):
     _, conversation_service = client_with_services
@@ -354,7 +383,7 @@ async def test_agent_service_approve_tool_call_emits_decision_and_resuming_event
         run_id=started.run.id,
         approval_id="approval-1",
     )
-    _append_waiting_for_approval(
+    message_id = _append_waiting_for_approval(
         conversation_service,
         session_id="session-1",
         turn_id=started.turn.id,
@@ -370,11 +399,21 @@ async def test_agent_service_approve_tool_call_emits_decision_and_resuming_event
 
     events = conversation_service.list_events_after("session-1", 0)
     run = conversation_service.run_repo.get(started.run.id)
+    turn = conversation_service.turn_repo.get(started.turn.id)
+    trace = conversation_service.message_repo.get(message_id)
+    snapshot = conversation_service.get_snapshot("session-1")
     assert run is not None
-    assert run.status.value == "resuming"
-    assert [event.event_type for event in events[-2:]] == [
+    assert turn is not None
+    assert trace is not None
+    assert run.status.value == "completed"
+    assert turn.active_run_id is None
+    assert snapshot.session.active_turn_id is None
+    assert trace.message_type == MessageType.TOOL_TRACE
+    assert trace.payload_json["status"] == "approved"
+    assert [event.event_type for event in events[-3:]] == [
+        EventType.MESSAGE_PAYLOAD_UPDATED,
         EventType.APPROVAL_APPROVED,
-        EventType.RUN_RESUMING,
+        EventType.RUN_COMPLETED,
     ]
     assert (
         websocket_route_module.agent_service.pending_approval_store.get("approval-1").status
@@ -383,7 +422,7 @@ async def test_agent_service_approve_tool_call_emits_decision_and_resuming_event
 
 
 @pytest.mark.asyncio
-async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
+async def test_agent_service_deny_tool_call_updates_trace_and_cancels_run(
     client_with_services,
 ):
     _, conversation_service = client_with_services
@@ -403,7 +442,7 @@ async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
         run_id=started.run.id,
         approval_id="approval-1",
     )
-    _append_waiting_for_approval(
+    message_id = _append_waiting_for_approval(
         conversation_service,
         session_id="session-1",
         turn_id=started.turn.id,
@@ -419,11 +458,21 @@ async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
 
     events = conversation_service.list_events_after("session-1", 0)
     run = conversation_service.run_repo.get(started.run.id)
+    turn = conversation_service.turn_repo.get(started.turn.id)
+    trace = conversation_service.message_repo.get(message_id)
+    snapshot = conversation_service.get_snapshot("session-1")
     assert run is not None
-    assert run.status.value == "resuming"
-    assert [event.event_type for event in events[-2:]] == [
+    assert turn is not None
+    assert trace is not None
+    assert run.status.value == "cancelled"
+    assert turn.active_run_id is None
+    assert snapshot.session.active_turn_id is None
+    assert trace.message_type == MessageType.TOOL_TRACE
+    assert trace.payload_json["status"] == "denied"
+    assert [event.event_type for event in events[-3:]] == [
+        EventType.MESSAGE_PAYLOAD_UPDATED,
         EventType.APPROVAL_DENIED,
-        EventType.RUN_RESUMING,
+        EventType.RUN_CANCELLED,
     ]
     assert (
         websocket_route_module.agent_service.pending_approval_store.get("approval-1").status
