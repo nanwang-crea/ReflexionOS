@@ -1,5 +1,5 @@
-type ReceiptDetailStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
-export type ActionReceiptStatus = 'running' | 'completed' | 'failed' | 'cancelled'
+type ReceiptDetailStatus = 'pending' | 'running' | 'waiting_for_approval' | 'success' | 'failed' | 'cancelled'
+export type ActionReceiptStatus = 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancelled'
 type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
 
 export interface ActionReceiptDetail {
@@ -257,7 +257,7 @@ export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionR
     }
   })
 
-  const prefix = status === 'running'
+  const prefix = status === 'running' || status === 'waiting_for_approval'
     ? '正在'
     : status === 'cancelled'
       ? '已取消'

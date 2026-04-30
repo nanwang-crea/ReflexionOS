@@ -24,6 +24,9 @@ function getMessageTime(message: ConversationMessage) {
 }
 
 function getToolTraceStatus(message: ConversationMessage): ActionReceiptDetail['status'] {
+  if (message.payloadJson.status === 'waiting_for_approval') {
+    return 'waiting_for_approval'
+  }
   if (message.streamState === 'failed') {
     return 'failed'
   }
@@ -42,6 +45,9 @@ function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatu
   }
   if (messages.some((message) => message.streamState === 'cancelled')) {
     return 'cancelled'
+  }
+  if (messages.some((message) => message.payloadJson.status === 'waiting_for_approval')) {
+    return 'waiting_for_approval'
   }
   if (messages.some((message) => message.streamState === 'streaming' || message.streamState === 'idle')) {
     return 'running'

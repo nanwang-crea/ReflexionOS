@@ -21,6 +21,8 @@ const INCREMENTAL_EVENT_TYPES = new Set([
   'message.payload_updated',
 ])
 
+const ACTIVE_RUN_STATUSES = new Set(['created', 'running', 'waiting_for_approval', 'resuming'])
+
 export function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
@@ -103,7 +105,7 @@ function resolveActiveRunId(conversation: ConversationState | undefined): string
     }
   }
 
-  const running = Object.values(conversation.runsById).find((run) => run.status === 'running' || run.status === 'created')
+  const running = Object.values(conversation.runsById).find((run) => ACTIVE_RUN_STATUSES.has(run.status))
   return running?.id ?? null
 }
 

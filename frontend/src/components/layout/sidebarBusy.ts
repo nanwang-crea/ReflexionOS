@@ -1,5 +1,7 @@
 import type { ConversationRunStatus } from '@/types/conversation'
 
+const BUSY_RUN_STATUSES = new Set<ConversationRunStatus>(['created', 'running', 'waiting_for_approval', 'resuming'])
+
 type BusyConversationState = {
   session: { activeTurnId: string | null } | null
   turnsById: Record<string, { activeRunId: string | null }>
@@ -19,11 +21,11 @@ function resolveActiveRunStatus(conversation: BusyConversationState | undefined)
     }
   }
 
-  const activeRun = Object.values(conversation.runsById).find((run) => run.status === 'running' || run.status === 'created')
+  const activeRun = Object.values(conversation.runsById).find((run) => BUSY_RUN_STATUSES.has(run.status))
   return activeRun?.status ?? null
 }
 
 export function isConversationBusy(conversation: BusyConversationState | undefined): boolean {
   const status = resolveActiveRunStatus(conversation)
-  return status === 'running' || status === 'created'
+  return status ? BUSY_RUN_STATUSES.has(status) : false
 }

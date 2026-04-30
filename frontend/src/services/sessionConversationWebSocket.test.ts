@@ -60,12 +60,24 @@ describe('SessionConversationWebSocket', () => {
       modelId: 'model-a',
     })
     ws.cancelRun('run-1')
+    ws.approveTool({ runId: 'run-1', approvalId: 'approval-1' })
+    ws.denyTool({ runId: 'run-1', approvalId: 'approval-1' })
 
     expect(sentMessages.map((message) => JSON.parse(message).type)).toEqual([
       'conversation:sync',
       'conversation:start_turn',
       'conversation:cancel_run',
+      'conversation:approve_tool',
+      'conversation:deny_tool',
     ])
+    expect(JSON.parse(sentMessages[3]).data).toEqual({
+      approval_id: 'approval-1',
+      run_id: 'run-1',
+    })
+    expect(JSON.parse(sentMessages[4]).data).toEqual({
+      approval_id: 'approval-1',
+      run_id: 'run-1',
+    })
   })
 
   it('routes colon-style server message types to internal events', async () => {

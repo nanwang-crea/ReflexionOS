@@ -3,6 +3,8 @@ import { useConversationStore } from '@/features/conversation/conversationStore'
 import type { ConversationState } from '@/types/conversation'
 import type { ConversationMessage } from '@/types/conversation'
 
+const ACTIVE_RUN_STATUSES = new Set(['created', 'running', 'waiting_for_approval', 'resuming'])
+
 function resolveActiveRunId(conversation: ConversationState | undefined) {
   const activeTurnId = conversation?.session?.activeTurnId
   if (activeTurnId) {
@@ -12,7 +14,7 @@ function resolveActiveRunId(conversation: ConversationState | undefined) {
     }
   }
 
-  const activeRun = Object.values(conversation?.runsById ?? {}).find((run) => run.status === 'running' || run.status === 'created')
+  const activeRun = Object.values(conversation?.runsById ?? {}).find((run) => ACTIVE_RUN_STATUSES.has(run.status))
   return activeRun?.id ?? null
 }
 
@@ -44,7 +46,7 @@ export function useConversationData(currentSessionId: string | null) {
       return false
     }
     const run = conversation.runsById[activeRunId]
-    return run?.status === 'running' || run?.status === 'created'
+    return run ? ACTIVE_RUN_STATUSES.has(run.status) : false
   }, [conversation])
 
   const plan = useConversationStore((state) => {

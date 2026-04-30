@@ -137,4 +137,27 @@ describe('buildTranscriptItems', () => {
       'msg-tool-after',
     ])
   })
+
+  it('keeps approval-required shell traces in a waiting receipt state', () => {
+    const items = buildTranscriptItems([
+      buildMessage({
+        id: 'msg-approval',
+        streamState: 'idle',
+        payloadJson: {
+          tool_name: 'shell',
+          status: 'waiting_for_approval',
+          arguments: { command: 'git push origin feature/approveRunTime' },
+        },
+      }),
+    ])
+
+    expect(items[0]).toMatchObject({
+      kind: 'tool_group',
+      status: 'waiting_for_approval',
+    })
+    expect(items[0].kind === 'tool_group' ? items[0].details[0] : null).toMatchObject({
+      status: 'waiting_for_approval',
+      summary: '运行 git push origin feature/approveRunTime',
+    })
+  })
 })

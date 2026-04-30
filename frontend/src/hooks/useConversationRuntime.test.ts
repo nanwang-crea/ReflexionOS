@@ -277,6 +277,30 @@ describe('useConversationRuntime', () => {
     expect(wsCancelRunMock).toHaveBeenCalledWith('run-1')
   })
 
+  it('can cancel runs that are waiting for approval', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    conversationStoreState.conversationsBySessionId = {
+      'session-1': {
+        session: { activeTurnId: 'turn-1' },
+        turnsById: {
+          'turn-1': { activeRunId: 'run-1' },
+        },
+        runsById: {
+          'run-1': { status: 'waiting_for_approval' },
+        },
+      },
+    }
+
+    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    runtime.cancelRun()
+
+    expect(wsCancelRunMock).toHaveBeenCalledWith('run-1')
+  })
+
   it('queues snapshot refresh per session without dropping cross-session refreshes', async () => {
     const { createSnapshotRefreshQueue } = await import('./useConversationRuntime')
     const pendingResolves = new Map<string, Array<() => void>>()

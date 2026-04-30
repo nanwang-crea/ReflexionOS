@@ -14,6 +14,20 @@ describe('isConversationBusy', () => {
     })).toBe(true)
   })
 
+  it('returns true when the active run is waiting for approval or resuming', () => {
+    expect(isConversationBusy({
+      session: { activeTurnId: 'turn-1' },
+      turnsById: { 'turn-1': { activeRunId: 'run-1' } },
+      runsById: { 'run-1': { status: 'waiting_for_approval' } },
+    })).toBe(true)
+
+    expect(isConversationBusy({
+      session: { activeTurnId: 'turn-1' },
+      turnsById: { 'turn-1': { activeRunId: 'run-1' } },
+      runsById: { 'run-1': { status: 'resuming' } },
+    })).toBe(true)
+  })
+
   it('returns false when there is no active running or created run', () => {
     expect(isConversationBusy({
       session: { activeTurnId: 'turn-1' },

@@ -120,6 +120,19 @@ function buildCancelRunMessage(runId: string) {
   }
 }
 
+function buildToolApprovalMessage(
+  type: 'conversation:approve_tool' | 'conversation:deny_tool',
+  payload: { runId: string; approvalId: string }
+) {
+  return {
+    type,
+    data: {
+      approval_id: payload.approvalId,
+      run_id: payload.runId,
+    },
+  }
+}
+
 class SessionConversationWebSocket {
   private ws: WebSocket | null = null
   private handlers: Map<keyof SessionConversationEvents, Set<EventHandler>> = new Map()
@@ -250,6 +263,18 @@ class SessionConversationWebSocket {
   cancelRun(runId: string): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildCancelRunMessage(runId)))
+    }
+  }
+
+  approveTool(payload: { runId: string; approvalId: string }): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:approve_tool', payload)))
+    }
+  }
+
+  denyTool(payload: { runId: string; approvalId: string }): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:deny_tool', payload)))
     }
   }
 

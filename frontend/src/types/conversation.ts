@@ -1,6 +1,6 @@
-type ConversationTurnStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
+type ConversationTurnStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
 
-export type ConversationRunStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type ConversationRunStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
 
 type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
 

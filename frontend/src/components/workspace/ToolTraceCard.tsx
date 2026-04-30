@@ -14,6 +14,9 @@ function toActionReceiptStatus(message: ConversationMessage): ActionReceiptStatu
   if (status === 'cancelled') {
     return 'cancelled'
   }
+  if (status === 'waiting_for_approval') {
+    return 'waiting_for_approval'
+  }
   if (status === 'running' || status === 'streaming' || status === 'idle') {
     return 'running'
   }

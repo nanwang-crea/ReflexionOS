@@ -64,6 +64,24 @@ describe('ToolTraceCard', () => {
     expect(html).not.toContain('action')
     expect(html).not.toContain('hello')
   })
+
+  it('renders approval-required traces as active receipts with stable summaries', () => {
+    const html = renderToStaticMarkup(
+      <ToolTraceCard
+        message={buildMessage({
+          streamState: 'idle',
+          payloadJson: {
+            tool_name: 'shell',
+            status: 'waiting_for_approval',
+            arguments: { command: 'git push origin feature/approveRunTime' },
+          },
+        })}
+      />
+    )
+
+    expect(html).toContain('运行 git push origin feature/approveRunTime')
+    expect(html).not.toContain('已运行')
+  })
 })
 
 describe('WorkspaceTranscript conversation rendering', () => {

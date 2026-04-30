@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, ChevronRight, Loader2 } from 'lucide-react'
+import { AlertCircle, ChevronRight, Clock3, Loader2 } from 'lucide-react'
 import { type ActionReceiptDetail, type ActionReceiptStatus, summarizeReceipt } from './receiptUtils'
 
 interface ActionReceiptProps {
@@ -44,6 +44,9 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
         {status === 'running' && (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         )}
+        {status === 'waiting_for_approval' && (
+          <Clock3 className="h-3.5 w-3.5" />
+        )}
         {status === 'failed' && (
           <AlertCircle className="h-3.5 w-3.5" />
         )}
@@ -68,7 +71,8 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
                     <span className={`h-1.5 w-1.5 rounded-full ${
                       detail.status === 'failed' ? 'bg-red-400' :
                       detail.status === 'cancelled' ? 'bg-amber-400' :
-                      detail.status === 'running' ? 'bg-blue-400' : 'bg-slate-300'
+                      detail.status === 'running' ? 'bg-blue-400' :
+                      detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-slate-300'
                     }`} />
                     <span>{detail.summary}</span>
                     {detail.duration !== undefined && (
