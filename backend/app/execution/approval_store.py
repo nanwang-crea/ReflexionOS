@@ -1,4 +1,5 @@
 import uuid
+from copy import deepcopy
 from datetime import datetime
 from threading import RLock
 from typing import Literal
@@ -8,6 +9,7 @@ from pydantic import BaseModel, Field
 
 ApprovalStatus = Literal["pending", "approved", "denied", "expired", "stale"]
 ApprovalDecision = Literal["allow_once", "deny", "trust_and_allow"]
+AllowApprovalDecision = Literal["allow_once", "trust_and_allow"]
 
 
 class PendingToolApproval(BaseModel):
@@ -51,8 +53,8 @@ class PendingApprovalStore:
                 step_number=step_number,
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
-                tool_arguments=dict(tool_arguments),
-                approval_payload=dict(approval_payload),
+                tool_arguments=deepcopy(tool_arguments),
+                approval_payload=deepcopy(approval_payload),
             )
             self._approvals[pending.id] = pending
             return pending.model_copy(deep=True)
@@ -65,8 +67,10 @@ class PendingApprovalStore:
             return pending.model_copy(deep=True)
 
     def approve(
-        self, approval_id: str, *, decision: ApprovalDecision = "allow_once"
+        self, approval_id: str, *, decision: AllowApprovalDecision = "allow_once"
     ) -> PendingToolApproval:
+        if decision == "deny":
+            raise ValueError("approve decision cannot be deny")
         return self._decide(approval_id, status="approved", decision=decision)
 
     def deny(self, approval_id: str) -> PendingToolApproval:

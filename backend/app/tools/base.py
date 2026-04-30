@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ToolApprovalRequest(BaseModel):
@@ -10,9 +10,9 @@ class ToolApprovalRequest(BaseModel):
     approval_id: str
     tool_name: str
     summary: str
-    reasons: list[str] = []
-    risks: list[str] = []
-    payload: dict[str, Any] = {}
+    reasons: list[str] = Field(default_factory=list)
+    risks: list[str] = Field(default_factory=list)
+    payload: dict[str, Any] = Field(default_factory=dict)
     suggested_action: str | None = None
     suggested_trust: dict[str, Any] | None = None
 
