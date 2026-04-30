@@ -1,8 +1,9 @@
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import { buildReceiptDetail } from '@/components/execution/receiptUtils'
+import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
 import type { ConversationMessage } from '@/types/conversation'
+import { buildToolTraceDetail } from './transcriptItems'
 
-function toActionReceiptStatus(message: ConversationMessage): 'running' | 'completed' | 'failed' | 'cancelled' {
+function toActionReceiptStatus(message: ConversationMessage): ActionReceiptStatus {
   const status = typeof message.payloadJson.status === 'string'
     ? message.payloadJson.status
     : message.streamState
@@ -19,47 +20,26 @@ function toActionReceiptStatus(message: ConversationMessage): 'running' | 'compl
   return 'completed'
 }
 
-export function ToolTraceCard({ message }: { message: ConversationMessage }) {
-  const payload = message.payloadJson
-  const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : 'tool'
-  const detail = buildReceiptDetail(
-    message.id,
-    toolName,
-    (payload.arguments as Record<string, unknown> | undefined) ?? undefined
-  )
-
-  detail.status = (
-    message.streamState === 'failed'
-      ? 'failed'
-      : message.streamState === 'cancelled'
-        ? 'cancelled'
-        : message.streamState === 'streaming' || message.streamState === 'idle'
-          ? 'running'
-          : 'success'
-  )
-
-  if (typeof payload.output === 'string') {
-    detail.output = payload.output
-  } else if (payload.output !== undefined) {
-    try {
-      detail.output = JSON.stringify(payload.output, null, 2)
-    } catch (_error) {
-      detail.output = String(payload.output)
-    }
-  }
-
-  if (typeof payload.error === 'string') {
-    detail.error = payload.error
-  }
-
-  if (typeof payload.duration === 'number' && Number.isFinite(payload.duration)) {
-    detail.duration = payload.duration
-  }
-
+export function ToolTraceGroup({
+  details,
+  status,
+}: {
+  details: ActionReceiptDetail[]
+  status: ActionReceiptStatus
+}) {
   return (
     <ActionReceipt
+      status={status}
+      details={details}
+    />
+  )
+}
+
+export function ToolTraceCard({ message }: { message: ConversationMessage }) {
+  return (
+    <ToolTraceGroup
       status={toActionReceiptStatus(message)}
-      details={[detail]}
+      details={[buildToolTraceDetail(message)]}
     />
   )
 }

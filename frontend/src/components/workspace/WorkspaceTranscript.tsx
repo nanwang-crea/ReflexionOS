@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { RefObject, UIEventHandler } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { SlideIn } from '@/components/animations/SlideIn'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
-import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
+import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
-import { Loader2 } from 'lucide-react'
+import { ArrowDown, Loader2 } from 'lucide-react'
 import { PlanProgress } from './PlanProgress'
+import { buildTranscriptItems } from './transcriptItems'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -46,6 +47,8 @@ interface WorkspaceTranscriptProps {
   plan?: Plan | null
   transcriptScrollRef?: RefObject<HTMLDivElement>
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
+  isAtBottom?: boolean
+  onScrollToBottom?: () => void
   messagesEndRef: RefObject<HTMLDivElement>
 }
 
@@ -60,8 +63,11 @@ export function WorkspaceTranscript({
   plan = null,
   transcriptScrollRef,
   onTranscriptScroll,
+  isAtBottom = true,
+  onScrollToBottom,
   messagesEndRef,
 }: WorkspaceTranscriptProps) {
+  const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
   const hasVisibleStreamingMessage = messages.some((message) => {
     if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
       return true
@@ -123,7 +129,20 @@ export function WorkspaceTranscript({
         )}
 
         <AnimatePresence mode="popLayout">
-          {messages.map((message) => {
+          {transcriptItems.map((item) => {
+            if (item.kind === 'tool_group') {
+              return (
+                <SlideIn key={item.id} direction="up">
+                  <ToolTraceGroup
+                    status={item.status}
+                    details={item.details}
+                  />
+                </SlideIn>
+              )
+            }
+
+            const { message } = item
+
             if (message.messageType === 'user_message') {
               return (
                 <SlideIn key={message.id} direction="up">
@@ -142,11 +161,7 @@ export function WorkspaceTranscript({
             }
 
             if (message.messageType === 'tool_trace') {
-              return (
-                <SlideIn key={message.id} direction="up">
-                  <ToolTraceCard message={message} />
-                </SlideIn>
-              )
+              return null
             }
 
             if (message.messageType === 'system_notice') {
@@ -194,6 +209,24 @@ export function WorkspaceTranscript({
 
         <AnimatePresence>
           {plan && <PlanProgress plan={plan} />}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {!isAtBottom && onScrollToBottom && (
+            <motion.button
+              type="button"
+              aria-label="滚动到底部"
+              title="滚动到底部"
+              onClick={onScrollToBottom}
+              initial={{ opacity: 0, y: 10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-[0_12px_36px_rgba(15,23,42,0.18)] transition-colors hover:border-slate-300 hover:text-slate-900"
+            >
+              <ArrowDown className="h-5 w-5" />
+            </motion.button>
+          )}
         </AnimatePresence>
 
         <div ref={messagesEndRef} />

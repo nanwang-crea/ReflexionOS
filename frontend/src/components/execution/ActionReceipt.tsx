@@ -15,7 +15,7 @@ function trimOutput(value: string, maxLength = 800) {
 export function ActionReceipt({ status, details }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
   const label = useMemo(() => {
-    if (details.length === 1) {
+    if (details.length === 1 && status !== 'completed') {
       return details[0].summary
     }
     return summarizeReceipt(details, status)

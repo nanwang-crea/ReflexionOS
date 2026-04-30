@@ -56,7 +56,12 @@ class ConversationRuntimeAdapter:
             return []
 
         if event_type == "tool:start":
-            return self._append_events(self._tool_start_events(data))
+            return self._append_events(
+                [
+                    *self._assistant_segment_events(),
+                    *self._tool_start_events(data),
+                ]
+            )
 
         if event_type == "tool:result":
             return self._append_events(self._tool_result_events(data))
@@ -347,6 +352,46 @@ class ConversationRuntimeAdapter:
                 payload_json=payload_json,
             )
         )
+        return events
+
+    def _assistant_segment_events(self) -> list[ConversationEvent]:
+        if self.assistant_message_id is None or not self._assistant_content:
+            return []
+
+        message_id = self.assistant_message_id
+        content_text = self._assistant_content
+        events = [
+            self._new_event(
+                event_type=EventType.MESSAGE_CREATED,
+                message_id=message_id,
+                run_id=self.run_id,
+                payload_json={
+                    "message_id": message_id,
+                    "turn_id": self.turn_id,
+                    "run_id": self.run_id,
+                    "role": MessageRole.ASSISTANT,
+                    "message_type": "assistant_message",
+                    "turn_message_index": self._reserve_turn_message_index(),
+                    "display_mode": "default",
+                    "content_text": "",
+                    "payload_json": {},
+                },
+            ),
+            self._new_event(
+                event_type=EventType.MESSAGE_CONTENT_COMMITTED,
+                message_id=message_id,
+                run_id=self.run_id,
+                payload_json={"content_text": content_text},
+            ),
+            self._new_event(
+                event_type=EventType.MESSAGE_COMPLETED,
+                message_id=message_id,
+                run_id=self.run_id,
+                payload_json={"completed_at": datetime.now().isoformat()},
+            ),
+        ]
+        self.assistant_message_id = None
+        self._assistant_content = ""
         return events
 
     def _cancel_notice_event(self) -> ConversationEvent:

@@ -11,6 +11,7 @@ vi.mock('framer-motion', () => ({
   motion: {
     div: ({ children, ...props }: HTMLAttributes<HTMLDivElement> & { children?: ReactNode }) => <div {...props}>{children}</div>,
     span: ({ children, ...props }: HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }) => <span {...props}>{children}</span>,
+    button: ({ children, ...props }: HTMLAttributes<HTMLButtonElement> & { children?: ReactNode }) => <button {...props}>{children}</button>,
   },
 }))
 
@@ -58,7 +59,8 @@ describe('ToolTraceCard', () => {
       />
     )
 
-    expect(html).toContain('探索 src/app.py')
+    expect(html).toContain('已探索 1 个文件')
+    expect(html).not.toContain('探索 src/app.py')
     expect(html).not.toContain('action')
     expect(html).not.toContain('hello')
   })
@@ -106,8 +108,95 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('运行命令')
+    expect(html).toContain('已运行 1 条命令')
     expect(html).toContain('本次执行已取消')
+  })
+
+  it('groups adjacent tool traces into one timeline summary with hidden details', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-read',
+            turnMessageIndex: 1,
+            payloadJson: {
+              tool_name: 'file',
+              arguments: { action: 'read', path: '/tmp/reflexion/src/app.py' },
+            },
+          }),
+          buildMessage({
+            id: 'msg-search',
+            turnMessageIndex: 2,
+            createdAt: '2026-04-24T10:00:10Z',
+            payloadJson: {
+              tool_name: 'file',
+              arguments: { action: 'search', query: 'conversation:event' },
+            },
+          }),
+          buildMessage({
+            id: 'msg-command',
+            turnMessageIndex: 3,
+            createdAt: '2026-04-24T10:00:20Z',
+            payloadJson: {
+              tool_name: 'shell',
+              arguments: { command: 'git status --short' },
+              output: ' M src/app.py',
+            },
+          }),
+        ]}
+        messagesEndRef={createRef<HTMLDivElement>()}
+      />
+    )
+
+    expect(html).toContain('已探索 1 个文件，已探索 1 次搜索，已运行 1 条命令')
+    expect(html).not.toContain('探索 src/app.py')
+    expect(html).not.toContain('搜索 &quot;conversation:event&quot;')
+    expect(html).not.toContain('M src/app.py')
+  })
+
+  it('shows a scroll-to-bottom button when the transcript is away from the bottom', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[]}
+        isAtBottom={false}
+        onScrollToBottom={() => {}}
+        messagesEndRef={createRef<HTMLDivElement>()}
+      />
+    )
+
+    expect(html).toContain('滚动到底部')
   })
 
   it('shows a thinking indicator while a run is active before streaming output starts', () => {

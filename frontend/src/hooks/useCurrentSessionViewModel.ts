@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
@@ -35,6 +35,7 @@ export function useCurrentSessionViewModel(options: {
   const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
+  const [isAtBottom, setIsAtBottom] = useState(true)
 
   const handleTranscriptScroll = useCallback(() => {
     const container = transcriptScrollRef.current
@@ -42,11 +43,19 @@ export function useCurrentSessionViewModel(options: {
       return
     }
 
-    shouldAutoScrollRef.current = shouldFollowTranscript({
+    const shouldFollow = shouldFollowTranscript({
       scrollTop: container.scrollTop,
       clientHeight: container.clientHeight,
       scrollHeight: container.scrollHeight,
     })
+    shouldAutoScrollRef.current = shouldFollow
+    setIsAtBottom(shouldFollow)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    shouldAutoScrollRef.current = true
+    setIsAtBottom(true)
+    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
   }, [])
 
   useEffect(() => {
@@ -54,6 +63,7 @@ export function useCurrentSessionViewModel(options: {
       return
     }
     messagesEndRef.current?.scrollIntoView({ block: 'end' })
+    setIsAtBottom(true)
   }, [options.messages])
 
   return {
@@ -82,6 +92,8 @@ export function useCurrentSessionViewModel(options: {
       plan: options.plan,
       transcriptScrollRef,
       onTranscriptScroll: handleTranscriptScroll,
+      isAtBottom,
+      onScrollToBottom: scrollToBottom,
       messagesEndRef,
     },
     inputProps: {

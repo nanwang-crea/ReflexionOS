@@ -101,6 +101,52 @@ def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     assert traces[0].stream_state == StreamState.COMPLETED
 
 
+def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "我先检查配置。"})
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "file", "arguments": {"action": "read", "path": "config.py"}, "step_number": 1},
+    )
+    adapter.handle_event(
+        "tool:result",
+        {
+            "tool_name": "file",
+            "step_number": 1,
+            "success": True,
+            "output": "config",
+            "error": None,
+            "duration": 0.02,
+        },
+    )
+    adapter.handle_event("llm:content", {"content": "配置没问题，我再跑测试。"})
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "shell", "arguments": {"command": "pytest -q"}, "step_number": 2},
+    )
+    adapter.handle_event("run:complete", {})
+
+    messages = service.message_repo.list_by_turn(started.turn.id)
+
+    assert [
+        (message.message_type, message.content_text or message.payload_json.get("tool_name"))
+        for message in messages
+    ] == [
+        (MessageType.USER_MESSAGE, "请检查项目"),
+        (MessageType.ASSISTANT_MESSAGE, "我先检查配置。"),
+        (MessageType.TOOL_TRACE, "file"),
+        (MessageType.ASSISTANT_MESSAGE, "配置没问题，我再跑测试。"),
+        (MessageType.TOOL_TRACE, "shell"),
+    ]
+
+
 def test_marks_run_failed_when_run_error_arrives(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
