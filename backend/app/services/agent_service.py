@@ -363,13 +363,15 @@ class AgentService:
         if not prompt_input.transcript:
             return
 
-        prompt = self.prompt_manager.get_continuation_compression_prompt(
+        system_prompt = self.prompt_manager.get_continuation_compression_system_prompt()
+        prompt_input = self.prompt_manager.get_continuation_compression_prompt(
             task=prompt_input.task,
             transcript=prompt_input.transcript,
         )
         response = await llm.complete(
             [
-                LLMMessage(role="system", content=prompt),
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(role="user", content=prompt_input),
             ],
             tools=None,
         )

@@ -92,7 +92,7 @@ Requirements:
 
         # Continuation Artifact compression (Task 6): single LLM-driven handoff note.
         self.register_template(
-            name="continuation_compress",
+            name="continuation_compress_system",
             template="""You are generating a Continuation Artifact: a short handoff note for continuing the SAME session in a future turn.
 
 This artifact is DERIVED from the transcript below. Do not invent facts. If unsure, state uncertainty.
@@ -102,7 +102,13 @@ Output MUST be plain text with EXACTLY these 4 lines (one per line, keep the lab
 当前目标: <one sentence>
 已确认事实: <1-5 bullet-style phrases separated by '; '>
 未解决点: <1-5 bullet-style phrases separated by '; '>
-下一步建议: <one concrete next action>
+下一步建议: <one concrete next action>""",
+            variables=[],
+        )
+
+        self.register_template(
+            name="continuation_compress_input",
+            template="""Use this input to generate the Continuation Artifact.
 
 Task (current user input):
 $task
@@ -170,8 +176,12 @@ Please try a different approach or fix the issue.""",
         return self.get_template("initial_plan").render()
 
     def get_continuation_compression_prompt(self, *, task: str, transcript: str) -> str:
-        """Prompt for a single LLM-generated continuation/handoff artifact."""
-        return self.get_template("continuation_compress").render(
+        """User input for a single LLM-generated continuation/handoff artifact."""
+        return self.get_template("continuation_compress_input").render(
             task=task or "",
             transcript=transcript or "",
         )
+
+    def get_continuation_compression_system_prompt(self) -> str:
+        """System instructions for a single LLM-generated continuation/handoff artifact."""
+        return self.get_template("continuation_compress_system").render()

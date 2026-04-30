@@ -27,16 +27,6 @@ const deleteProviderMock = vi.fn()
 const testProviderMock = vi.fn()
 const setDefaultSelectionMock = vi.fn()
 
-vi.mock('@/demo/demoData', () => ({
-  isDemoMode: () => false,
-  demoProviders: [],
-  demoDefaultLLMSelection: {
-    provider_id: null,
-    model_id: null,
-    configured: false,
-  },
-}))
-
 vi.mock('@/services/apiClient', () => ({
   llmApi: {
     getProviders: getProvidersMock,

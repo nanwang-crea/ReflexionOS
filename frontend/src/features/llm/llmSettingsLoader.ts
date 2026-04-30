@@ -1,8 +1,3 @@
-import {
-  demoDefaultLLMSelection,
-  demoProviders,
-  isDemoMode,
-} from '@/demo/demoData'
 import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
@@ -22,9 +17,6 @@ interface LLMSettingsLoaderState {
 }
 
 interface CreateLLMSettingsLoaderOptions {
-  isDemoMode: () => boolean
-  getDemoProviders: () => ProviderInstance[]
-  getDemoSelection: () => DefaultLLMSelection
   getProviders: () => Promise<ProviderInstance[]>
   getDefaultSelection: () => Promise<DefaultLLMSelection>
   getState: () => LLMSettingsLoaderState
@@ -78,15 +70,10 @@ function createLLMSettingsLoader(options: CreateLLMSettingsLoaderOptions) {
     }
 
     inFlight = (async () => {
-      const settings = options.isDemoMode()
-        ? {
-            providers: options.getDemoProviders(),
-            selection: options.getDemoSelection(),
-          }
-        : {
-            providers: await options.getProviders(),
-            selection: await options.getDefaultSelection(),
-          }
+      const settings = {
+        providers: await options.getProviders(),
+        selection: await options.getDefaultSelection(),
+      }
 
       options.setLLMState(settings)
       return settings
@@ -99,9 +86,6 @@ function createLLMSettingsLoader(options: CreateLLMSettingsLoaderOptions) {
 }
 
 const ensureLLMSettingsLoadedInternal = createLLMSettingsLoader({
-  isDemoMode,
-  getDemoProviders: () => demoProviders,
-  getDemoSelection: () => demoDefaultLLMSelection,
   getProviders: async () => {
     const response = await llmApi.getProviders()
     return response.data

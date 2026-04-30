@@ -773,12 +773,12 @@ async def test_continuation_generation_sends_budgeted_transcript_to_llm(monkeypa
         },
     )
 
-    captured_prompt = ""
+    captured_messages = []
 
     class StubLLM:
         async def complete(self, messages, tools=None):
-            nonlocal captured_prompt
-            captured_prompt = messages[0].content
+            nonlocal captured_messages
+            captured_messages = messages
             return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
 
     await service._generate_and_persist_continuation_artifact(
@@ -789,11 +789,15 @@ async def test_continuation_generation_sends_budgeted_transcript_to_llm(monkeypa
         task="请继续实现 context assembly",
     )
 
-    assert len(captured_prompt) < 3_000
-    assert "BEGIN-" in captured_prompt
-    assert "-TAIL-END" in captured_prompt
-    assert "省略" in captured_prompt
-    assert "huge-middle-huge-middle-huge-middle" not in captured_prompt
+    assert [message.role for message in captured_messages] == ["system", "user"]
+    captured_input = captured_messages[1].content
+    assert len(captured_input) < 3_000
+    assert "Task (current user input):" in captured_input
+    assert "Transcript (oldest to newest, may include tool traces):" in captured_input
+    assert "BEGIN-" in captured_input
+    assert "-TAIL-END" in captured_input
+    assert "省略" in captured_input
+    assert "huge-middle-huge-middle-huge-middle" not in captured_input
 
 
 @pytest.mark.asyncio

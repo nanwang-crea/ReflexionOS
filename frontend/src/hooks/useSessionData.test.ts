@@ -31,10 +31,6 @@ vi.mock('react', () => ({
   useMemo: <T>(factory: () => T) => factory(),
 }))
 
-vi.mock('@/demo/demoData', () => ({
-  isDemoMode: () => false,
-}))
-
 vi.mock('@/features/llm/llmSettingsLoader', () => ({
   ensureLLMSettingsLoaded: ensureLLMSettingsLoadedMock,
 }))

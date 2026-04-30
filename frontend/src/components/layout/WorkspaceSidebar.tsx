@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSessionStore } from '@/features/sessions/sessionStore'
-import { demoSessions, isDemoMode } from '@/demo/demoData'
 import {
   ChevronDown,
   ChevronRight,
@@ -107,17 +106,7 @@ export function WorkspaceSidebar() {
   const canSelectDirectory = isElectronRuntime()
 
   const busy = isConversationBusy(currentConversation)
-  const demoMode = isDemoMode()
-  const projectSessionsById = useMemo(() => {
-    if (!demoMode) {
-      return sessionsByProjectId
-    }
-
-    return demoSessions.reduce<Record<string, SessionSummary[]>>((result, session) => {
-      result[session.projectId] = [...(result[session.projectId] || []), session]
-      return result
-    }, {})
-  }, [demoMode, sessionsByProjectId])
+  const projectSessionsById = sessionsByProjectId
   const sessions = useMemo(
     () => Object.values(projectSessionsById).flat(),
     [projectSessionsById]

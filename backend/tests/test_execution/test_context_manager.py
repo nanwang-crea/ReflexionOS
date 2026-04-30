@@ -1,20 +1,21 @@
+from types import SimpleNamespace
+
 from app.execution.context_manager import LoopContext
-from app.models.action import ToolCall
 
 
 class TestLoopContext:
-    
+
     def test_create_context(self):
         context = LoopContext(task="测试任务")
-        
+
         assert context.task == "测试任务"
         assert context.run_id is not None
         assert len(context.history) == 0
-    
+
     def test_update_history(self):
         context = LoopContext(task="测试任务")
-        tool_call = ToolCall(name="file", args={"path": "test.py"})
-        
+        tool_call = SimpleNamespace(name="file", args={"path": "test.py"})
+
         context.update_history(tool_call, "执行结果")
         
         assert len(context.history) == 1
@@ -24,7 +25,7 @@ class TestLoopContext:
         context = LoopContext(task="测试任务")
         
         for i in range(5):
-            tool_call = ToolCall(name="file", args={"index": i})
+            tool_call = SimpleNamespace(name="file", args={"index": i})
             context.update_history(tool_call, f"结果{i}")
         
         recent = context.get_recent_history(3)

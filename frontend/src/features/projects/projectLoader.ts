@@ -1,4 +1,3 @@
-import { demoProjects, isDemoMode } from '@/demo/demoData'
 import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionActions'
 import { projectApi } from '@/services/apiClient'
 import { useProjectStore } from '@/stores/projectStore'
@@ -10,8 +9,6 @@ interface ProjectLoaderStoreState {
 }
 
 interface CreateProjectLoaderOptions {
-  isDemoMode: () => boolean
-  getDemoProjects: () => Project[]
   listProjects: () => Promise<Project[]>
   getState: () => ProjectLoaderStoreState
   setLoading: (loading: boolean) => void
@@ -35,15 +32,11 @@ function createProjectLoader(options: CreateProjectLoaderOptions) {
       options.setLoading(true)
 
       try {
-        const projects = options.isDemoMode()
-          ? options.getDemoProjects()
-          : await options.listProjects()
+        const projects = await options.listProjects()
 
         options.setProjects(projects)
 
-        if (!options.isDemoMode()) {
-          await Promise.all(projects.map((project) => ensureProjectSessionsLoaded(project.id)))
-        }
+        await Promise.all(projects.map((project) => ensureProjectSessionsLoaded(project.id)))
 
         return projects
       } finally {
@@ -57,8 +50,6 @@ function createProjectLoader(options: CreateProjectLoaderOptions) {
 }
 
 const ensureProjectsLoadedInternal = createProjectLoader({
-  isDemoMode,
-  getDemoProjects: () => demoProjects,
   listProjects: async () => {
     const response = await projectApi.list()
     return response.data

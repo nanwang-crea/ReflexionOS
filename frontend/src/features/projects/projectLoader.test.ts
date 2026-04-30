@@ -15,11 +15,6 @@ function createProject(id: string): Project {
 const listProjectsMock = vi.fn()
 const listProjectSessionsMock = vi.fn()
 
-vi.mock('@/demo/demoData', () => ({
-  isDemoMode: () => false,
-  demoProjects: [],
-}))
-
 vi.mock('@/services/apiClient', () => ({
   projectApi: {
     list: listProjectsMock,

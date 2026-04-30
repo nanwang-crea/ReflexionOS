@@ -1,9 +1,4 @@
 import { create } from 'zustand'
-import {
-  demoDefaultLLMSelection,
-  demoProviders,
-  isDemoMode,
-} from '@/demo/demoData'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 
 interface SettingsState {
@@ -23,11 +18,11 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  providers: isDemoMode() ? demoProviders : [],
-  defaultProviderId: isDemoMode() ? demoDefaultLLMSelection.provider_id : null,
-  defaultModelId: isDemoMode() ? demoDefaultLLMSelection.model_id : null,
-  configured: isDemoMode() ? demoDefaultLLMSelection.configured : false,
-  loaded: isDemoMode(),
+  providers: [],
+  defaultProviderId: null,
+  defaultModelId: null,
+  configured: false,
+  loaded: false,
 
   setProviders: (providers) => set({ providers }),
 

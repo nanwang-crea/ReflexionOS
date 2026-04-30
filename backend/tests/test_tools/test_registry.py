@@ -9,7 +9,6 @@ from app.tools.file_tool import FileTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
 from app.tools.plan_tool import PlanTool
-from app.tools.recall_tool import RecallTool
 from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
 
@@ -103,7 +102,6 @@ class TestToolRegistry:
         registry.register(PatchTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
-        registry.register(RecallTool())
 
         forbidden_top_level_keys = {"oneOf", "anyOf", "allOf", "enum", "not"}
         definitions = registry.get_tool_definitions()

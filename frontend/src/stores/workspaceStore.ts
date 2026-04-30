@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { demoWorkspaceState, isDemoMode } from '@/demo/demoData'
 
 export interface WorkspaceUiState {
   currentSessionId: string | null
@@ -20,12 +19,6 @@ interface WorkspaceState extends WorkspaceUiState {
   setSearchOpen: (open: boolean) => void
 }
 
-const noopStorage = {
-  getItem: () => null,
-  setItem: () => {},
-  removeItem: () => {},
-}
-
 function partializeWorkspaceUiState(state: WorkspaceState): WorkspaceUiState {
   return {
     currentSessionId: state.currentSessionId,
@@ -36,18 +29,12 @@ function partializeWorkspaceUiState(state: WorkspaceState): WorkspaceUiState {
   }
 }
 
-function createInitialWorkspaceUiState(): WorkspaceUiState {
-  if (isDemoMode()) {
-    return demoWorkspaceState
-  }
-
-  return {
-    currentSessionId: null,
-    expandedProjectIds: [],
-    expandedSessionProjectIds: [],
-    searchQuery: '',
-    searchOpen: false,
-  }
+const defaultWorkspaceUiState: WorkspaceUiState = {
+  currentSessionId: null,
+  expandedProjectIds: [],
+  expandedSessionProjectIds: [],
+  searchQuery: '',
+  searchOpen: false,
 }
 
 function upsertExpanded(list: string[], value: string, expanded: boolean) {
@@ -61,7 +48,7 @@ function upsertExpanded(list: string[], value: string, expanded: boolean) {
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set) => ({
-      ...createInitialWorkspaceUiState(),
+      ...defaultWorkspaceUiState,
 
       setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
 
@@ -85,8 +72,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSearchOpen: (open) => set({ searchOpen: open })
     }),
     {
-      name: isDemoMode() ? 'reflexion-workspace-demo' : 'reflexion-workspace',
-      storage: createJSONStorage(() => (isDemoMode() ? noopStorage : localStorage)),
+      name: 'reflexion-workspace',
+      storage: createJSONStorage(() => localStorage),
       partialize: partializeWorkspaceUiState
     }
   )

@@ -84,5 +84,3 @@ export const createConversationStore = () => create<ConversationStoreState>((set
 }))
 
 export const useConversationStore = createConversationStore()
-
-export type { ConversationStoreState }
