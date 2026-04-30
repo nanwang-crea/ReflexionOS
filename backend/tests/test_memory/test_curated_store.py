@@ -46,7 +46,6 @@ def test_add_entry_returns_conflict_when_active_rule_disagrees(tmp_path):
 
 
 def test_rejects_global_scope_for_task3(tmp_path):
-    store = CuratedMemoryStore(base_dir=tmp_path)
     # Task 3 should remain project-scoped only; "global" scope must be rejected.
     entry_dict = {
         "target": "user",

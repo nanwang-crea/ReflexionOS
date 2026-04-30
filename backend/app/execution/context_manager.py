@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any
 
 from app.llm.base import MessageRole
-from app.execution.models import LoopStep, StepStatus
+from app.execution.models import LoopStep
 from app.execution.plan_engine import Plan
 
 logger = logging.getLogger(__name__)

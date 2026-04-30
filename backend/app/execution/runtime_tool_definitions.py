@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.execution.context_manager import LoopContext
 from app.llm.base import LLMToolDefinition
 from app.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from app.tools.plan_tool import PlanTool
 
 
 class RuntimeToolDefinitions:

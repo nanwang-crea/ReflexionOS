@@ -1,7 +1,3 @@
-from pathlib import Path
-
-import pytest
-
 from app.memory.context_assembly import ContextAssembler, build_context_assembly
 from app.memory.continuation import build_continuation_artifact
 from app.models.conversation import (
@@ -158,4 +154,3 @@ def test_context_assembler_reads_agents_md_as_system_section(tmp_path):
     )
 
     assert any("Project rules here" in section for section in result.system_sections)
-

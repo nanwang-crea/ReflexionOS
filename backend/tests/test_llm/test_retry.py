@@ -1,6 +1,6 @@
 import pytest
 
-from app.llm.retry import MAX_RETRIES, RetryExhaustedError, _retry_delay, retry_async
+from app.llm.retry import RetryExhaustedError, _retry_delay, retry_async
 
 
 class TestRetryDelay:
