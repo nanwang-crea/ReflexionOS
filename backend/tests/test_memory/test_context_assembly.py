@@ -27,7 +27,9 @@ def test_context_assembly_builds_static_recent_and_supplemental_layers():
     assert result.supplemental_block == "当前目标: 继续实现 recall"
 
 
-def test_context_assembler_picks_latest_persisted_continuation_artifact_as_supplemental_block(tmp_path):
+def test_context_assembler_picks_latest_persisted_continuation_artifact_as_supplemental_block(
+    tmp_path,
+):
     db = Database(str(tmp_path / "context-assembly.db"))
     session_repo = SessionRepository(db)
     turn_repo = TurnRepository(db)

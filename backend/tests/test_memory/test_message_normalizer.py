@@ -59,11 +59,7 @@ def test_normalize_message_text_handles_tool_trace_payload_json_string():
     )
 
     normalized = normalize_message_text(message)
-    assert normalized == (
-        "tool_name=shell\n"
-        'arguments={"cmd": "pytest -q"}\n'
-        "success=True"
-    )
+    assert normalized == ('tool_name=shell\narguments={"cmd": "pytest -q"}\nsuccess=True')
 
 
 def test_normalize_message_text_compacts_large_tool_output():

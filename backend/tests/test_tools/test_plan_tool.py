@@ -14,11 +14,13 @@ def assert_openai_compatible_parameters(schema):
 
 
 async def create_plan(tool: PlanTool, steps):
-    return await tool.execute({
-        "action": "create",
-        "goal": "修复计划显示",
-        "steps": steps,
-    })
+    return await tool.execute(
+        {
+            "action": "create",
+            "goal": "修复计划显示",
+            "steps": steps,
+        }
+    )
 
 
 def test_plan_schemas_do_not_use_top_level_composition_keywords():
@@ -102,10 +104,12 @@ async def test_plan_adjust_requires_remaining_steps_array_after_flattening_schem
     tool = PlanTool()
     await create_plan(tool, ["定位问题", "验证结果"])
 
-    result = await tool.execute({
-        "action": "adjust",
-        "remaining_steps": "验证结果",
-    })
+    result = await tool.execute(
+        {
+            "action": "adjust",
+            "remaining_steps": "验证结果",
+        }
+    )
 
     assert result.success is False
     assert "remaining_steps 必须是字符串数组" in result.error

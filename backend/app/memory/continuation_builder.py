@@ -100,7 +100,9 @@ class ContinuationArtifactBuilder:
         lines.append(f"tool_name={payload.get('tool_name', '')}")
 
         if payload.get("arguments") is not None:
-            lines.append(f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}")
+            lines.append(
+                f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}"
+            )
         if payload.get("success") is not None:
             lines.append(f"success={payload['success']}")
         if payload.get("output") is not None:

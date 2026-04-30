@@ -46,11 +46,15 @@ class ConversationService:
         self._session_locks_guard = Lock()
         self._session_write_locks: dict[str, RLock] = {}
 
-    def append_events(self, session_id: str, events: list[ConversationEvent]) -> list[ConversationEvent]:
+    def append_events(
+        self, session_id: str, events: list[ConversationEvent]
+    ) -> list[ConversationEvent]:
         with self._acquire_session_write_lock(session_id):
             return self._append_events_locked(session_id, events)
 
-    def _append_events_locked(self, session_id: str, events: list[ConversationEvent]) -> list[ConversationEvent]:
+    def _append_events_locked(
+        self, session_id: str, events: list[ConversationEvent]
+    ) -> list[ConversationEvent]:
         if not events:
             return []
 
@@ -249,7 +253,10 @@ class ConversationService:
                         turn_id=latest_run.turn_id,
                         run_id=latest_run.id,
                         event_type=EventType.RUN_CANCELLED,
-                        payload_json={"run_id": latest_run.id, "finished_at": datetime.now().isoformat()},
+                        payload_json={
+                            "run_id": latest_run.id,
+                            "finished_at": datetime.now().isoformat(),
+                        },
                     ),
                     ConversationEvent(
                         id=f"evt-{uuid4().hex[:8]}",
@@ -261,7 +268,9 @@ class ConversationService:
                         payload_json={
                             "message_id": notice_message_id,
                             "turn_id": turn.id,
-                            "turn_message_index": self.message_repo.next_turn_message_index(turn.id),
+                            "turn_message_index": self.message_repo.next_turn_message_index(
+                                turn.id
+                            ),
                             "notice_code": "run_cancelled",
                             "content_text": "本次执行已取消",
                             "related_run_id": latest_run.id,

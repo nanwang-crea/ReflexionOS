@@ -11,12 +11,13 @@ logger = logging.getLogger(__name__)
 
 class ShellSecurityError(Exception):
     """Shell 安全错误"""
+
     pass
 
 
 class ShellSecurity:
     """Shell 命令执行安全控制 - 拒绝危险命令并校验路径参数"""
-    
+
     SHELL_META_PATTERN = re.compile(r"[;&|<>`]|[$][(]")
 
     POSIX_DANGEROUS_COMMANDS = {
@@ -96,11 +97,11 @@ class ShellSecurity:
     ) -> list[str]:
         """
         验证命令安全性
-        
+
         Args:
             command: 待执行的命令
             path_security: 可选路径安全控制，用于校验命令参数中的路径
-            
+
         Raises:
             ShellSecurityError: 命令不安全
         """
@@ -121,9 +122,7 @@ class ShellSecurity:
 
         command_name = self._command_name(argv[0])
         dangerous_commands = (
-            self.WINDOWS_DANGEROUS_COMMANDS
-            if self._is_windows()
-            else self.POSIX_DANGEROUS_COMMANDS
+            self.WINDOWS_DANGEROUS_COMMANDS if self._is_windows() else self.POSIX_DANGEROUS_COMMANDS
         )
 
         if command_name in dangerous_commands:

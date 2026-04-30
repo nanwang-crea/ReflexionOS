@@ -1,7 +1,9 @@
+import json
+
+from sqlalchemy import case, func
+
 from app.models.conversation import Message, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
-from sqlalchemy import case, func
-import json
 
 
 class MessageRepository:
@@ -109,29 +111,25 @@ class MessageRepository:
             return []
 
         with self.db.get_session() as db_session:
-            query = (
-                db_session.query(MessageModel)
-                .filter(
-                    MessageModel.session_id == session_id,
-                    MessageModel.message_type.in_([
+            query = db_session.query(MessageModel).filter(
+                MessageModel.session_id == session_id,
+                MessageModel.message_type.in_(
+                    [
                         MessageType.USER_MESSAGE.value,
                         MessageType.ASSISTANT_MESSAGE.value,
-                    ]),
-                    MessageModel.content_text != "",
-                    func.coalesce(
-                        func.json_extract(MessageModel.payload_json, "$.kind"),
-                        "",
-                    ) != "continuation_artifact",
+                    ]
+                ),
+                MessageModel.content_text != "",
+                func.coalesce(
+                    func.json_extract(MessageModel.payload_json, "$.kind"),
+                    "",
                 )
+                != "continuation_artifact",
             )
             if current_turn_id:
                 query = query.filter(MessageModel.turn_id != current_turn_id)
 
-            models = (
-                query.order_by(MessageModel.created_at.desc())
-                .limit(resolved_scan)
-                .all()
-            )
+            models = query.order_by(MessageModel.created_at.desc()).limit(resolved_scan).all()
 
             selected = [Message.model_validate(m) for m in reversed(models)][-resolved_limit:]
             return selected
@@ -143,6 +141,7 @@ class MessageRepository:
         db_session=None,
     ) -> Message | None:
         """Return the most recent continuation artifact for a session, or None."""
+
         def _query(session):
             model = (
                 session.query(MessageModel)
@@ -150,7 +149,7 @@ class MessageRepository:
                     MessageModel.session_id == session_id,
                     MessageModel.message_type == MessageType.SYSTEM_NOTICE.value,
                     func.json_extract(MessageModel.payload_json, "$.kind")
-                        == "continuation_artifact",
+                    == "continuation_artifact",
                     MessageModel.content_text != "",
                 )
                 .order_by(MessageModel.created_at.desc())

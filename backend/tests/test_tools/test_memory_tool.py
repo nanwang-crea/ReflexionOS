@@ -1,6 +1,7 @@
+import pytest
+
 from app.memory.curated_store import CuratedEntry, CuratedMemoryStore
 from app.tools.memory_tool import MemoryTool
-import pytest
 
 
 async def _add_entry(tool: MemoryTool, *, project_id: str, entry: CuratedEntry):
@@ -94,7 +95,9 @@ async def test_memory_tool_add_returns_conflict_when_rule_drifts(tmp_path):
     )
     await _add_entry(tool, project_id="project-1", entry=first)
 
-    second = first.model_copy(update={"summary": "默认直接写入用户仓库。", "source_refs": ["msg-2"]})
+    second = first.model_copy(
+        update={"summary": "默认直接写入用户仓库。", "source_refs": ["msg-2"]}
+    )
     result = await _add_entry(tool, project_id="project-1", entry=second)
 
     assert result.success is False
@@ -119,7 +122,9 @@ async def test_memory_tool_replace_supersedes_old_entry(tmp_path):
     )
     await _add_entry(tool, project_id="project-1", entry=old_entry)
 
-    new_entry = old_entry.model_copy(update={"summary": "默认使用英文回复。", "source_refs": ["msg-2"]})
+    new_entry = old_entry.model_copy(
+        update={"summary": "默认使用英文回复。", "source_refs": ["msg-2"]}
+    )
     result = await _replace_entry(
         tool,
         project_id="project-1",
@@ -171,7 +176,9 @@ async def test_memory_tool_uses_settings_base_dir_by_default(monkeypatch, tmp_pa
     # Make sure we don't write into the actual home directory during tests.
     from app.config.settings import config_manager
 
-    monkeypatch.setattr(config_manager.settings.memory, "base_dir", str(tmp_path / "configured-memory"))
+    monkeypatch.setattr(
+        config_manager.settings.memory, "base_dir", str(tmp_path / "configured-memory")
+    )
 
     tool = MemoryTool()  # store + base_dir should resolve from settings
 

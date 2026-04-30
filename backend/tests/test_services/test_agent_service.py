@@ -148,7 +148,9 @@ async def test_start_turn_creates_turn_run_and_tracks_running_task(monkeypatch, 
 
 
 @pytest.mark.asyncio
-async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(monkeypatch, tmp_path):
+async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(
+    monkeypatch, tmp_path
+):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
     provider = build_provider("provider-a", "Provider A", ["model-a"])
@@ -192,9 +194,7 @@ async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(mo
         "conversation.event" for _ in persisted_events
     ]
     assert {session_id for session_id, _, _ in sent_events} == {"session-1"}
-    assert [data["seq"] for _, _, data in sent_events] == [
-        event.seq for event in persisted_events
-    ]
+    assert [data["seq"] for _, _, data in sent_events] == [event.seq for event in persisted_events]
 
 
 @pytest.mark.asyncio
@@ -287,11 +287,13 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
     snapshot = conversation_service.get_snapshot("session-1")
     run = next(run for run in snapshot.runs if run.id == started.run.id)
     notice_messages = [
-        message for message in snapshot.messages
+        message
+        for message in snapshot.messages
         if message.message_type == MessageType.SYSTEM_NOTICE and message.run_id == started.run.id
     ]
     related_messages = [
-        message for message in snapshot.messages
+        message
+        for message in snapshot.messages
         if message.run_id == started.run.id
         and message.message_type in {MessageType.ASSISTANT_MESSAGE, MessageType.TOOL_TRACE}
     ]
@@ -304,7 +306,9 @@ async def test_cancel_run_cancels_task_and_marks_run_cancelled(monkeypatch, tmp_
 
 
 @pytest.mark.asyncio
-async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events(monkeypatch, tmp_path):
+async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events(
+    monkeypatch, tmp_path
+):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
     provider = build_provider("provider-a", "Provider A", ["model-a"])
@@ -377,7 +381,9 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
     service.conversation_broadcaster = StubBroadcaster()
 
     await service._run_turn(
@@ -445,7 +451,9 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
 
     await service._run_turn(
         run_id="run-1",
@@ -521,7 +529,9 @@ async def test_run_tool_registry_includes_memory_tool(monkeypatch, tmp_path):
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
 
     await service._run_turn(
         run_id="run-1",
@@ -537,7 +547,9 @@ async def test_run_tool_registry_includes_memory_tool(monkeypatch, tmp_path):
     assert len(captured_registries) == 1
     assert "memory" in captured_registries[0].list_tools()
 
-    run_tool_names = {definition.name for definition in captured_registries[0].get_tool_definitions()}
+    run_tool_names = {
+        definition.name for definition in captured_registries[0].get_tool_definitions()
+    }
     assert "memory" in run_tool_names
 
 
@@ -588,7 +600,9 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
     monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
 
     service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
@@ -656,10 +670,14 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
 
     class StubLLM:
         async def complete(self, messages, tools=None):
-            return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
+            return SimpleNamespace(
+                content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c"
+            )
 
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM()
+    )
     service.conversation_broadcaster = StubBroadcaster()
 
     await service._run_turn(
@@ -741,7 +759,9 @@ async def test_run_turn_skips_continuation_after_cancelled_execution(monkeypatch
     continuation_mock = AsyncMock()
 
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
-    monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM()
+    )
     monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", continuation_mock)
     service.conversation_broadcaster = StubBroadcaster()
 
@@ -829,7 +849,9 @@ async def test_continuation_generation_sends_budgeted_transcript_to_llm(monkeypa
         async def complete(self, messages, tools=None):
             nonlocal captured_messages
             captured_messages = messages
-            return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
+            return SimpleNamespace(
+                content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c"
+            )
 
     await service._generate_and_persist_continuation_artifact(
         llm=StubLLM(),
@@ -903,14 +925,19 @@ async def test_cancel_run_fallback_adapter_closes_existing_open_messages(monkeyp
 
     snapshot = conversation_service.get_snapshot("session-1")
     related_messages = [
-        message for message in snapshot.messages
+        message
+        for message in snapshot.messages
         if message.run_id == started.run.id
         and message.message_type in {MessageType.ASSISTANT_MESSAGE, MessageType.TOOL_TRACE}
     ]
     notices = [
-        message for message in snapshot.messages
+        message
+        for message in snapshot.messages
         if message.run_id == started.run.id and message.message_type == MessageType.SYSTEM_NOTICE
     ]
 
     assert len(notices) == 1
-    assert all(message.stream_state not in {StreamState.IDLE, StreamState.STREAMING} for message in related_messages)
+    assert all(
+        message.stream_state not in {StreamState.IDLE, StreamState.STREAMING}
+        for message in related_messages
+    )

@@ -4,7 +4,8 @@ import asyncio
 import inspect
 import logging
 import random
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class RetryExhaustedError(Exception):
 
 def _retry_delay(attempt: int) -> float:
     """Exponential backoff with jitter: 2^attempt * base + random jitter."""
-    delay = min(BASE_DELAY * (2 ** attempt), MAX_DELAY)
+    delay = min(BASE_DELAY * (2**attempt), MAX_DELAY)
     jitter = random.uniform(0, delay * 0.25)
     return delay + jitter
 

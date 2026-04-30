@@ -9,9 +9,10 @@ logger = logging.getLogger(__name__)
 
 class MemoryTool(BaseTool):
     """
-    Curated memory tool (project-level): add / replace / remove entries that render to USER.md / MEMORY.md.
+    Curated memory tool (project-level).
 
-    This tool is intentionally scoped to curated memory foundation only; it does not do prompt assembly or syncing.
+    Adds, replaces, and removes entries rendered to USER.md / MEMORY.md.
+    It does not do prompt assembly or syncing.
     """
 
     def __init__(self, store: CuratedMemoryStore | None = None):
@@ -111,7 +112,9 @@ class MemoryTool(BaseTool):
                 if not summary:
                     return ToolResult(success=False, error="remove 需要 summary 参数")
 
-                removed = self.store.remove_entry(project_id=project_id, target=target, summary=summary)
+                removed = self.store.remove_entry(
+                    project_id=project_id, target=target, summary=summary
+                )
                 return ToolResult(success=removed, data={"removed": removed})
 
             return ToolResult(success=False, error=f"unsupported memory action: {action}")

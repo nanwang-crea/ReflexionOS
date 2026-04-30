@@ -12,7 +12,9 @@ class LoopMessageBuilder:
 
     def build(self, context: LoopContext, tools: list[LLMToolDefinition]) -> list[LLMMessage]:
         messages = [
-            LLMMessage(role=MessageRole.SYSTEM, content=self.prompt_manager.get_system_prompt(tools))
+            LLMMessage(
+                role=MessageRole.SYSTEM, content=self.prompt_manager.get_system_prompt(tools)
+            )
         ]
 
         for section in getattr(context, "system_sections", []) or []:
@@ -24,29 +26,34 @@ class LoopMessageBuilder:
             messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
 
         if context.plan:
-            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context()))
+            messages.append(
+                LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
+            )
             completed_findings = context.plan.completed_findings()
             if completed_findings:
                 findings_text = "\n".join(f"- {f}" for f in completed_findings)
-                messages.append(LLMMessage(role=MessageRole.SYSTEM, content=f"前序步骤发现:\n{findings_text}"))
+                messages.append(
+                    LLMMessage(role=MessageRole.SYSTEM, content=f"前序步骤发现:\n{findings_text}")
+                )
 
         for msg in self.recent_context_messages(context):
-            tool_calls = [
-                LLMToolCall(**tool_call)
-                for tool_call in msg.get("tool_calls", [])
-            ]
-            messages.append(LLMMessage(
-                role=msg["role"],
-                content=msg.get("content"),
-                tool_calls=tool_calls,
-                tool_call_id=msg.get("tool_call_id"),
-            ))
+            tool_calls = [LLMToolCall(**tool_call) for tool_call in msg.get("tool_calls", [])]
+            messages.append(
+                LLMMessage(
+                    role=msg["role"],
+                    content=msg.get("content"),
+                    tool_calls=tool_calls,
+                    tool_call_id=msg.get("tool_call_id"),
+                )
+            )
 
         return messages
 
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
         messages = [
-            LLMMessage(role=MessageRole.SYSTEM, content=self.prompt_manager.get_initial_plan_prompt())
+            LLMMessage(
+                role=MessageRole.SYSTEM, content=self.prompt_manager.get_initial_plan_prompt()
+            )
         ]
 
         for section in getattr(context, "system_sections", []) or []:
@@ -86,9 +93,5 @@ class LoopMessageBuilder:
             active_tool_group = None
             grouped_messages.append([msg])
 
-        recent_groups = grouped_messages[-self.max_context_groups:]
-        return [
-            message
-            for group in recent_groups
-            for message in group
-        ]
+        recent_groups = grouped_messages[-self.max_context_groups :]
+        return [message for group in recent_groups for message in group]

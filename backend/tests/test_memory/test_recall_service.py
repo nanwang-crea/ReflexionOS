@@ -25,7 +25,9 @@ def build_started_turn(tmp_path):
 def test_message_created_populates_search_document(tmp_path):
     service, started = build_started_turn(tmp_path)
     snapshot = service.get_snapshot("session-1")
-    user_message = next(message for message in snapshot.messages if message.id == started.user_message.id)
+    user_message = next(
+        message for message in snapshot.messages if message.id == started.user_message.id
+    )
 
     document = service.message_search_repo.get(user_message.id)
 

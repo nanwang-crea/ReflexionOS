@@ -34,9 +34,7 @@ class Plan:
 
     @property
     def is_complete(self) -> bool:
-        return bool(self.steps) and all(
-            s.status == "completed" for s in self.steps
-        )
+        return bool(self.steps) and all(s.status == "completed" for s in self.steps)
 
     def start(self):
         if not self.steps:

@@ -21,12 +21,16 @@ SESSION_CASCADE_TABLES = (
 
 class Database:
     """SQLite 数据库管理"""
-    
+
     def __init__(self, db_path: str | None = None):
-        candidate_paths = [Path(db_path)] if db_path else [
-            Path.home() / ".reflexion" / "reflexion.db",
-            Path.cwd() / ".reflexion" / "reflexion.db",
-        ]
+        candidate_paths = (
+            [Path(db_path)]
+            if db_path
+            else [
+                Path.home() / ".reflexion" / "reflexion.db",
+                Path.cwd() / ".reflexion" / "reflexion.db",
+            ]
+        )
 
         last_error: Exception | None = None
 
@@ -34,9 +38,7 @@ class Database:
             try:
                 candidate.parent.mkdir(parents=True, exist_ok=True)
                 engine = create_engine(
-                    f"sqlite:///{candidate}",
-                    echo=False,
-                    connect_args={"check_same_thread": False}
+                    f"sqlite:///{candidate}", echo=False, connect_args={"check_same_thread": False}
                 )
 
                 self.db_path = str(candidate)
@@ -47,9 +49,7 @@ class Database:
                 Base.metadata.create_all(self.engine)
 
                 self.SessionLocal = sessionmaker(
-                    autocommit=False,
-                    autoflush=False,
-                    bind=self.engine
+                    autocommit=False, autoflush=False, bind=self.engine
                 )
 
                 logger.info("数据库初始化完成: %s", candidate)
@@ -93,14 +93,18 @@ class Database:
         with self.engine.connect() as connection:
             message_columns = {
                 row["name"]
-                for row in connection.exec_driver_sql('PRAGMA table_info("messages")').mappings().all()
+                for row in connection.exec_driver_sql('PRAGMA table_info("messages")')
+                .mappings()
+                .all()
             }
             if "turn_message_index" not in message_columns:
                 return False
 
             unique_index_names = [
                 row["name"]
-                for row in connection.exec_driver_sql('PRAGMA index_list("messages")').mappings().all()
+                for row in connection.exec_driver_sql('PRAGMA index_list("messages")')
+                .mappings()
+                .all()
                 if row["unique"]
             ]
 
@@ -109,7 +113,9 @@ class Database:
                     index_row["name"]
                     for index_row in connection.exec_driver_sql(
                         f'PRAGMA index_info("{index_name}")'
-                    ).mappings().all()
+                    )
+                    .mappings()
+                    .all()
                 )
                 for index_name in unique_index_names
             }
@@ -132,9 +138,11 @@ class Database:
 
     def _has_session_cascade_fk(self, table_name: str) -> bool:
         with self.engine.connect() as connection:
-            foreign_keys = connection.exec_driver_sql(
-                f'PRAGMA foreign_key_list("{table_name}")'
-            ).mappings().all()
+            foreign_keys = (
+                connection.exec_driver_sql(f'PRAGMA foreign_key_list("{table_name}")')
+                .mappings()
+                .all()
+            )
         return any(
             foreign_key["table"] == "sessions"
             and foreign_key["from"] == "session_id"
@@ -166,7 +174,7 @@ class Database:
                 raise RuntimeError(
                     f"session cascade schema migration left FK violations: {violations}"
                 )
-    
+
     @contextmanager
     def get_session(self) -> Session:
         """获取数据库会话 (上下文管理器)"""

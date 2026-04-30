@@ -6,7 +6,6 @@ from app.memory.payload_utils import as_payload_dict
 from app.memory.text_compaction import truncate_head_tail
 from app.models.conversation import Message, MessageType
 
-
 MAX_SEARCH_TOOL_OUTPUT_CHARS = 4_000
 SEARCH_TOOL_OUTPUT_HEAD_CHARS = 2_600
 SEARCH_TOOL_OUTPUT_TAIL_CHARS = 900
@@ -28,7 +27,9 @@ def normalize_message_text(message: Message) -> str:
         payload = as_payload_dict(message.payload_json)
         lines = [f"tool_name={payload.get('tool_name', '')}"]
         if payload.get("arguments") is not None:
-            lines.append(f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}")
+            lines.append(
+                f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}"
+            )
         if payload.get("success") is not None:
             lines.append(f"success={payload['success']}")
         if payload.get("output") is not None:

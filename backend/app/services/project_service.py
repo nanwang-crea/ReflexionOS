@@ -40,12 +40,10 @@ class ProjectService:
 
         structure = []
         for item in project_path.rglob("*"):
-            if item.is_file() and not item.name.startswith('.'):
-                structure.append({
-                    "name": item.name,
-                    "path": str(item.relative_to(project_path)),
-                    "type": "file"
-                })
+            if item.is_file() and not item.name.startswith("."):
+                structure.append(
+                    {"name": item.name, "path": str(item.relative_to(project_path)), "type": "file"}
+                )
 
         return {"files": structure[:100]}
 

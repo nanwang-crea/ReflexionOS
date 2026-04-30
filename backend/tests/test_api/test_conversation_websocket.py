@@ -9,6 +9,7 @@ from app.models.llm_config import ProviderType, ResolvedLLMConfig
 from app.models.project import Project
 from app.models.session import Session
 from app.services.agent_service import AgentService
+from app.services.conversation_broadcaster import WebSocketConversationBroadcaster
 from app.services.conversation_service import ConversationService
 from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
@@ -54,10 +55,14 @@ def client_with_services(tmp_path, monkeypatch):
     )
     conversation_service.cancel_run(seeded.run.id)
 
+    import app.api.websocket_manager as websocket_module
+
+    websocket_module.ws_manager.active_connections.clear()
     agent_service = AgentService(
         project_repo=project_repo,
         session_repo=session_repo,
         conversation_service=conversation_service,
+        conversation_broadcaster=WebSocketConversationBroadcaster(websocket_module.ws_manager),
     )
     monkeypatch.setattr(
         agent_service.llm_provider_service,
@@ -74,9 +79,7 @@ def client_with_services(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_service, "schedule_turn", lambda **kwargs: None)
 
     import app.api.routes.websocket as websocket_route_module
-    import app.api.websocket_manager as websocket_module
 
-    websocket_module.ws_manager.active_connections.clear()
     monkeypatch.setattr(websocket_route_module, "conversation_service", conversation_service)
     monkeypatch.setattr(websocket_route_module, "agent_service", agent_service)
 
@@ -102,8 +105,10 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(tmp_path)))
     session_repo.create(Session(id="session-1", project_id="project-1", title="需求讨论"))
 
-    # Make the project look like a real workspace for ContextAssembler (AGENTS.md is optional but stable to assert).
-    (tmp_path / "AGENTS.md").write_text("# Project Rules\n\n- Always reply in Chinese.\n", encoding="utf-8")
+    # Make the project look like a real workspace for ContextAssembler.
+    (tmp_path / "AGENTS.md").write_text(
+        "# Project Rules\n\n- Always reply in Chinese.\n", encoding="utf-8"
+    )
 
     # Avoid writing curated memory into the real home directory during tests.
     from app.config.settings import config_manager
@@ -112,10 +117,14 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
 
     conversation_service = ConversationService(db=db)
 
+    import app.api.websocket_manager as websocket_module
+
+    websocket_module.ws_manager.active_connections.clear()
     agent_service = AgentService(
         project_repo=project_repo,
         session_repo=session_repo,
         conversation_service=conversation_service,
+        conversation_broadcaster=WebSocketConversationBroadcaster(websocket_module.ws_manager),
     )
     monkeypatch.setattr(
         agent_service.llm_provider_service,
@@ -129,13 +138,11 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
             max_tokens=256,
         ),
     )
-    # We don't want to run the full RapidExecutionLoop in websocket tests; we will drive artifacts explicitly.
+    # Drive artifacts explicitly instead of running the full RapidExecutionLoop.
     monkeypatch.setattr(agent_service, "schedule_turn", lambda **kwargs: None)
 
     import app.api.routes.websocket as websocket_route_module
-    import app.api.websocket_manager as websocket_module
 
-    websocket_module.ws_manager.active_connections.clear()
     monkeypatch.setattr(websocket_route_module, "conversation_service", conversation_service)
     monkeypatch.setattr(websocket_route_module, "agent_service", agent_service)
 
@@ -184,9 +191,7 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
         replay_messages = _drain_until_synced(websocket)
 
     replayed_event_types = _event_types(replay_messages)
-    assert {"turn.created", "message.created", "run.created"}.issubset(
-        set(replayed_event_types)
-    )
+    assert {"turn.created", "message.created", "run.created"}.issubset(set(replayed_event_types))
     replayed_event_seqs = _event_seqs(replay_messages)
     assert replayed_event_seqs == sorted(replayed_event_seqs)
 
@@ -205,7 +210,9 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
     assert _event_messages(no_replay_messages) == []
 
 
-def test_session_conversation_websocket_sync_includes_live_state_before_synced(client_with_services, monkeypatch):
+def test_session_conversation_websocket_sync_includes_live_state_before_synced(
+    client_with_services, monkeypatch
+):
     client, _ = client_with_services
 
     import app.api.routes.websocket as websocket_route_module
@@ -276,9 +283,7 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
     before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json(
-            {"type": "conversation.cancel_run", "data": {"run_id": started.run.id}}
-        )
+        websocket.send_json({"type": "conversation.cancel_run", "data": {"run_id": started.run.id}})
         first_cancel_message = websocket.receive_json()
 
     assert first_cancel_message["type"] == "conversation.event"
@@ -298,22 +303,25 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
 
 
 @pytest.mark.asyncio
-async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(client_with_memory_pipeline):
+async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
+    client_with_memory_pipeline,
+):
     """
     End-to-end verification for Phase 1 memory pipeline:
     - messages are the primary reading surface (snapshot + context assembly)
     - curated memory persists under settings.memory.base_dir/projects/<project_id>/
-    - continuation artifacts are persisted as derived system_notice messages and become supplemental context
+    - continuation artifacts are persisted as derived system_notice messages
+      and become supplemental context
     - recall/search docs index normal messages but exclude continuation artifacts
     """
 
     from app.memory.context_assembly import ContextAssembler
     from app.memory.continuation import build_continuation_artifact
-    from app.memory.curated_store import CuratedMemoryStore, CuratedEntry
+    from app.memory.curated_store import CuratedEntry, CuratedMemoryStore
     from app.memory.recall_service import RecallService
-    from app.services.conversation_service import ConversationService
-    from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
     from app.models.conversation import ConversationEvent, EventType
+    from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
+    from app.services.conversation_service import ConversationService
     from app.tools.memory_tool import MemoryTool
 
     services = client_with_memory_pipeline
@@ -375,7 +383,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
         )
         assert result.success is True
 
-        # Persist a continuation artifact as a derived system_notice message through the normal event path.
+        # Persist a continuation artifact through the normal event path.
         next_index = conversation_service.message_repo.next_turn_message_index(turn_id)
         artifact = build_continuation_artifact(
             session_id="session-1",
@@ -429,17 +437,17 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(cli
         resumed_replay = _drain_until_synced(websocket)
 
     resumed_event_types = _event_types(resumed_replay)
-    assert {"turn.created", "message.created", "run.created"}.issubset(
-        set(resumed_event_types)
-    )
+    assert {"turn.created", "message.created", "run.created"}.issubset(set(resumed_event_types))
     assert "message.completed" in resumed_event_types
     assert _event_seqs(resumed_replay) == sorted(_event_seqs(resumed_replay))
 
-    # "Resumed session" rehydration: fresh service objects should be able to reconstruct state from storage.
+    # Fresh service objects should be able to reconstruct state from storage.
     fresh_conversation_service = ConversationService(db=services.db)
     snapshot = fresh_conversation_service.get_snapshot("session-1")
     assert any((m.content_text or "").strip() for m in snapshot.messages)
-    assert any((m.payload_json or {}).get("kind") == "continuation_artifact" for m in snapshot.messages)
+    assert any(
+        (m.payload_json or {}).get("kind") == "continuation_artifact" for m in snapshot.messages
+    )
 
     curated_dir = services.tmp_path / "memories" / "projects" / "project-1"
     assert (curated_dir / "USER.md").exists()

@@ -4,7 +4,6 @@ from app.execution.context_manager import LoopContext
 
 
 class TestLoopContext:
-
     def test_create_context(self):
         context = LoopContext(task="测试任务")
 
@@ -26,10 +25,7 @@ class TestLoopContext:
 
         context = LoopContext(task="测试任务")
         step = LoopStep(
-            step_number=1,
-            tool="file",
-            args={"path": "test.py"},
-            status=StepStatus.RUNNING
+            step_number=1, tool="file", args={"path": "test.py"}, status=StepStatus.RUNNING
         )
 
         context.add_step(step)
@@ -68,10 +64,7 @@ class TestLoopContext:
         assert context.run_id == "run-123"
         assert context.supplemental_context == "当前目标: 修 memory"
         assert context.system_sections == ["AGENTS instructions"]
-        assert [
-            (message["role"], message.get("content"))
-            for message in context.messages
-        ] == [
+        assert [(message["role"], message.get("content")) for message in context.messages] == [
             ("user", "上一轮需求"),
             ("assistant", "上一轮结论"),
             ("tool", "tool output"),

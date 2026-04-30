@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
 from datetime import datetime
-from typing import Callable
 
 from pydantic import BaseModel, ConfigDict
 
@@ -83,7 +83,9 @@ class RecallService:
                 break
         return results
 
-    def _list_project_documents(self, *, project_id: str, max_candidates: int) -> list[_MessageSearchDocumentSnapshot]:
+    def _list_project_documents(
+        self, *, project_id: str, max_candidates: int
+    ) -> list[_MessageSearchDocumentSnapshot]:
         with self.db.get_session() as db_session:
             # Strict scoping: documents do not carry project_id directly, so we join via sessions.
             rows = (
@@ -113,7 +115,9 @@ class RecallService:
                 for row in rows
             ]
 
-    def _score_document(self, document: _MessageSearchDocumentSnapshot, *, query: str, now: datetime) -> float:
+    def _score_document(
+        self, document: _MessageSearchDocumentSnapshot, *, query: str, now: datetime
+    ) -> float:
         match_score = self._match_score(query=query, text=document.search_text or "")
         if match_score <= 0:
             return 0.0
@@ -159,7 +163,7 @@ class RecallService:
         lowered = text.lower()
         tokens.update(self._ascii_word_re.findall(lowered))
 
-        # Add individual CJK characters so "记忆" queries can match without requiring segmentation libs.
+        # Add individual CJK characters so queries can match without segmentation libs.
         for char in lowered:
             codepoint = ord(char)
             if 0x4E00 <= codepoint <= 0x9FFF:
@@ -233,7 +237,11 @@ class RecallService:
                 )
                 db_session.flush()
 
-            model = db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
+            model = (
+                db_session.query(MessageSearchDocumentModel)
+                .filter_by(message_id=message_id)
+                .first()
+            )
             turn_id = f"turn-{session_id}-{turn_index}"
             now = created
             if model is None:

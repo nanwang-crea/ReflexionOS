@@ -2,8 +2,8 @@ from uuid import uuid4
 
 from openai import AsyncOpenAI
 
-from app.llm.base import MessageRole
 from app.config.settings import config_manager
+from app.llm.base import MessageRole
 from app.models.llm_config import (
     DefaultLLMSelection,
     LLMSettings,
@@ -105,7 +105,8 @@ class LLMProviderService:
         )
 
         available_providers = [
-            provider for provider in normalized.providers
+            provider
+            for provider in normalized.providers
             if provider.enabled and self._available_models(provider)
         ]
 
@@ -120,13 +121,12 @@ class LLMProviderService:
                 for provider in available_providers
                 if provider.id == normalized.default_provider_id
             ),
-            available_providers[0]
+            available_providers[0],
         )
         available_models = self._available_models(default_provider)
 
         default_model = next(
-            (model for model in available_models if model.id == normalized.default_model_id),
-            None
+            (model for model in available_models if model.id == normalized.default_model_id), None
         )
         if not default_model:
             default_model = next(
@@ -135,7 +135,7 @@ class LLMProviderService:
                     for model in available_models
                     if model.id == default_provider.default_model_id
                 ),
-                available_models[0]
+                available_models[0],
             )
 
         normalized.default_provider_id = default_provider.id
@@ -166,8 +166,7 @@ class LLMProviderService:
 
         if not selected_model and provider.default_model_id:
             selected_model = next(
-                (model for model in available_models if model.id == provider.default_model_id),
-                None
+                (model for model in available_models if model.id == provider.default_model_id), None
             )
 
         if not selected_model:
@@ -201,9 +200,7 @@ class LLMProviderService:
         settings.providers.append(normalized_provider)
         self._persist_llm_settings(settings)
         return next(
-            item
-            for item in self.llm_settings.providers
-            if item.id == normalized_provider.id
+            item for item in self.llm_settings.providers if item.id == normalized_provider.id
         )
 
     def update_provider(
@@ -213,8 +210,7 @@ class LLMProviderService:
     ) -> ProviderInstanceConfig:
         settings = self.get_llm_settings().model_copy(deep=True)
         target_index = next(
-            (index for index, item in enumerate(settings.providers) if item.id == provider_id),
-            None
+            (index for index, item in enumerate(settings.providers) if item.id == provider_id), None
         )
         if target_index is None:
             raise ValueError("供应商不存在")
@@ -258,10 +254,11 @@ class LLMProviderService:
         settings = self.get_llm_settings().model_copy(deep=True)
         provider = next(
             (
-                item for item in settings.providers
+                item
+                for item in settings.providers
                 if item.id == selection.provider_id and item.enabled
             ),
-            None
+            None,
         )
         if not provider:
             raise ValueError("默认供应商不存在或已禁用")
@@ -275,9 +272,7 @@ class LLMProviderService:
         return self.get_default_selection()
 
     async def test_provider_connection(
-        self,
-        provider: ProviderInstanceConfig,
-        model_id: str | None = None
+        self, provider: ProviderInstanceConfig, model_id: str | None = None
     ) -> ProviderConnectionTestResult:
         settings = self.get_llm_settings()
         normalized_provider = self._normalize_provider(provider)
@@ -294,7 +289,7 @@ class LLMProviderService:
 
         client = AsyncOpenAI(
             api_key=resolved.api_key or "reflexion-placeholder-key",
-            base_url=resolved.base_url if resolved.base_url else None
+            base_url=resolved.base_url if resolved.base_url else None,
         )
         await client.chat.completions.create(
             model=resolved.model,
@@ -312,9 +307,7 @@ class LLMProviderService:
         )
 
     def resolve_llm_config(
-        self,
-        provider_id: str | None = None,
-        model_id: str | None = None
+        self, provider_id: str | None = None, model_id: str | None = None
     ) -> ResolvedLLMConfig:
         settings = self.get_llm_settings()
         strict_provider = bool(provider_id)
@@ -324,10 +317,11 @@ class LLMProviderService:
         if provider_id:
             selected_provider = next(
                 (
-                    provider for provider in settings.providers
+                    provider
+                    for provider in settings.providers
                     if provider.id == provider_id and provider.enabled
                 ),
-                None
+                None,
             )
             if not selected_provider and strict_provider:
                 raise ValueError("所选供应商不存在或已禁用")
@@ -338,10 +332,11 @@ class LLMProviderService:
 
             selected_provider = next(
                 (
-                    provider for provider in settings.providers
+                    provider
+                    for provider in settings.providers
                     if provider.id == settings.default_provider_id and provider.enabled
                 ),
-                None
+                None,
             )
             if not selected_provider:
                 raise ValueError("默认供应商不存在或已禁用，请重新配置")

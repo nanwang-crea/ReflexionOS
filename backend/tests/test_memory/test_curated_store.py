@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from app.memory.curated_store import CuratedEntry, CuratedMemoryStore
 
@@ -37,7 +38,9 @@ def test_add_entry_returns_conflict_when_active_rule_disagrees(tmp_path):
     )
     store.add_entry(project_id="project-1", entry=first)
 
-    second = first.model_copy(update={"summary": "默认直接写入用户仓库。", "source_refs": ["msg-2"]})
+    second = first.model_copy(
+        update={"summary": "默认直接写入用户仓库。", "source_refs": ["msg-2"]}
+    )
     result = store.add_entry(project_id="project-1", entry=second)
 
     assert result.conflict is True
@@ -58,7 +61,7 @@ def test_rejects_global_scope_for_task3(tmp_path):
         "summary": "不要使用 emojis。",
     }
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         CuratedEntry(**entry_dict)
 
 

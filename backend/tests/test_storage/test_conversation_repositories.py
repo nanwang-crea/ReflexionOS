@@ -299,36 +299,41 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
         )
     )
 
-    first = event_repo.append_many([
-        ConversationEvent(
-            id="evt-1",
-            session_id="session-1",
-            seq=0,
-            turn_id="turn-1",
-            run_id="run-1",
-            message_id="msg-user-1",
-            event_type=EventType.MESSAGE_CREATED,
-            payload_json={"message_id": "msg-user-1"},
-        )
-    ])[0]
-    second = event_repo.append_many([
-        ConversationEvent(
-            id="evt-2",
-            session_id="session-1",
-            seq=0,
-            turn_id="turn-1",
-            run_id="run-1",
-            message_id="msg-user-1",
-            event_type=EventType.MESSAGE_COMPLETED,
-            payload_json={"message_id": "msg-user-1"},
-        )
-    ])[0]
+    first = event_repo.append_many(
+        [
+            ConversationEvent(
+                id="evt-1",
+                session_id="session-1",
+                seq=0,
+                turn_id="turn-1",
+                run_id="run-1",
+                message_id="msg-user-1",
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={"message_id": "msg-user-1"},
+            )
+        ]
+    )[0]
+    second = event_repo.append_many(
+        [
+            ConversationEvent(
+                id="evt-2",
+                session_id="session-1",
+                seq=0,
+                turn_id="turn-1",
+                run_id="run-1",
+                message_id="msg-user-1",
+                event_type=EventType.MESSAGE_COMPLETED,
+                payload_json={"message_id": "msg-user-1"},
+            )
+        ]
+    )[0]
 
     assert first.seq == 1
     assert second.seq == 2
-    assert [
-        event.id for event in event_repo.list_after_seq("session-1", after_seq=0)
-    ] == ["evt-1", "evt-2"]
+    assert [event.id for event in event_repo.list_after_seq("session-1", after_seq=0)] == [
+        "evt-1",
+        "evt-2",
+    ]
     assert turn_repo.get("turn-1").root_message_id == "msg-user-1"
     assert run_repo.get("run-1").status == RunStatus.CREATED
     assert message_repo.list_by_turn("turn-1")[0].content_text == "hello"
@@ -345,38 +350,46 @@ def test_conversation_event_append_assigns_monotonic_seq_per_session(tmp_path):
     session_repo.create(Session(id="session-2", project_id="project-1", title="会话 2"))
 
     seqs = [
-        event_repo.append_many([
-            ConversationEvent(
-                id="evt-1",
-                session_id="session-1",
-                event_type=EventType.TURN_CREATED,
-                payload_json={"turn_id": "turn-1"},
-            )
-        ])[0].seq,
-        event_repo.append_many([
-            ConversationEvent(
-                id="evt-2",
-                session_id="session-1",
-                event_type=EventType.RUN_CREATED,
-                payload_json={"run_id": "run-1"},
-            )
-        ])[0].seq,
-        event_repo.append_many([
-            ConversationEvent(
-                id="evt-3",
-                session_id="session-2",
-                event_type=EventType.TURN_CREATED,
-                payload_json={"turn_id": "turn-2"},
-            )
-        ])[0].seq,
-        event_repo.append_many([
-            ConversationEvent(
-                id="evt-4",
-                session_id="session-1",
-                event_type=EventType.RUN_COMPLETED,
-                payload_json={"run_id": "run-1"},
-            )
-        ])[0].seq,
+        event_repo.append_many(
+            [
+                ConversationEvent(
+                    id="evt-1",
+                    session_id="session-1",
+                    event_type=EventType.TURN_CREATED,
+                    payload_json={"turn_id": "turn-1"},
+                )
+            ]
+        )[0].seq,
+        event_repo.append_many(
+            [
+                ConversationEvent(
+                    id="evt-2",
+                    session_id="session-1",
+                    event_type=EventType.RUN_CREATED,
+                    payload_json={"run_id": "run-1"},
+                )
+            ]
+        )[0].seq,
+        event_repo.append_many(
+            [
+                ConversationEvent(
+                    id="evt-3",
+                    session_id="session-2",
+                    event_type=EventType.TURN_CREATED,
+                    payload_json={"turn_id": "turn-2"},
+                )
+            ]
+        )[0].seq,
+        event_repo.append_many(
+            [
+                ConversationEvent(
+                    id="evt-4",
+                    session_id="session-1",
+                    event_type=EventType.RUN_COMPLETED,
+                    payload_json={"run_id": "run-1"},
+                )
+            ]
+        )[0].seq,
     ]
 
     assert seqs == [1, 2, 1, 3]
@@ -431,14 +444,16 @@ def test_session_repo_delete_cascades_conversation_rows(tmp_path):
             completed_at=datetime(2026, 4, 24, 10, 0, 0),
         )
     )
-    event_repo.append_many([
-        ConversationEvent(
-            id="evt-1",
-            session_id="session-1",
-            event_type=EventType.MESSAGE_CREATED,
-            payload_json={"message_id": "msg-1"},
-        )
-    ])
+    event_repo.append_many(
+        [
+            ConversationEvent(
+                id="evt-1",
+                session_id="session-1",
+                event_type=EventType.MESSAGE_CREATED,
+                payload_json={"message_id": "msg-1"},
+            )
+        ]
+    )
 
     deleted = session_repo.delete("session-1")
 
@@ -463,14 +478,15 @@ def test_database_resets_incompatible_conversation_schema(tmp_path):
 
     with sqlite3.connect(db_path) as connection:
         message_columns = {
-            row[1]
-            for row in connection.execute('PRAGMA table_info("messages")').fetchall()
+            row[1] for row in connection.execute('PRAGMA table_info("messages")').fetchall()
         }
         unique_indexes = connection.execute('PRAGMA index_list("messages")').fetchall()
         unique_index_columns = {
             tuple(
                 column_row[2]
-                for column_row in connection.execute(f'PRAGMA index_info("{index_row[1]}")').fetchall()
+                for column_row in connection.execute(
+                    f'PRAGMA index_info("{index_row[1]}")'
+                ).fetchall()
             )
             for index_row in unique_indexes
             if index_row[2]

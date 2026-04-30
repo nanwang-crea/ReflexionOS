@@ -89,7 +89,9 @@ def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     )
 
     snapshot = service.get_snapshot("session-1")
-    traces = [message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE]
+    traces = [
+        message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE
+    ]
 
     assert len(traces) == 1
     assert traces[0].payload_json["tool_name"] == "shell"
@@ -132,7 +134,9 @@ def test_marks_run_failed_when_run_error_arrives(tmp_path):
     assert assistant.payload_json["error_message"] == "boom"
 
 
-def test_run_cancelled_assigns_unique_turn_message_indexes_with_buffered_assistant_content(tmp_path):
+def test_run_cancelled_assigns_unique_turn_message_indexes_with_buffered_assistant_content(
+    tmp_path,
+):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
         conversation_service=service,
@@ -173,8 +177,7 @@ def test_tool_error_marks_tool_trace_failed_instead_of_completed(tmp_path):
 
     snapshot = service.get_snapshot("session-1")
     trace = next(
-        message for message in snapshot.messages
-        if message.message_type == MessageType.TOOL_TRACE
+        message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE
     )
 
     assert trace.stream_state == StreamState.FAILED

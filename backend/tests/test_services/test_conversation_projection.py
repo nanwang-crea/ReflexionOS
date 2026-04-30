@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.memory.continuation import build_continuation_artifact
 from app.models.conversation import ConversationEvent, EventType, RunStatus, StreamState, TurnStatus
 from app.models.session import Session
 from app.services.conversation_projection import ConversationProjection
@@ -9,7 +10,6 @@ from app.storage.repositories.message_search_document_repo import MessageSearchD
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
-from app.memory.continuation import build_continuation_artifact
 
 
 def test_projection_run_completed_marks_turn_completed_and_clears_session_active_turn(tmp_path):

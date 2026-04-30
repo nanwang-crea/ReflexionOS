@@ -5,17 +5,19 @@ from dataclasses import dataclass
 @dataclass
 class Hunk:
     """Diff Hunk - 表示一个修改块"""
-    old_start: int      # 原文件起始行号
-    old_count: int      # 原文件行数
-    new_start: int      # 新文件起始行号
-    new_count: int      # 新文件行数
-    lines: list[str]    # Hunk内容 (+/-/ 开头)
+
+    old_start: int  # 原文件起始行号
+    old_count: int  # 原文件行数
+    new_start: int  # 新文件起始行号
+    new_count: int  # 新文件行数
+    lines: list[str]  # Hunk内容 (+/-/ 开头)
 
 
 @dataclass
 class CodexPatch:
     """Codex-style patch - 表示单文件补丁"""
-    action: str          # add/update/delete
+
+    action: str  # add/update/delete
     file_path: str
     hunks: list[list[str]]
     lines: list[str]
@@ -23,89 +25,90 @@ class CodexPatch:
 
 class CodexPatchParseError(ValueError):
     """Codex-style patch 解析错误"""
+
     pass
 
 
 class DiffParser:
     """Unified Diff 解析器"""
-    
+
     def parse(self, diff_text: str) -> list[Hunk]:
         """
         解析 Unified Diff 格式
-        
+
         Args:
             diff_text: Unified Diff 文本
-            
+
         Returns:
             List[Hunk]: 解析出的 Hunk 列表
         """
         hunks = []
-        lines = diff_text.split('\n')
-        
+        lines = diff_text.split("\n")
+
         i = 0
         while i < len(lines):
             line = lines[i]
-            
+
             # 查找 hunk 头: @@ -old_start,old_count +new_start,new_count @@
-            if line.startswith('@@'):
-                match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', line)
+            if line.startswith("@@"):
+                match = re.match(r"@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@", line)
                 if match:
                     hunk = Hunk(
                         old_start=int(match.group(1)),
                         old_count=int(match.group(2) or 1),
                         new_start=int(match.group(3)),
                         new_count=int(match.group(4) or 1),
-                        lines=[]
+                        lines=[],
                     )
-                    
+
                     # 收集 hunk 内容
                     i += 1
-                    while i < len(lines) and not lines[i].startswith('@@'):
-                        if lines[i].startswith(('+', '-', ' ')):
+                    while i < len(lines) and not lines[i].startswith("@@"):
+                        if lines[i].startswith(("+", "-", " ")):
                             hunk.lines.append(lines[i])
                         i += 1
-                    
+
                     hunks.append(hunk)
                 else:
                     i += 1
             else:
                 i += 1
-        
+
         return hunks
 
     def extract_file_paths(self, diff_text: str) -> list[str]:
         """从 Diff 中提取所有新文件路径"""
         paths = []
-        for line in diff_text.split('\n'):
-            if line.startswith('+++ '):
+        for line in diff_text.split("\n"):
+            if line.startswith("+++ "):
                 path = self._normalize_file_path(line[4:].strip())
                 if path and path != "/dev/null":
                     paths.append(path)
         return paths
-    
+
     def extract_file_path(self, diff_text: str) -> str | None:
         """
         从 Diff 中提取文件路径
-        
+
         Args:
             diff_text: Unified Diff 文本
-            
+
         Returns:
             Optional[str]: 文件路径,如果无法提取返回 None
         """
-        lines = diff_text.split('\n')
-        
+        lines = diff_text.split("\n")
+
         for line in lines:
             # 查找 +++ b/path/to/file
-            if line.startswith('+++ '):
+            if line.startswith("+++ "):
                 path = self._normalize_file_path(line[4:].strip())
                 return path if path else None
-        
+
         return None
 
     def _normalize_file_path(self, path: str) -> str:
         """规范化 diff 文件路径"""
-        if path.startswith('b/') or path.startswith('a/'):
+        if path.startswith("b/") or path.startswith("a/"):
             return path[2:]
         return path
 
@@ -131,20 +134,18 @@ class CodexPatchParser:
         if lines[-1] != "*** End Patch":
             raise CodexPatchParseError("Codex-style patch 必须以 *** End Patch 结束")
 
-        operation_lines = [
-            line for line in lines
-            if line.startswith(self.OPERATION_PREFIXES)
-        ]
+        operation_lines = [line for line in lines if line.startswith(self.OPERATION_PREFIXES)]
         if not operation_lines:
             raise CodexPatchParseError(
-                "Codex-style patch 缺少文件操作头，请使用 *** Add File、*** Update File 或 *** Delete File"
+                "Codex-style patch 缺少文件操作头，"
+                "请使用 *** Add File、*** Update File 或 *** Delete File"
             )
         if len(operation_lines) > 1:
             raise CodexPatchParseError("Codex-style patch 仅支持单文件修改")
 
         operation_line = operation_lines[0]
         operation_index = lines.index(operation_line)
-        body = lines[operation_index + 1:-1]
+        body = lines[operation_index + 1 : -1]
 
         if operation_line.startswith("*** Add File: "):
             file_path = operation_line.removeprefix("*** Add File: ").strip()

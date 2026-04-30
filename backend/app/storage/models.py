@@ -8,8 +8,9 @@ Base = declarative_base()
 
 class ProjectModel(Base):
     """项目数据模型"""
+
     __tablename__ = "projects"
-    
+
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     path = Column(String, nullable=False, unique=True)
@@ -21,6 +22,7 @@ class ProjectModel(Base):
 
 class SessionModel(Base):
     """会话数据模型"""
+
     __tablename__ = "sessions"
 
     id = Column(String, primary_key=True)
@@ -78,7 +80,9 @@ class RunModel(Base):
 class MessageModel(Base):
     __tablename__ = "messages"
     __table_args__ = (
-        UniqueConstraint("turn_id", "turn_message_index", name="uq_messages_turn_turn_message_index"),
+        UniqueConstraint(
+            "turn_id", "turn_message_index", name="uq_messages_turn_turn_message_index"
+        ),
     )
 
     id = Column(String, primary_key=True)

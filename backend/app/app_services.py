@@ -1,0 +1,6 @@
+from app.api.websocket_manager import ws_manager
+from app.services.agent_service import AgentService
+from app.services.conversation_broadcaster import WebSocketConversationBroadcaster
+
+conversation_broadcaster = WebSocketConversationBroadcaster(ws_manager)
+agent_service = AgentService(conversation_broadcaster=conversation_broadcaster)

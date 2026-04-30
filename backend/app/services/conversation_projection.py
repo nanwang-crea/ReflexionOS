@@ -16,7 +16,9 @@ from app.models.conversation import (
 
 
 class ConversationProjection:
-    def __init__(self, *, session_repo, turn_repo, run_repo, message_repo, message_search_repo=None):
+    def __init__(
+        self, *, session_repo, turn_repo, run_repo, message_repo, message_search_repo=None
+    ):
         self.session_repo = session_repo
         self.turn_repo = turn_repo
         self.run_repo = run_repo
@@ -87,7 +89,8 @@ class ConversationProjection:
                     run.model_copy(
                         update={
                             "status": RunStatus.RUNNING,
-                            "started_at": self._parse_datetime(payload.get("started_at")) or datetime.now(),
+                            "started_at": self._parse_datetime(payload.get("started_at"))
+                            or datetime.now(),
                         }
                     ),
                     db_session=db_session,
@@ -113,7 +116,9 @@ class ConversationProjection:
                 next_payload = dict(message.payload_json)
                 next_payload.update(payload.get("payload_json", {}))
                 updated = self.message_repo.update(
-                    message.model_copy(update={"payload_json": next_payload, "updated_at": datetime.now()}),
+                    message.model_copy(
+                        update={"payload_json": next_payload, "updated_at": datetime.now()}
+                    ),
                     db_session=db_session,
                 )
                 turn = self._get_turn_or_raise(updated.turn_id, db_session=db_session)
@@ -125,7 +130,8 @@ class ConversationProjection:
                     message.model_copy(
                         update={
                             "stream_state": StreamState.COMPLETED,
-                            "completed_at": self._parse_datetime(payload.get("completed_at")) or datetime.now(),
+                            "completed_at": self._parse_datetime(payload.get("completed_at"))
+                            or datetime.now(),
                             "updated_at": datetime.now(),
                         }
                     ),
@@ -171,7 +177,9 @@ class ConversationProjection:
                 turn = self._get_turn_or_raise(message.turn_id, db_session=db_session)
                 self._upsert_search_document(message, turn, db_session=db_session)
 
-    def _apply_run_terminal_event(self, *, session_id: str, event: ConversationEvent, db_session=None) -> None:
+    def _apply_run_terminal_event(
+        self, *, session_id: str, event: ConversationEvent, db_session=None
+    ) -> None:
         run = self._get_run_or_raise(event.run_id, db_session=db_session)
         payload = event.payload_json
         next_status = {

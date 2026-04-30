@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, HTTPException
 
 from app.models.project import Project, ProjectCreate

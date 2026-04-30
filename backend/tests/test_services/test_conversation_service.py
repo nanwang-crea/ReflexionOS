@@ -1,3 +1,4 @@
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from threading import Barrier, BrokenBarrierError
@@ -69,7 +70,8 @@ def test_cancel_run_appends_cancel_and_system_notice(tmp_path):
     cancelled = service.cancel_run(started.run.id)
     events = service.list_events_after("session-1", after_seq=3)
     notice_messages = [
-        message for message in service.message_repo.list_by_turn(started.turn.id)
+        message
+        for message in service.message_repo.list_by_turn(started.turn.id)
         if message.message_type == MessageType.SYSTEM_NOTICE
     ]
 
@@ -304,10 +306,8 @@ def test_start_turn_concurrent_requests_only_allow_one_active_turn(tmp_path, mon
     barrier = Barrier(2)
 
     def barriered_append_events(session_id, events):
-        try:
+        with contextlib.suppress(BrokenBarrierError):
             barrier.wait(timeout=0.2)
-        except BrokenBarrierError:
-            pass
         return original_append_events(session_id, events)
 
     monkeypatch.setattr(service, "_append_events_locked", barriered_append_events)

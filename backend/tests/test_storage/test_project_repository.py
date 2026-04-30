@@ -9,7 +9,9 @@ def test_save_existing_path_returns_persisted_project(tmp_path):
     path = "/tmp/reflexion"
 
     first = repo.save(Project(id="project-1", name="ReflexionOS", path=path))
-    second = repo.save(Project(id="project-2", name="ReflexionOS Updated", path=path, language="python"))
+    second = repo.save(
+        Project(id="project-2", name="ReflexionOS Updated", path=path, language="python")
+    )
 
     assert second.id == first.id
     assert second.name == "ReflexionOS Updated"

@@ -40,7 +40,9 @@ class PlanTool(BaseTool):
                     "type": "string",
                     "description": "block 使用：阻塞原因",
                 },
-                "remaining_steps": self._steps_property("adjust 使用：替换当前步骤之后的所有待做步骤"),
+                "remaining_steps": self._steps_property(
+                    "adjust 使用：替换当前步骤之后的所有待做步骤"
+                ),
             },
             required=["action"],
         )
@@ -72,7 +74,9 @@ class PlanTool(BaseTool):
                     "type": "string",
                     "description": "block 使用：阻塞原因",
                 },
-                "remaining_steps": self._steps_property("adjust 使用：替换当前步骤之后的所有待做步骤"),
+                "remaining_steps": self._steps_property(
+                    "adjust 使用：替换当前步骤之后的所有待做步骤"
+                ),
             },
             required=["action"],
         )

@@ -9,7 +9,6 @@ from app.tools.shell_tool import ShellTool
 
 
 class TestShellTool:
-    
     @pytest.fixture
     def shell_tool(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -17,48 +16,38 @@ class TestShellTool:
             path_security = PathSecurity([root_dir], base_dir=root_dir)
             security = ShellSecurity()
             yield ShellTool(security, path_security)
-    
+
     @pytest.mark.asyncio
     async def test_execute_allowed_command(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "echo hello"
-        })
-        
+        result = await shell_tool.execute({"command": "echo hello"})
+
         assert result.success is True
         assert "hello" in result.output
-    
+
     @pytest.mark.asyncio
     async def test_execute_forbidden_command(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "rm -rf /"
-        })
-        
+        result = await shell_tool.execute({"command": "rm -rf /"})
+
         assert result.success is False
         assert "危险命令" in result.error
-    
+
     @pytest.mark.asyncio
     async def test_execute_python_command(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "python --version"
-        })
-        
+        result = await shell_tool.execute({"command": "python --version"})
+
         assert result.success is True
         assert "Python" in result.output
 
     @pytest.mark.asyncio
     async def test_execute_command_with_pipe(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "echo hello | wc -c"
-        })
+        result = await shell_tool.execute({"command": "echo hello | wc -c"})
 
         assert result.success is False
         assert "Shell 元语法" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_common_command(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "which python"
-        })
+        result = await shell_tool.execute({"command": "which python"})
 
         assert result.success is True
         assert "python" in result.output.lower()
@@ -71,18 +60,14 @@ class TestShellTool:
 
     @pytest.mark.asyncio
     async def test_execute_rejects_path_arguments_outside_project_root(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "cat ~/.ssh/id_rsa"
-        })
+        result = await shell_tool.execute({"command": "cat ~/.ssh/id_rsa"})
 
         assert result.success is False
         assert "路径不在允许范围内" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_rejects_python_inline_code(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "python -c 'print(123)'"
-        })
+        result = await shell_tool.execute({"command": "python -c 'print(123)'"})
 
         assert result.success is False
         assert "危险命令" in result.error
@@ -139,19 +124,14 @@ class TestShellTool:
 
     @pytest.mark.asyncio
     async def test_execute_uses_project_base_dir_by_default(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "pwd"
-        })
+        result = await shell_tool.execute({"command": "pwd"})
 
         assert result.success is True
         assert result.output.strip() == shell_tool.path_security.base_dir
 
     @pytest.mark.asyncio
     async def test_execute_rejects_cwd_outside_project_root(self, shell_tool):
-        result = await shell_tool.execute({
-            "command": "pwd",
-            "cwd": "/tmp"
-        })
+        result = await shell_tool.execute({"command": "pwd", "cwd": "/tmp"})
 
         assert result.success is False
         assert "路径不在允许范围内" in result.error

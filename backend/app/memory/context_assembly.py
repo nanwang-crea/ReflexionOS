@@ -75,11 +75,19 @@ class ContextAssembler:
         for target in ("user", "memory"):
             entries = self.curated_store.load_entries(project_id=project_id, target=target)
             if any(entry.status == "active" for entry in entries):
-                static_blocks.append(self.curated_store.render_markdown(project_id=project_id, target=target))
+                static_blocks.append(
+                    self.curated_store.render_markdown(project_id=project_id, target=target)
+                )
 
         # 3) Supplemental block: latest continuation artifact (SQL-level query).
-        artifact = self.conversation_service.message_repo.get_latest_continuation_artifact(session_id)
-        supplemental_block = artifact.content_text.strip() if artifact and (artifact.content_text or "").strip() else None
+        artifact = self.conversation_service.message_repo.get_latest_continuation_artifact(
+            session_id
+        )
+        supplemental_block = (
+            artifact.content_text.strip()
+            if artifact and (artifact.content_text or "").strip()
+            else None
+        )
 
         # 4) Recent seed candidates (SQL-level filter + slice).
         candidates = self.conversation_service.message_repo.list_recent_seed_candidates(

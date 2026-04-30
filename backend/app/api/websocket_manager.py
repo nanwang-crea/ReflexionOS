@@ -39,11 +39,10 @@ class ConnectionManager:
         if session_id not in self.active_connections:
             return
 
-        message = json.dumps({
-            "type": event_type,
-            "data": data,
-            "timestamp": datetime.now().isoformat()
-        }, ensure_ascii=False)
+        message = json.dumps(
+            {"type": event_type, "data": data, "timestamp": datetime.now().isoformat()},
+            ensure_ascii=False,
+        )
 
         disconnected = []
 

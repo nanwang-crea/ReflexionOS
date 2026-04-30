@@ -27,10 +27,7 @@ def test_build_messages_keeps_tool_outputs_with_matching_assistant_call():
 
     messages = builder.build(context, tools=[])
 
-    assistant_messages = [
-        msg for msg in messages
-        if msg.role == "assistant" and msg.tool_calls
-    ]
+    assistant_messages = [msg for msg in messages if msg.role == "assistant" and msg.tool_calls]
     tool_messages = [msg for msg in messages if msg.role == "tool"]
 
     assert len(assistant_messages) == 1

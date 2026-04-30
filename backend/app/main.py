@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import llm, projects, sessions, skills, websocket
-from app.services.agent_service import agent_service
+from app.app_services import agent_service
 
 
 @asynccontextmanager
@@ -14,6 +14,7 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         await agent_service.stop_background_tasks()
+
 
 app = FastAPI(
     title="ReflexionOS",
@@ -42,11 +43,7 @@ async def root():
         "name": "ReflexionOS",
         "version": "0.1.0",
         "status": "running",
-        "features": {
-            "websocket": True,
-            "native_tools": True,
-            "streaming": True
-        }
+        "features": {"websocket": True, "native_tools": True, "streaming": True},
     }
 
 

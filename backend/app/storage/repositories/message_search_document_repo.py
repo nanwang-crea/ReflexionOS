@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from app.storage.models import MessageSearchDocumentModel
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.storage.models import MessageSearchDocumentModel
 
 
 class MessageSearchDocument(BaseModel):
@@ -31,7 +32,9 @@ class MessageSearchDocumentRepository:
             with self.db.get_session() as managed_session:
                 return self.get(message_id, db_session=managed_session)
 
-        model = db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
+        model = (
+            db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
+        )
         return MessageSearchDocument.model_validate(model) if model else None
 
     def upsert(
@@ -63,7 +66,9 @@ class MessageSearchDocumentRepository:
                     db_session=managed_session,
                 )
 
-        model = db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
+        model = (
+            db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
+        )
         now = datetime.now()
         if model is None:
             model = MessageSearchDocumentModel(
@@ -94,4 +99,3 @@ class MessageSearchDocumentRepository:
         db_session.flush()
         db_session.refresh(model)
         return MessageSearchDocument.model_validate(model)
-

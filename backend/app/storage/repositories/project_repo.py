@@ -19,16 +19,14 @@ class ProjectRepository:
             path=model.path,
             language=model.language,
             created_at=model.created_at,
-            updated_at=model.updated_at
+            updated_at=model.updated_at,
         )
 
     def save(self, project: Project) -> Project:
         """保存项目"""
         with self.db.get_session() as session:
             # 检查是否已存在
-            existing = session.query(ProjectModel).filter_by(
-                path=project.path
-            ).first()
+            existing = session.query(ProjectModel).filter_by(path=project.path).first()
 
             if existing:
                 # 更新
@@ -46,7 +44,7 @@ class ProjectRepository:
                     name=project.name,
                     path=project.path,
                     language=project.language,
-                    config=project.config or {}
+                    config=project.config or {},
                 )
                 session.add(model)
                 session.flush()

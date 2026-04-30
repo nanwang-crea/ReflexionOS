@@ -41,11 +41,14 @@ class ToolCallExecutor:
 
         start_time = time.time()
 
-        await self.emit("tool:start", {
-            "tool_name": tool_call.name,
-            "arguments": tool_call.arguments,
-            "step_number": step_number,
-        })
+        await self.emit(
+            "tool:start",
+            {
+                "tool_name": tool_call.name,
+                "arguments": tool_call.arguments,
+                "step_number": step_number,
+            },
+        )
 
         try:
             tool = self.tool_registry.get(tool_call.name)
@@ -67,13 +70,16 @@ class ToolCallExecutor:
                 tool_call_id=tool_call.id,
             )
 
-            await self.emit("tool:result", {
-                "tool_name": tool_call.name,
-                "success": result.success,
-                "output": result.output,
-                "error": result.error,
-                "duration": step.duration,
-            })
+            await self.emit(
+                "tool:result",
+                {
+                    "tool_name": tool_call.name,
+                    "success": result.success,
+                    "output": result.output,
+                    "error": result.error,
+                    "duration": step.duration,
+                },
+            )
 
             if isinstance(tool, PlanTool) and tool.get_plan() is not None:
                 context.plan = tool.get_plan()
@@ -98,9 +104,12 @@ class ToolCallExecutor:
                 tool_call_id=tool_call.id,
             )
 
-            await self.emit("tool:error", {
-                "tool_name": tool_call.name,
-                "error": str(e),
-            })
+            await self.emit(
+                "tool:error",
+                {
+                    "tool_name": tool_call.name,
+                    "error": str(e),
+                },
+            )
 
         return step

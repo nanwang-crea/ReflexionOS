@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter
 
 from app.orchestration.skill_registry import Skill, skill_registry

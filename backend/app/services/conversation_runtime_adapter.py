@@ -38,13 +38,15 @@ class ConversationRuntimeAdapter:
     def handle_event(self, event_type: str, data: dict) -> list[ConversationEvent]:
         """消费一条 runtime 事件并追加 conversation 事件。"""
         if event_type == "run:start":
-            return self._append_events([
-                self._new_event(
-                    event_type=EventType.RUN_STARTED,
-                    run_id=self.run_id,
-                    payload_json={"started_at": datetime.now().isoformat()},
-                )
-            ])
+            return self._append_events(
+                [
+                    self._new_event(
+                        event_type=EventType.RUN_STARTED,
+                        run_id=self.run_id,
+                        payload_json={"started_at": datetime.now().isoformat()},
+                    )
+                ]
+            )
 
         if event_type in {"llm:content", "summary:token"}:
             delta = data.get("content") if event_type == "llm:content" else data.get("token")
@@ -176,9 +178,7 @@ class ConversationRuntimeAdapter:
                 event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
                 message_id=message_id,
                 run_id=self.run_id,
-                payload_json={
-                    "payload_json": payload_update
-                },
+                payload_json={"payload_json": payload_update},
             )
         )
         if success:
@@ -303,7 +303,9 @@ class ConversationRuntimeAdapter:
         terminal_event_type: EventType,
         payload_json: dict,
     ) -> list[ConversationEvent]:
-        if self.assistant_message_id is None or self._message_is_terminal(self.assistant_message_id):
+        if self.assistant_message_id is None or self._message_is_terminal(
+            self.assistant_message_id
+        ):
             return []
 
         events: list[ConversationEvent] = []
@@ -364,7 +366,9 @@ class ConversationRuntimeAdapter:
             },
         )
 
-    def _run_terminal_event(self, event_type: EventType, payload_json: dict) -> ConversationEvent | None:
+    def _run_terminal_event(
+        self, event_type: EventType, payload_json: dict
+    ) -> ConversationEvent | None:
         if self._run_terminal or self._run_is_terminal():
             self._run_terminal = True
             return None
@@ -386,7 +390,11 @@ class ConversationRuntimeAdapter:
         message = self.conversation_service.message_repo.get(message_id)
         if message is None:
             return False
-        return message.stream_state in {StreamState.COMPLETED, StreamState.FAILED, StreamState.CANCELLED}
+        return message.stream_state in {
+            StreamState.COMPLETED,
+            StreamState.FAILED,
+            StreamState.CANCELLED,
+        }
 
     def _tool_key(self, data: dict) -> str:
         step_number = data.get("step_number")
@@ -397,8 +405,8 @@ class ConversationRuntimeAdapter:
 
     def _reserve_turn_message_index(self) -> int:
         if self._reserved_turn_message_index is None:
-            self._reserved_turn_message_index = self.conversation_service.message_repo.next_turn_message_index(
-                self.turn_id
+            self._reserved_turn_message_index = (
+                self.conversation_service.message_repo.next_turn_message_index(self.turn_id)
             )
             return self._reserved_turn_message_index
 

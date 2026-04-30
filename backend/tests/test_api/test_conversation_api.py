@@ -88,9 +88,7 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
     assert payload["runs"]
     assert payload["messages"]
     assert any(message["message_type"] == "user_message" for message in payload["messages"])
-    assert any(
-        message["content_text"] == "请总结今天进展" for message in payload["messages"]
-    )
+    assert any(message["content_text"] == "请总结今天进展" for message in payload["messages"])
     root_message_ids = {turn["root_message_id"] for turn in payload["turns"]}
     message_ids = {message["id"] for message in payload["messages"]}
     assert root_message_ids.issubset(message_ids)
@@ -114,9 +112,9 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     - continuation artifacts are excluded from recall/search indexing
     """
 
-    from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
-    from app.models.conversation import ConversationEvent, EventType
     from app.memory.continuation import build_continuation_artifact
+    from app.models.conversation import ConversationEvent, EventType
+    from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
 
     services = client_with_memory_pipeline
     conversation_service = services.conversation_service
@@ -136,7 +134,9 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
         run_id=started.run.id,
     )
     runtime.handle_event("run:start", {})
-    runtime.handle_event("llm:content", {"content": "好的，我会默认使用中文回复，并在后续总结进展。"})
+    runtime.handle_event(
+        "llm:content", {"content": "好的，我会默认使用中文回复，并在后续总结进展。"}
+    )
     runtime.handle_event("run:complete", {})
 
     next_index = conversation_service.message_repo.next_turn_message_index(started.turn.id)
@@ -196,16 +196,16 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     fresh_conversation_service = ConversationService(db=services.db)
     snapshot = fresh_conversation_service.get_snapshot("session-1")
     artifact_ids = {
-        m.id for m in snapshot.messages if (m.payload_json or {}).get("kind") == "continuation_artifact"
+        m.id
+        for m in snapshot.messages
+        if (m.payload_json or {}).get("kind") == "continuation_artifact"
     }
     assert artifact_ids
 
     # Derived search docs exist for normal messages.
     message_search_repo = MessageSearchDocumentRepository(services.db)
     assert message_search_repo.get(started.user_message.id) is not None
-    assistant_ids = [
-        m.id for m in snapshot.messages if m.message_type.value == "assistant_message"
-    ]
+    assistant_ids = [m.id for m in snapshot.messages if m.message_type.value == "assistant_message"]
     assert assistant_ids
     assert message_search_repo.get(assistant_ids[0]) is not None
 

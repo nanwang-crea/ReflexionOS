@@ -38,15 +38,13 @@ class OpenAIAdapter(UniversalLLMInterface):
 
         self.client = AsyncOpenAI(
             api_key=config.api_key or "reflexion-placeholder-key",
-            base_url=config.base_url if config.base_url else None
+            base_url=config.base_url if config.base_url else None,
         )
-        
+
         logger.info("OpenAI 适配器初始化完成, 模型: %s", self.model)
-    
+
     async def complete(
-        self,
-        messages: list[LLMMessage],
-        tools: list[LLMToolDefinition] = None
+        self, messages: list[LLMMessage], tools: list[LLMToolDefinition] = None
     ) -> LLMResponse:
         """
         同步补全（支持工具调用），带指数退避重试
@@ -80,11 +78,9 @@ class OpenAIAdapter(UniversalLLMInterface):
         )
 
         return self._parse_response(response)
-    
+
     async def stream_complete(
-        self,
-        messages: list[LLMMessage],
-        tools: list[LLMToolDefinition] = None
+        self, messages: list[LLMMessage], tools: list[LLMToolDefinition] = None
     ) -> AsyncIterator[StreamChunk]:
         """
         流式补全（支持工具调用），连接阶段带指数退避重试
@@ -141,7 +137,7 @@ class OpenAIAdapter(UniversalLLMInterface):
                             current_tool_calls[idx] = {
                                 "id": tc.id or "",
                                 "name": "",
-                                "arguments": ""
+                                "arguments": "",
                             }
                         elif tc.id:
                             current_tool_calls[idx]["id"] = tc.id
@@ -163,62 +159,56 @@ class OpenAIAdapter(UniversalLLMInterface):
                             except json.JSONDecodeError:
                                 args = {}
 
-                            tool_calls.append(LLMToolCall(
-                                id=tc_data["id"] or f"call_{idx}",
-                                name=tc_data["name"],
-                                arguments=args
-                            ))
+                            tool_calls.append(
+                                LLMToolCall(
+                                    id=tc_data["id"] or f"call_{idx}",
+                                    name=tc_data["name"],
+                                    arguments=args,
+                                )
+                            )
 
                         yield StreamChunk(
-                            type="tool_calls",
-                            tool_calls=tool_calls,
-                            finish_reason=finish_reason
+                            type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason
                         )
                     else:
-                        yield StreamChunk(
-                            type="done",
-                            finish_reason=finish_reason
-                        )
+                        yield StreamChunk(type="done", finish_reason=finish_reason)
 
                     break
         except Exception as e:
             logger.error("OpenAI 流式读取失败: %s", e)
             yield StreamChunk(type="error", error=str(e))
-    
+
     def get_model_name(self) -> str:
         """获取模型名称"""
         return self.model
-    
+
     def _convert_messages(self, messages: list[LLMMessage]) -> list[dict[str, Any]]:
         """将内部消息格式转换为 OpenAI 格式"""
         openai_messages = []
-        
+
         for msg in messages:
             openai_msg: dict[str, Any] = {"role": msg.role}
-            
+
             if msg.content:
                 openai_msg["content"] = msg.content
-            
+
             if msg.tool_calls:
                 openai_msg["tool_calls"] = [
                     {
                         "id": tc.id,
                         "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments)
-                        }
+                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
                     }
                     for tc in msg.tool_calls
                 ]
-            
+
             if msg.tool_call_id:
                 openai_msg["tool_call_id"] = msg.tool_call_id
-            
+
             openai_messages.append(openai_msg)
-        
+
         return openai_messages
-    
+
     def _convert_tools(self, tools: list[LLMToolDefinition]) -> list[dict[str, Any]]:
         """将内部工具定义转换为 OpenAI 格式"""
         return [
@@ -227,17 +217,17 @@ class OpenAIAdapter(UniversalLLMInterface):
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "parameters": tool.parameters
-                }
+                    "parameters": tool.parameters,
+                },
             }
             for tool in tools
         ]
-    
+
     def _parse_response(self, response) -> LLMResponse:
         """解析 OpenAI 响应为内部格式"""
         choice = response.choices[0]
         message = choice.message
-        
+
         # 解析 tool_calls
         tool_calls = []
         if message.tool_calls:
@@ -247,27 +237,23 @@ class OpenAIAdapter(UniversalLLMInterface):
                 except json.JSONDecodeError:
                     logger.warning("工具参数解析失败: %s", tc.function.arguments)
                     args = {}
-                
-                tool_calls.append(LLMToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=args
-                ))
-        
+
+                tool_calls.append(LLMToolCall(id=tc.id, name=tc.function.name, arguments=args))
+
         # 确定 finish_reason
         finish_reason = choice.finish_reason or "stop"
         if tool_calls:
             finish_reason = "tool_calls"
-        
+
         content = message.content or ""
-        
+
         if not content and not tool_calls:
             logger.warning(
                 "OpenAI 返回空响应, model=%s, finish_reason=%s",
                 response.model,
                 choice.finish_reason,
             )
-        
+
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
@@ -276,6 +262,8 @@ class OpenAIAdapter(UniversalLLMInterface):
             usage={
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens
-            } if response.usage else {}
+                "total_tokens": response.usage.total_tokens,
+            }
+            if response.usage
+            else {},
         )

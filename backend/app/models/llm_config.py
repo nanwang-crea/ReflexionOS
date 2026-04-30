@@ -57,6 +57,7 @@ class LLMSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
 
+
 class DefaultLLMSelection(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
@@ -79,6 +80,7 @@ class ResolvedLLMConfig(BaseModel):
     base_url: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
+
 
 class ProviderConnectionTestRequest(BaseModel):
     model_config = ConfigDict(protected_namespaces=())

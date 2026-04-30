@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.websocket_manager import ws_manager
-from app.services.agent_service import agent_service
+from app.app_services import agent_service
 from app.services.conversation_service import conversation_service
 
 logger = logging.getLogger(__name__)

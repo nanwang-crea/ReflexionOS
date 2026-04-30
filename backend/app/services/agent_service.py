@@ -12,8 +12,7 @@ from app.llm.base import LLMMessage, MessageRole
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
-from app.models.conversation import ConversationEvent, Run, RunStatus
-from app.models.conversation import EventType
+from app.models.conversation import ConversationEvent, EventType, Run, RunStatus
 from app.models.conversation_snapshot import StartTurnResult
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity
@@ -27,13 +26,12 @@ from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
 
+from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
-from .conversation_broadcaster import (
-    ConversationBroadcaster,
-    conversation_broadcaster as default_conversation_broadcaster,
-)
-from .conversation_service import ConversationService, conversation_service as default_conversation_service
-from .llm_provider_service import LLMProviderService, llm_provider_service as default_llm_provider_service
+from .conversation_service import ConversationService
+from .conversation_service import conversation_service as default_conversation_service
+from .llm_provider_service import LLMProviderService
+from .llm_provider_service import llm_provider_service as default_llm_provider_service
 
 logger = logging.getLogger(__name__)
 
@@ -61,10 +59,11 @@ class AgentService:
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
         self.llm_provider_service = llm_provider_service or default_llm_provider_service
-        self.conversation_broadcaster = conversation_broadcaster or default_conversation_broadcaster
+        self.conversation_broadcaster = conversation_broadcaster or NoopConversationBroadcaster()
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
+
     @staticmethod
     def _build_run_tool_registry(project_path: str | None) -> ToolRegistry:
         resolved_project_path = (
@@ -88,9 +87,10 @@ class AgentService:
         registry.register(MemoryTool())
         registry.register(PlanTool())
 
-        logger.info("构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths)
+        logger.info(
+            "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
+        )
         return registry
-
 
     async def start_turn(
         self,
@@ -210,7 +210,9 @@ class AgentService:
                 return live_state
         return None
 
-    def start_background_tasks(self, cleanup_interval_seconds: int = _EVENT_CLEANUP_INTERVAL_SECONDS) -> None:
+    def start_background_tasks(
+        self, cleanup_interval_seconds: int = _EVENT_CLEANUP_INTERVAL_SECONDS
+    ) -> None:
         if self._cleanup_task is not None and not self._cleanup_task.done():
             return
         self._cleanup_task = asyncio.create_task(
@@ -357,7 +359,7 @@ class AgentService:
     ) -> None:
         """
         Task 6: Replace heuristic continuation generation with a single LLM-driven compression step,
-        then persist as a real system_notice message (collapsed + excluded from recall/memory promotion).
+        then persist as a real system_notice message.
         """
         turn_messages = self.conversation_service.message_repo.list_by_turn(turn_id)
         prompt_input = self.continuation_builder.build_prompt_input(
@@ -422,7 +424,11 @@ class AgentService:
                     run_id=run_id,
                     message_id=message_id,
                     event_type=EventType.MESSAGE_COMPLETED,
-                    payload_json={"completed_at": artifact.completed_at.isoformat() if artifact.completed_at else None},
+                    payload_json={
+                        "completed_at": artifact.completed_at.isoformat()
+                        if artifact.completed_at
+                        else None
+                    },
                 ),
             ],
         )

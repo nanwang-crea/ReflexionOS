@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -20,7 +20,7 @@ class CuratedEntry(BaseModel):
     status: Literal["active", "superseded"] = "active"
     source_refs: list[str] = Field(default_factory=list)
     summary: str
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class CuratedWriteResult(BaseModel):
@@ -69,7 +69,7 @@ class CuratedMemoryStore:
         project_id = self._validate_project_id(project_id)
         entries = self.load_entries(project_id=project_id, target=target)
         updated_any = False
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for existing in entries:
             if existing.status == "active" and existing.summary == old_summary:
@@ -100,7 +100,7 @@ class CuratedMemoryStore:
     ) -> bool:
         project_id = self._validate_project_id(project_id)
         entries = self.load_entries(project_id=project_id, target=target)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         removed_any = False
 
         for existing in entries:
@@ -117,7 +117,9 @@ class CuratedMemoryStore:
         self.render_to_markdown(project_id=project_id, target=target, entries=entries)
         return True
 
-    def load_entries(self, *, project_id: str, target: Literal["user", "memory"]) -> list[CuratedEntry]:
+    def load_entries(
+        self, *, project_id: str, target: Literal["user", "memory"]
+    ) -> list[CuratedEntry]:
         project_id = self._validate_project_id(project_id)
         path = self._entries_path(project_id=project_id, target=target)
         if not path.exists():
