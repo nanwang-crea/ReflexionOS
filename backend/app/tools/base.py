@@ -4,6 +4,19 @@ from typing import Any
 from pydantic import BaseModel
 
 
+class ToolApprovalRequest(BaseModel):
+    """工具审批请求"""
+
+    approval_id: str
+    tool_name: str
+    summary: str
+    reasons: list[str] = []
+    risks: list[str] = []
+    payload: dict[str, Any] = {}
+    suggested_action: str | None = None
+    suggested_trust: dict[str, Any] | None = None
+
+
 class ToolResult(BaseModel):
     """工具执行结果"""
 
@@ -11,6 +24,8 @@ class ToolResult(BaseModel):
     output: str | None = None
     error: str | None = None
     data: dict[str, Any] | None = None
+    approval_required: bool = False
+    approval: ToolApprovalRequest | None = None
 
 
 class BaseTool(ABC):

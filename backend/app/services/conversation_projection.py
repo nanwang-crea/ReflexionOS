@@ -96,6 +96,9 @@ class ConversationProjection:
                     db_session=db_session,
                 )
 
+            case EventType.RUN_WAITING_FOR_APPROVAL | EventType.RUN_RESUMING:
+                self._apply_run_nonterminal_status(event=event, db_session=db_session)
+
             case EventType.MESSAGE_CONTENT_COMMITTED:
                 message = self._get_message_or_raise(event.message_id, db_session=db_session)
                 updated = self.message_repo.update(
@@ -176,6 +179,19 @@ class ConversationProjection:
                 )
                 turn = self._get_turn_or_raise(message.turn_id, db_session=db_session)
                 self._upsert_search_document(message, turn, db_session=db_session)
+
+    def _apply_run_nonterminal_status(
+        self, *, event: ConversationEvent, db_session=None
+    ) -> None:
+        run = self._get_run_or_raise(event.run_id, db_session=db_session)
+        next_status = {
+            EventType.RUN_WAITING_FOR_APPROVAL: RunStatus.WAITING_FOR_APPROVAL,
+            EventType.RUN_RESUMING: RunStatus.RESUMING,
+        }[event.event_type]
+        self.run_repo.update(
+            run.model_copy(update={"status": next_status}),
+            db_session=db_session,
+        )
 
     def _apply_run_terminal_event(
         self, *, session_id: str, event: ConversationEvent, db_session=None

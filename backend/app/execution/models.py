@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class LoopStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
+    RESUMING = "resuming"
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -16,6 +18,7 @@ class LoopStatus(str, Enum):
 class StepStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
+    WAITING_FOR_APPROVAL = "waiting_for_approval"
     SUCCESS = "success"
     FAILED = "failed"
 

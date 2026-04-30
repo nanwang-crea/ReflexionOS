@@ -12,6 +12,116 @@ from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
 
 
+def _build_projection(tmp_path, db_name: str = "conversation-projection.db"):
+    db = Database(str(tmp_path / db_name))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    run_repo = RunRepository(db)
+    message_repo = MessageRepository(db)
+    projection = ConversationProjection(
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        run_repo=run_repo,
+        message_repo=message_repo,
+    )
+    return projection, session_repo, turn_repo, run_repo
+
+
+def _create_running_run(projection, session_repo, session_id: str = "session-1"):
+    session_repo.create(Session(id=session_id, project_id="project-1", title="会话"))
+    projection.apply(
+        session_id,
+        ConversationEvent(
+            id="evt-turn",
+            session_id=session_id,
+            event_type=EventType.TURN_CREATED,
+            turn_id="turn-1",
+            payload_json={
+                "turn_id": "turn-1",
+                "turn_index": 1,
+                "root_message_id": "msg-user-1",
+            },
+        ),
+    )
+    projection.apply(
+        session_id,
+        ConversationEvent(
+            id="evt-run",
+            session_id=session_id,
+            event_type=EventType.RUN_CREATED,
+            turn_id="turn-1",
+            run_id="run-1",
+            payload_json={
+                "run_id": "run-1",
+                "turn_id": "turn-1",
+                "attempt_index": 1,
+            },
+        ),
+    )
+
+
+def test_projection_run_waiting_for_approval_keeps_turn_active(tmp_path):
+    projection, session_repo, turn_repo, run_repo = _build_projection(
+        tmp_path, "conversation-projection-waiting.db"
+    )
+    _create_running_run(projection, session_repo)
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-waiting",
+            session_id="session-1",
+            event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+            turn_id="turn-1",
+            run_id="run-1",
+            payload_json={},
+        ),
+    )
+
+    session = session_repo.get("session-1")
+    turn = turn_repo.get("turn-1")
+    run = run_repo.get("run-1")
+
+    assert session is not None
+    assert turn is not None
+    assert run is not None
+    assert run.status == RunStatus.WAITING_FOR_APPROVAL
+    assert turn.status == TurnStatus.RUNNING
+    assert turn.active_run_id == "run-1"
+    assert session.active_turn_id == "turn-1"
+
+
+def test_projection_run_resuming_sets_run_resuming_and_keeps_turn_active(tmp_path):
+    projection, session_repo, turn_repo, run_repo = _build_projection(
+        tmp_path, "conversation-projection-resuming.db"
+    )
+    _create_running_run(projection, session_repo)
+
+    projection.apply(
+        "session-1",
+        ConversationEvent(
+            id="evt-resuming",
+            session_id="session-1",
+            event_type=EventType.RUN_RESUMING,
+            turn_id="turn-1",
+            run_id="run-1",
+            payload_json={},
+        ),
+    )
+
+    session = session_repo.get("session-1")
+    turn = turn_repo.get("turn-1")
+    run = run_repo.get("run-1")
+
+    assert session is not None
+    assert turn is not None
+    assert run is not None
+    assert run.status == RunStatus.RESUMING
+    assert turn.status == TurnStatus.RUNNING
+    assert turn.active_run_id == "run-1"
+    assert session.active_turn_id == "turn-1"
+
+
 def test_projection_run_completed_marks_turn_completed_and_clears_session_active_turn(tmp_path):
     db = Database(str(tmp_path / "conversation-projection.db"))
     session_repo = SessionRepository(db)
