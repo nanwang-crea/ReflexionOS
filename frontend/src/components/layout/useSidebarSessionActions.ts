@@ -1,4 +1,5 @@
 import { createSession, deleteSession, renameSession } from '@/features/sessions/sessionActions'
+import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import type { Project } from '@/types/project'
 import type { SessionSummary } from '@/types/workspace'
 
@@ -14,7 +15,7 @@ interface DeleteSidebarSessionOptions {
   setCurrentSessionId: (sessionId: string | null) => void
 }
 
-export async function createSidebarSession({
+async function createSidebarSession({
   projectId,
   defaultProviderId,
   defaultModelId,
@@ -25,7 +26,7 @@ export async function createSidebarSession({
   })
 }
 
-export async function deleteSidebarSession({
+async function deleteSidebarSession({
   session,
   currentSessionId,
   setCurrentSessionId,
@@ -48,6 +49,7 @@ interface UseSidebarSessionActionsOptions {
   setCurrentSessionId: (sessionId: string | null) => void
   setShowProjectModal: (open: boolean) => void
   navigate: (to: string) => void
+  dialogService?: DialogService
 }
 
 export function useSidebarSessionActions({
@@ -62,6 +64,7 @@ export function useSidebarSessionActions({
   setCurrentSessionId,
   setShowProjectModal,
   navigate,
+  dialogService = nativeDialogService,
 }: UseSidebarSessionActionsOptions) {
   const handleCreateSession = async () => {
     if (busy) {
@@ -87,7 +90,7 @@ export function useSidebarSessionActions({
       navigate('/agent')
     } catch (error) {
       console.error('Failed to create session:', error)
-      alert('创建聊天失败')
+      dialogService.notifyError('创建聊天失败')
     }
   }
 
@@ -96,7 +99,7 @@ export function useSidebarSessionActions({
       return
     }
 
-    const nextTitle = prompt('重命名聊天', session.title)?.trim()
+    const nextTitle = dialogService.promptText('重命名聊天', session.title)?.trim()
     if (!nextTitle || nextTitle === session.title) {
       return
     }
@@ -105,7 +108,7 @@ export function useSidebarSessionActions({
       await renameSession(session.id, nextTitle)
     } catch (error) {
       console.error('Failed to rename session:', error)
-      alert('重命名聊天失败')
+      dialogService.notifyError('重命名聊天失败')
     }
   }
 
@@ -114,7 +117,7 @@ export function useSidebarSessionActions({
       return
     }
 
-    if (!confirm(`确定删除聊天“${session.title}”吗？`)) {
+    if (!dialogService.confirmAction(`确定删除聊天“${session.title}”吗？`)) {
       return
     }
 
@@ -126,7 +129,7 @@ export function useSidebarSessionActions({
       })
     } catch (error) {
       console.error('Failed to delete session:', error)
-      alert('删除聊天失败')
+      dialogService.notifyError('删除聊天失败')
     }
   }
 

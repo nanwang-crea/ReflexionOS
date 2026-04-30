@@ -1,5 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createSidebarSession, deleteSidebarSession } from './useSidebarSessionActions'
+import { useSidebarSessionActions } from './useSidebarSessionActions'
+import type { Project } from '@/types/project'
+import type { DialogService } from '@/services/dialogService'
+
+function createProject(id: string): Project {
+  return {
+    id,
+    name: id,
+    path: `/tmp/${id}`,
+    language: 'typescript',
+    created_at: '2026-04-19T00:00:00.000Z',
+    updated_at: '2026-04-19T00:00:00.000Z',
+  }
+}
+
+function createDialogService(overrides: Partial<DialogService> = {}): DialogService {
+  return {
+    notifyError: vi.fn(),
+    confirmAction: vi.fn(() => true),
+    promptText: vi.fn(() => null),
+    ...overrides,
+  }
+}
 
 const {
   createSessionMock,
@@ -17,53 +39,61 @@ vi.mock('@/features/sessions/sessionActions', () => ({
   deleteSession: deleteSessionMock,
 }))
 
-describe('useSidebarSessionActions helpers', () => {
+describe('useSidebarSessionActions', () => {
   beforeEach(() => {
     createSessionMock.mockReset()
     updateSessionMock.mockReset()
     deleteSessionMock.mockReset()
   })
 
-  it('delegates session creation through sidebar session actions', async () => {
-    createSessionMock.mockResolvedValue({
-      id: 'session-2',
-      projectId: 'project-1',
-      title: '新建聊天',
-      preferredProviderId: 'provider-b',
-      preferredModelId: 'model-b',
-      createdAt: '2026-04-20T00:02:00Z',
-      updatedAt: '2026-04-20T00:02:00Z',
+  it('reports session action failures through the dialog service', async () => {
+    createSessionMock.mockRejectedValue(new Error('boom'))
+    const dialogService = createDialogService()
+    const actions = useSidebarSessionActions({
+      busy: false,
+      projects: [createProject('project-1')],
+      currentProject: createProject('project-1'),
+      currentSessionId: null,
+      setCurrentProject: vi.fn(),
+      setProjectExpanded: vi.fn(),
+      setCurrentSessionId: vi.fn(),
+      setShowProjectModal: vi.fn(),
+      navigate: vi.fn(),
+      dialogService,
     })
 
-    await createSidebarSession({
-      projectId: 'project-1',
-      defaultProviderId: 'provider-b',
-      defaultModelId: 'model-b',
-    })
+    await actions.handleCreateSession()
 
-    expect(createSessionMock).toHaveBeenCalledWith('project-1', {
-      preferredProviderId: 'provider-b',
-      preferredModelId: 'model-b',
-    })
+    expect(dialogService.notifyError).toHaveBeenCalledWith('创建聊天失败')
   })
 
-  it('clears the current session only when sidebar deletion removes the active session', async () => {
-    const setCurrentSessionId = vi.fn()
-    deleteSessionMock.mockResolvedValue(undefined)
-
-    await deleteSidebarSession({
-      session: {
-        id: 'session-1',
-        projectId: 'project-1',
-        title: '当前聊天',
-        createdAt: '2026-04-20T00:00:00Z',
-        updatedAt: '2026-04-20T00:00:00Z',
-      },
+  it('prompts for session rename through the dialog service', async () => {
+    updateSessionMock.mockResolvedValue(undefined)
+    const dialogService = createDialogService({
+      promptText: vi.fn(() => '新的标题'),
+    })
+    const actions = useSidebarSessionActions({
+      busy: false,
+      projects: [createProject('project-1')],
+      currentProject: createProject('project-1'),
       currentSessionId: 'session-1',
-      setCurrentSessionId,
+      setCurrentProject: vi.fn(),
+      setProjectExpanded: vi.fn(),
+      setCurrentSessionId: vi.fn(),
+      setShowProjectModal: vi.fn(),
+      navigate: vi.fn(),
+      dialogService,
     })
 
-    expect(deleteSessionMock).toHaveBeenCalledWith('project-1', 'session-1')
-    expect(setCurrentSessionId).toHaveBeenCalledWith(null)
+    await actions.handleRenameSession({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: '旧标题',
+      createdAt: '2026-04-20T00:00:00Z',
+      updatedAt: '2026-04-20T00:00:00Z',
+    })
+
+    expect(dialogService.promptText).toHaveBeenCalledWith('重命名聊天', '旧标题')
+    expect(updateSessionMock).toHaveBeenCalledWith('session-1', '新的标题')
   })
 })

@@ -1,4 +1,5 @@
 import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/sessionActions'
+import { nativeDialogService } from '@/services/dialogService'
 import { useProjectStore } from '@/stores/projectStore'
 import type { SessionSummary } from '@/types/workspace'
 import { useSessionActions } from './useSessionActions'
@@ -103,9 +104,7 @@ export function useSendMessage(options: {
     createSession,
     writeSessionPreferences: writeSessionPreferencesAction,
     startTurn: options.startTurn,
-    notify: (message) => {
-      window.alert(message)
-    },
+    notify: nativeDialogService.notifyError,
   })
 
   return {

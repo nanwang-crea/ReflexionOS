@@ -33,7 +33,7 @@ export default function SettingsPage() {
     handleDefaultProviderChange,
     handleDefaultModelChange,
     handleSaveDefaultSelection,
-  } = useSettingsPageController({ onError: (message) => alert(message) })
+  } = useSettingsPageController()
 
   return (
     <div className="p-8">

@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { projectApi } from '@/services/apiClient'
+import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import { selectProjectDirectory } from '@/services/desktopClient'
 import type { Project } from '@/types/project'
 
@@ -32,7 +33,7 @@ interface SelectSidebarProjectDirectoryOptions {
   setFormData: Dispatch<SetStateAction<ProjectFormData>>
 }
 
-export async function createSidebarProject({
+async function createSidebarProject({
   formData,
   addProject,
   setCurrentProject,
@@ -50,7 +51,7 @@ export async function createSidebarProject({
   navigate('/agent')
 }
 
-export async function deleteSidebarProject({
+async function deleteSidebarProject({
   project,
   currentProject,
   removeProject,
@@ -63,7 +64,7 @@ export async function deleteSidebarProject({
   }
 }
 
-export async function selectSidebarProjectDirectory({
+async function selectSidebarProjectDirectory({
   setFormData,
 }: SelectSidebarProjectDirectoryOptions) {
   const selectedPath = await selectProjectDirectory()
@@ -85,6 +86,7 @@ interface UseSidebarProjectActionsOptions {
   setShowProjectModal: (open: boolean) => void
   setFormData: Dispatch<SetStateAction<ProjectFormData>>
   navigate: (to: string) => void
+  dialogService?: DialogService
 }
 
 export function useSidebarProjectActions({
@@ -97,6 +99,7 @@ export function useSidebarProjectActions({
   setShowProjectModal,
   setFormData,
   navigate,
+  dialogService = nativeDialogService,
 }: UseSidebarProjectActionsOptions) {
   const handleCreateProject = async (formData: ProjectFormData) => {
     try {
@@ -111,7 +114,7 @@ export function useSidebarProjectActions({
       })
     } catch (error) {
       console.error('Failed to create project:', error)
-      alert('创建项目失败')
+      dialogService.notifyError('创建项目失败')
     }
   }
 
@@ -120,7 +123,7 @@ export function useSidebarProjectActions({
       return
     }
 
-    const confirmed = confirm(`确定删除项目“${project.name}”吗？项目下的聊天也会一并移除。`)
+    const confirmed = dialogService.confirmAction(`确定删除项目“${project.name}”吗？项目下的聊天也会一并移除。`)
     if (!confirmed) {
       return
     }
@@ -134,7 +137,7 @@ export function useSidebarProjectActions({
       })
     } catch (error) {
       console.error('Failed to delete project:', error)
-      alert('删除项目失败')
+      dialogService.notifyError('删除项目失败')
     }
   }
 

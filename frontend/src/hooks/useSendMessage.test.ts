@@ -121,3 +121,58 @@ describe('createSendMessage', () => {
     })
   })
 })
+
+const {
+  notifyErrorMock,
+  createSessionActionMock,
+  writeSessionPreferencesMock,
+  currentProjectState,
+} = vi.hoisted(() => ({
+  notifyErrorMock: vi.fn(),
+  createSessionActionMock: vi.fn(),
+  writeSessionPreferencesMock: vi.fn(),
+  currentProjectState: {
+    currentProject: null as { id: string; name?: string; path?: string } | null,
+  },
+}))
+
+vi.mock('@/services/dialogService', () => ({
+  nativeDialogService: {
+    notifyError: notifyErrorMock,
+    confirmAction: vi.fn(),
+    promptText: vi.fn(),
+  },
+}))
+
+vi.mock('@/stores/projectStore', () => ({
+  useProjectStore: () => currentProjectState,
+}))
+
+vi.mock('@/hooks/useSessionActions', () => ({
+  useSessionActions: () => ({
+    createSession: createSessionActionMock,
+  }),
+}))
+
+vi.mock('@/features/sessions/sessionActions', () => ({
+  writeSessionPreferences: writeSessionPreferencesMock,
+}))
+
+describe('useSendMessage', () => {
+  it('uses the shared dialog service for send precondition errors', async () => {
+    notifyErrorMock.mockReset()
+    currentProjectState.currentProject = null
+
+    const { useSendMessage } = await import('./useSendMessage')
+    const { sendMessage } = useSendMessage({
+      currentSession: null,
+      configured: true,
+      selection: { providerId: 'provider-a', modelId: 'model-a' },
+      startTurn: vi.fn(),
+    })
+
+    await sendMessage('hello')
+
+    expect(notifyErrorMock).toHaveBeenCalledWith('请先选择一个项目')
+  })
+})

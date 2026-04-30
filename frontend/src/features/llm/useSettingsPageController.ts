@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
 import {
   applyProviderToDefaultSelection,
@@ -25,8 +26,7 @@ function createEmptySelection(): DefaultLLMSelection {
 }
 
 export function useSettingsPageController(options?: {
-  onError?: (message: string) => void
-  confirmDelete?: (provider: ProviderInstance) => boolean
+  dialogService?: DialogService
   createLoader?: typeof createSettingsPageLoader
   createActions?: typeof createSettingsPageActions
 }) {
@@ -75,6 +75,8 @@ export function useSettingsPageController(options?: {
     setDraftProvider,
   }), [loadSettings])
 
+  const dialogService = options?.dialogService || nativeDialogService
+
   const providerActions = useMemo(() => (options?.createActions || createSettingsPageActions)({
     loadSettings: refreshSettings,
     setSaving,
@@ -82,8 +84,8 @@ export function useSettingsPageController(options?: {
     setTesting,
     onSavedMessage: setSavedMessage,
     onTestResult: setTestResult,
-    onError: options?.onError || ((message) => alert(message)),
-  }), [options?.createActions, options?.onError, refreshSettings])
+    onError: dialogService.notifyError,
+  }), [dialogService.notifyError, options?.createActions, refreshSettings])
 
   useEffect(() => {
     refreshSettings().catch(() => undefined)
@@ -165,9 +167,9 @@ export function useSettingsPageController(options?: {
     await providerActions.deleteProvider({
       selectedSavedProvider,
       resetDraft,
-      confirmDelete: options?.confirmDelete || ((provider) => confirm(`确定删除供应商“${provider.name}”吗？`)),
+      confirmDelete: (provider) => dialogService.confirmAction(`确定删除供应商“${provider.name}”吗？`),
     })
-  }, [options?.confirmDelete, providerActions, resetDraft, selectedSavedProvider])
+  }, [dialogService, providerActions, resetDraft, selectedSavedProvider])
 
   const handleTestConnection = useCallback(async () => {
     await providerActions.testProviderConnection(draftProvider)
