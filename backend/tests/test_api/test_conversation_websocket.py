@@ -21,12 +21,12 @@ def _drain_until_synced(websocket):
     while True:
         message = websocket.receive_json()
         messages.append(message)
-        if message["type"] == "conversation.synced":
+        if message["type"] == "conversation:synced":
             return messages
 
 
 def _event_messages(messages):
-    return [message for message in messages if message["type"] == "conversation.event"]
+    return [message for message in messages if message["type"] == "conversation:event"]
 
 
 def _event_types(messages):
@@ -163,16 +163,16 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
     before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": 0}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": 0}})
         synced_messages = _drain_until_synced(websocket)
         event_messages = _event_messages(synced_messages)
         assert event_messages
-        assert synced_messages[-1]["type"] == "conversation.synced"
+        assert synced_messages[-1]["type"] == "conversation:synced"
         assert synced_messages[-1]["data"]["session_id"] == "session-1"
 
         websocket.send_json(
             {
-                "type": "conversation.start_turn",
+                "type": "conversation:start_turn",
                 "data": {
                     "content": "inspect repo",
                     "provider_id": "provider-a",
@@ -183,11 +183,11 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
 
         first_seed = websocket.receive_json()
 
-    assert first_seed["type"] == "conversation.event"
+    assert first_seed["type"] == "conversation:event"
     assert first_seed["data"]["seq"] > before_seq
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": before_seq}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": before_seq}})
         replay_messages = _drain_until_synced(websocket)
 
     replayed_event_types = _event_types(replay_messages)
@@ -201,7 +201,7 @@ def test_session_conversation_websocket_supports_sync_and_start_turn(client_with
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
         websocket.send_json(
             {
-                "type": "conversation.sync",
+                "type": "conversation:sync",
                 "data": {"after_seq": snapshot.session.last_event_seq},
             }
         )
@@ -232,17 +232,17 @@ def test_session_conversation_websocket_sync_includes_live_state_before_synced(
     )
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": 0}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": 0}})
         messages = _drain_until_synced(websocket)
 
     message_types = [message["type"] for message in messages]
-    assert "conversation.live_state" in message_types
-    assert "conversation.synced" in message_types
-    assert message_types.index("conversation.live_state") < message_types.index(
-        "conversation.synced"
+    assert "conversation:live_state" in message_types
+    assert "conversation:synced" in message_types
+    assert message_types.index("conversation:live_state") < message_types.index(
+        "conversation:synced"
     )
     live_state_message = next(
-        message for message in messages if message["type"] == "conversation.live_state"
+        message for message in messages if message["type"] == "conversation:live_state"
     )
     assert live_state_message["data"]["content_text"] == "streaming..."
 
@@ -264,10 +264,10 @@ def test_session_conversation_websocket_requests_resync_for_stale_after_seq(clie
     )
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": 0}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": 0}})
         message = websocket.receive_json()
 
-    assert message["type"] == "conversation.resync_required"
+    assert message["type"] == "conversation:resync_required"
     assert message["data"]["reason"] == "stale_after_seq"
 
 
@@ -283,13 +283,13 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
     before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.cancel_run", "data": {"run_id": started.run.id}})
+        websocket.send_json({"type": "conversation:cancel_run", "data": {"run_id": started.run.id}})
         first_cancel_message = websocket.receive_json()
 
-    assert first_cancel_message["type"] == "conversation.event"
+    assert first_cancel_message["type"] == "conversation:event"
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": before_seq}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": before_seq}})
         cancel_replay_messages = _drain_until_synced(websocket)
 
     cancel_event_types = _event_types(cancel_replay_messages)
@@ -332,7 +332,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
         websocket.send_json(
             {
-                "type": "conversation.start_turn",
+                "type": "conversation:start_turn",
                 "data": {
                     "content": "请记住默认使用中文回复",
                     "provider_id": "provider-a",
@@ -342,7 +342,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
         )
 
         first_seed = websocket.receive_json()
-        assert first_seed["type"] == "conversation.event"
+        assert first_seed["type"] == "conversation:event"
         assert first_seed["data"]["seq"] > before_seq
 
         # Simulate a completed run producing assistant output through the runtime adapter,
@@ -433,7 +433,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
         )
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json({"type": "conversation.sync", "data": {"after_seq": before_seq}})
+        websocket.send_json({"type": "conversation:sync", "data": {"after_seq": before_seq}})
         resumed_replay = _drain_until_synced(websocket)
 
     resumed_event_types = _event_types(resumed_replay)

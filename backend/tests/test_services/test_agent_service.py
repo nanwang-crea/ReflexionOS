@@ -191,7 +191,7 @@ async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(
 
     persisted_events = conversation_service.list_events_after("session-1", 0)
     assert [event_type for _, event_type, _ in sent_events] == [
-        "conversation.event" for _ in persisted_events
+        "conversation:event" for _ in persisted_events
     ]
     assert {session_id for session_id, _, _ in sent_events} == {"session-1"}
     assert [data["seq"] for _, _, data in sent_events] == [event.seq for event in persisted_events]
@@ -398,9 +398,9 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
     )
 
     assert call_order[0] == ("persist", "llm:content")
-    assert call_order[1] == ("broadcast", "conversation.live_event", "msg-1")
+    assert call_order[1] == ("broadcast", "conversation:live_event", "msg-1")
     assert call_order[2] == ("persist", "run:complete")
-    assert call_order[3] == ("broadcast", "conversation.event", "evt-1")
+    assert call_order[3] == ("broadcast", "conversation:event", "evt-1")
     assert service.get_live_state("session-1") is None
 
 

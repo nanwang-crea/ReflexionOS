@@ -754,13 +754,22 @@ WS /api/ws/sessions/{session_id}/conversation
 
 WebSocket 归属 `session`，而不是 `execution`。
 
+### 12.1.1 命名约定
+
+WebSocket 协议层的 `type` 统一使用 `namespace:event` 风格，例如
+`conversation:sync`、`conversation:event`、`plan:updated`、`llm:retry`。
+
+领域事件日志里的 `event_type` 保持 `domain.action` 风格，例如
+`message.delta_appended`、`run.completed`。它们是持久化事件枚举，不等同于
+WebSocket envelope 的 `type`。
+
 ### 12.2 客户端消息
 
-#### `conversation.sync`
+#### `conversation:sync`
 
 ```json
 {
-  "type": "conversation.sync",
+  "type": "conversation:sync",
   "data": {
     "after_seq": 42
   }
@@ -772,11 +781,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 - 客户端已通过 snapshot 拿到 `last_event_seq=42`
 - 请求服务端补发 `seq > 42` 的事件并进入 live 模式
 
-#### `conversation.start_turn`
+#### `conversation:start_turn`
 
 ```json
 {
-  "type": "conversation.start_turn",
+  "type": "conversation:start_turn",
   "data": {
     "content": "请检查当前项目结构",
     "provider_id": "openai",
@@ -790,11 +799,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 - 在当前 `session` 下开启一个新 `Turn`
 - 后端在同一个写链路中创建 `Turn + user_message + Run`
 
-#### `conversation.cancel_run`
+#### `conversation:cancel_run`
 
 ```json
 {
-  "type": "conversation.cancel_run",
+  "type": "conversation:cancel_run",
   "data": {
     "run_id": "run_x"
   }
@@ -803,11 +812,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 
 ### 12.3 服务端消息
 
-#### `conversation.synced`
+#### `conversation:synced`
 
 ```json
 {
-  "type": "conversation.synced",
+  "type": "conversation:synced",
   "data": {
     "session_id": "sess_1",
     "last_event_seq": 42
@@ -815,11 +824,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 }
 ```
 
-#### `conversation.event`
+#### `conversation:event`
 
 ```json
 {
-  "type": "conversation.event",
+  "type": "conversation:event",
   "data": {
     "id": "evt_x",
     "session_id": "sess_1",
@@ -836,11 +845,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 }
 ```
 
-#### `conversation.resync_required`
+#### `conversation:resync_required`
 
 ```json
 {
-  "type": "conversation.resync_required",
+  "type": "conversation:resync_required",
   "data": {
     "reason": "after_seq_too_old",
     "expected_after_seq": 42
@@ -848,11 +857,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 }
 ```
 
-#### `conversation.error`
+#### `conversation:error`
 
 ```json
 {
-  "type": "conversation.error",
+  "type": "conversation:error",
   "data": {
     "code": "invalid_request",
     "message": "当前会话已有运行中的 turn"
@@ -866,11 +875,11 @@ WebSocket 归属 `session`，而不是 `execution`。
 
 1. `GET /conversation` 获取 snapshot
 2. 打开 session websocket
-3. 发送 `conversation.sync { after_seq: snapshot.session.last_event_seq }`
+3. 发送 `conversation:sync { after_seq: snapshot.session.last_event_seq }`
 4. 接收补发事件
-5. 收到 `conversation.synced` 后进入 live
+5. 收到 `conversation:synced` 后进入 live
 
-如果服务端无法用 `after_seq` 补齐，则发送 `conversation.resync_required`，前端重新拉 snapshot。
+如果服务端无法用 `after_seq` 补齐，则发送 `conversation:resync_required`，前端重新拉 snapshot。
 
 ## 13. 前端状态模型
 
@@ -933,7 +942,7 @@ type ConversationState = {
 
 ```text
 用户发送消息
--> 前端发 conversation.start_turn
+-> 前端发 conversation:start_turn
 -> 后端依次写 turn.created / message.created(user) / run.created
 -> 投影出 Turn、user_message、Run
 -> 运行开始时写 run.started
@@ -963,7 +972,7 @@ message.created(tool_trace)
 ### 14.4 取消
 
 ```text
-conversation.cancel_run
+conversation:cancel_run
 -> run.cancelled
 -> system.notice_emitted
 -> 投影关闭 Run / Turn
@@ -1030,10 +1039,10 @@ conversation.cancel_run
 ### 16.2 后端 API / WebSocket 测试
 
 - `GET /api/sessions/{session_id}/conversation` snapshot 正确性
-- `conversation.sync` 的 afterSeq 补发逻辑
-- `conversation.resync_required` 触发条件
-- `conversation.start_turn` 到 `run.completed` 的完整链路
-- `conversation.cancel_run` 的终态行为
+- `conversation:sync` 的 afterSeq 补发逻辑
+- `conversation:resync_required` 触发条件
+- `conversation:start_turn` 到 `run.completed` 的完整链路
+- `conversation:cancel_run` 的终态行为
 
 ### 16.3 前端 reducer / store 测试
 

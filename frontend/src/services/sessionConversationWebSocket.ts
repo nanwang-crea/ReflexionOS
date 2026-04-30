@@ -89,7 +89,7 @@ interface SessionConversationEvents {
 
 function buildSyncMessage(afterSeq: number) {
   return {
-    type: 'conversation.sync',
+    type: 'conversation:sync',
     data: {
       after_seq: afterSeq,
     },
@@ -102,7 +102,7 @@ function buildStartTurnMessage(payload: {
   modelId?: string | null
 }) {
   return {
-    type: 'conversation.start_turn',
+    type: 'conversation:start_turn',
     data: {
       content: payload.content,
       provider_id: payload.providerId ?? null,
@@ -113,7 +113,7 @@ function buildStartTurnMessage(payload: {
 
 function buildCancelRunMessage(runId: string) {
   return {
-    type: 'conversation.cancel_run',
+    type: 'conversation:cancel_run',
     data: {
       run_id: runId,
     },
@@ -183,32 +183,32 @@ class SessionConversationWebSocket {
   }
 
   private handleMessage(message: SessionConversationMessageEnvelope) {
-    if (message.type === 'conversation.event') {
+    if (message.type === 'conversation:event') {
       this.emit('conversation:event', message.data as SessionConversationEventDto)
       return
     }
 
-    if (message.type === 'conversation.live_event') {
+    if (message.type === 'conversation:live_event') {
       this.emit('conversation:live_event', message.data as SessionConversationLiveMessageDto)
       return
     }
 
-    if (message.type === 'conversation.live_state') {
+    if (message.type === 'conversation:live_state') {
       this.emit('conversation:live_state', message.data as SessionConversationLiveMessageDto)
       return
     }
 
-    if (message.type === 'conversation.synced') {
+    if (message.type === 'conversation:synced') {
       this.emit('conversation:synced', message.data as ConversationSyncedDto)
       return
     }
 
-    if (message.type === 'conversation.resync_required') {
+    if (message.type === 'conversation:resync_required') {
       this.emit('conversation:resync_required', message.data as ConversationResyncRequiredDto)
       return
     }
 
-    if (message.type === 'conversation.error') {
+    if (message.type === 'conversation:error') {
       this.emit('conversation:error', message.data as ConversationErrorDto)
       return
     }
@@ -218,7 +218,7 @@ class SessionConversationWebSocket {
       return
     }
 
-    if (message.type === 'plan.updated') {
+    if (message.type === 'plan:updated') {
       this.emit('plan:updated', message.data as PlanDto)
     }
   }

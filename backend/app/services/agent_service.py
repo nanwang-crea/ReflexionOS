@@ -185,7 +185,7 @@ class AgentService:
         for event in events:
             await self.conversation_broadcaster.send_event(
                 session_id,
-                "conversation.event",
+                "conversation:event",
                 event.model_dump(mode="json"),
             )
 
@@ -197,7 +197,7 @@ class AgentService:
     ) -> None:
         await self.conversation_broadcaster.send_event(
             session_id,
-            "conversation.live_event",
+            "conversation:live_event",
             data,
         )
 
@@ -299,7 +299,7 @@ class AgentService:
         async def event_callback(event_type: str, data: dict):
             if event_type == "plan:updated":
                 # Plan state is ephemeral per-run, only broadcast to frontend
-                await self.conversation_broadcaster.send_event(session_id, "plan.updated", data)
+                await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
             else:
                 await persist_and_broadcast(event_type, data)
 

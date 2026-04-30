@@ -13,8 +13,8 @@ async def test_websocket_conversation_broadcaster_delegates_to_injected_manager(
     manager = RecordingManager()
     broadcaster = WebSocketConversationBroadcaster(manager)
 
-    await broadcaster.send_event("session-1", "conversation.event", {"seq": 1})
+    await broadcaster.send_event("session-1", "conversation:event", {"seq": 1})
 
     assert manager.sent_events == [
-        ("session-1", "conversation.event", {"seq": 1}),
+        ("session-1", "conversation:event", {"seq": 1}),
     ]
