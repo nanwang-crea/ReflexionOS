@@ -187,8 +187,11 @@ class RapidExecutionLoop:
                                 "tool:error",
                                 {
                                     "tool_name": tool_call.name,
+                                    "step_number": step.step_number,
+                                    "tool_call_id": step.tool_call_id,
                                     "error": step.error,
-                                    "step_number": step_num,
+                                    "duration": step.duration,
+                                    "arguments": step.args,
                                 },
                             )
 

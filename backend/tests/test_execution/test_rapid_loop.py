@@ -59,6 +59,36 @@ class ApprovalTool(BaseTool):
         )
 
 
+class MissingApprovalMetadataTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "missing_approval_metadata"
+
+    @property
+    def description(self) -> str:
+        return "Tool that incorrectly omits approval metadata"
+
+    async def execute(self, args):
+        return ToolResult(
+            success=False,
+            approval_required=True,
+            output="missing approval payload",
+        )
+
+
+class ExplodingTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "explode"
+
+    @property
+    def description(self) -> str:
+        return "Tool that raises during execution"
+
+    async def execute(self, args):
+        raise RuntimeError("boom")
+
+
 class TestRapidExecutionLoop:
     @staticmethod
     async def _stream_response(content="", tool_calls=None, finish_reason="stop"):
@@ -368,6 +398,43 @@ class TestRapidExecutionLoop:
         assert approval_event["data"]["approval_id"] == "approval-1"
 
     @pytest.mark.asyncio
+    async def test_approval_required_without_metadata_fails_instead_of_waiting(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(MissingApprovalMetadataTool())
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=1,
+            event_callback=callback,
+        )
+        tool_call = LLMToolCall(name="missing_approval_metadata", arguments={"value": 1})
+
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                tool_calls=[tool_call],
+                finish_reason="tool_calls",
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("执行错误审批工具")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert result.steps[-1].status == StepStatus.FAILED
+        assert result.steps[-1].tool_call_id == tool_call.id
+        assert "approval metadata" in result.steps[-1].error
+
+        event_types = [event["type"] for event in events]
+        assert "approval:required" not in event_types
+        assert "tool:error" in event_types
+
+    @pytest.mark.asyncio
     async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):
         registry = ToolRegistry()
         registry.register(MockTool())
@@ -637,6 +704,46 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.FAILED
         assert any(event["type"] == "run:error" for event in events)
+
+    @pytest.mark.asyncio
+    async def test_tool_exception_emits_single_normalized_tool_error(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(ExplodingTool())
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=1,
+            event_callback=callback,
+        )
+        tool_call = LLMToolCall(name="explode", arguments={"path": "README.md"})
+
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                tool_calls=[tool_call],
+                finish_reason="tool_calls",
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("执行异常工具")
+
+        assert result.steps[-1].status == StepStatus.FAILED
+        tool_error_events = [event for event in events if event["type"] == "tool:error"]
+        assert len(tool_error_events) == 1
+        assert tool_error_events[0]["data"] == {
+            "tool_name": "explode",
+            "step_number": 1,
+            "tool_call_id": tool_call.id,
+            "error": "boom",
+            "duration": result.steps[-1].duration,
+            "arguments": {"path": "README.md"},
+        }
 
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):

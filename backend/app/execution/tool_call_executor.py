@@ -61,21 +61,26 @@ class ToolCallExecutor:
 
             if result.approval_required:
                 approval = result.approval
+                if approval is None:
+                    step.status = StepStatus.FAILED
+                    step.error = "approval_required result missing approval metadata"
+                    step.duration = time.time() - start_time
+                    return step
+
                 step.status = StepStatus.WAITING_FOR_APPROVAL
-                step.approval_id = approval.approval_id if approval else None
-                step.output = approval.summary if approval else result.output
+                step.approval_id = approval.approval_id
+                step.output = approval.summary
                 step.duration = time.time() - start_time
 
-                approval_payload = approval.model_dump() if approval else None
                 await self.emit(
                     "approval:required",
                     {
                         "tool_name": tool_call.name,
                         "arguments": tool_call.arguments,
                         "tool_call_id": tool_call.id,
-                        "approval_id": approval.approval_id if approval else None,
+                        "approval_id": approval.approval_id,
                         "step_number": step_number,
-                        "approval": approval_payload,
+                        "approval": approval.model_dump(),
                     },
                 )
 
@@ -128,15 +133,6 @@ class ToolCallExecutor:
                 "tool",
                 content=str(e),
                 tool_call_id=tool_call.id,
-            )
-
-            await self.emit(
-                "tool:error",
-                {
-                    "tool_name": tool_call.name,
-                    "tool_call_id": tool_call.id,
-                    "error": str(e),
-                },
             )
 
         return step
