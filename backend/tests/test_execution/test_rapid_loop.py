@@ -349,7 +349,10 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("执行需要审批的工具")
 
         assert result.status == LoopStatus.WAITING_FOR_APPROVAL
-        assert result.steps[-1].status == StepStatus.WAITING_FOR_APPROVAL
+        waiting_step = result.steps[-1]
+        assert waiting_step.status == StepStatus.WAITING_FOR_APPROVAL
+        assert waiting_step.tool_call_id == tool_call.id
+        assert waiting_step.approval_id == "approval-1"
 
         event_types = [event["type"] for event in events]
         assert "approval:required" in event_types

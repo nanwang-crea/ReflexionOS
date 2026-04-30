@@ -27,6 +27,8 @@ class LoopStep(BaseModel):
     id: str = Field(default_factory=lambda: f"step-{uuid.uuid4().hex[:8]}")
     step_number: int
     tool: str
+    tool_call_id: str | None = None
+    approval_id: str | None = None
     args: dict
     status: StepStatus = StepStatus.PENDING
     output: str | None = None

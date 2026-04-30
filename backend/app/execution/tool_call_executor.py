@@ -35,6 +35,7 @@ class ToolCallExecutor:
             id=f"step-{uuid.uuid4().hex[:8]}",
             step_number=step_number,
             tool=tool_call.name,
+            tool_call_id=tool_call.id,
             args=tool_call.arguments,
             status=StepStatus.RUNNING,
         )
@@ -61,6 +62,7 @@ class ToolCallExecutor:
             if result.approval_required:
                 approval = result.approval
                 step.status = StepStatus.WAITING_FOR_APPROVAL
+                step.approval_id = approval.approval_id if approval else None
                 step.output = approval.summary if approval else result.output
                 step.duration = time.time() - start_time
 
