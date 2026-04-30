@@ -333,11 +333,13 @@ class TestRapidExecutionLoop:
             event_callback=callback,
         )
 
+        tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+
         async def mock_stream(messages, tools=None):
             captured_calls.append(messages)
             async for chunk in self._stream_response(
                 content="需要先审批",
-                tool_calls=[LLMToolCall(name="approval_tool", arguments={"value": 1})],
+                tool_calls=[tool_call],
                 finish_reason="tool_calls",
             ):
                 yield chunk
@@ -354,6 +356,13 @@ class TestRapidExecutionLoop:
         assert "tool:error" not in event_types
         assert "run:complete" not in event_types
         assert len(captured_calls) == 1
+
+        tool_start_event = next(event for event in events if event["type"] == "tool:start")
+        assert tool_start_event["data"]["tool_call_id"] == tool_call.id
+
+        approval_event = next(event for event in events if event["type"] == "approval:required")
+        assert approval_event["data"]["tool_call_id"] == tool_call.id
+        assert approval_event["data"]["approval_id"] == "approval-1"
 
     @pytest.mark.asyncio
     async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):

@@ -46,6 +46,7 @@ class ToolCallExecutor:
             {
                 "tool_name": tool_call.name,
                 "arguments": tool_call.arguments,
+                "tool_call_id": tool_call.id,
                 "step_number": step_number,
             },
         )
@@ -69,6 +70,8 @@ class ToolCallExecutor:
                     {
                         "tool_name": tool_call.name,
                         "arguments": tool_call.arguments,
+                        "tool_call_id": tool_call.id,
+                        "approval_id": approval.approval_id if approval else None,
                         "step_number": step_number,
                         "approval": approval_payload,
                     },
@@ -94,6 +97,7 @@ class ToolCallExecutor:
                 "tool:result",
                 {
                     "tool_name": tool_call.name,
+                    "tool_call_id": tool_call.id,
                     "success": result.success,
                     "output": result.output,
                     "error": result.error,
@@ -128,6 +132,7 @@ class ToolCallExecutor:
                 "tool:error",
                 {
                     "tool_name": tool_call.name,
+                    "tool_call_id": tool_call.id,
                     "error": str(e),
                 },
             )
