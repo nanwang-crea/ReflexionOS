@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from app.llm.base import MessageRole
 from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_engine import Plan
 
@@ -39,7 +40,7 @@ class LoopContext:
     ) -> "LoopContext":
         context = cls(task=task, project_path=project_path, run_id=run_id)
 
-        allowed_seed_roles = {"user", "assistant", "tool"}
+        allowed_seed_roles = {MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL}
         for seeded in seed_messages or []:
             if not isinstance(seeded, dict):
                 continue

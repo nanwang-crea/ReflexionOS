@@ -9,7 +9,7 @@ from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm import LLMAdapterFactory
-from app.llm.base import LLMMessage
+from app.llm.base import LLMMessage, MessageRole
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
@@ -370,8 +370,8 @@ class AgentService:
         )
         response = await llm.complete(
             [
-                LLMMessage(role="system", content=system_prompt),
-                LLMMessage(role="user", content=prompt_input),
+                LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                LLMMessage(role=MessageRole.USER, content=prompt_input),
             ],
             tools=None,
         )

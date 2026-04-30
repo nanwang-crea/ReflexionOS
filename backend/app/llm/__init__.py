@@ -5,6 +5,7 @@ from app.llm.base import (
     LLMResponse,
     LLMToolCall,
     LLMToolDefinition,
+    MessageRole,
     StreamChunk,
     UniversalLLMInterface,
 )
@@ -55,4 +56,5 @@ __all__ = [
     "StreamChunk",
     "OpenAIAdapter",
     "LLMAdapterFactory",
+    "MessageRole",
 ]

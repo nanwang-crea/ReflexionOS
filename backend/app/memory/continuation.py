@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.llm.base import MessageRole
 from app.models.conversation import Message, MessageType, StreamState
 
 
@@ -27,7 +28,7 @@ def build_continuation_artifact(
         turn_id=turn_id,
         run_id=None,
         turn_message_index=turn_message_index,
-        role="system",
+        role=MessageRole.SYSTEM,
         message_type=MessageType.SYSTEM_NOTICE,
         stream_state=StreamState.COMPLETED,
         display_mode="collapsed",

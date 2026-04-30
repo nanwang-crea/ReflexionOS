@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from threading import Lock, RLock
 from uuid import uuid4
 
+from app.llm.base import MessageRole
 from app.models.conversation import ConversationEvent, EventType, RunStatus, TurnStatus
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.storage.database import db as default_db
@@ -188,7 +189,7 @@ class ConversationService:
                             "message_id": user_message_id,
                             "turn_id": turn_id,
                             "run_id": None,
-                            "role": "user",
+                            "role": MessageRole.USER,
                             "message_type": "user_message",
                             "turn_message_index": 1,
                             "display_mode": "default",

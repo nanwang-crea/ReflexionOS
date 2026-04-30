@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.llm.base import MessageRole
 from app.memory.message_normalizer import normalize_message_text
 from app.models.conversation import (
     ConversationEvent,
@@ -225,7 +226,7 @@ class ConversationProjection:
             turn_id=payload["turn_id"],
             run_id=payload.get("related_run_id"),
             turn_message_index=payload["turn_message_index"],
-            role=payload.get("role", "system"),
+            role=payload.get("role", MessageRole.SYSTEM),
             message_type=MessageType.SYSTEM_NOTICE,
             stream_state=StreamState.COMPLETED,
             display_mode=payload.get("display_mode", "default"),

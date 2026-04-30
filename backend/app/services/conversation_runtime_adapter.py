@@ -1,6 +1,7 @@
 from datetime import datetime
 from uuid import uuid4
 
+from app.llm.base import MessageRole
 from app.models.conversation import (
     ConversationEvent,
     EventType,
@@ -131,7 +132,7 @@ class ConversationRuntimeAdapter:
                     "message_id": message_id,
                     "turn_id": self.turn_id,
                     "run_id": self.run_id,
-                    "role": "assistant",
+                    "role": MessageRole.ASSISTANT,
                     "message_type": "tool_trace",
                     "turn_message_index": self._reserve_turn_message_index(),
                     "display_mode": "default",
@@ -316,7 +317,7 @@ class ConversationRuntimeAdapter:
                         "message_id": self.assistant_message_id,
                         "turn_id": self.turn_id,
                         "run_id": self.run_id,
-                        "role": "assistant",
+                        "role": MessageRole.ASSISTANT,
                         "message_type": "assistant_message",
                         "turn_message_index": self._reserve_turn_message_index(),
                         "display_mode": "default",

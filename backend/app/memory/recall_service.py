@@ -7,6 +7,7 @@ from typing import Callable
 
 from pydantic import BaseModel, ConfigDict
 
+from app.llm.base import MessageRole
 from app.models.conversation import MessageType
 from app.storage.database import db as default_db
 from app.storage.models import MessageSearchDocumentModel, SessionModel
@@ -117,7 +118,7 @@ class RecallService:
         if match_score <= 0:
             return 0.0
 
-        role_boost = 2.0 if (document.role or "").lower() == "user" else 1.0
+        role_boost = 2.0 if (document.role or "").lower() == MessageRole.USER else 1.0
         boosted_types = {MessageType.USER_MESSAGE.value, MessageType.SYSTEM_NOTICE.value}
         type_boost = 1.5 if document.message_type in boosted_types else 1.0
 

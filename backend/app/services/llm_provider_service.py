@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from openai import AsyncOpenAI
 
+from app.llm.base import MessageRole
 from app.config.settings import config_manager
 from app.models.llm_config import (
     DefaultLLMSelection,
@@ -297,7 +298,7 @@ class LLMProviderService:
         )
         await client.chat.completions.create(
             model=resolved.model,
-            messages=[{"role": "user", "content": "ping"}],
+            messages=[{"role": MessageRole.USER, "content": "ping"}],
             temperature=0,
             max_tokens=1,
         )
