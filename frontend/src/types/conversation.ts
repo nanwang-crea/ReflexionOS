@@ -104,3 +104,16 @@ export interface ConversationState {
   messageOrder: string[]
   messagesById: Record<string, ConversationMessage>
 }
+
+export interface PlanStep {
+  id: number
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
+  findings: string
+}
+
+export interface Plan {
+  goal: string
+  steps: PlanStep[]
+  current_step_index: number
+}

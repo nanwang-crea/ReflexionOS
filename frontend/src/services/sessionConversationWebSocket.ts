@@ -54,6 +54,19 @@ export interface LlmRetryDto {
   message: string
 }
 
+export interface PlanStepDto {
+  id: number
+  description: string
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
+  findings: string
+}
+
+export interface PlanDto {
+  goal: string
+  steps: PlanStepDto[]
+  current_step_index: number
+}
+
 interface SessionConversationEvents {
   'connection:open': { sessionId: string }
   'connection:error': { sessionId: string; error: unknown }
@@ -71,6 +84,7 @@ interface SessionConversationEvents {
   'conversation:synced': ConversationSyncedDto
   'conversation:error': ConversationErrorDto
   'llm:retry': LlmRetryDto
+  'plan:updated': PlanDto
 }
 
 function buildSyncMessage(afterSeq: number) {
@@ -202,6 +216,10 @@ class SessionConversationWebSocket {
     if (message.type === 'llm:retry') {
       this.emit('llm:retry', message.data as LlmRetryDto)
       return
+    }
+
+    if (message.type === 'plan.updated') {
+      this.emit('plan:updated', message.data as PlanDto)
     }
   }
 

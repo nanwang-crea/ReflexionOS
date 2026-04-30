@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/conversationApi'
 import { useConversationStore } from '@/features/conversation/conversationStore'
 import type { ConnectionStatus } from '@/features/workspace/types'
-import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
+import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
 import {
   SessionConversationWebSocket,
   type SessionConversationEventDto,
@@ -185,6 +185,7 @@ export function useConversationRuntime(
       if (event.eventType === 'run.cancelled' || event.eventType === 'run.failed' || event.eventType === 'run.completed') {
         setIsCancelling(false)
         setRetryInfo(null)
+        useConversationStore.getState().setPlan(sessionId, null)
       }
     })
     ws.on('conversation:live_event', (rawLiveEvent) => {
@@ -200,6 +201,13 @@ export function useConversationRuntime(
     })
     ws.on('llm:retry', (data) => {
       setRetryInfo(data)
+    })
+    ws.on('plan:updated', (data: PlanDto) => {
+      useConversationStore.getState().setPlan(sessionId, {
+        goal: data.goal,
+        steps: data.steps,
+        current_step_index: data.current_step_index,
+      })
     })
 
     await ws.connect(sessionId)

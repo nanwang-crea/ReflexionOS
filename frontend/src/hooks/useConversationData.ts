@@ -46,10 +46,18 @@ export function useConversationData(currentSessionId: string | null) {
 
   const isRunning = activeRun?.status === 'running' || activeRun?.status === 'created'
 
+  const plan = useConversationStore((state) => {
+    if (!currentSessionId) {
+      return null
+    }
+    return state.planBySessionId[currentSessionId] ?? null
+  })
+
   return {
     conversation,
     messages,
     activeRun,
     isRunning,
+    plan,
   }
 }

@@ -24,6 +24,7 @@ from app.storage.repositories.session_repo import SessionRepository
 from app.tools.file_tool import FileTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
+from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
 
@@ -57,34 +58,11 @@ class AgentService:
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
         self.llm_provider_service = llm_provider_service or default_llm_provider_service
-        self.tool_registry = self._init_tool_registry()
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
-
-    def _init_tool_registry(self) -> ToolRegistry:
-        """初始化工具注册中心"""
-        registry = ToolRegistry()
-
-        allowed_paths = [str(Path.cwd())]
-        path_security = PathSecurity(allowed_paths, base_dir=str(Path.cwd()))
-        shell_security = ShellSecurity()
-
-        registry.register(FileTool(path_security))
-        registry.register(ShellTool(shell_security, path_security))
-        registry.register(PatchTool(path_security))
-        registry.register(MemoryTool())
-
-        logger.info("工具注册中心初始化完成, 允许路径: %s", allowed_paths)
-        return registry
-
-    def _base_allowed_paths(self) -> list[str]:
-        file_tool = self.tool_registry.get("file")
-        if isinstance(file_tool, FileTool):
-            return list(file_tool.security.allowed_base_paths)
-        return [str(Path.cwd().resolve())]
-
-    def _build_run_tool_registry(self, project_path: str | None) -> ToolRegistry:
+    @staticmethod
+    def _build_run_tool_registry(project_path: str | None) -> ToolRegistry:
         resolved_project_path = (
             str(Path(project_path).resolve())
             if project_path and Path(project_path).exists()
@@ -92,7 +70,8 @@ class AgentService:
         )
         allowed_paths = list(
             dict.fromkeys(
-                self._base_allowed_paths() + ([resolved_project_path] if resolved_project_path else [])
+                [str(Path.cwd().resolve())]
+                + ([resolved_project_path] if resolved_project_path else [])
             )
         )
         base_dir = resolved_project_path or str(Path.cwd().resolve())
@@ -103,6 +82,7 @@ class AgentService:
         registry.register(ShellTool(ShellSecurity(), path_security))
         registry.register(PatchTool(path_security))
         registry.register(MemoryTool())
+        registry.register(PlanTool())
 
         logger.info("构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths)
         return registry
@@ -311,7 +291,11 @@ class AgentService:
             )
 
         async def event_callback(event_type: str, data: dict):
-            await persist_and_broadcast(event_type, data)
+            if event_type == "plan:updated":
+                # Plan state is ephemeral per-run, only broadcast to frontend
+                await ws_manager.send_event(session_id, "plan.updated", data)
+            else:
+                await persist_and_broadcast(event_type, data)
 
         run_tool_registry = self._build_run_tool_registry(project_path)
         execution_loop = RapidExecutionLoop(

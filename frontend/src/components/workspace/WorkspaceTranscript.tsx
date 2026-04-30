@@ -7,8 +7,10 @@ import { ToolTraceCard } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
+import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import { Loader2 } from 'lucide-react'
+import { PlanProgress } from './PlanProgress'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -41,6 +43,7 @@ interface WorkspaceTranscriptProps {
   messages: ConversationMessage[]
   isRunning?: boolean
   retryInfo?: LlmRetryDto | null
+  plan?: Plan | null
   transcriptScrollRef?: RefObject<HTMLDivElement>
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   messagesEndRef: RefObject<HTMLDivElement>
@@ -54,6 +57,7 @@ export function WorkspaceTranscript({
   messages,
   isRunning = false,
   retryInfo = null,
+  plan = null,
   transcriptScrollRef,
   onTranscriptScroll,
   messagesEndRef,
@@ -77,7 +81,7 @@ export function WorkspaceTranscript({
   const retryMaxRetries = retryInfo?.max_retries ?? null
   const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
   const showReconnectIndicator = isRunning && reconnectLabel !== null
-  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage
+  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage && !plan
 
   useEffect(() => {
     if (!hasRetryInfo || !isRunning) {
@@ -187,6 +191,10 @@ export function WorkspaceTranscript({
             <span>思考中</span>
           </div>
         )}
+
+        <AnimatePresence>
+          {plan && <PlanProgress plan={plan} />}
+        </AnimatePresence>
 
         <div ref={messagesEndRef} />
       </div>
