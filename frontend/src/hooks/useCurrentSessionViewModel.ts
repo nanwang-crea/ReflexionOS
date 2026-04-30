@@ -4,6 +4,7 @@ import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
+import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
 import { shouldFollowTranscript } from '@/features/workspace/autoScroll'
 import { useSessionData } from './useSessionData'
 import { useSessionSelection } from './useSessionSelection'
@@ -16,6 +17,7 @@ export function useCurrentSessionViewModel(options: {
   retryInfo: LlmRetryDto | null
   plan: Plan | null
   onReset: () => void
+  onApprovalAction?: ToolApprovalActionHandler
 }) {
   const { configured, loaded } = useSettingsStore()
   const {
@@ -94,6 +96,7 @@ export function useCurrentSessionViewModel(options: {
       onTranscriptScroll: handleTranscriptScroll,
       isAtBottom,
       onScrollToBottom: scrollToBottom,
+      onApprovalAction: options.onApprovalAction,
       messagesEndRef,
     },
     inputProps: {

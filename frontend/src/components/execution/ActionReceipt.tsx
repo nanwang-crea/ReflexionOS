@@ -1,18 +1,41 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, ChevronRight, Clock3, Loader2 } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, Clock3, Loader2, X } from 'lucide-react'
 import { type ActionReceiptDetail, type ActionReceiptStatus, summarizeReceipt } from './receiptUtils'
+
+export type ApprovalActionType = 'approve' | 'deny'
+
+export interface ApprovalActionPayload {
+  runId: string
+  approvalId: string
+}
 
 interface ActionReceiptProps {
   status: ActionReceiptStatus
   details: ActionReceiptDetail[]
+  onApprovalAction?: (action: ApprovalActionType, payload: ApprovalActionPayload) => void
+}
+
+export function sendApprovalAction(
+  onApprovalAction: ActionReceiptProps['onApprovalAction'],
+  action: ApprovalActionType,
+  payload: ApprovalActionPayload
+) {
+  onApprovalAction?.(action, {
+    runId: payload.runId,
+    approvalId: payload.approvalId,
+  })
+}
+
+function hasApproval(detail: ActionReceiptDetail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } {
+  return detail.approval !== undefined
 }
 
 function trimOutput(value: string, maxLength = 800) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}\n...` : value
 }
 
-export function ActionReceipt({ status, details }: ActionReceiptProps) {
+export function ActionReceipt({ status, details, onApprovalAction }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
   const label = useMemo(() => {
     if (details.length === 1 && status !== 'completed') {
@@ -26,34 +49,69 @@ export function ActionReceipt({ status, details }: ActionReceiptProps) {
     : status === 'cancelled'
       ? 'text-amber-500 hover:text-amber-600'
       : 'text-slate-400 hover:text-slate-600'
+  const approvalDetails = status === 'waiting_for_approval' && onApprovalAction
+    ? details
+      .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
+        detail.status === 'waiting_for_approval' && hasApproval(detail)
+      ))
+      .map((detail) => ({
+        id: detail.id,
+        approval: detail.approval,
+      }))
+    : []
 
   return (
     <div className="mb-8 max-w-[920px]">
-      <button
-        type="button"
-        onClick={() => setOpen(prev => !prev)}
-        className={`group flex items-center gap-2 text-left text-[15px] transition-colors ${lineClassName}`}
-      >
-        <span>{label}</span>
-        <motion.span
-          animate={{ rotate: open ? 90 : 0 }}
-          transition={{ duration: 0.18 }}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen(prev => !prev)}
+          className={`group flex items-center gap-2 text-left text-[15px] transition-colors ${lineClassName}`}
         >
-          <ChevronRight className="h-4 w-4" />
-        </motion.span>
-        {status === 'running' && (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        )}
-        {status === 'waiting_for_approval' && (
-          <Clock3 className="h-3.5 w-3.5" />
-        )}
-        {status === 'failed' && (
-          <AlertCircle className="h-3.5 w-3.5" />
-        )}
-        {status === 'cancelled' && (
-          <AlertCircle className="h-3.5 w-3.5" />
-        )}
-      </button>
+          <span>{label}</span>
+          <motion.span
+            animate={{ rotate: open ? 90 : 0 }}
+            transition={{ duration: 0.18 }}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </motion.span>
+          {status === 'running' && (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          )}
+          {status === 'waiting_for_approval' && (
+            <Clock3 className="h-3.5 w-3.5" />
+          )}
+          {status === 'failed' && (
+            <AlertCircle className="h-3.5 w-3.5" />
+          )}
+          {status === 'cancelled' && (
+            <AlertCircle className="h-3.5 w-3.5" />
+          )}
+        </button>
+
+        {approvalDetails.map((detail) => (
+          <span key={`${detail.id}-approval`} className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              aria-label="批准此操作"
+              title="批准此操作"
+              onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              aria-label="拒绝此操作"
+              title="拒绝此操作"
+              onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-200"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </span>
+        ))}
+      </div>
 
       <AnimatePresence initial={false}>
         {open && (

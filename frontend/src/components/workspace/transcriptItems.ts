@@ -66,6 +66,17 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
 
   detail.status = getToolTraceStatus(message)
 
+  if (
+    detail.status === 'waiting_for_approval' &&
+    typeof message.runId === 'string' &&
+    typeof payload.approval_id === 'string'
+  ) {
+    detail.approval = {
+      runId: message.runId,
+      approvalId: payload.approval_id,
+    }
+  }
+
   if (typeof payload.output === 'string') {
     detail.output = payload.output
   } else if (payload.output !== undefined) {

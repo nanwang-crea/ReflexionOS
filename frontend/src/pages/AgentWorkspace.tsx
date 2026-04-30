@@ -15,6 +15,8 @@ export default function AgentWorkspace() {
     retryInfo,
     startTurn,
     cancelRun,
+    approveTool,
+    denyTool,
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan } = useConversationData(currentSessionId)
@@ -26,6 +28,14 @@ export default function AgentWorkspace() {
     retryInfo,
     plan,
     onReset: resetConversationRuntime,
+    onApprovalAction: (action, payload) => {
+      if (action === 'approve') {
+        approveTool(payload.runId, payload.approvalId)
+        return
+      }
+
+      denyTool(payload.runId, payload.approvalId)
+    },
   })
   const { sendMessage } = useSendMessage({
     currentSession: viewModel.currentSession,

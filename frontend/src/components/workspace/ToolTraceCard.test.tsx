@@ -2,9 +2,11 @@ import { createRef } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
+import { sendApprovalAction } from '@/components/execution/ActionReceipt'
 import type { ConversationMessage } from '@/types/conversation'
-import { ToolTraceCard } from './ToolTraceCard'
+import { ToolTraceCard, ToolTraceGroup } from './ToolTraceCard'
 import { WorkspaceTranscript } from './WorkspaceTranscript'
+import { buildToolTraceDetail } from './transcriptItems'
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
@@ -81,6 +83,82 @@ describe('ToolTraceCard', () => {
 
     expect(html).toContain('运行 git push origin feature/approveRunTime')
     expect(html).not.toContain('已运行')
+  })
+
+  it('adds compact approval controls for waiting traces with concrete approval metadata', () => {
+    const approvalAction = vi.fn()
+    const detail = buildToolTraceDetail(buildMessage({
+      payloadJson: {
+        tool_name: 'shell',
+        status: 'waiting_for_approval',
+        approval_id: 'approval-1',
+        arguments: { command: 'git push origin feature/approveRunTime' },
+      },
+    }))
+
+    expect(detail.approval).toEqual({
+      runId: 'run-1',
+      approvalId: 'approval-1',
+    })
+    expect(detail.approval).not.toHaveProperty('command')
+    expect(detail.approval).not.toHaveProperty('arguments')
+
+    const html = renderToStaticMarkup(
+      <ToolTraceGroup
+        status="waiting_for_approval"
+        details={[detail]}
+        onApprovalAction={approvalAction}
+      />
+    )
+
+    expect(html).toContain('aria-label="批准此操作"')
+    expect(html).toContain('aria-label="拒绝此操作"')
+  })
+
+  it('does not render approval controls without a run id and approval id', () => {
+    const approvalAction = vi.fn()
+    const detail = buildToolTraceDetail(buildMessage({
+      runId: null,
+      payloadJson: {
+        tool_name: 'shell',
+        status: 'waiting_for_approval',
+        approval_id: 'approval-1',
+        arguments: { command: 'git push origin feature/approveRunTime' },
+      },
+    }))
+
+    const html = renderToStaticMarkup(
+      <ToolTraceGroup
+        status="waiting_for_approval"
+        details={[detail]}
+        onApprovalAction={approvalAction}
+      />
+    )
+
+    expect(detail.approval).toBeUndefined()
+    expect(html).not.toContain('aria-label="批准此操作"')
+    expect(html).not.toContain('aria-label="拒绝此操作"')
+  })
+
+  it('sends approve and deny approval actions with id-only payloads', () => {
+    const approvalAction = vi.fn()
+    const payload = {
+      runId: 'run-1',
+      approvalId: 'approval-1',
+      command: 'git push origin feature/approveRunTime',
+    }
+
+    sendApprovalAction(approvalAction, 'approve', payload)
+    sendApprovalAction(approvalAction, 'deny', payload)
+
+    expect(approvalAction).toHaveBeenNthCalledWith(1, 'approve', {
+      runId: 'run-1',
+      approvalId: 'approval-1',
+    })
+    expect(approvalAction).toHaveBeenNthCalledWith(2, 'deny', {
+      runId: 'run-1',
+      approvalId: 'approval-1',
+    })
   })
 })
 

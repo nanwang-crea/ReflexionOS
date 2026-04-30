@@ -13,6 +13,8 @@ const {
   wsSendSyncMock,
   wsStartTurnMock,
   wsCancelRunMock,
+  wsApproveToolMock,
+  wsDenyToolMock,
   wsOnMock,
   wsHandlers,
   conversationStoreState,
@@ -31,6 +33,8 @@ const {
     wsSendSyncMock: vi.fn(),
     wsStartTurnMock: vi.fn(),
     wsCancelRunMock: vi.fn(),
+    wsApproveToolMock: vi.fn(),
+    wsDenyToolMock: vi.fn(),
     wsOnMock: vi.fn((event: string, handler: (data: unknown) => void) => {
       handlers.set(event, handler)
     }),
@@ -74,6 +78,8 @@ vi.mock('@/services/sessionConversationWebSocket', () => ({
     sendSync: wsSendSyncMock,
     startTurn: wsStartTurnMock,
     cancelRun: wsCancelRunMock,
+    approveTool: wsApproveToolMock,
+    denyTool: wsDenyToolMock,
     on: wsOnMock,
     isConnected: () => true,
   })),
@@ -145,6 +151,8 @@ describe('useConversationRuntime', () => {
     wsSendSyncMock.mockReset()
     wsStartTurnMock.mockReset()
     wsCancelRunMock.mockReset()
+    wsApproveToolMock.mockReset()
+    wsDenyToolMock.mockReset()
     wsOnMock.mockClear()
     wsHandlers.clear()
 
@@ -159,6 +167,8 @@ describe('useConversationRuntime', () => {
     wsSendSyncMock.mockImplementation(() => {})
     wsStartTurnMock.mockImplementation(() => {})
     wsCancelRunMock.mockImplementation(() => {})
+    wsApproveToolMock.mockImplementation(() => {})
+    wsDenyToolMock.mockImplementation(() => {})
   })
 
   it('loads snapshot, connects websocket, sends sync, and routes durable/live conversation updates into the store', async () => {
@@ -299,6 +309,27 @@ describe('useConversationRuntime', () => {
     runtime.cancelRun()
 
     expect(wsCancelRunMock).toHaveBeenCalledWith('run-1')
+  })
+
+  it('routes approve and deny tool decisions through the session websocket channel', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+
+    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    runtime.approveTool('run-1', 'approval-1')
+    runtime.denyTool('run-1', 'approval-1')
+
+    expect(wsApproveToolMock).toHaveBeenCalledWith({
+      runId: 'run-1',
+      approvalId: 'approval-1',
+    })
+    expect(wsDenyToolMock).toHaveBeenCalledWith({
+      runId: 'run-1',
+      approvalId: 'approval-1',
+    })
   })
 
   it('queues snapshot refresh per session without dropping cross-session refreshes', async () => {

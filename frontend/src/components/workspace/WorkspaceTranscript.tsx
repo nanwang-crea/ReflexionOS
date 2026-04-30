@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { SlideIn } from '@/components/animations/SlideIn'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
+import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
@@ -49,6 +50,7 @@ interface WorkspaceTranscriptProps {
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   isAtBottom?: boolean
   onScrollToBottom?: () => void
+  onApprovalAction?: ToolApprovalActionHandler
   messagesEndRef: RefObject<HTMLDivElement>
 }
 
@@ -65,6 +67,7 @@ export function WorkspaceTranscript({
   onTranscriptScroll,
   isAtBottom = true,
   onScrollToBottom,
+  onApprovalAction,
   messagesEndRef,
 }: WorkspaceTranscriptProps) {
   const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
@@ -136,6 +139,7 @@ export function WorkspaceTranscript({
                   <ToolTraceGroup
                     status={item.status}
                     details={item.details}
+                    onApprovalAction={onApprovalAction}
                   />
                 </SlideIn>
               )

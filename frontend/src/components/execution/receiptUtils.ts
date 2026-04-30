@@ -8,6 +8,10 @@ export interface ActionReceiptDetail {
   status: ReceiptDetailStatus
   summary: string
   category: ReceiptCategory
+  approval?: {
+    runId: string
+    approvalId: string
+  }
   output?: string
   error?: string
   duration?: number

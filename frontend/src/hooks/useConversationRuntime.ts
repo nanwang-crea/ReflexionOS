@@ -258,6 +258,22 @@ export function useConversationRuntime(
     wsRef.current?.cancelRun(runId)
   }, [currentSessionId])
 
+  const approveTool = useCallback((runId: string, approvalId: string) => {
+    if (!wsRef.current?.isConnected()) {
+      return
+    }
+
+    wsRef.current.approveTool({ runId, approvalId })
+  }, [])
+
+  const denyTool = useCallback((runId: string, approvalId: string) => {
+    if (!wsRef.current?.isConnected()) {
+      return
+    }
+
+    wsRef.current.denyTool({ runId, approvalId })
+  }, [])
+
   const resetConversationRuntime = useCallback(() => {
     const sessionId = currentSessionId ?? connectedSessionIdRef.current
     closeWebSocket()
@@ -293,6 +309,8 @@ export function useConversationRuntime(
     retryInfo,
     startTurn,
     cancelRun,
+    approveTool,
+    denyTool,
     resetConversationRuntime,
   }
 }
