@@ -173,6 +173,12 @@ class RapidExecutionLoop:
                         loop_result.steps.append(step)
                         context.add_step(step)
 
+                        if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                            loop_result.status = LoopStatus.WAITING_FOR_APPROVAL
+                            loop_result.result = step.output
+                            state = LoopPhase.DONE
+                            break
+
                         if step.status == StepStatus.FAILED:
                             self.consecutive_failures += 1
 
@@ -231,7 +237,7 @@ class RapidExecutionLoop:
                     state = LoopPhase.DONE
 
             # 超过最大步数
-            if step_num >= self.max_steps:
+            if step_num >= self.max_steps and loop_result.status != LoopStatus.WAITING_FOR_APPROVAL:
                 loop_result.status = LoopStatus.COMPLETED
                 loop_result.result = loop_result.result or "执行完成（达到最大步数）"
                 logger.warning("执行达到最大步数")
@@ -280,7 +286,10 @@ class RapidExecutionLoop:
             loop_result.completed_at = datetime.now()
 
             # 发送完成事件
-            if loop_result.status != LoopStatus.CANCELLED:
+            if loop_result.status not in {
+                LoopStatus.CANCELLED,
+                LoopStatus.WAITING_FOR_APPROVAL,
+            }:
                 await self._emit(
                     "run:complete",
                     {

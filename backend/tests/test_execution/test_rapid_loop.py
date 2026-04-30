@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.execution.models import LoopResult, LoopStatus
+from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
 from app.llm.retry import RetryExhaustedError
-from app.tools.base import BaseTool, ToolResult
+from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
@@ -35,6 +35,28 @@ class MockTool(BaseTool):
 
     async def execute(self, args):
         return ToolResult(success=True, output="mock output")
+
+
+class ApprovalTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "approval_tool"
+
+    @property
+    def description(self) -> str:
+        return "Tool that requires approval"
+
+    async def execute(self, args):
+        return ToolResult(
+            success=False,
+            approval_required=True,
+            approval=ToolApprovalRequest(
+                approval_id="approval-1",
+                tool_name="approval_tool",
+                summary="需要审批",
+                payload={"value": 1},
+            ),
+        )
 
 
 class TestRapidExecutionLoop:
@@ -293,6 +315,45 @@ class TestRapidExecutionLoop:
         assert "tool:start" in event_types
         assert "tool:result" in event_types
         assert "run:complete" in event_types
+
+    @pytest.mark.asyncio
+    async def test_tool_approval_required_pauses_run_without_error_recovery(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(ApprovalTool())
+        events = []
+        captured_calls = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=3,
+            event_callback=callback,
+        )
+
+        async def mock_stream(messages, tools=None):
+            captured_calls.append(messages)
+            async for chunk in self._stream_response(
+                content="需要先审批",
+                tool_calls=[LLMToolCall(name="approval_tool", arguments={"value": 1})],
+                finish_reason="tool_calls",
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("执行需要审批的工具")
+
+        assert result.status == LoopStatus.WAITING_FOR_APPROVAL
+        assert result.steps[-1].status == StepStatus.WAITING_FOR_APPROVAL
+
+        event_types = [event["type"] for event in events]
+        assert "approval:required" in event_types
+        assert "tool:error" not in event_types
+        assert "run:complete" not in event_types
+        assert len(captured_calls) == 1
 
     @pytest.mark.asyncio
     async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):

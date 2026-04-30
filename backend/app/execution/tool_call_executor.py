@@ -57,6 +57,26 @@ class ToolCallExecutor:
 
             result = await tool.execute(tool_call.arguments)
 
+            if result.approval_required:
+                approval = result.approval
+                step.status = StepStatus.WAITING_FOR_APPROVAL
+                step.output = approval.summary if approval else result.output
+                step.duration = time.time() - start_time
+
+                approval_payload = approval.model_dump() if approval else None
+                await self.emit(
+                    "approval:required",
+                    {
+                        "tool_name": tool_call.name,
+                        "arguments": tool_call.arguments,
+                        "step_number": step_number,
+                        "approval": approval_payload,
+                    },
+                )
+
+                logger.info("工具 %s 等待审批", tool_call.name)
+                return step
+
             step.status = StepStatus.SUCCESS if result.success else StepStatus.FAILED
             step.output = result.output
             step.error = result.error
