@@ -1,61 +1,61 @@
-# Agent Loop Approval Runtime Design
+# Agent Loop 工具审批运行时设计
 
-## Context
+## 背景
 
-The current runtime assumes a tool call has only two meaningful outcomes:
+当前 runtime 默认一个工具调用只有两个有意义的结果：
 
 - success
 - failure
 
-That model is too small for tools that need user approval. Shell commands, destructive file operations, patch deletion, browser actions, and future privileged tools all need a third outcome:
+这个模型不足以支持需要用户审批的工具。shell 命令、破坏性文件操作、patch 删除、浏览器动作以及未来的特权工具，都需要第三种结果：
 
-- waiting for user approval
+- 等待用户审批
 
-The approval state cannot live only inside a tool. The Agent Loop must understand that a run is paused, not failed, and must be able to resume the same run after the user approves or denies the request.
+审批状态不能只存在于某个工具内部。Agent Loop 必须理解当前 run 是暂停而不是失败，并且能在用户批准或拒绝后恢复同一个 run。
 
-The current code shape is:
+当前代码结构：
 
-- `ToolResult` has `success`, `output`, `error`, and `data`.
-- `ToolCallExecutor` immediately executes a tool and projects success or failure into `LoopContext`.
-- `RapidExecutionLoop` treats failed steps as error recovery inputs.
-- `RunStatus` has `created`, `running`, `completed`, `failed`, and `cancelled`.
-- The websocket protocol supports start, sync, and cancel, but no approval action.
-- Conversation events persist tool start/result/error, but no approval state.
+- `ToolResult` 包含 `success`、`output`、`error` 和 `data`。
+- `ToolCallExecutor` 会立即执行工具，并把 success 或 failure 投射到 `LoopContext`。
+- `RapidExecutionLoop` 把失败 step 当作 error recovery 输入。
+- `RunStatus` 包含 `created`、`running`、`completed`、`failed` 和 `cancelled`。
+- websocket 协议支持 start、sync 和 cancel，但没有 approval action。
+- conversation events 持久化 tool start/result/error，但没有审批状态。
 
-This design adds an approval-aware runtime layer before implementing tool-specific approval policies such as shell approval.
+本设计在实现 shell approval 等具体工具策略前，先增加 approval-aware runtime 层。
 
-## Decision
+## 决策
 
-Use scheme C:
+采用方案 C：
 
-> Pause the same run when approval is required, persist the pending approval, then resume the same run after user action.
+> 需要审批时暂停同一个 run，持久化 pending approval，用户操作后恢复同一个 run。
 
-Do not block a Python coroutine while waiting for the user. The run task should return a non-terminal waiting status. Resume should schedule a new async task for the same run and reconstruct context from persisted conversation state plus the approved tool result.
+不要在等待用户时阻塞 Python coroutine。run task 应返回一个非终态 waiting 状态。恢复时为同一个 run 调度新的 async task，并从已持久化的 conversation state 加上已批准的工具结果重建上下文。
 
-## Goals
+## 目标
 
-- Add a generic approval mechanism for all tools.
-- Preserve the same `run_id` across pause and resume.
-- Treat approval waits as non-terminal run states, not failures.
-- Persist enough approval state for frontend refresh and websocket reconnect.
-- Execute approved stored tool calls, not model-supplied replacement payloads.
-- Support allow-once, deny, and later trust-prefix actions.
-- Keep tool-specific risk logic outside the Agent Loop.
+- 为所有工具添加通用审批机制。
+- 暂停和恢复时保持同一个 `run_id`。
+- 将审批等待视为非终态 run state，而不是失败。
+- 持久化足够的审批状态，支持前端刷新和 websocket 重连。
+- 审批后执行存储的 tool call，而不是模型提供的替换 payload。
+- 支持仅本次允许、拒绝，以及后续 trust-prefix 操作。
+- 将具体工具风险逻辑留在 Agent Loop 之外。
 
-## Non-Goals
+## 非目标
 
-- Implement shell command risk policy in this design.
-- Persist long-lived project trust rules.
-- Serialize live Python coroutine state.
-- Add distributed or multi-user authorization.
-- Add sandboxing.
-- Build post-execution loop breaking in this phase.
+- 在本设计中实现 shell 命令风险策略。
+- 持久化长期项目级 trust 规则。
+- 序列化运行中的 Python coroutine 状态。
+- 添加分布式或多用户授权。
+- 添加 sandbox。
+- 在本阶段构建 post-execution loop breaker。
 
-## State Model
+## 状态模型
 
 ### RunStatus
 
-Extend `RunStatus`:
+扩展 `RunStatus`：
 
 ```text
 created
@@ -67,7 +67,7 @@ failed
 cancelled
 ```
 
-State transitions:
+状态转换：
 
 ```text
 created -> running
@@ -80,22 +80,22 @@ running -> failed
 running -> cancelled
 ```
 
-`waiting_for_approval` is non-terminal. The run has yielded control back to the app, but the task is not semantically complete.
+`waiting_for_approval` 是非终态。run 已经把控制权交还给应用，但任务语义上还没有完成。
 
 ### LoopStatus
 
-Extend `LoopStatus`:
+扩展 `LoopStatus`：
 
 ```text
 WAITING_FOR_APPROVAL
 RESUMING
 ```
 
-`RapidExecutionLoop.run()` can return `WAITING_FOR_APPROVAL` without emitting `run:complete` or `run:error`.
+`RapidExecutionLoop.run()` 可以返回 `WAITING_FOR_APPROVAL`，且不发出 `run:complete` 或 `run:error`。
 
 ### StepStatus
 
-Extend `StepStatus`:
+扩展 `StepStatus`：
 
 ```text
 PENDING
@@ -106,11 +106,11 @@ FAILED
 CANCELLED
 ```
 
-The waiting step keeps the original `tool_call_id`, tool name, args, and approval id.
+等待中的 step 保留原始 `tool_call_id`、tool 名称、参数和 approval id。
 
-## Tool Result Model
+## ToolResult 模型
 
-Keep backward compatibility with existing tool results while adding an approval request payload.
+保持与现有工具结果兼容，同时增加审批请求 payload。
 
 ```python
 class ToolApprovalRequest(BaseModel):
@@ -133,17 +133,17 @@ class ToolResult(BaseModel):
     approval: ToolApprovalRequest | None = None
 ```
 
-Rules:
+规则：
 
-- `approval_required=True` means the result is neither success nor normal failure.
-- `ToolCallExecutor` must check `approval_required` before checking `success`.
-- Approval requests should not enter normal error recovery.
+- `approval_required=True` 表示结果既不是成功，也不是普通失败。
+- `ToolCallExecutor` 必须先检查 `approval_required`，再检查 `success`。
+- 审批请求不应进入普通 error recovery。
 
-## Pending Approval Model
+## Pending Approval 模型
 
-Create a runtime approval store. The first implementation can be in memory, but it must project the state into conversation events so the frontend can recover pending approvals from a snapshot.
+创建 runtime approval store。第一版可以使用内存存储，但必须把状态投射到 conversation events 中，让前端可以从 snapshot 恢复 pending approval。
 
-Suggested model:
+建议模型：
 
 ```python
 class PendingToolApproval(BaseModel):
@@ -162,13 +162,13 @@ class PendingToolApproval(BaseModel):
     decision: Literal["allow_once", "deny", "trust_and_allow"] | None = None
 ```
 
-Security rule:
+安全规则：
 
-> Approval execution uses the stored pending approval. User approval never accepts a new command, path, patch, or argument payload from the model.
+> 审批执行使用存储的 pending approval。用户审批永远不接受模型新提供的 command、path、patch 或 argument payload。
 
-## Runtime Flow
+## Runtime 流程
 
-### Normal Tool Execution
+### 普通工具执行
 
 ```text
 LLM returns tool call
@@ -179,7 +179,7 @@ ToolCallExecutor updates LoopContext
 RapidExecutionLoop continues
 ```
 
-### Approval Required
+### 需要审批
 
 ```text
 LLM returns tool call
@@ -193,9 +193,9 @@ AgentService marks run waiting_for_approval
 async task exits
 ```
 
-No `run:complete` or `run:error` is emitted.
+不会发出 `run:complete` 或 `run:error`。
 
-### Approve Once
+### 仅本次允许
 
 ```text
 frontend sends conversation:approve_tool
@@ -208,7 +208,7 @@ tool result is appended to context
 loop continues from the same run
 ```
 
-### Deny
+### 拒绝
 
 ```text
 frontend sends conversation:deny_tool
@@ -218,29 +218,29 @@ resume execution gives the denial result to the model
 model can choose an alternative path or produce final answer
 ```
 
-Denial is not a runtime failure. It is a user decision that becomes tool feedback.
+拒绝不是 runtime failure。它是用户决策，会作为工具反馈交给模型。
 
-## Resume Strategy
+## 恢复策略
 
-Do not resume by keeping the original coroutine alive.
+不要通过保留原始 coroutine 来恢复。
 
-Instead:
+改为：
 
-1. Persist the approval state through conversation events.
-2. Store the pending tool call in `PendingApprovalStore`.
-3. On approval, execute the stored tool call.
-4. Reconstruct loop context from:
-   - existing conversation history
-   - the current task
-   - the approved tool result
-   - a system note that the run resumed after user approval
-5. Continue the same run id.
+1. 通过 conversation events 持久化审批状态。
+2. 在 `PendingApprovalStore` 中保存 pending tool call。
+3. 用户批准后执行存储的 tool call。
+4. 从以下信息重建 loop context：
+   - 已有 conversation history
+   - 当前 task
+   - 已批准的 tool result
+   - 一条说明 run 因用户审批而恢复的 system note
+5. 继续使用同一个 run id。
 
-This matches the current event-sourced conversation direction and keeps refresh/reconnect behavior tractable.
+这符合当前 event-sourced conversation 方向，也让刷新和重连行为更容易处理。
 
 ### Resume Input
 
-Add an explicit resume input shape rather than overloading a fresh turn:
+增加明确的 resume input 结构，而不是把恢复路径伪装成一个新的 turn：
 
 ```python
 class ResumeRunInput(BaseModel):
@@ -252,31 +252,31 @@ class ResumeRunInput(BaseModel):
     denied_tool_result: ToolResult | None = None
 ```
 
-`RapidExecutionLoop.run()` should accept an optional resume payload. When present:
+`RapidExecutionLoop.run()` 应接受可选 resume payload。存在 resume payload 时：
 
-- skip `InitialPlanBootstrapper.bootstrap()`
-- keep the existing `run_id`
-- rebuild context from conversation history
-- add a system note that the run is resuming after user approval
-- add the approved or denied tool result as a tool message associated with the original `tool_call_id`
-- continue at the normal planning phase
+- 跳过 `InitialPlanBootstrapper.bootstrap()`
+- 保留现有 `run_id`
+- 从 conversation history 重建 context
+- 添加一条说明 run 因用户审批而恢复的 system note
+- 将已批准或已拒绝的 tool result 添加为关联原始 `tool_call_id` 的 tool message
+- 从正常 planning phase 继续
 
-The resume path should not create a new user turn, new run, or new initial plan.
+恢复路径不应创建新的 user turn、新 run 或新的 initial plan。
 
-### Tool Call Continuity
+### Tool Call 连续性
 
-The original assistant tool call must be present in context before the resumed tool result. The current `LoopMessageBuilder` already preserves assistant/tool call groups when messages are present in order, so the approval flow must persist enough conversation events to reconstruct:
+原始 assistant tool call 必须出现在恢复后的 tool result 之前。当前 `LoopMessageBuilder` 已经能在消息顺序正确时保留 assistant/tool call 分组，因此审批流程必须持久化足够的 conversation events 来重建：
 
 ```text
 assistant tool_call(original)
 tool result(approved execution or user denial)
 ```
 
-If the app cannot reconstruct that pair after restart, the approval should be marked expired and the user should retry the action instead of resuming with a dangling tool result.
+如果应用重启后无法重建这对消息，approval 应标记为 expired，并要求用户重试该动作，而不是用孤立的 tool result 恢复。
 
 ## Conversation Events
 
-Add event types:
+新增事件类型：
 
 ```text
 run.waiting_for_approval
@@ -287,16 +287,16 @@ approval.denied
 approval.stale
 ```
 
-Event payload examples:
+事件 payload 示例：
 
 ```json
 {
   "approval_id": "approval-abc123",
   "tool_name": "shell",
   "step_number": 3,
-  "summary": "Run shell command",
-  "reasons": ["uses shell metacharacter: &&"],
-  "risks": ["command will be interpreted by the local shell"],
+  "summary": "运行 shell 命令",
+  "reasons": ["使用 shell 元语法: &&"],
+  "risks": ["命令会交给本地 shell 解释执行"],
   "payload": {
     "command": "pytest -q && git status --short",
     "cwd": "/project"
@@ -305,11 +305,11 @@ Event payload examples:
 }
 ```
 
-`approval.required` should be visible in the conversation snapshot so the UI can restore the approval card after refresh.
+`approval.required` 应出现在 conversation snapshot 中，这样 UI 刷新后可以恢复审批卡片。
 
-## WebSocket/API Actions
+## WebSocket/API 操作
 
-Add websocket messages:
+新增 websocket message：
 
 ```text
 conversation:approve_tool
@@ -317,7 +317,7 @@ conversation:deny_tool
 conversation:trust_tool_prefix
 ```
 
-Request payload:
+请求 payload：
 
 ```json
 {
@@ -326,7 +326,7 @@ Request payload:
 }
 ```
 
-For trust actions:
+trust 操作：
 
 ```json
 {
@@ -339,119 +339,119 @@ For trust actions:
 }
 ```
 
-The backend validates:
+后端校验：
 
-- approval exists
-- approval belongs to the session
-- approval belongs to the run
-- run is `waiting_for_approval`
-- approval is still pending
+- approval 存在
+- approval 属于当前 session
+- approval 属于当前 run
+- run 处于 `waiting_for_approval`
+- approval 仍处于 pending
 
-## Frontend UX
+## 前端 UX
 
-Add an approval card rendered from `approval.required`.
+增加由 `approval.required` 渲染的审批卡片。
 
-It should show:
+应展示：
 
-- tool name
+- tool 名称
 - summary
-- arguments or safe payload summary
+- 参数或安全 payload 摘要
 - reasons
 - risks
-- available actions
-- stale/reapproval explanation when applicable
+- 可用操作
+- stale/reapproval 解释，如果适用
 
-Actions:
+操作：
 
-- Allow once
-- Trust for this session, when provided by the tool-specific policy
-- Deny
+- 仅本次允许
+- 本 session 信任，当工具策略提供该选项时展示
+- 拒绝
 
-The action receipt for a tool should support `waiting_for_approval` as a visible state.
+工具 action receipt 应支持 `waiting_for_approval` 可见状态。
 
-## Interaction With Shell Approval
+## 与 Shell Approval 的关系
 
-Shell approval becomes a tool-specific policy that plugs into this runtime.
+Shell approval 是接入本 runtime 的工具级策略。
 
-Shell policy responsibilities:
+Shell policy 职责：
 
-- decide `allow`, `require_approval`, or `deny`
-- classify shell risk
-- suggest session trust rules
-- attach environment snapshot
+- 判断 `allow`、`require_approval` 或 `deny`
+- 划分 shell 风险
+- 建议 session trust 规则
+- 附加环境快照
 
-Approval runtime responsibilities:
+Approval runtime 职责：
 
-- persist pending approval
-- pause run
-- emit approval events
-- receive user decision
-- resume same run
+- 持久化 pending approval
+- 暂停 run
+- 发出 approval events
+- 接收用户决策
+- 恢复同一个 run
 
-This separation keeps shell risk logic out of the Agent Loop.
+这种分离能避免 shell 风险逻辑进入 Agent Loop。
 
-## Error Handling
+## 错误处理
 
-- If a pending approval is denied, record a tool result explaining the denial and continue the model loop.
-- If a pending approval is stale, emit `approval.stale` and require a new decision.
-- If a resumed tool execution fails, treat it as a normal tool failure.
-- If the run is cancelled while waiting, mark the pending approval expired or cancelled.
-- If the app restarts, in-memory pending approvals are lost in v1; persisted `approval.required` events should render as expired.
+- 如果 pending approval 被拒绝，记录一个说明拒绝原因的 tool result，并继续模型 loop。
+- 如果 pending approval 过期，发出 `approval.stale` 并要求新的决策。
+- 如果恢复后的工具执行失败，把它当作普通工具失败处理。
+- 如果 run 在等待审批时被取消，将 pending approval 标记为 expired 或 cancelled。
+- 如果应用重启，v1 的内存 pending approval 会丢失；已持久化的 `approval.required` events 应渲染为 expired。
 
-## Testing Strategy
+## 测试策略
 
-Backend tests:
+后端测试：
 
-- Tool result with `approval_required=True` creates a waiting step.
-- Waiting step does not trigger error recovery.
-- Run transitions from `running` to `waiting_for_approval`.
-- Approval required emits `approval.required` and `run.waiting_for_approval`.
-- Approve once resumes the same run id.
-- Deny records a tool denial result and resumes the same run id.
-- Approval cannot execute replacement args.
-- Cancel while waiting expires pending approval.
+- `approval_required=True` 的工具结果会创建 waiting step。
+- waiting step 不会触发 error recovery。
+- run 从 `running` 转为 `waiting_for_approval`。
+- 需要审批时发出 `approval.required` 和 `run.waiting_for_approval`。
+- 仅本次允许后恢复同一个 run id。
+- 拒绝后记录 tool denial result，并恢复同一个 run id。
+- 审批不能执行替换参数。
+- 等待审批时取消 run 会让 pending approval 过期。
 
-Frontend tests:
+前端测试：
 
-- Snapshot with pending approval renders approval card.
-- Approval card sends approve action.
-- Approval card sends deny action.
-- Receipt displays waiting-for-approval state.
-- Stale approval explains why a new confirmation is required.
+- snapshot 中存在 pending approval 时渲染审批卡片。
+- 审批卡片发送 approve action。
+- 审批卡片发送 deny action。
+- receipt 展示 waiting-for-approval 状态。
+- stale approval 解释为什么需要重新确认。
 
-Integration tests:
+集成测试：
 
-- A run pauses on approval and does not complete.
-- Approval resumes the same run and continues to completion.
-- Denial resumes the same run and lets the model choose another path.
-- Refresh after approval required restores the pending approval UI.
+- run 在需要审批时暂停，且不会完成。
+- 批准后同一个 run 恢复并继续到完成。
+- 拒绝后同一个 run 恢复，并让模型选择其他路径。
+- 需要审批后刷新页面，可以恢复 pending approval UI。
 
-## Rollout Plan
+## 推进计划
 
-Phase 1: Approval Runtime Core
+Phase 1：Approval Runtime Core
 
-- Add run, loop, and step waiting states.
-- Add approval-capable `ToolResult`.
-- Add `PendingApprovalStore`.
-- Add runtime events for approval required/approved/denied.
-- Add websocket approval actions.
-- Add frontend approval card.
-- Test with a small test-only tool or shell mock.
+- 添加 run、loop、step 的 waiting 状态。
+- 添加支持 approval 的 `ToolResult`。
+- 添加 `PendingApprovalStore`。
+- 添加 approval required/approved/denied runtime events。
+- 添加 websocket approval actions。
+- 添加前端审批卡片。
+- 使用一个小型测试工具或 shell mock 测试。
 
-Phase 2: Shell Integration
+Phase 2：Shell Integration
 
-- Connect shell command policy to approval runtime.
-- Support allow-once and deny.
-- Add session trust after base approval flow is stable.
+- 将 shell command policy 接入 approval runtime。
+- 支持仅本次允许和拒绝。
+- 基础审批流程稳定后，添加 session trust。
 
-Phase 3: Consistency Layer
+Phase 3：Consistency Layer
 
-- Add stale environment handling.
-- Add forced replan when a high-risk approval becomes stale.
-- Add post-execution analyzer for repeated command loops and no-progress detection.
+- 添加 stale environment 处理。
+- 高风险 approval 过期时强制 replan。
+- 添加 post-execution analyzer，用于检测重复命令循环和无进展状态。
 
-## Open Choices
+## 待定选择
 
-Pending approvals can start in memory, but the event stream must expose enough state for the frontend to recover. If in-memory approval data is gone, the UI should mark the approval expired and ask the user to retry the action.
+pending approval 可以先使用内存存储，但 event stream 必须暴露足够状态，让前端能恢复。如果内存 approval 数据丢失，UI 应将该 approval 标记为 expired，并要求用户重试动作。
 
-Trust-prefix persistence should remain session-only until a visible trust management UI exists.
+trust-prefix 持久化应保持 session-only，直到存在可见的 trust 管理 UI。

@@ -1,69 +1,69 @@
-# Shell Approval Design
+# Shell 工具审批机制设计
 
-## Context
+## 背景
 
-The current shell tool is intentionally conservative. It parses a command with `shlex`, rejects shell metacharacters, rejects dangerous commands such as `rm`, and executes only argv-style commands through `asyncio.create_subprocess_exec`.
+当前 shell 工具采用刻意保守的安全设计。它使用 `shlex` 解析命令，拒绝 shell 元字符，拒绝 `rm` 等危险命令，并且只通过 `asyncio.create_subprocess_exec` 执行 argv 形式的命令。
 
-That protects the local machine from accidental broad execution, but it also blocks common development workflows:
+这能避免本地机器被误执行大范围命令影响，但也会阻塞很多常见开发工作流：
 
 - `rg foo | sed -n '1,40p'`
 - `pytest -q && git status --short`
 - `npm test > /tmp/test.log`
-- bounded cleanup commands such as `rm -rf .pytest_cache`
+- `rm -rf .pytest_cache` 这类边界明确的清理命令
 
-ReflexionOS is a local, single-user desktop app. The security model can therefore treat explicit user confirmation as a valid authorization boundary while still refusing catastrophic commands.
+ReflexionOS 是本地单用户桌面应用。因此，安全模型可以把用户的显式确认视为有效授权边界，同时继续永久拒绝灾难性命令。
 
-## Goals
+## 目标
 
-- Preserve safe direct execution for low-risk argv commands.
-- Allow user-approved high-risk commands, including bounded destructive commands.
-- Allow user-approved shell-mode execution for commands that need shell parsing.
-- Add session-scoped trusted prefixes so repetitive safe commands do not prompt every time.
-- Keep hard-deny rules for catastrophic or intentionally opaque commands.
-- Bind approvals to exact command details so an approved request cannot be swapped before execution.
-- Bind approvals to a lightweight execution environment snapshot so stale approvals can be detected.
+- 保留低风险 argv 命令的直接执行。
+- 支持用户批准的高风险命令，包括边界明确的破坏性命令。
+- 支持用户批准后的 shell 模式执行。
+- 支持 session 级 trusted prefix，减少重复确认。
+- 保持对灾难性命令和刻意混淆命令的 hard-deny。
+- 审批绑定具体命令细节，防止批准后被替换执行。
+- 审批绑定轻量执行环境快照，用于发现过期审批。
 
-## Non-Goals
+## 非目标
 
-- Multi-user, remote, or server-grade authorization.
-- Full shell language static analysis in the first implementation.
-- Persistent project-wide trust rules in the first implementation.
-- Letting trust rules bypass hard-deny checks.
-- Replacing patch/file tools for structured file edits.
-- Container, chroot, or other execution sandboxing in the first implementation.
-- Full Task State or planner integration in this design.
+- 多用户、远程或服务器级权限系统。
+- 第一版实现完整 shell 语言静态分析。
+- 第一版实现持久化项目级 trust 规则。
+- 允许 trust 规则绕过 hard-deny。
+- 替代 patch/file 工具做结构化文件编辑。
+- 第一版实现容器、chroot 或其他执行沙箱。
+- 在本设计中实现完整 Task State 或 planner 集成。
 
-## Decision Model
+## 决策模型
 
-Introduce a command policy layer that returns a structured decision instead of only returning argv or throwing an error.
+引入命令策略层。它返回结构化决策，而不是只返回 argv 或抛出异常。
 
-Decision actions:
+决策动作：
 
-- `allow`: execute immediately.
-- `require_approval`: pause execution and ask the user.
-- `deny`: refuse execution even if the user asks to approve it.
+- `allow`：立即执行。
+- `require_approval`：暂停执行并请求用户审批。
+- `deny`：拒绝执行，即使用户想批准也不允许。
 
-Execution modes:
+执行模式：
 
-- `argv`: execute through `asyncio.create_subprocess_exec`.
-- `shell`: execute through `asyncio.create_subprocess_shell`.
+- `argv`：通过 `asyncio.create_subprocess_exec` 执行。
+- `shell`：通过 `asyncio.create_subprocess_shell` 执行。
 
-The policy evaluates commands in this order:
+策略按以下顺序评估命令：
 
-1. Normalize and validate `command`, `cwd`, `timeout`, and platform.
-2. Detect hard-deny patterns.
-3. Capture a lightweight execution environment snapshot.
-4. Determine whether the command requires shell mode.
-5. Classify the shell risk tier when shell mode is required.
-6. Analyze known high-risk argv commands.
-7. Apply active session trust rules only if the decision is `require_approval`.
-8. Return the final structured decision.
+1. 标准化并校验 `command`、`cwd`、`timeout` 和平台。
+2. 检测 hard-deny 模式。
+3. 捕获轻量执行环境快照。
+4. 判断命令是否需要 shell 模式。
+5. 如果需要 shell 模式，划分 shell 风险等级。
+6. 分析已知高风险 argv 命令。
+7. 仅当决策为 `require_approval` 时，应用当前 session 的 trust 规则。
+8. 返回最终结构化决策。
 
-Hard-deny rules always win. A trust rule can only downgrade `require_approval` to `allow`; it cannot downgrade `deny`.
+hard-deny 永远优先。trust 规则只能把 `require_approval` 降级为 `allow`，不能把 `deny` 降级为 `allow`。
 
-## Command Decision Shape
+## 命令决策结构
 
-The policy should return a value with these fields:
+策略应返回包含以下字段的值：
 
 ```python
 CommandDecision(
@@ -87,11 +87,11 @@ CommandDecision(
 )
 ```
 
-For shell-mode decisions, `argv` may be `None`.
+对于 shell 模式决策，`argv` 可以为 `None`。
 
-## Approval Flow
+## 审批流程
 
-When the policy returns `require_approval`, `ShellTool.execute()` does not run the command. It returns a structured pending-approval result:
+当策略返回 `require_approval` 时，`ShellTool.execute()` 不执行命令，而是返回结构化的待审批结果：
 
 ```json
 {
@@ -116,51 +116,51 @@ When the policy returns `require_approval`, `ShellTool.execute()` does not run t
 }
 ```
 
-The frontend presents three actions when available:
+前端在可用时展示三个操作：
 
-- Allow once.
-- Trust prefix for this session.
-- Deny.
+- 仅本次允许。
+- 本 session 信任此前缀。
+- 拒绝。
 
-The backend stores the pending approval in memory, scoped to the active session. The stored approval binds:
+后端把待审批请求存入内存，并限定在当前活跃 session。存储的审批绑定：
 
-- tool name
+- tool 名称
 - command
 - cwd
 - execution mode
 - timeout
-- parsed argv if any
-- environment snapshot
-- generated approval id
+- 解析后的 argv，如果存在
+- 环境快照
+- 生成的 approval id
 
-When the user approves, the backend executes the stored decision, not a new command payload supplied by the model. Before execution, the backend compares the current environment snapshot with the stored snapshot. If important fields changed, the approval is treated as stale and the user must approve again.
+用户批准后，后端执行存储的决策，而不是模型重新提供的新命令 payload。执行前，后端比较当前环境快照和存储快照。如果关键字段发生变化，则该审批被视为过期，需要用户重新批准。
 
-## Environment Snapshot Binding
+## 环境快照绑定
 
-Approvals should bind to a lightweight environment snapshot. This catches the common case where the user approved a command, but the repository or working directory changed before execution.
+审批应绑定轻量环境快照。这能捕获一个常见问题：用户批准了某个命令，但在命令真正执行前，仓库或工作目录已经变化。
 
-Snapshot fields:
+快照字段：
 
-- `cwd`: absolute working directory used for execution.
-- `cwd_identity`: best-effort directory identity, such as resolved path plus inode/device when available.
-- `git_head`: current `HEAD` commit for the nearest enclosing git repository, when available.
-- `git_root`: nearest enclosing git repository root, when available.
-- `env_fingerprint`: stable hash of the execution environment fields that can materially affect command behavior.
+- `cwd`：用于执行的绝对工作目录。
+- `cwd_identity`：尽力而为的目录身份，例如 resolved path 加 inode/device。
+- `git_head`：最近一层 git 仓库的当前 `HEAD` commit，如果存在。
+- `git_root`：最近一层 git 仓库根目录，如果存在。
+- `env_fingerprint`：对会实质影响命令行为的执行环境字段做稳定 hash。
 
-The first implementation should keep `env_fingerprint` conservative and small. Include only explicit environment overrides passed by the app plus a few stable execution fields such as platform and selected shell executable. Do not hash the entire process environment because volatile values would create noisy approval invalidations.
+第一版应让 `env_fingerprint` 保持保守且较小。只包含应用显式传入的环境覆盖项，以及少量稳定执行字段，例如平台和选定 shell executable。不要 hash 整个进程环境，因为临时变量会制造大量无意义的审批失效。
 
-Staleness policy:
+过期策略：
 
-- If `cwd` or `cwd_identity` changes, require re-approval.
-- If `git_head` changes before a destructive or shell-mode command executes, require re-approval.
-- If `git_head` changes before a low-risk trusted-prefix argv command, allow execution but include the new snapshot in tool metadata.
-- If the app cannot collect a snapshot field, mark it as unavailable rather than failing the command.
+- 如果 `cwd` 或 `cwd_identity` 变化，要求重新审批。
+- 如果破坏性命令或 shell 模式命令执行前 `git_head` 变化，要求重新审批。
+- 如果低风险 trusted-prefix argv 命令执行前 `git_head` 变化，允许执行，但在工具 metadata 中记录新快照。
+- 如果应用无法采集某个快照字段，将其标记为 unavailable，不因此让命令失败。
 
-## Session Trusted Prefixes
+## Session Trusted Prefix
 
-Session trusted prefixes reduce repeated prompts during a single conversation or run session.
+Session trusted prefix 用于减少单个会话或单次运行中的重复确认。
 
-Trust rule shape:
+trust 规则结构：
 
 ```json
 {
@@ -173,25 +173,25 @@ Trust rule shape:
 }
 ```
 
-Rules:
+规则：
 
-- A trust rule can only apply after hard-deny checks pass.
-- A trust rule can only downgrade `require_approval` to `allow`.
-- `argv` mode supports parsed argv prefix matching.
-- `shell` mode first supports only exact-command session trust.
-- Shell segment prefix trust is deferred until the app has a real shell command segment parser.
-- Dangerous prefixes such as `rm`, `sudo`, `curl`, `wget`, `bash`, `sh`, `zsh`, `eval`, `chmod`, and `chown` should not be accepted as session trusted prefixes in the first implementation.
+- trust 规则只能在 hard-deny 检查通过后生效。
+- trust 规则只能把 `require_approval` 降级为 `allow`。
+- `argv` 模式支持基于解析后 argv 的 prefix 匹配。
+- `shell` 模式第一版只支持完全相同命令的 session trust。
+- shell segment prefix trust 延后，直到应用具备真正的 shell 命令段解析器。
+- 第一版不接受 `rm`、`sudo`、`curl`、`wget`、`bash`、`sh`、`zsh`、`eval`、`chmod`、`chown` 等危险 prefix 作为 session trusted prefix。
 
-Examples:
+示例：
 
-- Trusting `["pytest"]` allows `pytest -q` and `pytest backend/tests/test_tools/test_shell_tool.py -q`.
-- Trusting `["npm", "run", "test"]` allows `npm run test -- --watch=false`.
-- Trusting `["rm"]` is rejected.
-- Trusting shell command `rg foo | sed -n '1,40p'` only allows that exact shell command again in the same session.
+- 信任 `["pytest"]` 后，允许 `pytest -q` 和 `pytest backend/tests/test_tools/test_shell_tool.py -q`。
+- 信任 `["npm", "run", "test"]` 后，允许 `npm run test -- --watch=false`。
+- 信任 `["rm"]` 会被拒绝。
+- 信任 shell 命令 `rg foo | sed -n '1,40p'` 后，仅允许同一个 session 中再次执行完全相同的 shell 命令。
 
-## Risk Policy
+## 风险策略
 
-Low-risk argv commands usually execute directly:
+低风险 argv 命令通常直接执行：
 
 - `pwd`
 - `ls`
@@ -200,92 +200,92 @@ Low-risk argv commands usually execute directly:
 - `rg query path`
 - `pytest -q`
 
-Approval-required commands:
+需要审批的命令：
 
-- Shell metacharacters: `|`, `&&`, `||`, `;`, `>`, `>>`, `2>`, `<`, backticks, `$()`.
-- Bounded destructive commands such as `rm file.txt`, `rm -r build/`, `rm -rf .pytest_cache`.
-- Permission or ownership changes such as `chmod` and `chown` when targets are inside the project.
-- Inline code execution such as `python -c`, `node -e`, `ruby -e`, unless later covered by a trusted workflow.
+- shell 元字符：`|`、`&&`、`||`、`;`、`>`、`>>`、`2>`、`<`、反引号、`$()`。
+- 边界明确的破坏性命令，例如 `rm file.txt`、`rm -r build/`、`rm -rf .pytest_cache`。
+- 目标位于项目内的权限或所有权变更，例如 `chmod` 和 `chown`。
+- 内联代码执行，例如 `python -c`、`node -e`、`ruby -e`，除非后续被可信工作流覆盖。
 
-Hard-deny commands:
+hard-deny 命令：
 
 - `rm -rf /`
 - `rm -rf ~`
 - `rm -rf ..`
 - `rm -rf .git`
-- Deleting paths outside the allowed project roots.
-- `sudo`, `su`, and privilege escalation.
-- `curl URL | sh`, `wget URL | bash`, and similar download-and-execute pipelines.
-- `eval` and `exec`.
-- Direct secondary shell launch such as `bash`, `sh`, `zsh`, `fish`, unless later introduced through a dedicated interactive-terminal feature.
-- Disk formatting or raw device writes such as `dd`, `mkfs`, `diskpart`, `format`.
+- 删除允许项目根之外的路径。
+- `sudo`、`su` 和权限提升。
+- `curl URL | sh`、`wget URL | bash` 以及类似下载后执行的管道。
+- `eval` 和 `exec`。
+- 直接启动二级 shell，例如 `bash`、`sh`、`zsh`、`fish`，除非未来通过专门的交互式终端能力引入。
+- 磁盘格式化或原始设备写入，例如 `dd`、`mkfs`、`diskpart`、`format`。
 
-## Shell Risk Tiers
+## Shell 风险等级
 
-Shell mode should not treat every metacharacter command as equally risky. The policy should classify shell commands into tiers before producing the approval prompt.
+shell 模式不应该把所有元字符命令都视为同等风险。策略应在生成审批提示前对 shell 命令做风险分级。
 
-Tier 1: read-only composition.
+Tier 1：只读组合。
 
-Examples:
+示例：
 
 - `rg foo | head`
 - `git status --short && git diff --stat`
 - `cat file.txt | wc -l`
 
-Decision:
+决策：
 
-- `require_approval` for first use.
-- Eligible for exact-command session trust.
-- Future segment-prefix trust can start here after a shell segment parser exists.
+- 首次使用时 `require_approval`。
+- 可使用完全相同命令的 session trust。
+- 未来有 shell segment parser 后，可从这一层开始支持 segment-prefix trust。
 
-Tier 2: local write or workflow composition.
+Tier 2：本地写入或工作流组合。
 
-Examples:
+示例：
 
 - `npm test > /tmp/test.log`
 - `pytest -q && git status --short`
 - `rg foo | tee /tmp/search.log`
 
-Decision:
+决策：
 
-- `require_approval`.
-- Exact-command session trust allowed only when write targets are inside approved temp or project paths.
-- Approval prompt must show detected write targets when they can be inferred.
+- `require_approval`。
+- 只有当写入目标位于批准的临时路径或项目路径内时，才允许完全相同命令的 session trust。
+- 如果能推断写入目标，审批提示必须展示这些目标。
 
-Tier 3: destructive or permission-affecting composition.
+Tier 3：破坏性或影响权限的组合。
 
-Examples:
+示例：
 
 - `find . -name '*.pyc' -delete`
 - `chmod -R u+w generated/`
 - `rm -rf .pytest_cache && pytest -q`
 
-Decision:
+决策：
 
-- `require_approval`, with stronger risk text.
-- No session trust in the first implementation unless the exact command is clearly bounded and non-recursive.
-- Path bounds must be checked when static inference is possible.
+- `require_approval`，并展示更强的风险文案。
+- 第一版不允许 session trust，除非完全相同命令边界清楚且非递归。
+- 当可以静态推断路径时，必须检查路径边界。
 
-Tier 4: hard-deny shell.
+Tier 4：hard-deny shell。
 
-Examples:
+示例：
 
 - `curl https://example.com/install.sh | sh`
 - `wget https://example.com/install.sh -O - | bash`
 - `sudo ...`
 - `eval "$(...)"`
 
-Decision:
+决策：
 
-- `deny`.
-- No approval option.
-- No trust option.
+- `deny`。
+- 不展示审批选项。
+- 不展示 trust 选项。
 
-## Shell Mode
+## Shell 模式
 
-Shell mode is enabled only after approval or exact-command session trust.
+shell 模式只在用户批准或完全相同命令的 session trust 后启用。
 
-On macOS and Linux, shell mode can use:
+macOS 和 Linux 可以使用：
 
 ```python
 asyncio.create_subprocess_shell(
@@ -297,148 +297,148 @@ asyncio.create_subprocess_shell(
 )
 ```
 
-The executable should be platform-aware. On macOS, `/bin/zsh` is a reasonable default. On Linux, prefer `/bin/bash` if present, otherwise `/bin/sh`. On Windows, shell mode should remain disabled until a Windows-specific design is added.
+executable 应按平台选择。macOS 上 `/bin/zsh` 是合理默认值。Linux 上优先使用 `/bin/bash`，不存在时使用 `/bin/sh`。Windows shell 模式在有专门 Windows 安全和体验设计前保持禁用。
 
-The UI must state that shell-mode commands are interpreted by the local shell and cannot be fully path-validated statically.
+UI 必须说明 shell 模式命令会被本地 shell 解释执行，无法完全静态校验路径安全。
 
-Shell risk tier must be included in the approval payload so the UI can distinguish a read-only pipeline from a destructive or download-and-execute command.
+审批 payload 必须包含 shell 风险等级，让 UI 能区分只读管道、破坏性命令和下载后执行命令。
 
-## Components
+## 组件
 
 ### Command Policy
 
-New module:
+新增模块：
 
 - `backend/app/security/command_policy.py`
 
-Responsibilities:
+职责：
 
-- Parse argv commands.
-- Detect shell-mode requirements.
-- Classify shell risk tiers.
-- Detect hard-deny patterns.
-- Produce `CommandDecision`.
-- Suggest safe prefix rules.
-- Attach environment snapshots.
+- 解析 argv 命令。
+- 检测是否需要 shell 模式。
+- 划分 shell 风险等级。
+- 检测 hard-deny 模式。
+- 生成 `CommandDecision`。
+- 建议安全的 prefix 规则。
+- 附加环境快照。
 
 ### Approval Store
 
-New module:
+新增模块：
 
 - `backend/app/security/approval_store.py`
 
-Responsibilities:
+职责：
 
-- Store pending approvals in memory.
-- Store session trusted prefixes in memory.
-- Bind approvals to exact command details.
-- Bind approvals to environment snapshots.
-- Expire approvals when the session ends.
+- 在内存中存储待审批请求。
+- 在内存中存储 session trusted prefix。
+- 绑定审批和具体命令细节。
+- 绑定审批和环境快照。
+- 在 session 结束时让审批过期。
 
 ### Shell Tool
 
-Update:
+更新：
 
 - `backend/app/tools/shell_tool.py`
 
-Responsibilities:
+职责：
 
-- Ask the command policy for a decision.
-- Execute `allow` decisions.
-- Return pending approval payloads for `require_approval`.
-- Refuse `deny` decisions.
-- Execute approved stored decisions.
+- 向命令策略请求决策。
+- 执行 `allow` 决策。
+- 对 `require_approval` 返回待审批 payload。
+- 拒绝 `deny` 决策。
+- 执行已批准的存储决策。
 
-### Runtime and Events
+### Runtime 和事件
 
-Update:
+更新：
 
 - `backend/app/execution/tool_call_executor.py`
-- runtime event adapter and websocket handling as needed
+- runtime event adapter 和 websocket 处理逻辑，按需调整
 
-Responsibilities:
+职责：
 
-- Emit an approval-required event.
-- Pause or surface the tool result without treating it as a normal model-correctable failure.
-- Resume execution after the user approves, or report denial cleanly.
+- 发出 approval-required 事件。
+- 暂停或呈现工具结果，但不把它当作普通可纠错失败。
+- 用户批准后恢复执行，或清晰报告拒绝。
 
-### Frontend
+### 前端
 
-Add a shell approval prompt in the conversation UI.
+在 conversation UI 中增加 shell 审批提示。
 
-The prompt shows:
+提示展示：
 
 - command
 - cwd
 - execution mode
 - reasons
 - risks
-- suggested session trust prefix, when available
+- 可用时展示建议的 session trust prefix
 
-Actions:
+操作：
 
-- Allow once.
-- Trust prefix for this session, when available.
-- Deny.
+- 仅本次允许。
+- 本 session 信任此前缀，可用时展示。
+- 拒绝。
 
-## Testing Strategy
+## 测试策略
 
-Backend tests:
+后端测试：
 
-- Low-risk argv command returns `allow`.
-- Shell metacharacter command returns `require_approval` with `execution_mode="shell"`.
-- Bounded `rm -rf .pytest_cache` returns `require_approval`.
-- `rm -rf /`, `rm -rf ~`, and `rm -rf .git` return `deny`.
-- Trusting `["pytest"]` allows later pytest commands in the same session.
-- Trusting `["rm"]` is rejected.
-- Shell exact-command trust applies only to the same command and cwd.
-- Approval execution uses the stored command, not caller-supplied replacement data.
-- Approval becomes stale when `cwd` identity changes.
-- Destructive or shell-mode approval becomes stale when `git_head` changes.
-- Read-only shell composition is classified below download-and-execute shell composition.
+- 低风险 argv 命令返回 `allow`。
+- shell 元字符命令返回 `require_approval` 且 `execution_mode="shell"`。
+- 边界明确的 `rm -rf .pytest_cache` 返回 `require_approval`。
+- `rm -rf /`、`rm -rf ~` 和 `rm -rf .git` 返回 `deny`。
+- 信任 `["pytest"]` 后，同一 session 中后续 pytest 命令允许执行。
+- 信任 `["rm"]` 会被拒绝。
+- shell 完全相同命令 trust 只适用于同一命令和 cwd。
+- 审批执行使用存储命令，而不是调用方提供的替换数据。
+- `cwd` identity 变化后审批变为 stale。
+- 破坏性或 shell 模式审批在 `git_head` 变化后变为 stale。
+- 只读 shell 组合的风险等级低于下载后执行组合。
 
-Frontend tests:
+前端测试：
 
-- Approval prompt renders command metadata.
-- Allow once calls the approve endpoint.
-- Trust prefix calls the trust endpoint.
-- Deny dismisses and reports denial.
-- Dangerous commands do not show a trust-prefix option.
+- 审批提示渲染命令 metadata。
+- 仅本次允许会调用 approve endpoint。
+- 信任 prefix 会调用 trust endpoint。
+- 拒绝会关闭提示并报告拒绝。
+- 危险命令不展示 trust-prefix 选项。
 
-Integration tests:
+集成测试：
 
-- A command requiring approval emits an approval event.
-- Approval resumes execution and records normal tool output.
-- Denial records a clear user-denied tool result.
+- 需要审批的命令会发出 approval event。
+- 批准后恢复执行并记录正常工具输出。
+- 拒绝后记录清晰的 user-denied 工具结果。
 
-## Rollout Plan
+## 推进计划
 
-Phase 1:
+Phase 1：
 
-- Add decision model.
-- Add pending approval store.
-- Add environment snapshot binding.
-- Support `argv` approval for `rm`, `chmod`, `chown`, and inline code.
-- Support session trusted prefixes for safe argv prefixes.
+- 添加决策模型。
+- 添加 pending approval store。
+- 添加环境快照绑定。
+- 支持 `rm`、`chmod`、`chown` 和 inline code 的 argv 审批。
+- 支持安全 argv prefix 的 session trust。
 
-Phase 2:
+Phase 2：
 
-- Add approval-gated shell mode for metacharacter commands.
-- Add shell risk tiers to policy and approval payloads.
-- Support exact-command session trust for shell mode.
-- Keep hard-deny patterns active before trust evaluation.
+- 添加由审批保护的 shell 模式，用于包含元字符的命令。
+- 将 shell 风险等级加入 policy 和审批 payload。
+- 支持 shell 模式完全相同命令的 session trust。
+- trust 评估前始终保留 hard-deny 检查。
 
-Phase 3:
+Phase 3：
 
-- Add frontend prompt polish and session trust management UI.
-- Add optional project-scoped persistent trust rules after separate design review.
+- 优化前端审批提示和 session trust 管理 UI。
+- 单独设计评审后，再添加可选的项目级持久 trust 规则。
 
-## Open Choices
+## 待定选择
 
-Use session trust only for the active conversation at first. Project-level persistent trust rules should wait until the app has a visible trust-management screen where users can inspect and revoke rules.
+第一版只使用当前 conversation 的 session trust。项目级持久 trust 规则应等到应用有可见的 trust 管理界面后再做，用户需要能查看和撤销规则。
 
-Windows shell mode should remain out of scope until a Windows-specific security and UX design exists.
+Windows shell 模式在有专门 Windows 安全和体验设计前保持在范围外。
 
-Execution sandboxing is an important future safety layer. A later design should evaluate container, chroot, or platform-native sandbox options. This shell approval design remains useful without sandboxing because it improves local desktop authorization, but it does not make arbitrary shell execution fully trusted.
+执行沙箱是重要的后续安全层。后续设计应评估容器、chroot 或平台原生 sandbox 方案。本 shell 审批设计即使没有 sandbox 也有价值，因为它改善了本地桌面授权边界，但它不会让任意 shell 执行变成完全可信。
 
-Task State and planner integration should be designed separately. The approval system should expose enough metadata for a future Task State layer to know when a task is paused for approval, resumed, denied, or invalidated by a stale environment snapshot.
+Task State 和 planner 集成应单独设计。审批系统需要暴露足够 metadata，让未来 Task State 层能知道任务何时因审批暂停、恢复、拒绝，或因环境快照过期而失效。
