@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.models.conversation import ConversationEvent, EventType
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 from app.models.project import Project
 from app.models.session import Session
@@ -300,6 +301,197 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
     cancelled_run = conversation_service.run_repo.get(started.run.id)
     assert cancelled_run is not None
     assert cancelled_run.status.value == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_agent_service_approve_tool_call_emits_decision_and_resuming_events(
+    client_with_services,
+):
+    _, conversation_service = client_with_services
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(Path("/tmp/reflexion")),
+    )
+    conversation_service.append_events(
+        "session-1",
+        [
+            ConversationEvent(
+                id="evt-waiting",
+                session_id="session-1",
+                turn_id=started.turn.id,
+                run_id=started.run.id,
+                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                payload_json={"approval_id": "approval-1"},
+            )
+        ],
+    )
+
+    import app.api.routes.websocket as websocket_route_module
+
+    await websocket_route_module.agent_service.approve_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+
+    events = conversation_service.list_events_after("session-1", 0)
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run is not None
+    assert run.status.value == "resuming"
+    assert [event.event_type for event in events[-2:]] == [
+        EventType.APPROVAL_APPROVED,
+        EventType.RUN_RESUMING,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_agent_service_deny_tool_call_emits_decision_and_resuming_events(
+    client_with_services,
+):
+    _, conversation_service = client_with_services
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(Path("/tmp/reflexion")),
+    )
+    conversation_service.append_events(
+        "session-1",
+        [
+            ConversationEvent(
+                id="evt-waiting",
+                session_id="session-1",
+                turn_id=started.turn.id,
+                run_id=started.run.id,
+                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                payload_json={"approval_id": "approval-1"},
+            )
+        ],
+    )
+
+    import app.api.routes.websocket as websocket_route_module
+
+    await websocket_route_module.agent_service.deny_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id="approval-1",
+    )
+
+    events = conversation_service.list_events_after("session-1", 0)
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run is not None
+    assert run.status.value == "resuming"
+    assert [event.event_type for event in events[-2:]] == [
+        EventType.APPROVAL_DENIED,
+        EventType.RUN_RESUMING,
+    ]
+
+
+def test_session_conversation_websocket_supports_approve_tool_action(client_with_services, monkeypatch):
+    client, _ = client_with_services
+
+    import app.api.routes.websocket as websocket_route_module
+
+    calls = []
+
+    async def approve_tool_call(*, session_id, run_id, approval_id):
+        calls.append(
+            {
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_id": approval_id,
+            }
+        )
+
+    monkeypatch.setattr(
+        websocket_route_module.agent_service,
+        "approve_tool_call",
+        approve_tool_call,
+    )
+
+    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
+        websocket.send_json(
+            {
+                "type": "conversation:approve_tool",
+                "data": {"approval_id": "approval-1", "run_id": "run-1"},
+            }
+        )
+        websocket.send_json({"type": "conversation:unknown", "data": {}})
+        assert websocket.receive_json()["type"] == "conversation:error"
+
+    assert calls == [
+        {
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "approval_id": "approval-1",
+        }
+    ]
+
+
+def test_session_conversation_websocket_supports_deny_tool_action(client_with_services, monkeypatch):
+    client, _ = client_with_services
+
+    import app.api.routes.websocket as websocket_route_module
+
+    calls = []
+
+    async def deny_tool_call(*, session_id, run_id, approval_id):
+        calls.append(
+            {
+                "session_id": session_id,
+                "run_id": run_id,
+                "approval_id": approval_id,
+            }
+        )
+
+    monkeypatch.setattr(
+        websocket_route_module.agent_service,
+        "deny_tool_call",
+        deny_tool_call,
+    )
+
+    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
+        websocket.send_json(
+            {
+                "type": "conversation:deny_tool",
+                "data": {"approval_id": "approval-1", "run_id": "run-1"},
+            }
+        )
+        websocket.send_json({"type": "conversation:unknown", "data": {}})
+        assert websocket.receive_json()["type"] == "conversation:error"
+
+    assert calls == [
+        {
+            "session_id": "session-1",
+            "run_id": "run-1",
+            "approval_id": "approval-1",
+        }
+    ]
+
+
+def test_session_conversation_websocket_rejects_approval_action_without_ids(client_with_services):
+    client, _ = client_with_services
+
+    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
+        websocket.send_json(
+            {
+                "type": "conversation:approve_tool",
+                "data": {"approval_id": "", "run_id": "run-1"},
+            }
+        )
+        message = websocket.receive_json()
+
+    assert message == {
+        "type": "conversation:error",
+        "data": {
+            "code": "invalid_request",
+            "message": "approval_id 不能为空",
+        },
+    }
 
 
 @pytest.mark.asyncio

@@ -161,6 +161,42 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue
 
+            if msg_type in {"conversation:approve_tool", "conversation:deny_tool"}:
+                approval_id = msg_data.get("approval_id")
+                if not isinstance(approval_id, str) or not approval_id:
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="approval_id 不能为空",
+                    )
+                    continue
+
+                run_id = msg_data.get("run_id")
+                if not isinstance(run_id, str) or not run_id:
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="run_id 不能为空",
+                    )
+                    continue
+
+                try:
+                    if msg_type == "conversation:approve_tool":
+                        await agent_service.approve_tool_call(
+                            session_id=session_id,
+                            run_id=run_id,
+                            approval_id=approval_id,
+                        )
+                    else:
+                        await agent_service.deny_tool_call(
+                            session_id=session_id,
+                            run_id=run_id,
+                            approval_id=approval_id,
+                        )
+                except ValueError as exc:
+                    await _send_error(websocket, code="invalid_request", message=str(exc))
+                continue
+
             await _send_error(
                 websocket,
                 code="invalid_request",

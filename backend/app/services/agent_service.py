@@ -471,5 +471,62 @@ class AgentService:
             raise ValueError("运行不存在")
         return cancelled
 
+    async def approve_tool_call(
+        self, *, session_id: str, run_id: str, approval_id: str
+    ) -> None:
+        await self._decide_tool_call_approval(
+            session_id=session_id,
+            run_id=run_id,
+            approval_id=approval_id,
+            approval_event_type=EventType.APPROVAL_APPROVED,
+        )
+
+    async def deny_tool_call(self, *, session_id: str, run_id: str, approval_id: str) -> None:
+        await self._decide_tool_call_approval(
+            session_id=session_id,
+            run_id=run_id,
+            approval_id=approval_id,
+            approval_event_type=EventType.APPROVAL_DENIED,
+        )
+
+    async def _decide_tool_call_approval(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        approval_id: str,
+        approval_event_type: EventType,
+    ) -> None:
+        run = self.conversation_service.run_repo.get(run_id)
+        if run is None:
+            raise ValueError("运行不存在")
+        if run.session_id != session_id:
+            raise ValueError("运行不属于当前会话")
+        if run.status != RunStatus.WAITING_FOR_APPROVAL:
+            raise ValueError("运行未在等待审批")
+
+        events = self.conversation_service.append_events(
+            session_id,
+            [
+                ConversationEvent(
+                    id=f"evt-{uuid4().hex[:8]}",
+                    session_id=session_id,
+                    turn_id=run.turn_id,
+                    run_id=run_id,
+                    event_type=approval_event_type,
+                    payload_json={"approval_id": approval_id},
+                ),
+                ConversationEvent(
+                    id=f"evt-{uuid4().hex[:8]}",
+                    session_id=session_id,
+                    turn_id=run.turn_id,
+                    run_id=run_id,
+                    event_type=EventType.RUN_RESUMING,
+                    payload_json={"approval_id": approval_id},
+                ),
+            ],
+        )
+        await self._broadcast_conversation_events(session_id=session_id, events=events)
+
 
 agent_service = AgentService()

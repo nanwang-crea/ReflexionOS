@@ -77,6 +77,9 @@ class ConversationRuntimeAdapter:
             }
             return self._append_events(self._tool_result_events(failed_data))
 
+        if event_type == "approval:required":
+            return self._append_events(self._approval_required_events(data))
+
         if event_type == "run:error":
             return self._append_events(self._execution_error_events(data))
 
@@ -147,6 +150,7 @@ class ConversationRuntimeAdapter:
                     "payload_json": {
                         "tool_name": data.get("tool_name"),
                         "arguments": data.get("arguments"),
+                        "tool_call_id": data.get("tool_call_id"),
                         "step_number": data.get("step_number"),
                         "status": "running",
                     },
@@ -172,6 +176,8 @@ class ConversationRuntimeAdapter:
             "duration": data.get("duration"),
             "status": "completed",
         }
+        if data.get("tool_call_id") is not None:
+            payload_update["tool_call_id"] = data.get("tool_call_id")
         if data.get("arguments") is not None:
             payload_update["arguments"] = data.get("arguments")
 
@@ -207,6 +213,60 @@ class ConversationRuntimeAdapter:
                     },
                 )
             )
+        return events
+
+    def _approval_required_events(self, data: dict) -> list[ConversationEvent]:
+        tool_key = self._tool_key(data)
+        message_id = self.tool_message_ids.get(tool_key)
+        events: list[ConversationEvent] = []
+        if message_id is None:
+            start_events = self._tool_start_events(data)
+            events.extend(start_events)
+            message_id = start_events[0].message_id
+
+        approval_id = data.get("approval_id")
+        approval_payload = data.get("approval")
+        payload_update = {
+            "tool_name": data.get("tool_name"),
+            "arguments": data.get("arguments"),
+            "tool_call_id": data.get("tool_call_id"),
+            "step_number": data.get("step_number"),
+            "approval_id": approval_id,
+            "approval": approval_payload,
+            "status": "waiting_for_approval",
+        }
+        events.extend(
+            [
+                self._new_event(
+                    event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                    message_id=message_id,
+                    run_id=self.run_id,
+                    payload_json={"payload_json": payload_update},
+                ),
+                self._new_event(
+                    event_type=EventType.APPROVAL_REQUIRED,
+                    message_id=message_id,
+                    run_id=self.run_id,
+                    payload_json={
+                        "approval_id": approval_id,
+                        "tool_call_id": data.get("tool_call_id"),
+                        "tool_name": data.get("tool_name"),
+                        "arguments": data.get("arguments"),
+                        "step_number": data.get("step_number"),
+                        "approval": approval_payload,
+                    },
+                ),
+                self._new_event(
+                    event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                    run_id=self.run_id,
+                    payload_json={
+                        "approval_id": approval_id,
+                        "tool_call_id": data.get("tool_call_id"),
+                        "step_number": data.get("step_number"),
+                    },
+                ),
+            ]
+        )
         return events
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:

@@ -101,6 +101,62 @@ def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     assert traces[0].stream_state == StreamState.COMPLETED
 
 
+def test_maps_approval_required_to_waiting_tool_trace_and_run_event(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {
+            "tool_name": "shell",
+            "arguments": {"cmd": "pytest -q"},
+            "tool_call_id": "call-1",
+            "step_number": 3,
+        },
+    )
+    approval_events = adapter.handle_event(
+        "approval:required",
+        {
+            "tool_name": "shell",
+            "arguments": {"cmd": "pytest -q"},
+            "tool_call_id": "call-1",
+            "approval_id": "approval-1",
+            "step_number": 3,
+            "approval": {
+                "approval_id": "approval-1",
+                "tool_name": "shell",
+                "summary": "Run pytest",
+                "payload": {"cmd": "pytest -q"},
+            },
+        },
+    )
+
+    snapshot = service.get_snapshot("session-1")
+    trace = next(
+        message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE
+    )
+    run = next(run for run in snapshot.runs if run.id == started.run.id)
+
+    assert [event.event_type for event in approval_events] == [
+        EventType.MESSAGE_PAYLOAD_UPDATED,
+        EventType.APPROVAL_REQUIRED,
+        EventType.RUN_WAITING_FOR_APPROVAL,
+    ]
+    assert trace.stream_state == StreamState.IDLE
+    assert trace.payload_json["status"] == "waiting_for_approval"
+    assert trace.payload_json["approval_id"] == "approval-1"
+    assert trace.payload_json["tool_call_id"] == "call-1"
+    assert trace.payload_json["arguments"] == {"cmd": "pytest -q"}
+    assert trace.payload_json["step_number"] == 3
+    assert trace.payload_json["approval"]["summary"] == "Run pytest"
+    assert run.status == RunStatus.WAITING_FOR_APPROVAL
+
+
 def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
