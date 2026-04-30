@@ -35,16 +35,17 @@ export function useConversationData(currentSessionId: string | null) {
       .filter((message): message is ConversationMessage => Boolean(message))
   }, [conversation])
 
-  const activeRun = useMemo(() => {
+  const isRunning = useMemo(() => {
     if (!conversation) {
-      return null
+      return false
     }
-
     const activeRunId = resolveActiveRunId(conversation)
-    return activeRunId ? conversation.runsById[activeRunId] ?? null : null
+    if (!activeRunId) {
+      return false
+    }
+    const run = conversation.runsById[activeRunId]
+    return run?.status === 'running' || run?.status === 'created'
   }, [conversation])
-
-  const isRunning = activeRun?.status === 'running' || activeRun?.status === 'created'
 
   const plan = useConversationStore((state) => {
     if (!currentSessionId) {
@@ -53,11 +54,5 @@ export function useConversationData(currentSessionId: string | null) {
     return state.planBySessionId[currentSessionId] ?? null
   })
 
-  return {
-    conversation,
-    messages,
-    activeRun,
-    isRunning,
-    plan,
-  }
+  return { messages, isRunning, plan }
 }

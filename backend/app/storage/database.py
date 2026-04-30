@@ -179,10 +179,6 @@ class Database:
             raise
         finally:
             session.close()
-    
-    def create_session(self) -> Session:
-        """创建数据库会话"""
-        return self.SessionLocal()
 
 
 # 全局数据库实例

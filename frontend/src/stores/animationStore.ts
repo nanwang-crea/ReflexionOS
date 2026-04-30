@@ -1,16 +1,14 @@
 import { create } from 'zustand'
-import { AnimationConfig, AnimationDuration } from '@/types/animation'
+import type { AnimationConfig } from '@/types/animation'
 
 interface AnimationState extends AnimationConfig {
-  setDuration: (duration: AnimationDuration) => void
   setReducedMotion: (reducedMotion: boolean) => void
 }
 
 export const useAnimationStore = create<AnimationState>((set) => ({
   duration: 'normal',
   reducedMotion: false,
-  
-  setDuration: (duration) => set({ duration }),
+
   setReducedMotion: (reducedMotion) => set({ reducedMotion }),
 }))
 

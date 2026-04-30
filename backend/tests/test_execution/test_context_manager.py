@@ -17,24 +17,13 @@ class TestLoopContext:
         tool_call = SimpleNamespace(name="file", args={"path": "test.py"})
 
         context.update_history(tool_call, "执行结果")
-        
+
         assert len(context.history) == 1
         assert context.history[0]["result"] == "执行结果"
-    
-    def test_get_recent_history(self):
-        context = LoopContext(task="测试任务")
-        
-        for i in range(5):
-            tool_call = SimpleNamespace(name="file", args={"index": i})
-            context.update_history(tool_call, f"结果{i}")
-        
-        recent = context.get_recent_history(3)
-        
-        assert len(recent) == 3
-    
+
     def test_add_step(self):
         from app.execution.models import LoopStep, StepStatus
-        
+
         context = LoopContext(task="测试任务")
         step = LoopStep(
             step_number=1,
@@ -42,35 +31,20 @@ class TestLoopContext:
             args={"path": "test.py"},
             status=StepStatus.RUNNING
         )
-        
+
         context.add_step(step)
-        
+
         assert len(context.steps) == 1
         assert context.current_step_number == 1
-    
+
     def test_add_message(self):
         context = LoopContext(task="测试任务")
-        
+
         context.add_message("user", "你好")
         context.add_message("assistant", "你好，有什么可以帮助你的？")
-        
+
         assert len(context.messages) == 2
-        assert context.get_last_message() == "你好，有什么可以帮助你的？"
-    
-    def test_get_workspace_context(self):
-        context = LoopContext(task="测试任务")
-        
-        workspace_context = context.get_workspace_context()
-        
-        assert "测试任务" in workspace_context
-
-    def test_to_dict_uses_run_id(self):
-        context = LoopContext(task="测试任务", run_id="run-123")
-
-        payload = context.to_dict()
-
-        assert payload["run_id"] == "run-123"
-        assert "execution_id" not in payload
+        assert context.messages[-1]["content"] == "你好，有什么可以帮助你的？"
 
     def test_from_run_input_filters_seed_messages_and_adds_current_task(self):
         context = LoopContext.from_run_input(

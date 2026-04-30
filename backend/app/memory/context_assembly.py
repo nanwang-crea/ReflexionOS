@@ -6,7 +6,6 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.memory.curated_store import CuratedMemoryStore
-from app.models.conversation import Message
 from app.services.conversation_service import ConversationService
 
 

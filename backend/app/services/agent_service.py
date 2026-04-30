@@ -49,7 +49,6 @@ class AgentService:
         session_repo: SessionRepository | None = None,
         conversation_service: ConversationService | None = None,
         llm_provider_service: LLMProviderService | None = None,
-        execution_repo=None,  # backward-compatible arg, no longer used
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}

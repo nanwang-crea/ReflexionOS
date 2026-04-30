@@ -1,4 +1,4 @@
-export type AnimationDuration = 'fast' | 'normal' | 'slow'
+type AnimationDuration = 'fast' | 'normal' | 'slow'
 
 export interface AnimationConfig {
   duration: AnimationDuration

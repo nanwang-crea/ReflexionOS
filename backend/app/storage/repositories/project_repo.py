@@ -62,14 +62,6 @@ class ProjectRepository:
                 return self._to_project(model)
             return None
 
-    def get_by_path(self, path: str) -> Project | None:
-        """根据路径获取项目"""
-        with self.db.get_session() as session:
-            model = session.query(ProjectModel).filter_by(path=path).first()
-            if model:
-                return self._to_project(model)
-            return None
-
     def list_all(self) -> list[Project]:
         """列出所有项目"""
         with self.db.get_session() as session:
@@ -85,9 +77,3 @@ class ProjectRepository:
                 logger.info("删除项目: %s", project_id)
                 return True
             return False
-
-    def exists_by_path(self, path: str) -> bool:
-        """检查路径是否已存在"""
-        with self.db.get_session() as session:
-            model = session.query(ProjectModel).filter_by(path=path).first()
-            return model is not None

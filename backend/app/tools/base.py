@@ -56,11 +56,3 @@ class BaseTool(ABC):
                 "required": []
             }
         }
-    
-    def get_tool_definition(self) -> dict[str, Any]:
-        """
-        获取工具定义（用于 LLM tools 参数）
-        
-        这是统一格式，各 Provider Adapter 负责转换为自己需要的格式
-        """
-        return self.get_schema()

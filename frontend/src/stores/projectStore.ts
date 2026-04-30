@@ -12,7 +12,6 @@ interface ProjectState {
   removeProject: (id: string) => void
   setCurrentProject: (project: Project | null) => void
   setLoading: (loading: boolean) => void
-  setLoaded: (loaded: boolean) => void
 }
 
 export const useProjectStore = create<ProjectState>()(
@@ -45,7 +44,6 @@ export const useProjectStore = create<ProjectState>()(
       setCurrentProject: (project) => set({ currentProject: project }),
 
       setLoading: (loading) => set({ loading }),
-      setLoaded: (loaded) => set({ loaded }),
     }),
     {
       name: 'reflexion-project',

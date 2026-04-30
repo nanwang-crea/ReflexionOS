@@ -9,16 +9,7 @@ from app.models.llm_config import LLMSettings
 class ExecutionSettings(BaseModel):
     """执行配置"""
     max_steps: int = Field(default=50, ge=1, le=200)
-    max_file_size: int = Field(default=10485760)  # 10MB
     max_execution_time: int = Field(default=600)  # 10分钟
-    enable_auto_fix: bool = True
-
-
-class UISettings(BaseModel):
-    """界面配置"""
-    theme: str = "light"
-    auto_scroll: bool = True
-    show_timestamps: bool = True
 
 
 class MemorySettings(BaseModel):
@@ -31,7 +22,6 @@ class AppSettings(BaseModel):
     """应用总配置"""
     llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
-    ui: UISettings = UISettings()
     memory: MemorySettings = MemorySettings()
 
 
@@ -67,21 +57,6 @@ class ConfigManager:
     def update_llm(self, llm_settings: LLMSettings):
         """更新 LLM 配置"""
         self.settings.llm = llm_settings
-        self.save()
-    
-    def update_execution(self, execution_settings: ExecutionSettings):
-        """更新执行配置"""
-        self.settings.execution = execution_settings
-        self.save()
-    
-    def update_ui(self, ui_settings: UISettings):
-        """更新界面配置"""
-        self.settings.ui = ui_settings
-        self.save()
-    
-    def reset(self):
-        """重置为默认配置"""
-        self.settings = AppSettings()
         self.save()
 
 

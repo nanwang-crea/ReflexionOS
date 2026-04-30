@@ -54,7 +54,7 @@ export interface LlmRetryDto {
   message: string
 }
 
-export interface PlanStepDto {
+interface PlanStepDto {
   id: number
   description: string
   status: 'pending' | 'in_progress' | 'completed' | 'blocked'

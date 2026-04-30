@@ -6,9 +6,6 @@ class ConversationEventRepository:
     def __init__(self, db):
         self.db = db
 
-    def append(self, event: ConversationEvent, *, db_session=None) -> ConversationEvent:
-        return self.append_many([event], db_session=db_session)[0]
-
     def append_many(
         self,
         events: list[ConversationEvent],
@@ -52,11 +49,6 @@ class ConversationEventRepository:
         for model in models:
             db_session.refresh(model)
         return [ConversationEvent.model_validate(model) for model in models]
-
-    def get(self, event_id: str) -> ConversationEvent | None:
-        with self.db.get_session() as db_session:
-            model = db_session.query(ConversationEventModel).filter_by(id=event_id).first()
-            return ConversationEvent.model_validate(model) if model else None
 
     def list_after_seq(self, session_id: str, after_seq: int) -> list[ConversationEvent]:
         with self.db.get_session() as db_session:

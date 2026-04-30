@@ -22,13 +22,7 @@ class ToolRegistry:
         """注册工具"""
         self.tools[tool.name] = tool
         logger.info("注册工具: %s", tool.name)
-    
-    def unregister(self, name: str) -> None:
-        """注销工具"""
-        if name in self.tools:
-            del self.tools[name]
-            logger.info("注销工具: %s", name)
-    
+
     def get(self, name: str) -> BaseTool | None:
         """获取工具"""
         return self.tools.get(name)
@@ -74,15 +68,3 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         """列出所有注册的工具名称"""
         return sorted(self.tools.keys())
-
-    def register_if_missing(self, tool: BaseTool) -> bool:
-        """
-        注册工具（若同名工具未注册）。
-
-        Returns:
-            bool: True 表示完成注册；False 表示已存在同名工具，未覆盖。
-        """
-        if tool.name in self.tools:
-            return False
-        self.register(tool)
-        return True

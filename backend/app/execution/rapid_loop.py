@@ -13,7 +13,7 @@ from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
-from app.llm.base import LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.llm.base import LLMResponse, UniversalLLMInterface
 from app.llm.retry import RetryExhaustedError
 from app.tools.registry import ToolRegistry
 

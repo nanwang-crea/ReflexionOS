@@ -1,6 +1,6 @@
-export type ReceiptDetailStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
+type ReceiptDetailStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled'
 export type ActionReceiptStatus = 'running' | 'completed' | 'failed' | 'cancelled'
-export type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
+type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
 
 export interface ActionReceiptDetail {
   id: string

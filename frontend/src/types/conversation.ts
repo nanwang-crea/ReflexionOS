@@ -1,12 +1,12 @@
-export type ConversationTurnStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
+type ConversationTurnStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
 
 export type ConversationRunStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
 
-export type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
+type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
-export type ConversationMessageType = 'user_message' | 'assistant_message' | 'tool_trace' | 'system_notice'
+type ConversationMessageType = 'user_message' | 'assistant_message' | 'tool_trace' | 'system_notice'
 
-export type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
 export interface ConversationSession {
   id: string
@@ -105,7 +105,7 @@ export interface ConversationState {
   messagesById: Record<string, ConversationMessage>
 }
 
-export interface PlanStep {
+interface PlanStep {
   id: number
   description: string
   status: 'pending' | 'in_progress' | 'completed' | 'blocked'

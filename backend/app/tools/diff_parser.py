@@ -102,26 +102,6 @@ class DiffParser:
                 return path if path else None
         
         return None
-    
-    def extract_old_file_path(self, diff_text: str) -> str | None:
-        """
-        从 Diff 中提取原文件路径
-        
-        Args:
-            diff_text: Unified Diff 文本
-            
-        Returns:
-            Optional[str]: 原文件路径
-        """
-        lines = diff_text.split('\n')
-        
-        for line in lines:
-            # 查找 --- a/path/to/file
-            if line.startswith('--- '):
-                path = self._normalize_file_path(line[4:].strip())
-                return path if path else None
-        
-        return None
 
     def _normalize_file_path(self, path: str) -> str:
         """规范化 diff 文件路径"""

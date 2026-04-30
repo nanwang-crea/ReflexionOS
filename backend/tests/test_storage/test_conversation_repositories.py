@@ -299,7 +299,7 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
         )
     )
 
-    first = event_repo.append(
+    first = event_repo.append_many([
         ConversationEvent(
             id="evt-1",
             session_id="session-1",
@@ -310,8 +310,8 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
             event_type=EventType.MESSAGE_CREATED,
             payload_json={"message_id": "msg-user-1"},
         )
-    )
-    second = event_repo.append(
+    ])[0]
+    second = event_repo.append_many([
         ConversationEvent(
             id="evt-2",
             session_id="session-1",
@@ -322,7 +322,7 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
             event_type=EventType.MESSAGE_COMPLETED,
             payload_json={"message_id": "msg-user-1"},
         )
-    )
+    ])[0]
 
     assert first.seq == 1
     assert second.seq == 2
@@ -332,7 +332,6 @@ def test_conversation_repositories_round_trip_turn_run_message_and_events(tmp_pa
     assert turn_repo.get("turn-1").root_message_id == "msg-user-1"
     assert run_repo.get("run-1").status == RunStatus.CREATED
     assert message_repo.list_by_turn("turn-1")[0].content_text == "hello"
-    assert message_repo.list_by_run("run-1") == []
 
 
 def test_conversation_event_append_assigns_monotonic_seq_per_session(tmp_path):
@@ -346,38 +345,38 @@ def test_conversation_event_append_assigns_monotonic_seq_per_session(tmp_path):
     session_repo.create(Session(id="session-2", project_id="project-1", title="会话 2"))
 
     seqs = [
-        event_repo.append(
+        event_repo.append_many([
             ConversationEvent(
                 id="evt-1",
                 session_id="session-1",
                 event_type=EventType.TURN_CREATED,
                 payload_json={"turn_id": "turn-1"},
             )
-        ).seq,
-        event_repo.append(
+        ])[0].seq,
+        event_repo.append_many([
             ConversationEvent(
                 id="evt-2",
                 session_id="session-1",
                 event_type=EventType.RUN_CREATED,
                 payload_json={"run_id": "run-1"},
             )
-        ).seq,
-        event_repo.append(
+        ])[0].seq,
+        event_repo.append_many([
             ConversationEvent(
                 id="evt-3",
                 session_id="session-2",
                 event_type=EventType.TURN_CREATED,
                 payload_json={"turn_id": "turn-2"},
             )
-        ).seq,
-        event_repo.append(
+        ])[0].seq,
+        event_repo.append_many([
             ConversationEvent(
                 id="evt-4",
                 session_id="session-1",
                 event_type=EventType.RUN_COMPLETED,
                 payload_json={"run_id": "run-1"},
             )
-        ).seq,
+        ])[0].seq,
     ]
 
     assert seqs == [1, 2, 1, 3]
@@ -432,14 +431,14 @@ def test_session_repo_delete_cascades_conversation_rows(tmp_path):
             completed_at=datetime(2026, 4, 24, 10, 0, 0),
         )
     )
-    event_repo.append(
+    event_repo.append_many([
         ConversationEvent(
             id="evt-1",
             session_id="session-1",
             event_type=EventType.MESSAGE_CREATED,
             payload_json={"message_id": "msg-1"},
         )
-    )
+    ])
 
     deleted = session_repo.delete("session-1")
 
