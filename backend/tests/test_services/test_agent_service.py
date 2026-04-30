@@ -148,6 +148,56 @@ async def test_start_turn_creates_turn_run_and_tracks_running_task(monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(monkeypatch, tmp_path):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    db = Database(str(tmp_path / "agent-service-broadcaster.db"))
+    project_repo = ProjectRepository(db)
+    session_repo = SessionRepository(db)
+    project_repo.save(project)
+    session_repo.create(session)
+    conversation_service = ConversationService(db=db)
+    provider_service = LLMProviderService(config_manager=DummyConfigManager(settings))
+    sent_events = []
+
+    class RecordingBroadcaster:
+        async def send_event(self, session_id, event_type, data):
+            sent_events.append((session_id, event_type, data))
+
+    service = agent_service_module.AgentService(
+        project_repo=project_repo,
+        session_repo=session_repo,
+        conversation_service=conversation_service,
+        llm_provider_service=provider_service,
+        conversation_broadcaster=RecordingBroadcaster(),
+    )
+    monkeypatch.setattr(service, "schedule_turn", lambda **kwargs: None)
+
+    await service.start_turn(
+        project_id="project-1",
+        session_id="session-1",
+        content="请检查仓库",
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    persisted_events = conversation_service.list_events_after("session-1", 0)
+    assert [event_type for _, event_type, _ in sent_events] == [
+        "conversation.event" for _ in persisted_events
+    ]
+    assert {session_id for session_id, _, _ in sent_events} == {"session-1"}
+    assert [data["seq"] for _, _, data in sent_events] == [
+        event.seq for event in persisted_events
+    ]
+
+
+@pytest.mark.asyncio
 async def test_start_turn_rejects_session_from_another_project(monkeypatch, tmp_path):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-2", project_id="project-2", title="跨项目会话")
@@ -311,7 +361,7 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
                 "stream_state": "streaming",
             }
 
-    class StubWsManager:
+    class StubBroadcaster:
         async def send_event(self, session_id, event_type, data):
             identifier = data.get("id") or data.get("message_id")
             call_order.append(("broadcast", event_type, identifier))
@@ -326,9 +376,9 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
             return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
     monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
-    monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
     monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object())
+    service.conversation_broadcaster = StubBroadcaster()
 
     await service._run_turn(
         run_id="run-1",
@@ -592,7 +642,7 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
         workspace_ref=str(project_root),
     )
 
-    class StubWsManager:
+    class StubBroadcaster:
         async def send_event(self, session_id, event_type, data):
             return None
 
@@ -608,9 +658,9 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
         async def complete(self, messages, tools=None):
             return SimpleNamespace(content="当前目标: 继续实现\n已确认事实: a\n未解决点: b\n下一步建议: c")
 
-    monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
     monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
+    service.conversation_broadcaster = StubBroadcaster()
 
     await service._run_turn(
         run_id=started.run.id,
@@ -668,7 +718,7 @@ async def test_run_turn_skips_continuation_after_cancelled_execution(monkeypatch
         workspace_ref=str(project_root),
     )
 
-    class StubWsManager:
+    class StubBroadcaster:
         async def send_event(self, session_id, event_type, data):
             return None
 
@@ -690,10 +740,10 @@ async def test_run_turn_skips_continuation_after_cancelled_execution(monkeypatch
 
     continuation_mock = AsyncMock()
 
-    monkeypatch.setattr(agent_service_module, "ws_manager", StubWsManager())
     monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
     monkeypatch.setattr(agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: StubLLM())
     monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", continuation_mock)
+    service.conversation_broadcaster = StubBroadcaster()
 
     await service._run_turn(
         run_id=started.run.id,

@@ -4,7 +4,6 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
-from app.api.websocket import ws_manager
 from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
@@ -29,6 +28,10 @@ from app.tools.registry import ToolRegistry
 from app.tools.shell_tool import ShellTool
 
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
+from .conversation_broadcaster import (
+    ConversationBroadcaster,
+    conversation_broadcaster as default_conversation_broadcaster,
+)
 from .conversation_service import ConversationService, conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService, llm_provider_service as default_llm_provider_service
 
@@ -49,6 +52,7 @@ class AgentService:
         session_repo: SessionRepository | None = None,
         conversation_service: ConversationService | None = None,
         llm_provider_service: LLMProviderService | None = None,
+        conversation_broadcaster: ConversationBroadcaster | None = None,
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
@@ -57,6 +61,7 @@ class AgentService:
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
         self.llm_provider_service = llm_provider_service or default_llm_provider_service
+        self.conversation_broadcaster = conversation_broadcaster or default_conversation_broadcaster
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
@@ -178,7 +183,7 @@ class AgentService:
         events: list[ConversationEvent],
     ) -> None:
         for event in events:
-            await ws_manager.send_event(
+            await self.conversation_broadcaster.send_event(
                 session_id,
                 "conversation.event",
                 event.model_dump(mode="json"),
@@ -190,7 +195,7 @@ class AgentService:
         session_id: str,
         data: dict,
     ) -> None:
-        await ws_manager.send_event(
+        await self.conversation_broadcaster.send_event(
             session_id,
             "conversation.live_event",
             data,
@@ -255,7 +260,7 @@ class AgentService:
                 delay,
                 exc,
             )
-            await ws_manager.send_event(
+            await self.conversation_broadcaster.send_event(
                 session_id,
                 "llm:retry",
                 {
@@ -292,7 +297,7 @@ class AgentService:
         async def event_callback(event_type: str, data: dict):
             if event_type == "plan:updated":
                 # Plan state is ephemeral per-run, only broadcast to frontend
-                await ws_manager.send_event(session_id, "plan.updated", data)
+                await self.conversation_broadcaster.send_event(session_id, "plan.updated", data)
             else:
                 await persist_and_broadcast(event_type, data)
 

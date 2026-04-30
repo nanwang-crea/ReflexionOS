@@ -74,7 +74,7 @@ def client_with_services(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_service, "schedule_turn", lambda **kwargs: None)
 
     import app.api.routes.websocket as websocket_route_module
-    import app.api.websocket as websocket_module
+    import app.api.websocket_manager as websocket_module
 
     websocket_module.ws_manager.active_connections.clear()
     monkeypatch.setattr(websocket_route_module, "conversation_service", conversation_service)
@@ -133,7 +133,7 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(agent_service, "schedule_turn", lambda **kwargs: None)
 
     import app.api.routes.websocket as websocket_route_module
-    import app.api.websocket as websocket_module
+    import app.api.websocket_manager as websocket_module
 
     websocket_module.ws_manager.active_connections.clear()
     monkeypatch.setattr(websocket_route_module, "conversation_service", conversation_service)
