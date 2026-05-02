@@ -80,6 +80,9 @@ class ConversationRuntimeAdapter:
         if event_type == "approval:required":
             return self._append_events(self._approval_required_events(data))
 
+        if event_type == "run:resuming":
+            return self._append_events(self._run_resuming_events(data))
+
         if event_type == "run:error":
             return self._append_events(self._execution_error_events(data))
 
@@ -268,6 +271,18 @@ class ConversationRuntimeAdapter:
             ]
         )
         return events
+
+    def _run_resuming_events(self, data: dict) -> list[ConversationEvent]:
+        return [
+            self._new_event(
+                event_type=EventType.RUN_RESUMING,
+                run_id=self.run_id,
+                payload_json={
+                    "approval_id": data.get("approval_id"),
+                    "execution_success": data.get("execution_success"),
+                },
+            ),
+        ]
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
