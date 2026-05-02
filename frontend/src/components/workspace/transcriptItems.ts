@@ -87,9 +87,29 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
     typeof message.runId === 'string' &&
     typeof payload.approval_id === 'string'
   ) {
+    const approvalObj = payload.approval as Record<string, unknown> | undefined
+    const approvalPayload = approvalObj?.payload as Record<string, unknown> | undefined
+    const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
+
     detail.approval = {
       runId: message.runId,
       approvalId: payload.approval_id,
+      ...(hasShellPayload
+        ? {
+            shell: {
+              command: approvalPayload.command as string,
+              ...(typeof approvalPayload.execution_mode === 'string'
+                ? { execution_mode: approvalPayload.execution_mode }
+                : {}),
+              ...(Array.isArray(approvalObj?.reasons)
+                ? { reasons: (approvalObj!.reasons as string[]).filter((r): r is string => typeof r === 'string') }
+                : {}),
+              ...(Array.isArray(approvalObj?.risks)
+                ? { risks: (approvalObj!.risks as string[]).filter((r): r is string => typeof r === 'string') }
+                : {}),
+            },
+          }
+        : {}),
     }
   }
 

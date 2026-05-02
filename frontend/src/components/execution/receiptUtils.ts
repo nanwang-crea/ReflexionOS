@@ -2,6 +2,13 @@ type ReceiptDetailStatus = 'pending' | 'running' | 'waiting_for_approval' | 'suc
 export type ActionReceiptStatus = 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancelled'
 type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
 
+export interface ShellApprovalPayload {
+  command?: string
+  execution_mode?: string
+  reasons?: string[]
+  risks?: string[]
+}
+
 export interface ActionReceiptDetail {
   id: string
   toolName: string
@@ -11,6 +18,7 @@ export interface ActionReceiptDetail {
   approval?: {
     runId: string
     approvalId: string
+    shell?: ShellApprovalPayload
   }
   output?: string
   error?: string

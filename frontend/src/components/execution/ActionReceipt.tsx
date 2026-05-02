@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, Check, ChevronRight, Clock3, Loader2, X } from 'lucide-react'
-import { type ActionReceiptDetail, type ActionReceiptStatus, summarizeReceipt } from './receiptUtils'
+import { AlertCircle, Check, ChevronRight, Clock3, Loader2, Terminal, X } from 'lucide-react'
+import { type ActionReceiptDetail, type ActionReceiptStatus, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
 
 export type ApprovalActionType = 'approve' | 'deny'
 
@@ -33,6 +33,32 @@ function hasApproval(detail: ActionReceiptDetail): detail is ActionReceiptDetail
 
 function trimOutput(value: string, maxLength = 800) {
   return value.length > maxLength ? `${value.slice(0, maxLength)}\n...` : value
+}
+
+function ShellApprovalDetail({ shell }: { shell: ShellApprovalPayload }) {
+  return (
+    <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+        <Terminal className="h-3.5 w-3.5" />
+        <span className="font-mono">{shell.command}</span>
+      </div>
+      {shell.execution_mode && (
+        <div className="text-xs text-slate-500">
+          模式: <span className="font-mono">{shell.execution_mode}</span>
+        </div>
+      )}
+      {shell.reasons && shell.reasons.length > 0 && (
+        <div className="text-xs text-slate-600">
+          <span className="font-medium">原因:</span> {shell.reasons.join('；')}
+        </div>
+      )}
+      {shell.risks && shell.risks.length > 0 && (
+        <div className="text-xs text-amber-700">
+          <span className="font-medium">风险:</span> {shell.risks.join('；')}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function ActionReceipt({ status, details, onApprovalAction }: ActionReceiptProps) {
@@ -148,6 +174,10 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
                     <pre className="mt-2 overflow-auto rounded-xl bg-red-50 px-3 py-2 text-xs leading-6 text-red-600 whitespace-pre-wrap">
                       {trimOutput(detail.error)}
                     </pre>
+                  )}
+
+                  {detail.approval?.shell && (
+                    <ShellApprovalDetail shell={detail.approval.shell} />
                   )}
                 </div>
               ))}
