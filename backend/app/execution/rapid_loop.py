@@ -72,6 +72,8 @@ class RapidExecutionLoop:
             tool_registry=self.tool_registry,
             emit=self._emit,
         )
+        self._approval_resume_event: asyncio.Event | None = None
+        self._approval_result: dict | None = None
 
         # 状态追踪
         self.has_executed_tools = False
@@ -84,6 +86,17 @@ class RapidExecutionLoop:
                 await self.event_callback(event_type, data)
             except Exception as e:
                 logger.error("事件回调失败: %s", e)
+
+    def get_approval_resume_event(self) -> asyncio.Event:
+        if self._approval_resume_event is None:
+            self._approval_resume_event = asyncio.Event()
+        return self._approval_resume_event
+
+    def set_approval_result(self, result: dict | None) -> None:
+        self._approval_result = result
+        event = self._approval_resume_event
+        if event is not None:
+            event.set()
 
     async def run(
         self,
@@ -176,8 +189,49 @@ class RapidExecutionLoop:
                         if step.status == StepStatus.WAITING_FOR_APPROVAL:
                             loop_result.status = LoopStatus.WAITING_FOR_APPROVAL
                             loop_result.result = step.output
-                            state = LoopPhase.DONE
-                            break
+                            await self._emit(
+                                "run:waiting_for_approval",
+                                {
+                                    "run_id": loop_result.id,
+                                    "approval_id": step.approval_id,
+                                    "step_number": step.step_number,
+                                    "tool_name": step.tool,
+                                },
+                            )
+                            resume_event = self.get_approval_resume_event()
+                            await resume_event.wait()
+                            approval_result = self._approval_result
+                            self._approval_result = None
+                            self._approval_resume_event = asyncio.Event()
+                            if approval_result is not None:
+                                loop_result.status = LoopStatus.RESUMING
+                                tool_output = approval_result.get("output") or approval_result.get("error") or ""
+                                context.add_message(
+                                    "tool",
+                                    content=tool_output,
+                                    tool_call_id=step.tool_call_id,
+                                )
+                                context.update_history(step, tool_output)
+                                step.status = StepStatus.SUCCESS if approval_result.get("success") else StepStatus.FAILED
+                                step.output = approval_result.get("output")
+                                step.error = approval_result.get("error")
+                                await self._emit(
+                                    "run:resuming",
+                                    {
+                                        "run_id": loop_result.id,
+                                        "approval_id": step.approval_id,
+                                        "execution_success": approval_result.get("success"),
+                                    },
+                                )
+                                state = LoopPhase.PLANNING
+                                self.has_executed_tools = True
+                            else:
+                                step.status = StepStatus.FAILED
+                                step.error = "审批被拒绝"
+                                loop_result.status = LoopStatus.CANCELLED
+                                loop_result.result = "审批被拒绝"
+                                state = LoopPhase.DONE
+                            continue
 
                         if step.status == StepStatus.FAILED:
                             self.consecutive_failures += 1

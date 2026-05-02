@@ -376,16 +376,26 @@ class TestRapidExecutionLoop:
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run("执行需要审批的工具")
+        async def deny_later():
+            await asyncio.sleep(0.1)
+            execution_loop.set_approval_result(None)
 
-        assert result.status == LoopStatus.WAITING_FOR_APPROVAL
+        result, _ = await asyncio.gather(
+            execution_loop.run("执行需要审批的工具"),
+            deny_later(),
+        )
+
+        assert result.status == LoopStatus.CANCELLED
+        assert result.result == "审批被拒绝"
         waiting_step = result.steps[-1]
-        assert waiting_step.status == StepStatus.WAITING_FOR_APPROVAL
+        assert waiting_step.status == StepStatus.FAILED
+        assert waiting_step.error == "审批被拒绝"
         assert waiting_step.tool_call_id == tool_call.id
         assert waiting_step.approval_id == "approval-1"
 
         event_types = [event["type"] for event in events]
         assert "approval:required" in event_types
+        assert "run:waiting_for_approval" in event_types
         assert "tool:error" not in event_types
         assert "run:complete" not in event_types
         assert len(captured_calls) == 1
@@ -798,18 +808,26 @@ class TestRapidExecutionLoop:
                 ):
                     yield chunk
 
-            mock_llm.stream_complete = mock_stream
+        mock_llm.stream_complete = mock_stream
 
-            result = await execution_loop.run("测试管道命令", project_path=root_dir)
+        async def deny_later():
+            await asyncio.sleep(0.1)
+            execution_loop.set_approval_result(None)
 
-            assert result.status == LoopStatus.WAITING_FOR_APPROVAL
-            waiting_step = result.steps[-1]
-            assert waiting_step.status == StepStatus.WAITING_FOR_APPROVAL
-            assert waiting_step.tool == "shell"
+        result, _ = await asyncio.gather(
+            execution_loop.run("测试管道命令", project_path=root_dir),
+            deny_later(),
+        )
 
-            event_types = [event["type"] for event in events]
-            assert "approval:required" in event_types
-            assert "run:complete" not in event_types
+        assert result.status == LoopStatus.CANCELLED
+        assert result.result == "审批被拒绝"
+        waiting_step = result.steps[-1]
+        assert waiting_step.status == StepStatus.FAILED
+        assert waiting_step.tool == "shell"
+
+        event_types = [event["type"] for event in events]
+        assert "approval:required" in event_types
+        assert "run:complete" not in event_types
 
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
