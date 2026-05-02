@@ -759,6 +759,59 @@ class TestRapidExecutionLoop:
         }
 
     @pytest.mark.asyncio
+    async def test_shell_pipe_command_triggers_approval_through_loop(self, mock_llm):
+        """Shell tool with pipe command should trigger approval flow through the loop."""
+        import os
+        import tempfile
+
+        from app.security.path_security import PathSecurity
+        from app.security.shell_security import ShellSecurity
+        from app.tools.shell_tool import ShellTool
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = os.path.realpath(tmpdir)
+            path_security = PathSecurity([root_dir], base_dir=root_dir)
+            shell_tool = ShellTool(ShellSecurity(), path_security)
+
+            registry = ToolRegistry()
+            registry.register(shell_tool)
+
+            events = []
+
+            async def callback(event_type, data):
+                events.append({"type": event_type, "data": data})
+
+            execution_loop = RapidExecutionLoop(
+                llm=mock_llm,
+                tool_registry=registry,
+                max_steps=3,
+                event_callback=callback,
+            )
+
+            tool_call = LLMToolCall(name="shell", arguments={"command": "echo hello | wc -c"})
+
+            async def mock_stream(messages, tools=None):
+                async for chunk in self._stream_response(
+                    content="执行管道命令",
+                    tool_calls=[tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+
+            mock_llm.stream_complete = mock_stream
+
+            result = await execution_loop.run("测试管道命令", project_path=root_dir)
+
+            assert result.status == LoopStatus.WAITING_FOR_APPROVAL
+            waiting_step = result.steps[-1]
+            assert waiting_step.status == StepStatus.WAITING_FOR_APPROVAL
+            assert waiting_step.tool == "shell"
+
+            event_types = [event["type"] for event in events]
+            assert "approval:required" in event_types
+            assert "run:complete" not in event_types
+
+    @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
         """测试工具失败恢复"""
 
