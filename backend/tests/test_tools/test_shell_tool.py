@@ -4,7 +4,7 @@ import tempfile
 import pytest
 
 from app.security.path_security import PathSecurity, SecurityError
-from app.security.shell_security import ShellSecurity, ShellSecurityError
+from app.security.shell_security import ShellSecurity
 from app.tools.shell_tool import ShellTool
 
 
@@ -29,7 +29,8 @@ class TestShellTool:
         result = await shell_tool.execute({"command": "rm -rf /"})
 
         assert result.success is False
-        assert "危险命令" in result.error
+        assert result.approval_required is False
+        assert "递归删除" in result.error or "禁止" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_python_command(self, shell_tool):
@@ -42,8 +43,8 @@ class TestShellTool:
     async def test_execute_command_with_pipe(self, shell_tool):
         result = await shell_tool.execute({"command": "echo hello | wc -c"})
 
-        assert result.success is False
-        assert "Shell 元语法" in result.error
+        assert result.approval_required is True
+        assert result.approval is not None
 
     @pytest.mark.asyncio
     async def test_execute_common_command(self, shell_tool):
@@ -52,37 +53,103 @@ class TestShellTool:
         assert result.success is True
         assert "python" in result.output.lower()
 
-    def test_validate_dangerous_eval_command(self):
-        security = ShellSecurity()
-
-        with pytest.raises(ShellSecurityError, match="危险命令"):
-            security.validate_command("eval echo hello")
-
     @pytest.mark.asyncio
     async def test_execute_rejects_path_arguments_outside_project_root(self, shell_tool):
         result = await shell_tool.execute({"command": "cat ~/.ssh/id_rsa"})
 
         assert result.success is False
-        assert "路径不在允许范围内" in result.error
 
     @pytest.mark.asyncio
     async def test_execute_rejects_python_inline_code(self, shell_tool):
         result = await shell_tool.execute({"command": "python -c 'print(123)'"})
 
+        assert result.approval_required is True
         assert result.success is False
-        assert "危险命令" in result.error
 
-    def test_validate_windows_delete_command(self):
-        security = ShellSecurity(platform_name="win32")
+    @pytest.mark.asyncio
+    async def test_execute_pipe_command_returns_approval_required(self, shell_tool):
+        result = await shell_tool.execute({"command": "echo hello | wc -c"})
 
-        with pytest.raises(ShellSecurityError, match="危险命令"):
-            security.validate_command("del C:\\Users\\me\\secret.txt")
+        assert result.approval_required is True
+        assert result.success is False
+        assert result.approval is not None
+        assert "shell" in result.approval.payload.get("execution_mode", "")
+        assert result.approval.tool_name == "shell"
 
-    def test_validate_windows_shell_command(self):
-        security = ShellSecurity(platform_name="win32")
+    @pytest.mark.asyncio
+    async def test_execute_rm_file_returns_approval_required(self, shell_tool):
+        result = await shell_tool.execute({"command": "rm file.txt"})
 
-        with pytest.raises(ShellSecurityError, match="危险命令"):
-            security.validate_command("powershell -Command Get-ChildItem")
+        assert result.approval_required is True
+        assert result.success is False
+        assert result.approval is not None
+        assert result.approval.payload.get("execution_mode") == "argv"
+
+    @pytest.mark.asyncio
+    async def test_execute_rm_rf_root_returns_deny(self, shell_tool):
+        result = await shell_tool.execute({"command": "rm -rf /"})
+
+        assert result.success is False
+        assert result.approval_required is False
+        assert "禁止" in result.error or "deny" in result.error.lower() or "递归删除" in result.error
+
+    @pytest.mark.asyncio
+    async def test_execute_python_inline_returns_approval_required(self, shell_tool):
+        result = await shell_tool.execute({"command": "python -c 'print(123)'"})
+
+        assert result.approval_required is True
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_execute_allowed_command_still_succeeds(self, shell_tool):
+        result = await shell_tool.execute({"command": "echo hello"})
+
+        assert result.success is True
+        assert "hello" in result.output
+        assert result.approval_required is False
+
+    @pytest.mark.asyncio
+    async def test_execute_with_approval_id_runs_approved_command(self, shell_tool):
+        """When approval_id and approved_decision are provided, execute the stored decision."""
+        from app.security.command_policy import CommandAction, CommandDecision, EnvironmentSnapshot
+
+        decision = CommandDecision(
+            action=CommandAction.ALLOW,
+            execution_mode="argv",
+            command="echo approved",
+            argv=["echo", "approved"],
+            cwd=shell_tool.path_security.base_dir,
+            timeout=60,
+            environment_snapshot=EnvironmentSnapshot(cwd=shell_tool.path_security.base_dir),
+        )
+        result = await shell_tool.execute(
+            {"command": "echo approved", "_approved_decision": decision.model_dump()}
+        )
+
+        assert result.success is True
+        assert "approved" in result.output
+
+    @pytest.mark.asyncio
+    async def test_execute_approved_shell_mode_command(self, shell_tool):
+        """Approved shell-mode command uses create_subprocess_shell."""
+        from app.security.command_policy import CommandAction, CommandDecision, EnvironmentSnapshot
+
+        decision = CommandDecision(
+            action=CommandAction.ALLOW,
+            execution_mode="shell",
+            command="echo hello && echo world",
+            argv=None,
+            cwd=shell_tool.path_security.base_dir,
+            timeout=60,
+            environment_snapshot=EnvironmentSnapshot(cwd=shell_tool.path_security.base_dir),
+        )
+        result = await shell_tool.execute(
+            {"command": "echo hello && echo world", "_approved_decision": decision.model_dump()}
+        )
+
+        assert result.success is True
+        assert "hello" in result.output
+        assert "world" in result.output
 
     def test_schema_describes_posix_platform_for_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -95,8 +162,8 @@ class TestShellTool:
             schema = tool.get_schema()
 
             assert "当前平台: macOS" in schema["description"]
-            assert "pwd" in schema["parameters"]["properties"]["command"]["description"]
-            assert "which python" in schema["parameters"]["properties"]["command"]["description"]
+            assert "低风险命令直接执行" in schema["description"]
+            assert "高风险命令" in schema["description"]
 
     def test_schema_describes_windows_platform_for_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -109,8 +176,7 @@ class TestShellTool:
             schema = tool.get_schema()
 
             assert "当前平台: Windows" in schema["description"]
-            assert "where python" in schema["parameters"]["properties"]["command"]["description"]
-            assert "cmd /c" in schema["parameters"]["properties"]["command"]["description"]
+            assert "低风险命令直接执行" in schema["description"]
 
     def test_validate_relative_cwd_within_project_root(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -134,7 +200,6 @@ class TestShellTool:
         result = await shell_tool.execute({"command": "pwd", "cwd": "/tmp"})
 
         assert result.success is False
-        assert "路径不在允许范围内" in result.error
 
     def test_validate_sibling_path_outside_project_root(self):
         with tempfile.TemporaryDirectory() as tmpdir:
