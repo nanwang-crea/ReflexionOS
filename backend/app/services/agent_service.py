@@ -561,10 +561,15 @@ class AgentService:
                 self.pending_approval_store.approve(approval_id)
                 trace_status = "approved"
                 terminal_event_type = EventType.RUN_COMPLETED
+
+                execution_result = await self._execute_approved_tool(pending)
+
                 terminal_payload = {
                     "finished_at": datetime.now().isoformat(),
-                    "result": "approval_recorded_resume_not_implemented",
-                    "notice": "审批已通过；当前版本尚未实现同运行恢复，已结束本次执行。",
+                    "result": "approval_executed",
+                    "execution_success": execution_result.success,
+                    "execution_output": execution_result.output,
+                    "execution_error": execution_result.error,
                 }
             else:
                 self.pending_approval_store.deny(approval_id)
@@ -620,6 +625,44 @@ class AgentService:
             )
             events = self.conversation_service._append_events_locked(session_id, events_to_append)
         await self._broadcast_conversation_events(session_id=session_id, events=events)
+
+    async def _execute_approved_tool(
+        self, pending
+    ) -> "ToolResult":
+        """Execute a previously approved tool call using the stored decision.
+
+        Generic: uses pending.tool_name to find the right tool.
+        Any tool that returns approval_required must accept _approved_decision
+        in its args dict and execute the stored decision instead of re-evaluating.
+        """
+        from app.tools.base import ToolResult
+
+        approved_decision_data = pending.approval_payload.get("approved_decision")
+        if not approved_decision_data:
+            return ToolResult(
+                success=False,
+                error="审批缺少存储的决策数据，无法执行",
+            )
+
+        project_path = approved_decision_data.get("cwd") if isinstance(approved_decision_data, dict) else None
+        tool_registry = self._build_run_tool_registry(project_path)
+
+        tool = tool_registry.get(pending.tool_name)
+        if tool is None:
+            return ToolResult(
+                success=False,
+                error=f"工具 {pending.tool_name} 不可用",
+            )
+
+        try:
+            result = await tool.execute({
+                **pending.tool_arguments,
+                "_approved_decision": approved_decision_data,
+            })
+            return result
+        except Exception as exc:
+            logger.exception("审批工具执行失败: approval_id=%s tool=%s", pending.id, pending.tool_name)
+            return ToolResult(success=False, error=str(exc))
 
     def _find_pending_approval_trace_message(
         self, *, run_id: str, approval_id: str

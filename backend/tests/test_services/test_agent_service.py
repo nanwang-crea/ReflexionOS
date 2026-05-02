@@ -1341,3 +1341,142 @@ async def test_cancel_run_fallback_adapter_closes_existing_open_messages(monkeyp
         message.stream_state not in {StreamState.IDLE, StreamState.STREAMING}
         for message in related_messages
     )
+
+
+@pytest.mark.asyncio
+async def test_approve_tool_call_executes_stored_shell_command_and_resumes_run(
+    monkeypatch, tmp_path
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="运行测试",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    approved_decision = {
+        "action": "allow",
+        "execution_mode": "argv",
+        "command": "echo hello",
+        "argv": ["echo", "hello"],
+        "cwd": str(tmp_path),
+        "timeout": 60,
+        "reasons": [],
+        "risks": [],
+        "approval_kind": "argv_approval",
+        "environment_snapshot": {"cwd": str(tmp_path)},
+    }
+    service.pending_approval_store.create(
+        approval_id="approval-resume",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-resume",
+        tool_name="shell",
+        tool_arguments={"command": "echo hello"},
+        approval_payload={
+            "summary": "运行 echo hello",
+            "approved_decision": approved_decision,
+        },
+    )
+    message_id = append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-resume",
+    )
+
+    await service.approve_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id="approval-resume",
+    )
+
+    events = conversation_service.list_events_after("session-1", 0)
+    event_types = [event.event_type for event in events]
+
+    assert EventType.APPROVAL_APPROVED in event_types
+    pending = service.pending_approval_store.get("approval-resume")
+    assert pending.status == "approved"
+
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run.status == RunStatus.COMPLETED
+
+    trace = conversation_service.message_repo.get(message_id)
+    assert trace.payload_json["status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_deny_tool_call_does_not_execute_command(monkeypatch, tmp_path):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="运行测试",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-deny",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-deny",
+        tool_name="shell",
+        tool_arguments={"command": "rm -rf .pytest_cache"},
+        approval_payload={"summary": "删除缓存"},
+    )
+    message_id = append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-deny",
+    )
+
+    await service.deny_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id="approval-deny",
+    )
+
+    pending = service.pending_approval_store.get("approval-deny")
+    assert pending.status == "denied"
+
+    trace = conversation_service.message_repo.get(message_id)
+    assert trace.payload_json["status"] == "denied"
+
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run.status == RunStatus.CANCELLED
