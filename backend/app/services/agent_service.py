@@ -57,6 +57,7 @@ class AgentService:
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
+        self._execution_loops: dict[str, "RapidExecutionLoop"] = {}
         self._cleanup_task: asyncio.Task | None = None
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
@@ -176,6 +177,7 @@ class AgentService:
         def _cleanup(_: asyncio.Task) -> None:
             self.running_tasks.pop(run_id, None)
             self._runtime_adapters.pop(run_id, None)
+            self._execution_loops.pop(run_id, None)
 
         execution_task.add_done_callback(_cleanup)
         return execution_task
@@ -320,6 +322,7 @@ class AgentService:
             tool_registry=run_tool_registry,
             event_callback=event_callback,
         )
+        self._execution_loops[run_id] = execution_loop
 
         try:
             # 该部分拿回来了最近的历史信息，同时也拿回了supplemental_block,这个也是从message拿到的
@@ -358,6 +361,7 @@ class AgentService:
             await persist_and_broadcast("run:error", {"error": str(exc)})
         finally:
             self._runtime_adapters.pop(run_id, None)
+            self._execution_loops.pop(run_id, None)
 
     def _register_pending_approval(
         self,
@@ -539,6 +543,9 @@ class AgentService:
         approval_id: str,
         approval_event_type: EventType,
     ) -> None:
+        terminal_event_type: EventType | None = None
+        terminal_payload: dict | None = None
+
         with self.conversation_service._acquire_session_write_lock(session_id):
             run = self.conversation_service.run_repo.get(run_id)
             if run is None:
@@ -560,25 +567,38 @@ class AgentService:
             if approval_event_type == EventType.APPROVAL_APPROVED:
                 self.pending_approval_store.approve(approval_id)
                 trace_status = "approved"
-                terminal_event_type = EventType.RUN_COMPLETED
 
                 execution_result = await self._execute_approved_tool(pending)
 
-                terminal_payload = {
-                    "finished_at": datetime.now().isoformat(),
-                    "result": "approval_executed",
-                    "execution_success": execution_result.success,
-                    "execution_output": execution_result.output,
-                    "execution_error": execution_result.error,
-                }
+                loop = self._execution_loops.get(run_id)
+                if loop is not None:
+                    loop.set_approval_result({
+                        "success": execution_result.success,
+                        "output": execution_result.output,
+                        "error": execution_result.error,
+                    })
+                else:
+                    terminal_event_type = EventType.RUN_COMPLETED
+                    terminal_payload = {
+                        "finished_at": datetime.now().isoformat(),
+                        "result": "approval_executed_no_loop",
+                        "execution_success": execution_result.success,
+                        "execution_output": execution_result.output,
+                        "execution_error": execution_result.error,
+                    }
             else:
                 self.pending_approval_store.deny(approval_id)
                 trace_status = "denied"
-                terminal_event_type = EventType.RUN_CANCELLED
-                terminal_payload = {
-                    "finished_at": datetime.now().isoformat(),
-                    "reason": "approval_denied",
-                }
+
+                loop = self._execution_loops.get(run_id)
+                if loop is not None:
+                    loop.set_approval_result(None)
+                else:
+                    terminal_event_type = EventType.RUN_CANCELLED
+                    terminal_payload = {
+                        "finished_at": datetime.now().isoformat(),
+                        "reason": "approval_denied",
+                    }
 
             trace_message = self._find_pending_approval_trace_message(
                 run_id=run_id,
@@ -603,16 +623,19 @@ class AgentService:
                     )
                 )
 
-            events_to_append.extend(
-                [
-                    ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
-                        session_id=session_id,
-                        turn_id=run.turn_id,
-                        run_id=run_id,
-                        event_type=approval_event_type,
-                        payload_json={"approval_id": approval_id},
-                    ),
+            events_to_append.append(
+                ConversationEvent(
+                    id=f"evt-{uuid4().hex[:8]}",
+                    session_id=session_id,
+                    turn_id=run.turn_id,
+                    run_id=run_id,
+                    event_type=approval_event_type,
+                    payload_json={"approval_id": approval_id},
+                )
+            )
+
+            if terminal_event_type is not None:
+                events_to_append.append(
                     ConversationEvent(
                         id=f"evt-{uuid4().hex[:8]}",
                         session_id=session_id,
@@ -620,9 +643,9 @@ class AgentService:
                         run_id=run_id,
                         event_type=terminal_event_type,
                         payload_json=terminal_payload,
-                    ),
-                ],
-            )
+                    )
+                )
+
             events = self.conversation_service._append_events_locked(session_id, events_to_append)
         await self._broadcast_conversation_events(session_id=session_id, events=events)
 
