@@ -19,6 +19,7 @@ from app.llm.base import (
     StreamChunk,
     UniversalLLMInterface,
 )
+from app.llm.dsml_tool_parser import contains_dsml, parse_dsml_tool_calls
 from app.llm.retry import retry_async
 from app.models.llm_config import ResolvedLLMConfig
 
@@ -120,16 +121,46 @@ class OpenAIAdapter(UniversalLLMInterface):
         # 收集 tool_calls（流式时需要聚合）
         current_tool_calls: dict[int, dict] = {}
 
+        # DSML detection state
+        _dsml_prefix = "<|DSML|"
+        _content_buf = ""
+        _dsml_detected = False
+        _yielded_cursor = 0
+
         try:
             async for chunk in stream:
                 delta = chunk.choices[0].delta
                 finish_reason = chunk.choices[0].finish_reason
 
-                # 流式输出 content
+                # 流式输出 content（含 DSML 检测）
                 if delta.content:
-                    yield StreamChunk(type="content", content=delta.content)
+                    _content_buf += delta.content
 
-                # 处理 tool_calls（流式）
+                    if not _dsml_detected:
+                        idx = _content_buf.find(_dsml_prefix)
+                        if idx != -1:
+                            _dsml_detected = True
+                            if idx > _yielded_cursor:
+                                yield StreamChunk(
+                                    type="content",
+                                    content=_content_buf[_yielded_cursor:idx],
+                                )
+                            _yielded_cursor = len(_content_buf)
+                        else:
+                            # Hold back tail that could be a partial <|DSML| prefix
+                            safe_end = len(_content_buf)
+                            for i in range(1, min(len(_dsml_prefix), len(_content_buf) + 1)):
+                                if _dsml_prefix.startswith(_content_buf[-i:]):
+                                    safe_end = len(_content_buf) - i
+                                    break
+                            if safe_end > _yielded_cursor:
+                                yield StreamChunk(
+                                    type="content",
+                                    content=_content_buf[_yielded_cursor:safe_end],
+                                )
+                                _yielded_cursor = safe_end
+
+                # 处理 tool_calls（流式，结构化路径）
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
                         idx = tc.index
@@ -149,28 +180,31 @@ class OpenAIAdapter(UniversalLLMInterface):
 
                 # 流式结束时处理
                 if finish_reason:
-                    # 如果有 tool_calls，聚合后发送
-                    if current_tool_calls:
-                        tool_calls = []
-                        for idx in sorted(current_tool_calls.keys()):
-                            tc_data = current_tool_calls[idx]
-                            try:
-                                args = json.loads(tc_data["arguments"])
-                            except json.JSONDecodeError:
-                                args = {}
+                    has_structured_tc = bool(current_tool_calls)
 
-                            tool_calls.append(
-                                LLMToolCall(
-                                    id=tc_data["id"] or f"call_{idx}",
-                                    name=tc_data["name"],
-                                    arguments=args,
-                                )
-                            )
-
+                    if has_structured_tc:
                         yield StreamChunk(
-                            type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason
+                            type="tool_calls",
+                            tool_calls=self._build_structured_tool_calls(current_tool_calls),
+                            finish_reason=finish_reason,
                         )
+                    elif _dsml_detected:
+                        result = parse_dsml_tool_calls(_content_buf)
+                        if result.tool_calls:
+                            yield StreamChunk(
+                                type="tool_calls",
+                                tool_calls=result.tool_calls,
+                                finish_reason=finish_reason,
+                            )
+                        else:
+                            remaining = _content_buf[_yielded_cursor:]
+                            if remaining:
+                                yield StreamChunk(type="content", content=remaining)
+                            yield StreamChunk(type="done", finish_reason=finish_reason)
                     else:
+                        remaining = _content_buf[_yielded_cursor:]
+                        if remaining:
+                            yield StreamChunk(type="content", content=remaining)
                         yield StreamChunk(type="done", finish_reason=finish_reason)
 
                     break
@@ -223,6 +257,27 @@ class OpenAIAdapter(UniversalLLMInterface):
             for tool in tools
         ]
 
+    def _build_structured_tool_calls(
+        self, current_tool_calls: dict[int, dict]
+    ) -> list[LLMToolCall]:
+        """Aggregate streaming tool_call deltas into LLMToolCall list."""
+        tool_calls = []
+        for idx in sorted(current_tool_calls.keys()):
+            tc_data = current_tool_calls[idx]
+            try:
+                args = json.loads(tc_data["arguments"])
+            except json.JSONDecodeError:
+                args = {}
+
+            tool_calls.append(
+                LLMToolCall(
+                    id=tc_data["id"] or f"call_{idx}",
+                    name=tc_data["name"],
+                    arguments=args,
+                )
+            )
+        return tool_calls
+
     def _parse_response(self, response) -> LLMResponse:
         """解析 OpenAI 响应为内部格式"""
         choice = response.choices[0]
@@ -240,12 +295,19 @@ class OpenAIAdapter(UniversalLLMInterface):
 
                 tool_calls.append(LLMToolCall(id=tc.id, name=tc.function.name, arguments=args))
 
+        content = message.content or ""
+
+        # 无结构化 tool_calls 时，检查文本中的 DSML 工具调用
+        if not tool_calls and content and contains_dsml(content):
+            result = parse_dsml_tool_calls(content)
+            if result.tool_calls:
+                tool_calls = result.tool_calls
+                content = result.clean_content
+
         # 确定 finish_reason
         finish_reason = choice.finish_reason or "stop"
         if tool_calls:
             finish_reason = "tool_calls"
-
-        content = message.content or ""
 
         if not content and not tool_calls:
             logger.warning(

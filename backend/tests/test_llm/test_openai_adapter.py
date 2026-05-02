@@ -249,3 +249,196 @@ class TestOpenAIAdapter:
             response = await openai_adapter.complete(messages)
             assert response.content == "ok"
             assert call_count == 5  # 4 errors + 1 success
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_dsml_tool_calls(self, openai_adapter):
+        """DSML markup in text content is parsed into structured tool_calls."""
+        messages = [LLMMessage(role="user", content="Read the file")]
+
+        dsml = (
+            '<|DSML|tool_calls>'
+            '<|DSML|invoke name="file">'
+            '<|DSML|parameter name="action"><![CDATA[read]]></|DSML|parameter>'
+            '<|DSML|parameter name="path"><![CDATA[/tmp/test.py]]></|DSML|parameter>'
+            '</|DSML|invoke>'
+            '</|DSML|tool_calls>'
+        )
+
+        async def mock_stream():
+            # Pre-text chunk
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content="Let me check.", tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            # DSML arrives as a single chunk
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content=dsml, tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            # Stream ends
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content=None, tool_calls=None),
+                    finish_reason="stop",
+                )]
+            )
+
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_create.return_value = mock_stream()
+            chunks = []
+            async for chunk in openai_adapter.stream_complete(messages, tools=[]):
+                chunks.append(chunk)
+
+        content_chunks = [c for c in chunks if c.type == "content"]
+        tool_call_chunks = [c for c in chunks if c.type == "tool_calls"]
+        done_chunks = [c for c in chunks if c.type == "done"]
+
+        # Pre-text yielded before DSML detection
+        assert len(content_chunks) == 1
+        assert content_chunks[0].content == "Let me check."
+        # DSML parsed into tool_calls
+        assert len(tool_call_chunks) == 1
+        tc = tool_call_chunks[0].tool_calls[0]
+        assert tc.name == "file"
+        assert tc.arguments == {"action": "read", "path": "/tmp/test.py"}
+        # No "done" chunk — tool_calls chunk carries finish_reason
+        assert len(done_chunks) == 0
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_dsml_split_across_chunks(self, openai_adapter):
+        """DSML prefix split across chunks is handled via tail holdback."""
+        messages = [LLMMessage(role="user", content="Read")]
+
+        async def mock_stream():
+            # Partial <|DSML| prefix arrives at end of first chunk
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content="Thinking<|D", tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            # Rest of DSML in next chunk
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content='SML|tool_calls><|DSML|invoke name="file">'
+                                          '<|DSML|parameter name="action"><![CDATA[read]]></|DSML|parameter>'
+                                          '</|DSML|invoke></|DSML|tool_calls>', tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content=None, tool_calls=None),
+                    finish_reason="stop",
+                )]
+            )
+
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_create.return_value = mock_stream()
+            chunks = []
+            async for chunk in openai_adapter.stream_complete(messages, tools=[]):
+                chunks.append(chunk)
+
+        content_chunks = [c for c in chunks if c.type == "content"]
+        tool_call_chunks = [c for c in chunks if c.type == "tool_calls"]
+
+        # "Thinking" was yielded; the "<|D" tail was held back
+        assert len(content_chunks) == 1
+        assert content_chunks[0].content == "Thinking"
+        # DSML parsed correctly despite split
+        assert len(tool_call_chunks) == 1
+        assert tool_call_chunks[0].tool_calls[0].name == "file"
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_no_dsml_normal_flow(self, openai_adapter):
+        """Normal streaming without DSML is unaffected."""
+        messages = [LLMMessage(role="user", content="Hello")]
+
+        async def mock_stream():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content="Hi ", tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content="there!", tool_calls=None),
+                    finish_reason=None,
+                )]
+            )
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(
+                    delta=SimpleNamespace(content=None, tool_calls=None),
+                    finish_reason="stop",
+                )]
+            )
+
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_create.return_value = mock_stream()
+            chunks = []
+            async for chunk in openai_adapter.stream_complete(messages, tools=[]):
+                chunks.append(chunk)
+
+        content_chunks = [c for c in chunks if c.type == "content"]
+        done_chunks = [c for c in chunks if c.type == "done"]
+        assert len(content_chunks) == 2
+        assert content_chunks[0].content == "Hi "
+        assert content_chunks[1].content == "there!"
+        assert len(done_chunks) == 1
+
+    @pytest.mark.asyncio
+    async def test_complete_dsml_tool_calls(self, openai_adapter):
+        """Non-streaming complete() also extracts DSML tool calls."""
+        messages = [LLMMessage(role="user", content="Read file")]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            'Let me read it. '
+            '<|DSML|tool_calls>'
+            '<|DSML|invoke name="file">'
+            '<|DSML|parameter name="action"><![CDATA[read]]></|DSML|parameter>'
+            '<|DSML|parameter name="path"><![CDATA[/tmp/x]]></|DSML|parameter>'
+            '</|DSML|invoke>'
+            '</|DSML|tool_calls>'
+        )
+        mock_response.choices[0].message.tool_calls = None
+        mock_response.model = "gpt-4-turbo-preview"
+        mock_response.usage = MagicMock()
+        mock_response.usage.prompt_tokens = 5
+        mock_response.usage.completion_tokens = 10
+        mock_response.usage.total_tokens = 15
+        mock_response.choices[0].finish_reason = "stop"
+
+        with patch.object(
+            openai_adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_create.return_value = mock_response
+            response = await openai_adapter.complete(messages)
+
+        assert response.has_tool_calls
+        assert len(response.tool_calls) == 1
+        assert response.tool_calls[0].name == "file"
+        assert response.tool_calls[0].arguments == {"action": "read", "path": "/tmp/x"}
+        assert "Let me read it." in response.content
+        assert "<|DSML|" not in response.content
+        assert response.finish_reason == "tool_calls"
