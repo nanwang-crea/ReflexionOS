@@ -46,6 +46,8 @@ interface WorkspaceTranscriptProps {
   isRunning?: boolean
   retryInfo?: LlmRetryDto | null
   plan?: Plan | null
+  isPlanMinimized?: boolean
+  onTogglePlanMinimize?: () => void
   transcriptScrollRef?: RefObject<HTMLDivElement>
   onTranscriptScroll?: UIEventHandler<HTMLDivElement>
   isAtBottom?: boolean
@@ -63,6 +65,8 @@ export function WorkspaceTranscript({
   isRunning = false,
   retryInfo = null,
   plan = null,
+  isPlanMinimized = false,
+  onTogglePlanMinimize,
   transcriptScrollRef,
   onTranscriptScroll,
   isAtBottom = true,
@@ -212,7 +216,13 @@ export function WorkspaceTranscript({
         )}
 
         <AnimatePresence>
-          {plan && <PlanProgress plan={plan} />}
+          {plan && (
+            <PlanProgress
+              plan={plan}
+              isMinimized={isPlanMinimized}
+              onToggleMinimize={onTogglePlanMinimize ?? (() => {})}
+            />
+          )}
         </AnimatePresence>
 
         <AnimatePresence>

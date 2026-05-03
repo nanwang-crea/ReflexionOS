@@ -1,15 +1,23 @@
-import { memo } from 'react'
+import { memo, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import type { Plan } from '@/types/conversation'
-import { Check, Circle, ListChecks, Loader2, Maximize2, XCircle } from 'lucide-react'
+import { Check, Circle, ListChecks, Loader2, Minimize2, XCircle } from 'lucide-react'
 
 interface PlanProgressProps {
   plan: Plan
+  isMinimized: boolean
+  onToggleMinimize: () => void
 }
 
-export const PlanProgress = memo(function PlanProgress({ plan }: PlanProgressProps) {
+export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onToggleMinimize }: PlanProgressProps) {
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
   const totalCount = plan.steps.length
+
+  // When minimized, the plan is shown as a compact bar above the input
+  // (rendered by AgentWorkspace), so we render nothing here.
+  if (isMinimized) {
+    return null
+  }
 
   return (
     <motion.div
@@ -26,12 +34,14 @@ export const PlanProgress = memo(function PlanProgress({ plan }: PlanProgressPro
             共 {totalCount} 个任务，已经完成 {completedCount} 个
           </span>
         </div>
-        <span
-          aria-hidden="true"
-          className="grid h-8 w-8 shrink-0 place-items-center text-slate-400"
+        <button
+          type="button"
+          onClick={onToggleMinimize}
+          title="缩小计划面板"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
         >
-          <Maximize2 className="h-4 w-4" />
-        </span>
+          <Minimize2 className="h-4 w-4" />
+        </button>
       </div>
       <ol className="mt-4 max-h-72 overflow-y-auto space-y-2 pr-2">
         {plan.steps.map((step) => (
@@ -75,5 +85,47 @@ export const PlanProgress = memo(function PlanProgress({ plan }: PlanProgressPro
         ))}
       </ol>
     </motion.div>
+  )
+})
+
+/**
+ * A compact bar shown above the chat input when the plan is minimized.
+ * Displays a one-line summary and the current step, with a button to expand.
+ */
+export const PlanMinimizedBar = memo(function PlanMinimizedBar({
+  plan,
+  onExpand,
+}: {
+  plan: Plan
+  onExpand: () => void
+}) {
+  const completedCount = plan.steps.filter((s) => s.status === 'completed').length
+  const totalCount = plan.steps.length
+  const currentStep = plan.steps.find((s) => s.status === 'in_progress')
+
+  const handleClick = useCallback(() => {
+    onExpand()
+  }, [onExpand])
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title="展开计划面板"
+      className="flex w-full items-center gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2 text-left text-sm text-slate-600 backdrop-blur transition-colors hover:bg-slate-100"
+    >
+      <ListChecks className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+      <span className="truncate">
+        共 {totalCount} 个任务，已完成 {completedCount} 个
+        {currentStep && (
+          <span className="ml-1 text-slate-400">
+            · 当前: {currentStep.id}. {currentStep.description}
+          </span>
+        )}
+      </span>
+      <span className="ml-auto shrink-0 text-slate-400">
+        <Minimize2 className="h-3.5 w-3.5 rotate-180" />
+      </span>
+    </button>
   )
 })

@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
 import { useConversationData } from '@/hooks/useConversationData'
@@ -20,6 +22,11 @@ export default function AgentWorkspace() {
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan } = useConversationData(currentSessionId)
+  const [isPlanMinimized, setIsPlanMinimized] = useState(false)
+
+  // When plan disappears (run ends), reset minimized state so next plan starts expanded
+  const effectivePlanMinimized = plan ? isPlanMinimized : false
+
   const viewModel = useCurrentSessionViewModel({
     messages,
     isRunning,
@@ -48,17 +55,29 @@ export default function AgentWorkspace() {
     <div className="flex h-full flex-col bg-white">
       <WorkspaceHeader {...viewModel.headerProps} />
 
-      <WorkspaceTranscript {...viewModel.transcriptProps} />
+      <WorkspaceTranscript
+        {...viewModel.transcriptProps}
+        isPlanMinimized={effectivePlanMinimized}
+        onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
+      />
 
-      <div className="border-t border-gray-200 bg-white p-4">
-        <ChatInput
-          onSend={sendMessage}
-          onCancel={cancelRun}
-          {...viewModel.inputProps}
-        />
-        {!viewModel.currentProject && (
-          <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
+      <div className="border-t border-gray-200 bg-white">
+        {plan && effectivePlanMinimized && (
+          <PlanMinimizedBar
+            plan={plan}
+            onExpand={() => setIsPlanMinimized(false)}
+          />
         )}
+        <div className="p-4">
+          <ChatInput
+            onSend={sendMessage}
+            onCancel={cancelRun}
+            {...viewModel.inputProps}
+          />
+          {!viewModel.currentProject && (
+            <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
+          )}
+        </div>
       </div>
     </div>
   )
