@@ -1,4 +1,4 @@
-# Shell Security: Effect Classification Redesign
+# Shell Security: Effect Classification + OS Sandbox Redesign
 
 **Date:** 2026-05-03
 **Status:** Approved
@@ -10,6 +10,22 @@ Current shell security uses keyword-based blacklists (`POSIX_DANGEROUS_COMMANDS`
 1. **Easy to bypass**: `/usr/bin/env bash`, `python3 -c "import os; os.system('rm -rf /')"`, `docker run -it ubuntu bash` all evade keyword matching.
 2. **High false positive rate**: `chmod +x scripts/build.sh`, `bash scripts/deploy.sh` are common development commands but are DENY or REQUIRE_APPROVAL.
 3. **Shell metacharacter blanket policy**: Pipes `|` and redirects `>` are extremely common (e.g., `grep foo bar | wc -l`, `pytest 2>&1`) but all require approval, disrupting workflow.
+
+## Two-Layer Security Architecture
+
+This design introduces two complementary security layers:
+
+| Layer | Mechanism | Purpose |
+|-------|-----------|---------|
+| **Application Layer** | Effect Classification + Registry | Smart approval decisions — what to allow, approve, or deny based on command semantics |
+| **OS Layer** | Sandbox (Seatbelt / Landlock / Windows) | Kernel-level capability restriction — process physically cannot do harm even if application layer is bypassed |
+
+**Key principle**: The two layers complement each other, not replace each other.
+- Application layer = UX — knows *whether* the user should be allowed to do something
+- OS layer = safety net — ensures process *physically cannot* do things beyond its allowed scope
+
+When sandbox is available, the application layer can relax certain approvals (sandbox provides the safety net).
+When sandbox is unavailable, the application layer falls back to full effect classification (no kernel-level guarantees, but still good UX-driven protection).
 
 ## Solution: Command Effect Registry (Approach C)
 
@@ -140,7 +156,14 @@ backend/app/security/
 ├── command_effect_registry.py  # NEW: CommandEffectEntry + CommandEffectRegistry + default registrations
 ├── command_policy.py           # MODIFIED: Query registry instead of hardcoded keyword blacklists
 ├── shell_security.py           # SIMPLIFIED: Remove keyword blacklists, keep metachar detection + path validation
-└── path_security.py            # UNCHANGED
+├── path_security.py            # UNCHANGED
+└── sandbox/                    # NEW: OS sandbox layer
+    ├── __init__.py
+    ├── base.py                 # SandboxProvider ABC
+    ├── seatbelt.py             # macOS Seatbelt implementation
+    ├── landlock.py             # Linux Landlock/bubblewrap implementation
+    ├── seatbelt_profile.py     # Seatbelt profile builder
+    └── factory.py              # create_sandbox() factory
 ```
 
 ### New Files
@@ -245,3 +268,356 @@ New test categories to add:
 - `TestSubcommandOverrides` — verify git subcommand handling
 - `TestShellInterpreterOverride` — verify bash script.sh allowance
 - `TestUnknownCommandHandling` — verify UNKNOWN → REQUIRE_APPROVAL
+- `TestSandboxDowngrade` — verify approval downgrade when sandbox is active
+- `TestSandboxFallback` — verify fallback to full effect classification when sandbox unavailable
+
+## OS Sandbox Layer
+
+### Architecture: Base Class + Platform Implementations
+
+```
+backend/app/security/
+├── sandbox/
+│   ├── __init__.py
+│   ├── base.py              # SandboxProvider base class
+│   ├── seatbelt.py          # macOS: sandbox-exec / Seatbelt
+│   ├── landlock.py          # Linux: Landlock + seccomp / bubblewrap
+│   ├── seatbelt_profile.py  # macOS Seatbelt policy template builder
+│   └── factory.py           # Auto-select implementation based on platform
+```
+
+### SandboxProvider Base Class
+
+```python
+from abc import ABC, abstractmethod
+
+class SandboxProvider(ABC):
+    """OS sandbox provider base class — all platforms implement the same interface"""
+
+    @abstractmethod
+    def is_available(self) -> bool:
+        """Whether the current platform supports this sandbox mechanism"""
+
+    @abstractmethod
+    def wrap_command(
+        self,
+        argv: list[str],
+        *,
+        cwd: str,
+        allowed_paths: list[str],    # Read-write directories (project dirs)
+        read_only_paths: list[str],  # Read-only directories (system paths)
+        allow_network: bool = False, # Whether network access is permitted
+        allow_ipc: bool = False,     # Whether IPC is permitted
+    ) -> list[str]:
+        """Wrap an argv command for sandboxed execution, returns wrapped argv"""
+
+    @abstractmethod
+    def wrap_shell_command(
+        self,
+        command: str,
+        *,
+        cwd: str,
+        allowed_paths: list[str],
+        read_only_paths: list[str],
+        allow_network: bool = False,
+        allow_ipc: bool = False,
+    ) -> str:
+        """Wrap a shell command string for sandboxed execution, returns wrapped command"""
+```
+
+### Platform Implementations
+
+#### macOS: Seatbelt (`sandbox-exec`)
+
+macOS ships with `sandbox-exec` which applies Seatbelt profiles to processes:
+
+```python
+class SeatbeltSandbox(SandboxProvider):
+    """macOS sandbox using Seatbelt (sandbox-exec)"""
+
+    def is_available(self) -> bool:
+        # Check macOS platform and sandbox-exec binary exists
+        return sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec")
+
+    def wrap_command(self, argv, *, cwd, allowed_paths, read_only_paths,
+                     allow_network=False, allow_ipc=False) -> list[str]:
+        profile = self._build_profile(
+            allowed_paths=allowed_paths,
+            read_only_paths=read_only_paths,
+            allow_network=allow_network,
+        )
+        # sandbox-exec -p <profile> -- <command>
+        return ["/usr/bin/sandbox-exec", "-p", profile, "--"] + argv
+
+    def wrap_shell_command(self, command, *, cwd, allowed_paths, read_only_paths,
+                           allow_network=False, allow_ipc=False) -> str:
+        profile = self._build_profile(
+            allowed_paths=allowed_paths,
+            read_only_paths=read_only_paths,
+            allow_network=allow_network,
+        )
+        # Escaping handled by shlex.quote
+        return f"/usr/bin/sandbox-exec -p {shlex.quote(profile)} -- {command}"
+
+    def _build_profile(self, allowed_paths, read_only_paths, allow_network) -> str:
+        """Build Seatbelt profile string"""
+        lines = ['(version 1)', '(deny default)']
+
+        # Allow reading standard system paths
+        for p in ['/usr', '/bin', '/sbin', '/lib', '/System', '/dev']:
+            lines.append(f'(allow file-read* (subpath "{p}"))')
+
+        # Allow read-write for project directories
+        for p in allowed_paths:
+            lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
+
+        # Allow read-only for specified paths
+        for p in read_only_paths:
+            lines.append(f'(allow file-read* (subpath "{p}"))')
+
+        # Allow process execution (for running commands)
+        lines.append('(allow process-exec (subpath "/usr"))')
+        lines.append('(allow process-exec (subpath "/bin"))')
+        lines.append('(allow process-exec (subpath "/sbin"))')
+
+        # Network
+        if allow_network:
+            lines.append('(allow network*)')
+        else:
+            lines.append('(deny network*)')
+
+        # Allow signal, sysctl for normal process operation
+        lines.append('(allow signal)')
+        lines.append('(allow sysctl-read)')
+
+        return '\n'.join(lines)
+```
+
+#### Linux: Landlock + bubblewrap
+
+Linux uses two complementary mechanisms:
+
+- **Landlock LSM**: Filesystem access control (kernel >= 5.13)
+- **bubblewrap (bwrap)**: Lightweight namespace isolation (user namespaces, no Docker needed)
+- **seccomp-bpf**: System call filtering (optional, for additional hardening)
+
+```python
+class LandlockSandbox(SandboxProvider):
+    """Linux sandbox using Landlock + bubblewrap"""
+
+    def is_available(self) -> bool:
+        # Check Linux platform + bwrap binary + Landlock kernel support
+        if sys.platform != "linux":
+            return False
+        if not shutil.which("bwrap"):
+            return False
+        # Check Landlock support via kernel version or /sys/kernel/security/landlock
+        return self._check_landlock_support()
+
+    def wrap_command(self, argv, *, cwd, allowed_paths, read_only_paths,
+                     allow_network=False, allow_ipc=False) -> list[str]:
+        bwrap_args = self._build_bwrap_args(
+            allowed_paths=allowed_paths,
+            read_only_paths=read_only_paths,
+            allow_network=allow_network,
+            cwd=cwd,
+        )
+        # bwrap ... -- <command>
+        return ["bwrap"] + bwrap_args + ["--"] + argv
+
+    def wrap_shell_command(self, command, *, cwd, allowed_paths, read_only_paths,
+                           allow_network=False, allow_ipc=False) -> str:
+        bwrap_args = self._build_bwrap_args(
+            allowed_paths=allowed_paths,
+            read_only_paths=read_only_paths,
+            allow_network=allow_network,
+            cwd=cwd,
+        )
+        args_str = " ".join(shlex.quote(a) for a in bwrap_args)
+        return f"bwrap {args_str} -- {command}"
+
+    def _build_bwrap_args(self, allowed_paths, read_only_paths,
+                          allow_network, cwd) -> list[str]:
+        args = [
+            "--unshare-all",           # Unshare all namespaces
+            "--die-with-parent",       # Kill sandbox when parent dies
+        ]
+
+        if not allow_network:
+            args.append("--unshare-net")
+
+        # Mount project directories as read-write
+        for p in allowed_paths:
+            args.extend(["--bind", p, p])
+
+        # Mount read-only paths
+        for p in read_only_paths:
+            args.extend(["--ro-bind", p, p])
+
+        # Standard system paths read-only
+        for p in ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/alternatives"]:
+            if os.path.exists(p):
+                args.extend(["--ro-bind", p, p])
+
+        # /proc and /dev needed for basic operation
+        args.extend(["--proc", "/proc"])
+        args.extend(["--dev", "/dev"])
+        args.extend(["--bind", "/tmp", "/tmp"])  # /tmp for temp files
+
+        # Set working directory
+        args.extend(["--chdir", cwd])
+
+        return args
+
+    def _check_landlock_support(self) -> bool:
+        # Landlock is optional enhancement; bwrap alone provides good isolation
+        # Check if we can at least use bwrap
+        try:
+            result = subprocess.run(
+                ["bwrap", "--ro-bind", "/", "/", "--", "true"],
+                capture_output=True, timeout=5,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
+```
+
+#### Windows: Future Iteration
+
+Windows sandbox support is lower priority. Options for future implementation:
+- **Job Object + restricted token**: Limit process privileges
+- **AppContainer**: Modern Windows sandboxing mechanism
+- **Windows Sandbox**: VM-based isolation (heavier)
+
+```python
+class WindowsSandbox(SandboxProvider):
+    """Windows sandbox — placeholder for future implementation"""
+
+    def is_available(self) -> bool:
+        return False  # Not yet implemented
+
+    def wrap_command(self, argv, **kwargs) -> list[str]:
+        return argv  # Passthrough until implemented
+
+    def wrap_shell_command(self, command, **kwargs) -> str:
+        return command  # Passthrough until implemented
+```
+
+### SandboxFactory
+
+```python
+def create_sandbox() -> SandboxProvider:
+    """Auto-select sandbox implementation based on current platform"""
+    providers = [SeatbeltSandbox(), LandlockSandbox(), WindowsSandbox()]
+    for provider in providers:
+        if provider.is_available():
+            logger.info("Sandbox provider selected: %s", provider.__class__.__name__)
+            return provider
+    logger.warning("No sandbox provider available, falling back to application-layer-only security")
+    return NullSandbox()
+
+class NullSandbox(SandboxProvider):
+    """No-op sandbox for environments without sandbox support"""
+
+    def is_available(self) -> bool:
+        return False
+
+    def wrap_command(self, argv, **kwargs) -> list[str]:
+        return argv  # No wrapping
+
+    def wrap_shell_command(self, command, **kwargs) -> str:
+        return command  # No wrapping
+```
+
+### Sandbox Effect on Approval Policy
+
+When sandbox is active, certain `REQUIRE_APPROVAL` categories can be downgraded:
+
+```python
+# In CommandPolicy
+def _maybe_downgrade_with_sandbox(self, category: EffectCategory) -> CommandAction:
+    """Sandbox-available approval downgrade rules"""
+    DOWNGRADE_MAP = {
+        EffectCategory.WRITE_SYSTEM: CommandAction.REQUIRE_APPROVAL,  # Still needs approval (system-wide impact)
+        EffectCategory.DESTRUCTIVE: CommandAction.ALLOW,              # Sandbox confines damage to project dir
+        EffectCategory.NETWORK_OUT: CommandAction.REQUIRE_APPROVAL,   # Still needs approval (data exfil risk)
+        EffectCategory.CODE_GEN: CommandAction.ALLOW,                 # Sandbox provides safety net
+        EffectCategory.UNKNOWN: CommandAction.REQUIRE_APPROVAL,       # Unknown commands still need approval
+    }
+    return DOWNGRADE_MAP.get(category, CommandAction.REQUIRE_APPROVAL)
+```
+
+### Combined Security Flow
+
+```
+Command Input
+  │
+  ├─ Hard deny check (rm -rf /, curl | sh, sudo) → DENY
+  │
+  ├─ Effect classification → effect_category
+  │
+  ├─ Sandbox available?
+  │   ├─ YES → Apply downgrade rules → determine action
+  │   │        └─ If ALLOW/REQUIRE_APPROVAL → sandbox.wrap_command() → execute in sandbox
+  │   └─ NO  → Use full effect classification policy → determine action
+  │            └─ Execute directly (no sandbox wrapping)
+  │
+  └─ Execute (sandboxed or bare)
+```
+
+### Updated File Structure
+
+```
+backend/app/security/
+├── effect_category.py          # NEW: EffectCategory enum + danger level ordering + action policy mapping
+├── command_effect_registry.py  # NEW: CommandEffectEntry + CommandEffectRegistry + default registrations
+├── command_policy.py           # MODIFIED: Query registry, sandbox-aware approval downgrade
+├── shell_security.py           # SIMPLIFIED: Remove keyword blacklists, keep metachar detection + path validation
+├── path_security.py            # UNCHANGED
+└── sandbox/                    # NEW: OS sandbox layer
+    ├── __init__.py
+    ├── base.py                 # SandboxProvider ABC
+    ├── seatbelt.py             # macOS Seatbelt implementation
+    ├── landlock.py             # Linux Landlock/bubblewrap implementation
+    ├── seatbelt_profile.py     # Seatbelt profile builder
+    └── factory.py              # create_sandbox() factory
+```
+
+### ShellTool Integration
+
+`ShellTool` needs minor changes to use sandbox wrapping:
+
+```python
+class ShellTool(BaseTool):
+    def __init__(self, security, path_security, sandbox=None):
+        self.security = security
+        self.path_security = path_security
+        self.sandbox = sandbox or NullSandbox()
+        self.policy = CommandPolicy(security, path_security, self.sandbox)
+
+    async def _execute_argv(self, argv, cwd, timeout):
+        # Wrap command in sandbox if available
+        if self.sandbox.is_available():
+            argv = self.sandbox.wrap_command(
+                argv,
+                cwd=cwd,
+                allowed_paths=self.path_security.allowed_base_paths,
+                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+            )
+        # ... rest of execution unchanged
+
+    async def _execute_shell(self, command, cwd, timeout):
+        # Wrap shell command in sandbox if available
+        if self.sandbox.is_available():
+            command = self.sandbox.wrap_shell_command(
+                command,
+                cwd=cwd,
+                allowed_paths=self.path_security.allowed_base_paths,
+                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+            )
+        # ... rest of execution unchanged
+```
+
+`allow_network` is derived from the command's effect classification:
+- `NETWORK_OUT` commands approved by user → `allow_network=True`
+- All other commands → `allow_network=False`
