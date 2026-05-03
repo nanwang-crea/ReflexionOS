@@ -1,8 +1,10 @@
+# backend/app/security/shell_security.py
 import logging
 import os
 import re
 import shlex
 import sys
+from dataclasses import dataclass
 
 from app.security.path_security import PathSecurity
 
@@ -11,54 +13,27 @@ logger = logging.getLogger(__name__)
 
 class ShellSecurityError(Exception):
     """Shell 安全错误"""
-
     pass
 
 
+@dataclass
+class ValidateResult:
+    """Result of command validation."""
+    argv: list[str]
+    has_meta: bool  # Whether shell metacharacters were detected
+
+
 class ShellSecurity:
-    """Shell 命令执行安全控制 - 拒绝危险命令并校验路径参数"""
+    """Shell 命令执行安全控制 — 解析命令并校验路径参数
+
+    NOTE: Effect classification (dangerous commands, inline code, etc.) has moved
+    to CommandEffectRegistry + CommandPolicy. This class now only handles:
+    - Shell metacharacter detection (for execution mode decision)
+    - Command parsing (shlex.split)
+    - Path argument validation
+    """
 
     SHELL_META_PATTERN = re.compile(r"[;&|<>`]|[$][(]")
-
-    POSIX_DANGEROUS_COMMANDS = {
-        "rm",
-        "rmdir",
-        "dd",
-        "mkfs",
-        "chmod",
-        "chown",
-        "sudo",
-        "su",
-        "eval",
-        "exec",
-        "bash",
-        "sh",
-        "zsh",
-        "fish",
-        "ksh",
-        "csh",
-    }
-
-    WINDOWS_DANGEROUS_COMMANDS = {
-        "del",
-        "erase",
-        "rd",
-        "rmdir",
-        "format",
-        "diskpart",
-        "cmd",
-        "powershell",
-        "pwsh",
-    }
-
-    INLINE_CODE_COMMANDS = {
-        "python": {"-c"},
-        "python3": {"-c"},
-        "node": {"-e", "--eval"},
-        "perl": {"-e"},
-        "ruby": {"-e"},
-        "php": {"-r"},
-    }
 
     NON_PATH_ARGUMENT_COMMANDS = {"echo"}
 
@@ -80,37 +55,33 @@ class ShellSecurity:
         if self._is_windows():
             return (
                 "当前平台是 Windows。使用 Windows 可执行命令，例如 `where python`、"
-                "`python --version`；不要使用 cmd /c、PowerShell、管道、重定向或 Shell 内置命令。"
+                "`python --version`；不要使用 cmd /c、PowerShell。"
             )
         return (
             f"当前平台是 {self.platform_label}。"
-            "命令按 argv 直接执行，不经过 shell 解析，因此禁止任何 shell 元语法，"
-            "包括但不限于: 管道 `|`、重定向 `>` `>>` `2>` `/dev/null`、"
-            "链式操作 `&&` `||` `;`、命令替换 `` ` `` `$()`。"
-            "请用单条命令完成操作，例如 `pwd`、`ls`、`which python`、`python --version`。"
+            "低风险命令直接执行；含管道 `|` 或重定向 `>` 的命令可能需要审批，"
+            "具体取决于命令的效果分类（只读管道如 `git log | head` 可直接执行）。"
         )
 
     def validate_command(
         self,
         command: str,
         path_security: PathSecurity | None = None,
-    ) -> list[str]:
+    ) -> ValidateResult:
         """
-        验证命令安全性
+        解析命令并检测 shell 元语法
 
-        Args:
-            command: 待执行的命令
-            path_security: 可选路径安全控制，用于校验命令参数中的路径
+        Returns:
+            ValidateResult with argv and has_meta flag
 
         Raises:
-            ShellSecurityError: 命令不安全
+            ShellSecurityError: only on empty command or parse failure
         """
         command_normalized = command.strip()
         if not command_normalized:
             raise ShellSecurityError("命令不能为空")
 
-        if self.SHELL_META_PATTERN.search(command_normalized):
-            raise ShellSecurityError(f"禁止使用 Shell 元语法: {command}")
+        has_meta = bool(self.SHELL_META_PATTERN.search(command_normalized))
 
         try:
             argv = shlex.split(command_normalized, posix=not self._is_windows())
@@ -121,24 +92,12 @@ class ShellSecurity:
             raise ShellSecurityError("命令不能为空")
 
         command_name = self._command_name(argv[0])
-        dangerous_commands = (
-            self.WINDOWS_DANGEROUS_COMMANDS if self._is_windows() else self.POSIX_DANGEROUS_COMMANDS
-        )
-
-        if command_name in dangerous_commands:
-            logger.warning("检测到危险命令: %s", command)
-            raise ShellSecurityError(f"禁止执行危险命令: {command}")
-
-        inline_flags = self.INLINE_CODE_COMMANDS.get(command_name)
-        if inline_flags and any(arg in inline_flags for arg in argv[1:]):
-            logger.warning("检测到危险命令: %s", command)
-            raise ShellSecurityError(f"禁止执行危险命令: {command}")
 
         if path_security and command_name not in self.NON_PATH_ARGUMENT_COMMANDS:
             self._validate_path_arguments(argv[1:], path_security)
 
-        logger.info("命令验证通过: %s", command)
-        return argv
+        logger.info("命令解析完成: %s (has_meta=%s)", command, has_meta)
+        return ValidateResult(argv=argv, has_meta=has_meta)
 
     def _is_windows(self) -> bool:
         return self.platform_name.startswith("win")
@@ -147,7 +106,7 @@ class ShellSecurity:
         normalized = command.replace("\\", "/").split("/")[-1].lower()
         for suffix in (".exe", ".cmd", ".bat", ".com"):
             if normalized.endswith(suffix):
-                return normalized[: -len(suffix)]
+                return normalized[:-len(suffix)]
         return normalized
 
     def _validate_path_arguments(self, args: list[str], path_security: PathSecurity) -> None:
