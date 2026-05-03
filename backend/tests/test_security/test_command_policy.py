@@ -405,3 +405,84 @@ class TestEffectCategoryField:
     def test_shell_command_has_effect_category(self, policy):
         decision = policy.evaluate(command="git log | head")
         assert decision.effect_category is not None
+
+
+# ── INTEGRATION: Full pipeline scenarios ──────────────────────────
+
+class TestFullPipelineIntegration:
+    """End-to-end scenarios verifying the complete security flow."""
+
+    def test_destructive_always_requires_approval(self, policy):
+        """DESTRUCTIVE commands must REQUIRE_APPROVAL regardless of anything else."""
+        for cmd in ["rm -rf build/", "chmod 755 script.sh", "git reset --hard", "git clean -fd"]:
+            decision = policy.evaluate(command=cmd)
+            assert decision.action == CommandAction.REQUIRE_APPROVAL, \
+                f"{cmd} should be REQUIRE_APPROVAL, got {decision.action} ({decision.effect_category})"
+
+    def test_read_only_pipe_chain_allows(self, policy):
+        """Read-only pipe chains should ALLOW without approval."""
+        decision = policy.evaluate(command="ls | wc -l")
+        assert decision.action == CommandAction.ALLOW
+
+    def test_write_project_pipe_chain_allows(self, policy):
+        """Write-project pipe chains should ALLOW."""
+        decision = policy.evaluate(command="npm test | tee output.log")
+        assert decision.action == CommandAction.ALLOW
+
+    def test_mixed_danger_pipe_chain_takes_highest(self, policy):
+        """Pipe chains take the most dangerous effect level."""
+        decision = policy.evaluate(command="rm -rf build/ 2>/dev/null")
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.effect_category == EffectCategory.DESTRUCTIVE
+
+    def test_unknown_command_needs_approval(self, policy):
+        """Commands not in registry should REQUIRE_APPROVAL."""
+        decision = policy.evaluate(command="unknown_weird_tool --flag")
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.effect_category == EffectCategory.UNKNOWN
+
+    def test_git_subcommands_correctly_classified(self, policy):
+        """All git subcommands should have correct effect categories."""
+        cases = [
+            ("git log", EffectCategory.READ_ONLY, CommandAction.ALLOW),
+            ("git status", EffectCategory.READ_ONLY, CommandAction.ALLOW),
+            ("git diff", EffectCategory.READ_ONLY, CommandAction.ALLOW),
+            ("git add file.py", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+            ("git commit -m 'x'", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+            ("git stash", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+            ("git push origin main", EffectCategory.NETWORK_OUT, CommandAction.REQUIRE_APPROVAL),
+            ("git fetch origin", EffectCategory.NETWORK_OUT, CommandAction.REQUIRE_APPROVAL),
+            ("git pull origin main", EffectCategory.NETWORK_OUT, CommandAction.REQUIRE_APPROVAL),
+            ("git reset --hard", EffectCategory.DESTRUCTIVE, CommandAction.REQUIRE_APPROVAL),
+            ("git clean -fd", EffectCategory.DESTRUCTIVE, CommandAction.REQUIRE_APPROVAL),
+        ]
+        for cmd, expected_cat, expected_action in cases:
+            decision = policy.evaluate(command=cmd)
+            assert decision.effect_category == expected_cat, \
+                f"{cmd}: expected {expected_cat}, got {decision.effect_category}"
+            assert decision.action == expected_action, \
+                f"{cmd}: expected {expected_action}, got {decision.action}"
+
+    def test_shell_interpreter_file_arg_vs_inline(self, policy):
+        """Shell interpreters: file arg -> WRITE_PROJECT, -c -> CODE_GEN, no args -> ESCALATE."""
+        cases = [
+            ("bash", EffectCategory.ESCALATE, CommandAction.DENY),
+            ("bash script.sh", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+            ("bash -c 'echo hi'", EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ("sh", EffectCategory.ESCALATE, CommandAction.DENY),
+            ("sh run.sh", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+            ("sh -c 'echo hi'", EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ("zsh deploy.zsh", EffectCategory.WRITE_PROJECT, CommandAction.ALLOW),
+        ]
+        for cmd, expected_cat, expected_action in cases:
+            decision = policy.evaluate(command=cmd)
+            assert decision.effect_category == expected_cat, \
+                f"{cmd}: expected {expected_cat}, got {decision.effect_category}"
+            assert decision.action == expected_action, \
+                f"{cmd}: expected {expected_action}, got {decision.action}"
+
+    def test_effect_category_in_decision(self, policy):
+        """Every decision should have effect_category set."""
+        for cmd in ["ls", "rm file.txt", "sudo ls", "curl url", "python -c '1'"]:
+            decision = policy.evaluate(command=cmd)
+            assert decision.effect_category is not None, f"{cmd} should have effect_category"
