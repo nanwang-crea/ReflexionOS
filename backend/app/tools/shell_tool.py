@@ -4,8 +4,12 @@ import sys
 from typing import Any
 
 from app.config.settings import config_manager
+from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.command_policy import CommandAction, CommandDecision, CommandPolicy
+from app.security.effect_category import EffectCategory
 from app.security.path_security import PathSecurity
+from app.security.sandbox.base import SandboxProvider
+from app.security.sandbox.factory import NullSandbox
 from app.security.shell_security import ShellSecurity
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 
@@ -15,10 +19,19 @@ logger = logging.getLogger(__name__)
 class ShellTool(BaseTool):
     """Shell 命令执行工具"""
 
-    def __init__(self, security: ShellSecurity, path_security: PathSecurity):
+    def __init__(
+        self,
+        security: ShellSecurity,
+        path_security: PathSecurity,
+        registry: CommandEffectRegistry | None = None,
+        sandbox: SandboxProvider | None = None,
+    ):
         self.security = security
         self.path_security = path_security
-        self.policy = CommandPolicy(security, path_security)
+        self.registry = registry or CommandEffectRegistry()
+        self.sandbox = sandbox or NullSandbox()
+        # Policy does NOT receive sandbox — approval decisions are sandbox-independent
+        self.policy = CommandPolicy(security, path_security, self.registry)
 
     @property
     def name(self) -> str:
@@ -86,17 +99,33 @@ class ShellTool(BaseTool):
 
         try:
             if decision.execution_mode == "shell":
-                return await self._execute_shell(decision.command, cwd, timeout)
+                return await self._execute_shell(
+                    decision.command, cwd, timeout, decision.effect_category
+                )
             else:
                 argv = decision.argv
                 if argv is None:
                     return ToolResult(success=False, error="argv 模式决策缺少 argv")
-                return await self._execute_argv(argv, cwd, timeout)
+                return await self._execute_argv(argv, cwd, timeout, decision.effect_category)
         except Exception as e:
             logger.error("Shell 执行异常: %s", e)
             return ToolResult(success=False, error=str(e))
 
-    async def _execute_argv(self, argv: list[str], cwd: str, timeout: int) -> ToolResult:
+    async def _execute_argv(
+        self, argv: list[str], cwd: str, timeout: int,
+        effect_category: EffectCategory | None = None,
+    ) -> ToolResult:
+        # Wrap in sandbox if available (confinement, not authorization)
+        if self.sandbox.is_available():
+            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
+            argv = self.sandbox.wrap_command(
+                argv,
+                cwd=cwd,
+                allowed_paths=self.path_security.allowed_base_paths,
+                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+                allow_network=allow_network,
+            )
+
         process = await asyncio.create_subprocess_exec(
             *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd
         )
@@ -118,9 +147,23 @@ class ShellTool(BaseTool):
             logger.warning("argv 命令执行失败: %s, 返回码: %s", " ".join(argv), process.returncode)
             return ToolResult(success=False, output=output, error=error)
 
-    async def _execute_shell(self, command: str, cwd: str, timeout: int) -> ToolResult:
+    async def _execute_shell(
+        self, command: str, cwd: str, timeout: int,
+        effect_category: EffectCategory | None = None,
+    ) -> ToolResult:
         if sys.platform == "win32":
             return ToolResult(success=False, error="Windows shell 模式尚未支持")
+
+        # Wrap in sandbox if available (confinement, not authorization)
+        if self.sandbox.is_available():
+            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
+            command = self.sandbox.wrap_shell_command(
+                command,
+                cwd=cwd,
+                allowed_paths=self.path_security.allowed_base_paths,
+                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+                allow_network=allow_network,
+            )
 
         executable = "/bin/zsh" if sys.platform == "darwin" else "/bin/bash"
         import os
@@ -164,6 +207,8 @@ class ShellTool(BaseTool):
             summary_parts.append("需要审批的命令")
         if decision.reasons:
             summary_parts.append("; ".join(decision.reasons))
+        if decision.effect_category:
+            summary_parts.append(f"效果分类: {decision.effect_category.value}")
 
         summary = " — ".join(summary_parts)
 
@@ -181,6 +226,7 @@ class ShellTool(BaseTool):
                 "timeout": decision.timeout,
                 "approval_kind": decision.approval_kind,
                 "suggested_prefix_rule": decision.suggested_prefix_rule,
+                "effect_category": decision.effect_category.value if decision.effect_category else None,
                 "environment_snapshot": decision.environment_snapshot.model_dump() if decision.environment_snapshot else None,
                 "approved_decision": decision.model_dump(),
             },

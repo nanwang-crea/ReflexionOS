@@ -1,7 +1,22 @@
 # Shell Security: Effect Classification + OS Sandbox Redesign
 
 **Date:** 2026-05-03
-**Status:** Approved
+**Status:** Approved (v2 — revised sandbox downgrade policy)
+
+## Changelog (v1 → v2)
+
+| Section | Change |
+|---------|--------|
+| Sandbox Downgrade Policy | DESTRUCTIVE no longer downgraded to ALLOW with sandbox — stays REQUIRE_APPROVAL. Sandbox confines damage to project dir, but project-internal data loss is still data loss. |
+| Sandbox Downgrade Policy | CODE_GEN no longer downgraded to ALLOW — stays REQUIRE_APPROVAL. Inline code cannot be statically validated; sandbox cannot inspect intent. |
+| Seatbelt profile | Added `/var/folders` read-write (macOS temp files) and `/private/tmp` read-write. Without these, npm/pip/compilers fail. |
+| Seatbelt profile | Added `(allow process-fork)` and `(allow process-exec (literal "/usr/bin/sandbox-exec"))` for nested process spawning. |
+| bubblewrap config | Changed `--bind /tmp /tmp` to `--tmpfs /tmp` (isolated tmpfs, prevents IPC via shared /tmp). |
+| bubblewrap config | Added `--ro-bind /etc /etc` (DNS resolution, SSL certs needed for git/npm). |
+| Shell interpreter override | Explicitly excludes `-c`/`-e`/`--eval` flags from file-argument downgrade. `bash -c "echo hi"` stays CODE_GEN, not WRITE_PROJECT. |
+| Combined Security Flow | Flow diagram updated to show sandbox wrapping happens AFTER approval decision, not as part of it. |
+| Test Adaptations | Added sandbox-aware test expectations. |
+| Two-Layer Principle | Clarified: Application Layer decides *whether*; OS Layer decides *what's physically possible*. They are NOT redundant — both must work correctly on their own. |
 
 ## Problem
 
@@ -18,14 +33,29 @@ This design introduces two complementary security layers:
 | Layer | Mechanism | Purpose |
 |-------|-----------|---------|
 | **Application Layer** | Effect Classification + Registry | Smart approval decisions — what to allow, approve, or deny based on command semantics |
-| **OS Layer** | Sandbox (Seatbelt / Landlock / Windows) | Kernel-level capability restriction — process physically cannot do harm even if application layer is bypassed |
+| **OS Layer** | Sandbox (Seatbelt / Landlock / Windows) | Kernel-level capability restriction — process physically cannot do harm beyond its allowed scope |
 
-**Key principle**: The two layers complement each other, not replace each other.
-- Application layer = UX — knows *whether* the user should be allowed to do something
-- OS layer = safety net — ensures process *physically cannot* do things beyond its allowed scope
+**Key principle**: The two layers complement each other, not replace each other. Each layer must be correct **on its own**.
 
-When sandbox is available, the application layer can relax certain approvals (sandbox provides the safety net).
-When sandbox is unavailable, the application layer falls back to full effect classification (no kernel-level guarantees, but still good UX-driven protection).
+- Application Layer = **UX + authorization** — decides *whether* the user should be allowed to do something. Must work correctly even without a sandbox.
+- OS Layer = **safety net** — ensures the process *physically cannot* exceed its allowed scope. Must provide meaningful confinement regardless of application-layer decisions.
+
+**This means:**
+- The OS sandbox does NOT change *whether* a command needs approval. Approval decisions are purely application-layer.
+- The OS sandbox changes *how* an approved/allowed command is executed — wrapped in kernel-level confinement.
+- When sandbox is unavailable, the application layer still makes the same correct decisions; commands just execute without kernel-level confinement.
+
+**Why sandbox does NOT downgrade approvals:**
+
+| Category | With sandbox | Without sandbox | Rationale |
+|----------|-------------|-----------------|-----------|
+| DESTRUCTIVE | REQUIRE_APPROVAL | REQUIRE_APPROVAL | Sandbox confines damage to project dir, but project-internal data loss is still data loss. User must explicitly authorize deletion. |
+| CODE_GEN | REQUIRE_APPROVAL | REQUIRE_APPROVAL | Inline code cannot be statically validated. Sandbox limits blast radius but cannot inspect code intent. User must acknowledge risk. |
+| WRITE_SYSTEM | REQUIRE_APPROVAL | REQUIRE_APPROVAL | System-wide impact. Sandbox may prevent writes outside allowed paths, but user should know system is being modified. |
+| NETWORK_OUT | REQUIRE_APPROVAL | REQUIRE_APPROVAL | Data exfiltration risk. Sandbox can block network, but if user approves it, network is permitted. Approval = informed consent. |
+| UNKNOWN | REQUIRE_APPROVAL | REQUIRE_APPROVAL | No registry entry = cannot reason about effect. |
+
+The sandbox's role is **confinement**, not **authorization**. After the application layer decides to allow or approve a command, the sandbox ensures that command cannot exceed its allowed scope.
 
 ## Solution: Command Effect Registry (Approach C)
 
@@ -47,8 +77,10 @@ class EffectCategory(str, enum.Enum):
 
 ## Default Action Policy
 
-| Effect Category | Default Action | Examples |
-|-----------------|---------------|----------|
+**The action policy is the same regardless of sandbox availability.** Sandbox only affects execution wrapping, not approval decisions.
+
+| Effect Category | Action | Examples |
+|-----------------|--------|----------|
 | `READ_ONLY` | ALLOW | ls, cat, grep, git log, pwd, which, head, wc, file, find, diff, rg, sort, tail, echo |
 | `WRITE_PROJECT` | ALLOW | git add, git commit, npm install, pip install, python script.py, make, cargo build, mkdir, touch, cp, mv |
 | `WRITE_SYSTEM` | REQUIRE_APPROVAL | apt-get install, brew install, docker pull, systemctl |
@@ -112,7 +144,21 @@ CommandEffectEntry(
 )
 ```
 
-This is handled via a special case in CommandPolicy: when the command is a known shell interpreter (bash, sh, zsh, etc.) AND has a non-flag argument that looks like a file path, downgrade from ESCALATE to WRITE_PROJECT.
+**Explicit exclusion**: The following inline-eval flags are NOT downgraded, regardless of other arguments:
+
+| Interpreter | Flag | Category | Action |
+|-------------|------|----------|--------|
+| bash, sh, zsh, fish, ksh, csh | `-c` | CODE_GEN | REQUIRE_APPROVAL |
+| python, python3 | `-c` | CODE_GEN | REQUIRE_APPROVAL |
+| node | `-e`, `--eval` | CODE_GEN | REQUIRE_APPROVAL |
+| perl | `-e` | CODE_GEN | REQUIRE_APPROVAL |
+| ruby | `-e` | CODE_GEN | REQUIRE_APPROVAL |
+| php | `-r` | CODE_GEN | REQUIRE_APPROVAL |
+
+This is handled in CommandPolicy via `_shell_interpreter_override()`:
+1. If the interpreter has `-c`/`-e`/`--eval` flags → return `CODE_GEN` (no override)
+2. If the interpreter has a non-flag argument that looks like a file path → return `WRITE_PROJECT`
+3. Otherwise → return base category `ESCALATE` → DENY
 
 ## Shell Metacharacter Handling
 
@@ -225,7 +271,7 @@ backend/app/security/
 - `_classify_argv_command()` — new method that queries registry
 - `_classify_shell_command()` — new method that splits pipe chain, queries per subcommand, takes most dangerous
 - `_resolve_effect()` — resolves final effect considering subcommand_overrides and flag_overrides
-- `_shell_interpreter_override()` — special case: bash/sh/zsh + file arg → WRITE_PROJECT
+- `_shell_interpreter_override()` — special case: bash/sh/zsh + file arg → WRITE_PROJECT (with `-c`/`-e` exclusion)
 
 **Preserved:**
 - `HARD_DENY_PATTERNS` — rm -rf / etc still hard-denied
@@ -253,6 +299,7 @@ Key test behavior changes:
 |-----------|--------|-------|
 | `bash` (no args) | DENY | DENY (ESCALATE base) |
 | `bash script.sh` | DENY | WRITE_PROJECT → ALLOW |
+| `bash -c "echo hi"` | DENY | CODE_GEN → REQUIRE_APPROVAL |
 | `sh -c "echo hi"` | DENY | CODE_GEN → REQUIRE_APPROVAL |
 | `chmod +x script.sh` | REQUIRE_APPROVAL | DESTRUCTIVE → REQUIRE_APPROVAL (same action, different reason) |
 | `git log \| head` | REQUIRE_APPROVAL | READ_ONLY → ALLOW |
@@ -261,17 +308,36 @@ Key test behavior changes:
 | `pip install foo` | ALLOW | WRITE_PROJECT → ALLOW (same) |
 | `npm install` | ALLOW | WRITE_PROJECT → ALLOW (same) |
 | `ls` | ALLOW | READ_ONLY → ALLOW (same) |
+| `git push` | ALLOW | NETWORK_OUT → REQUIRE_APPROVAL (new: was incorrectly ALLOW) |
+| `git reset --hard` | ALLOW | DESTRUCTIVE → REQUIRE_APPROVAL (new: was incorrectly ALLOW) |
+| `some_unknown_tool` | ALLOW | UNKNOWN → REQUIRE_APPROVAL (new: was incorrectly ALLOW) |
 
 New test categories to add:
 - `TestEffectClassification` — verify registry lookups
 - `TestPipeChainClassification` — verify pipe chain effect aggregation
 - `TestSubcommandOverrides` — verify git subcommand handling
-- `TestShellInterpreterOverride` — verify bash script.sh allowance
+- `TestShellInterpreterOverride` — verify bash script.sh allowance and bash -c exclusion
 - `TestUnknownCommandHandling` — verify UNKNOWN → REQUIRE_APPROVAL
-- `TestSandboxDowngrade` — verify approval downgrade when sandbox is active
-- `TestSandboxFallback` — verify fallback to full effect classification when sandbox unavailable
+- `TestSandboxWrapping` — verify commands are wrapped when sandbox is available
+- `TestSandboxUnavailable` — verify commands execute directly when sandbox is unavailable
 
 ## OS Sandbox Layer
+
+### Design Principle: Confinement, Not Authorization
+
+The sandbox's sole purpose is to **confine** an already-approved command to its allowed scope. It does not make authorization decisions — that's the application layer's job.
+
+**What the sandbox does:**
+- Prevent file writes outside project directories (READ_ONLY and WRITE_PROJECT commands)
+- Prevent file reads of sensitive system paths (optional, stricter mode)
+- Prevent network access (unless explicitly allowed for NETWORK_OUT commands)
+- Prevent privilege escalation (no sudo/setuid inside sandbox)
+- Prevent IPC (shared memory, unix sockets outside project)
+
+**What the sandbox does NOT do:**
+- Decide whether a command needs approval
+- Downgrade REQUIRE_APPROVAL to ALLOW
+- Replace the effect classification system
 
 ### Architecture: Base Class + Platform Implementations
 
@@ -329,7 +395,13 @@ class SandboxProvider(ABC):
 
 #### macOS: Seatbelt (`sandbox-exec`)
 
-macOS ships with `sandbox-exec` which applies Seatbelt profiles to processes:
+macOS ships with `sandbox-exec` which applies Seatbelt profiles to processes.
+
+**Critical macOS-specific considerations:**
+- `/var/folders/*` is where macOS stores temp files (comparable to Linux `/tmp`). npm, pip, compilers all write here. Must be read-write.
+- `/private/tmp` is the real path behind `/tmp` symlink on macOS. Must be read-write.
+- Process forking is needed for tools like `make`, `npm`, `pre-commit` that spawn child processes.
+- `sandbox-exec` itself must be allowed to execute for nested sandbox scenarios.
 
 ```python
 class SeatbeltSandbox(SandboxProvider):
@@ -367,6 +439,11 @@ class SeatbeltSandbox(SandboxProvider):
         for p in ['/usr', '/bin', '/sbin', '/lib', '/System', '/dev']:
             lines.append(f'(allow file-read* (subpath "{p}"))')
 
+        # macOS temp directories — REQUIRED for npm/pip/compilers
+        # /var/folders is the real temp dir; /tmp symlinks to /private/tmp
+        lines.append('(allow file-read* file-write* (subpath "/var/folders"))')
+        lines.append('(allow file-read* file-write* (subpath "/private/tmp"))')
+
         # Allow read-write for project directories
         for p in allowed_paths:
             lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
@@ -380,6 +457,9 @@ class SeatbeltSandbox(SandboxProvider):
         lines.append('(allow process-exec (subpath "/bin"))')
         lines.append('(allow process-exec (subpath "/sbin"))')
 
+        # Allow process forking (needed by make, npm, pre-commit, etc.)
+        lines.append('(allow process-fork)')
+
         # Network
         if allow_network:
             lines.append('(allow network*)')
@@ -389,6 +469,9 @@ class SeatbeltSandbox(SandboxProvider):
         # Allow signal, sysctl for normal process operation
         lines.append('(allow signal)')
         lines.append('(allow sysctl-read)')
+
+        # Allow /etc for DNS resolution and SSL certs (needed by git, npm, pip)
+        lines.append('(allow file-read* (subpath "/etc"))')
 
         return '\n'.join(lines)
 ```
@@ -400,6 +483,12 @@ Linux uses two complementary mechanisms:
 - **Landlock LSM**: Filesystem access control (kernel >= 5.13)
 - **bubblewrap (bwrap)**: Lightweight namespace isolation (user namespaces, no Docker needed)
 - **seccomp-bpf**: System call filtering (optional, for additional hardening)
+
+**Critical Linux-specific considerations:**
+- `/etc` is needed read-only for DNS resolution, SSL certs, and nsswitch (git/npm/pip need this).
+- `/tmp` should use `--tmpfs` (isolated tmpfs) rather than `--bind /tmp /tmp` to prevent IPC attacks via shared /tmp.
+- `/home` may need read-only access for user config files (`.npmrc`, `.gitconfig`, etc.).
+- `--unshare-all` unshares all namespaces including IPC namespace, which is the default secure position.
 
 ```python
 class LandlockSandbox(SandboxProvider):
@@ -420,6 +509,7 @@ class LandlockSandbox(SandboxProvider):
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
             allow_network=allow_network,
+            allow_ipc=allow_ipc,
             cwd=cwd,
         )
         # bwrap ... -- <command>
@@ -431,19 +521,21 @@ class LandlockSandbox(SandboxProvider):
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
             allow_network=allow_network,
+            allow_ipc=allow_ipc,
             cwd=cwd,
         )
         args_str = " ".join(shlex.quote(a) for a in bwrap_args)
         return f"bwrap {args_str} -- {command}"
 
     def _build_bwrap_args(self, allowed_paths, read_only_paths,
-                          allow_network, cwd) -> list[str]:
+                          allow_network, allow_ipc, cwd) -> list[str]:
         args = [
-            "--unshare-all",           # Unshare all namespaces
+            "--unshare-all",           # Unshare all namespaces (IPC, net, pid, user, uts, cgroup)
             "--die-with-parent",       # Kill sandbox when parent dies
         ]
 
         if not allow_network:
+            # --unshare-all already unshares net, but be explicit
             args.append("--unshare-net")
 
         # Mount project directories as read-write
@@ -459,10 +551,20 @@ class LandlockSandbox(SandboxProvider):
             if os.path.exists(p):
                 args.extend(["--ro-bind", p, p])
 
+        # /etc read-only (DNS resolution, SSL certs, nsswitch — needed by git/npm/pip)
+        if os.path.exists("/etc"):
+            args.extend(["--ro-bind", "/etc", "/etc"])
+
+        # /home read-only for user config files (.npmrc, .gitconfig, etc.)
+        if os.path.exists("/home"):
+            args.extend(["--ro-bind", "/home", "/home"])
+
         # /proc and /dev needed for basic operation
         args.extend(["--proc", "/proc"])
         args.extend(["--dev", "/dev"])
-        args.extend(["--bind", "/tmp", "/tmp"])  # /tmp for temp files
+
+        # /tmp as isolated tmpfs (NOT --bind /tmp /tmp, which shares host /tmp)
+        args.extend(["--tmpfs", "/tmp"])
 
         # Set working directory
         args.extend(["--chdir", cwd])
@@ -516,6 +618,7 @@ def create_sandbox() -> SandboxProvider:
     logger.warning("No sandbox provider available, falling back to application-layer-only security")
     return NullSandbox()
 
+
 class NullSandbox(SandboxProvider):
     """No-op sandbox for environments without sandbox support"""
 
@@ -529,40 +632,60 @@ class NullSandbox(SandboxProvider):
         return command  # No wrapping
 ```
 
-### Sandbox Effect on Approval Policy
+### Sandbox and Application Layer Interaction
 
-When sandbox is active, certain `REQUIRE_APPROVAL` categories can be downgraded:
+The sandbox does NOT change approval decisions. It only affects execution wrapping.
 
-```python
-# In CommandPolicy
-def _maybe_downgrade_with_sandbox(self, category: EffectCategory) -> CommandAction:
-    """Sandbox-available approval downgrade rules"""
-    DOWNGRADE_MAP = {
-        EffectCategory.WRITE_SYSTEM: CommandAction.REQUIRE_APPROVAL,  # Still needs approval (system-wide impact)
-        EffectCategory.DESTRUCTIVE: CommandAction.ALLOW,              # Sandbox confines damage to project dir
-        EffectCategory.NETWORK_OUT: CommandAction.REQUIRE_APPROVAL,   # Still needs approval (data exfil risk)
-        EffectCategory.CODE_GEN: CommandAction.ALLOW,                 # Sandbox provides safety net
-        EffectCategory.UNKNOWN: CommandAction.REQUIRE_APPROVAL,       # Unknown commands still need approval
-    }
-    return DOWNGRADE_MAP.get(category, CommandAction.REQUIRE_APPROVAL)
-```
+| Scenario | Application Layer Decision | Sandbox Wrapping | Final Execution |
+|----------|---------------------------|-----------------|-----------------|
+| `ls` (READ_ONLY, no sandbox) | ALLOW | None (sandbox unavailable) | Direct execution |
+| `ls` (READ_ONLY, with sandbox) | ALLOW | sandbox.wrap_command() | Sandboxed execution |
+| `rm build/` (DESTRUCTIVE, no sandbox) | REQUIRE_APPROVAL | None | User approves → direct execution |
+| `rm build/` (DESTRUCTIVE, with sandbox) | REQUIRE_APPROVAL | sandbox.wrap_command() | User approves → sandboxed execution |
+| `curl url` (NETWORK_OUT, with sandbox) | REQUIRE_APPROVAL | sandbox.wrap_command(allow_network=True) | User approves → sandboxed execution with network |
+| `git log \| head` (READ_ONLY, with sandbox) | ALLOW | sandbox.wrap_shell_command() | Sandboxed execution |
+
+**Key insight**: The sandbox is always applied when available, regardless of ALLOW vs REQUIRE_APPROVAL. Even ALLOW commands benefit from sandbox confinement (defense in depth).
 
 ### Combined Security Flow
 
 ```
 Command Input
   │
-  ├─ Hard deny check (rm -rf /, curl | sh, sudo) → DENY
+  ├─ 1. Hard deny check (rm -rf /, curl | sh, sudo) → DENY (return immediately)
   │
-  ├─ Effect classification → effect_category
+  ├─ 2. Effect classification → effect_category
+  │     ├─ Registry lookup (with subcommand/flag overrides)
+  │     └─ Pipe chain aggregation (if shell mode)
   │
-  ├─ Sandbox available?
-  │   ├─ YES → Apply downgrade rules → determine action
-  │   │        └─ If ALLOW/REQUIRE_APPROVAL → sandbox.wrap_command() → execute in sandbox
-  │   └─ NO  → Use full effect classification policy → determine action
-  │            └─ Execute directly (no sandbox wrapping)
+  ├─ 3. Determine action from effect_category
+  │     ├─ READ_ONLY → ALLOW
+  │     ├─ WRITE_PROJECT → ALLOW
+  │     ├─ WRITE_SYSTEM → REQUIRE_APPROVAL
+  │     ├─ DESTRUCTIVE → REQUIRE_APPROVAL
+  │     ├─ ESCALATE → DENY
+  │     ├─ NETWORK_OUT → REQUIRE_APPROVAL
+  │     ├─ CODE_GEN → REQUIRE_APPROVAL
+  │     └─ UNKNOWN → REQUIRE_APPROVAL
   │
-  └─ Execute (sandboxed or bare)
+  ├─ 4. If DENY → return DENY (no execution)
+  │
+  ├─ 5. If REQUIRE_APPROVAL → return approval request (wait for user)
+  │     └─ User approves → proceed to step 6
+  │     └─ User denies → return DENY
+  │
+  ├─ 6. If ALLOW or user-approved → prepare execution
+  │     ├─ Determine sandbox params from effect_category:
+  │     │   ├─ allow_network = (effect_category == NETWORK_OUT)
+  │     │   └─ allow_ipc = False (always, unless explicitly needed in future)
+  │     │
+  │     ├─ Sandbox available?
+  │     │   ├─ YES → wrap command with sandbox.wrap_command/wrap_shell_command()
+  │     │   └─ NO  → execute directly (no wrapping)
+  │     │
+  │     └─ Execute (sandboxed or bare)
+  │
+  └─ Return result
 ```
 
 ### Updated File Structure
@@ -571,7 +694,7 @@ Command Input
 backend/app/security/
 ├── effect_category.py          # NEW: EffectCategory enum + danger level ordering + action policy mapping
 ├── command_effect_registry.py  # NEW: CommandEffectEntry + CommandEffectRegistry + default registrations
-├── command_policy.py           # MODIFIED: Query registry, sandbox-aware approval downgrade
+├── command_policy.py           # MODIFIED: Query registry, no sandbox-dependent approval logic
 ├── shell_security.py           # SIMPLIFIED: Remove keyword blacklists, keep metachar detection + path validation
 ├── path_security.py            # UNCHANGED
 └── sandbox/                    # NEW: OS sandbox layer
@@ -585,7 +708,7 @@ backend/app/security/
 
 ### ShellTool Integration
 
-`ShellTool` needs minor changes to use sandbox wrapping:
+`ShellTool` needs minor changes to use sandbox wrapping. **The policy engine does NOT receive the sandbox** — approval decisions are sandbox-independent.
 
 ```python
 class ShellTool(BaseTool):
@@ -593,27 +716,32 @@ class ShellTool(BaseTool):
         self.security = security
         self.path_security = path_security
         self.sandbox = sandbox or NullSandbox()
-        self.policy = CommandPolicy(security, path_security, self.sandbox)
+        # Policy does NOT receive sandbox — approval decisions are sandbox-independent
+        self.policy = CommandPolicy(security, path_security)
 
-    async def _execute_argv(self, argv, cwd, timeout):
-        # Wrap command in sandbox if available
+    async def _execute_argv(self, argv, cwd, timeout, effect_category=None):
+        # Wrap command in sandbox if available (confinement, not authorization)
         if self.sandbox.is_available():
+            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
             argv = self.sandbox.wrap_command(
                 argv,
                 cwd=cwd,
                 allowed_paths=self.path_security.allowed_base_paths,
                 read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+                allow_network=allow_network,
             )
         # ... rest of execution unchanged
 
-    async def _execute_shell(self, command, cwd, timeout):
-        # Wrap shell command in sandbox if available
+    async def _execute_shell(self, command, cwd, timeout, effect_category=None):
+        # Wrap shell command in sandbox if available (confinement, not authorization)
         if self.sandbox.is_available():
+            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
             command = self.sandbox.wrap_shell_command(
                 command,
                 cwd=cwd,
                 allowed_paths=self.path_security.allowed_base_paths,
                 read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
+                allow_network=allow_network,
             )
         # ... rest of execution unchanged
 ```
@@ -621,3 +749,5 @@ class ShellTool(BaseTool):
 `allow_network` is derived from the command's effect classification:
 - `NETWORK_OUT` commands approved by user → `allow_network=True`
 - All other commands → `allow_network=False`
+
+The `effect_category` is passed from the `CommandDecision` to `_execute_decision()`, which forwards it to `_execute_argv()` or `_execute_shell()`. This is a read-only informational field — the policy engine has already made its decision.

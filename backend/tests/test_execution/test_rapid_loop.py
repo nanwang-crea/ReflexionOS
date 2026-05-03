@@ -771,22 +771,25 @@ class TestRapidExecutionLoop:
         }
 
     @pytest.mark.asyncio
-    async def test_shell_pipe_command_triggers_approval_through_loop(self, mock_llm):
-        """Shell tool with pipe command should trigger approval flow through the loop."""
+    async def test_shell_destructive_command_triggers_approval_through_loop(self, mock_llm):
+        """Shell tool with destructive command should trigger approval flow through the loop."""
         import os
         import tempfile
 
+        from app.security.command_effect_registry import CommandEffectRegistry
         from app.security.path_security import PathSecurity
+        from app.security.sandbox.factory import NullSandbox
         from app.security.shell_security import ShellSecurity
         from app.tools.shell_tool import ShellTool
 
         with tempfile.TemporaryDirectory() as tmpdir:
             root_dir = os.path.realpath(tmpdir)
             path_security = PathSecurity([root_dir], base_dir=root_dir)
-            shell_tool = ShellTool(ShellSecurity(), path_security)
+            registry = CommandEffectRegistry()
+            shell_tool = ShellTool(ShellSecurity(), path_security, registry, NullSandbox())
 
-            registry = ToolRegistry()
-            registry.register(shell_tool)
+            tool_registry = ToolRegistry()
+            tool_registry.register(shell_tool)
 
             events = []
 
@@ -795,16 +798,17 @@ class TestRapidExecutionLoop:
 
             execution_loop = RapidExecutionLoop(
                 llm=mock_llm,
-                tool_registry=registry,
+                tool_registry=tool_registry,
                 max_steps=3,
                 event_callback=callback,
             )
 
-            tool_call = LLMToolCall(name="shell", arguments={"command": "echo hello | wc -c"})
+            # DESTRUCTIVE command triggers REQUIRE_APPROVAL
+            tool_call = LLMToolCall(name="shell", arguments={"command": "rm -rf build/"})
 
             async def mock_stream(messages, tools=None):
                 async for chunk in self._stream_response(
-                    content="执行管道命令",
+                    content="执行删除命令",
                     tool_calls=[tool_call],
                     finish_reason="tool_calls",
                 ):
@@ -817,7 +821,7 @@ class TestRapidExecutionLoop:
             execution_loop.set_approval_result(None)
 
         result, _ = await asyncio.gather(
-            execution_loop.run("测试管道命令", project_path=root_dir),
+            execution_loop.run("测试删除命令", project_path=root_dir),
             deny_later(),
         )
 

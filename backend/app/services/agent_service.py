@@ -16,7 +16,9 @@ from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
 from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus
 from app.models.conversation_snapshot import StartTurnResult
+from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
+from app.security.sandbox.factory import create_sandbox
 from app.security.shell_security import ShellSecurity
 from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
@@ -87,7 +89,7 @@ class AgentService:
 
         registry = ToolRegistry()
         registry.register(FileTool(path_security))
-        registry.register(ShellTool(ShellSecurity(), path_security))
+        registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox()))
         registry.register(PatchTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())

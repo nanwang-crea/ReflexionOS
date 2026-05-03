@@ -3,7 +3,9 @@ import tempfile
 
 import pytest
 
+from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
+from app.security.sandbox.factory import NullSandbox
 from app.security.shell_security import ShellSecurity
 from app.tools.file_tool import FileTool
 from app.tools.memory_tool import MemoryTool
@@ -32,7 +34,7 @@ class TestToolRegistry:
     def shell_tool(self):
         path_security = PathSecurity([os.getcwd()])
         security = ShellSecurity()
-        return ShellTool(security, path_security)
+        return ShellTool(security, path_security, CommandEffectRegistry(), NullSandbox())
 
     def test_register_tool(self, registry, file_tool):
         registry.register(file_tool)
@@ -97,7 +99,7 @@ class TestToolRegistry:
     ):
         path_security = PathSecurity([temp_dir], base_dir=temp_dir)
         registry.register(FileTool(path_security))
-        registry.register(ShellTool(ShellSecurity(), path_security))
+        registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), NullSandbox()))
         registry.register(PatchTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
@@ -115,10 +117,12 @@ class TestToolRegistry:
         shell_tool = ShellTool(
             ShellSecurity(platform_name="darwin"),
             PathSecurity([temp_dir], base_dir=temp_dir),
+            CommandEffectRegistry(),
+            NullSandbox(),
         )
         registry.register(shell_tool)
 
         [definition] = registry.get_tool_definitions()
 
         assert "当前平台: macOS" in definition.description
-        assert "which python" in definition.parameters["properties"]["command"]["description"]
+        assert "低风险命令直接执行" in definition.parameters["properties"]["command"]["description"]

@@ -3,7 +3,9 @@ import tempfile
 
 import pytest
 
+from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity, SecurityError
+from app.security.sandbox.factory import NullSandbox
 from app.security.shell_security import ShellSecurity
 from app.tools.shell_tool import ShellTool
 
@@ -15,7 +17,9 @@ class TestShellTool:
             root_dir = os.path.realpath(tmpdir)
             path_security = PathSecurity([root_dir], base_dir=root_dir)
             security = ShellSecurity()
-            yield ShellTool(security, path_security)
+            registry = CommandEffectRegistry()
+            sandbox = NullSandbox()
+            yield ShellTool(security, path_security, registry, sandbox)
 
     @pytest.mark.asyncio
     async def test_execute_allowed_command(self, shell_tool):
@@ -159,6 +163,8 @@ class TestShellTool:
             tool = ShellTool(
                 ShellSecurity(platform_name="darwin"),
                 PathSecurity([root_dir], base_dir=root_dir),
+                CommandEffectRegistry(),
+                NullSandbox(),
             )
 
             schema = tool.get_schema()
@@ -173,6 +179,8 @@ class TestShellTool:
             tool = ShellTool(
                 ShellSecurity(platform_name="win32"),
                 PathSecurity([root_dir], base_dir=root_dir),
+                CommandEffectRegistry(),
+                NullSandbox(),
             )
 
             schema = tool.get_schema()
