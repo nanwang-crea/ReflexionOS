@@ -215,6 +215,24 @@ class RapidExecutionLoop:
                                 step.status = StepStatus.SUCCESS if approval_result.get("success") else StepStatus.FAILED
                                 step.output = approval_result.get("output")
                                 step.error = approval_result.get("error")
+                                step.duration = 0.0
+
+                                # Emit tool:result so the runtime adapter closes the
+                                # waiting-for-approval tool_trace (updates payload and
+                                # streamState from streaming → completed/failed).
+                                await self._emit(
+                                    "tool:result",
+                                    {
+                                        "tool_name": step.tool,
+                                        "tool_call_id": step.tool_call_id,
+                                        "step_number": step.step_number,
+                                        "success": approval_result.get("success", False),
+                                        "output": approval_result.get("output"),
+                                        "error": approval_result.get("error"),
+                                        "duration": 0.0,
+                                    },
+                                )
+
                                 await self._emit(
                                     "run:resuming",
                                     {
@@ -228,6 +246,21 @@ class RapidExecutionLoop:
                             else:
                                 step.status = StepStatus.FAILED
                                 step.error = "审批被拒绝"
+
+                                # Emit tool:error so the runtime adapter closes the
+                                # waiting-for-approval tool_trace (streamState → failed).
+                                await self._emit(
+                                    "tool:error",
+                                    {
+                                        "tool_name": step.tool,
+                                        "tool_call_id": step.tool_call_id,
+                                        "step_number": step.step_number,
+                                        "error": "审批被拒绝",
+                                        "duration": 0.0,
+                                        "arguments": step.args,
+                                    },
+                                )
+
                                 loop_result.status = LoopStatus.CANCELLED
                                 loop_result.result = "审批被拒绝"
                                 state = LoopPhase.DONE
