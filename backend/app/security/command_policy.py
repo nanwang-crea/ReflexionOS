@@ -1,20 +1,17 @@
-import enum
+# backend/app/security/command_policy.py
 import logging
 import os
+import shlex
 import subprocess
 
 from pydantic import BaseModel, Field
 
+from app.security.command_effect_registry import CommandEffectRegistry
+from app.security.effect_category import EffectCategory, EFFECT_DANGER_LEVEL, EFFECT_ACTION_MAP, most_dangerous, CommandAction
 from app.security.path_security import PathSecurity, SecurityError
-from app.security.shell_security import ShellSecurity
+from app.security.shell_security import ShellSecurity, ShellSecurityError
 
 logger = logging.getLogger(__name__)
-
-
-class CommandAction(str, enum.Enum):
-    ALLOW = "allow"
-    REQUIRE_APPROVAL = "require_approval"
-    DENY = "deny"
 
 
 class EnvironmentSnapshot(BaseModel):
@@ -37,7 +34,10 @@ class CommandDecision(BaseModel):
     approval_kind: str = "shell_command"
     suggested_prefix_rule: list[str] | None = None
     environment_snapshot: EnvironmentSnapshot | None = None
+    effect_category: EffectCategory | None = None
 
+
+# ── Hard deny patterns (preserved) ───────────────────────────────
 
 HARD_DENY_PATTERNS: list[tuple[list[str], str]] = [
     (["rm", "-rf", "/"], "递归删除根目录"),
@@ -47,33 +47,13 @@ HARD_DENY_PATTERNS: list[tuple[list[str], str]] = [
     (["rm", "-rf", ".git"], "递归删除 .git 目录"),
 ]
 
-HARD_DENY_PREFIXES_ARGV: set[str] = {
-    "sudo", "su", "eval", "exec", "dd", "mkfs",
-    "bash", "sh", "zsh", "fish", "ksh", "csh",
-}
+HARD_DENY_SHELL_PATTERNS: set[str] = {"curl", "wget"}
 
-HARD_DENY_SHELL_PATTERNS: list[str] = [
-    "curl",
-    "wget",
-]
+# Shell interpreters whose -c flag means CODE_GEN
+SHELL_INTERPRETERS = {"bash", "sh", "zsh", "fish", "ksh", "csh"}
 
-HIGH_RISK_ARGV_COMMANDS: set[str] = {
-    "rm", "rmdir", "chmod", "chown",
-}
-
-INLINE_CODE_COMMANDS: dict[str, set[str]] = {
-    "python": {"-c"},
-    "python3": {"-c"},
-    "node": {"-e", "--eval"},
-    "perl": {"-e"},
-    "ruby": {"-e"},
-    "php": {"-r"},
-}
-
-HARD_DENY_SHELL_COMMANDS: set[str] = {
-    "sudo", "su", "eval", "exec",
-    "bash", "sh", "zsh", "fish", "ksh", "csh",
-}
+# Inline eval flags that prevent file-argument downgrade
+INLINE_EVAL_FLAGS = {"-c", "-e", "--eval"}
 
 
 def _capture_environment_snapshot(cwd: str) -> EnvironmentSnapshot:
@@ -121,11 +101,13 @@ def _capture_environment_snapshot(cwd: str) -> EnvironmentSnapshot:
 
 
 class CommandPolicy:
-    """Evaluates shell commands and returns structured decisions."""
+    """Evaluates shell commands and returns structured decisions based on effect classification."""
 
-    def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity):
+    def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity,
+                 registry: CommandEffectRegistry | None = None):
         self.shell_security = shell_security
         self.path_security = path_security
+        self.registry = registry or CommandEffectRegistry()
 
     def evaluate(
         self,
@@ -155,9 +137,20 @@ class CommandPolicy:
         timeout = timeout or 600
         snapshot = _capture_environment_snapshot(resolved_cwd)
 
-        needs_shell = bool(self.shell_security.SHELL_META_PATTERN.search(command_normalized))
+        # Parse command using ShellSecurity (without path validation — we handle that ourselves)
+        try:
+            result = self.shell_security.validate_command(command_normalized)
+        except ShellSecurityError as e:
+            return CommandDecision(
+                action=CommandAction.DENY,
+                command=command,
+                cwd=resolved_cwd,
+                timeout=timeout,
+                reasons=[str(e)],
+                environment_snapshot=snapshot,
+            )
 
-        if needs_shell and self.shell_security._is_windows():
+        if result.has_meta and self.shell_security._is_windows():
             return CommandDecision(
                 action=CommandAction.DENY,
                 command=command,
@@ -168,14 +161,16 @@ class CommandPolicy:
                 environment_snapshot=snapshot,
             )
 
-        if needs_shell:
+        if result.has_meta:
             return self._evaluate_shell_command(
                 command_normalized, resolved_cwd, timeout, snapshot
             )
 
         return self._evaluate_argv_command(
-            command_normalized, resolved_cwd, timeout, snapshot
+            command_normalized, result.argv, resolved_cwd, timeout, snapshot
         )
+
+    # ── Shell command evaluation (pipe chains, redirects) ──────────
 
     def _evaluate_shell_command(
         self,
@@ -184,39 +179,59 @@ class CommandPolicy:
         timeout: int,
         snapshot: EnvironmentSnapshot,
     ) -> CommandDecision:
-        import shlex
+        # 1. Hard deny: curl/wget | sh/bash
         try:
             tokens = shlex.split(command, posix=not self.shell_security._is_windows())
         except ValueError:
             tokens = []
 
         first_token = tokens[0] if tokens else ""
-        command_name = self.shell_security._command_name(first_token) if first_token else ""
+        first_cmd = self.shell_security._command_name(first_token) if first_token else ""
 
-        if command_name in HARD_DENY_SHELL_PATTERNS:
-            if "|" in command or ">" in command:
-                return CommandDecision(
-                    action=CommandAction.DENY,
-                    command=command,
-                    execution_mode="shell",
-                    cwd=cwd,
-                    timeout=timeout,
-                    reasons=[f"下载后执行管道: {command_name}"],
-                    risks=["下载的代码会在本地 shell 中执行，无法静态校验"],
-                    environment_snapshot=snapshot,
-                )
+        # Check for download-and-execute patterns
+        if first_cmd in HARD_DENY_SHELL_PATTERNS and "|" in command:
+            pipe_parts = command.split("|")
+            for part in pipe_parts[1:]:
+                try:
+                    part_tokens = shlex.split(part.strip())
+                    if part_tokens:
+                        target_cmd = self.shell_security._command_name(part_tokens[0])
+                        if target_cmd in SHELL_INTERPRETERS:
+                            return CommandDecision(
+                                action=CommandAction.DENY,
+                                command=command,
+                                execution_mode="shell",
+                                cwd=cwd,
+                                timeout=timeout,
+                                reasons=[f"下载后执行管道: {first_cmd} | {target_cmd}"],
+                                risks=["下载的代码会在本地 shell 中执行，无法静态校验"],
+                                environment_snapshot=snapshot,
+                                effect_category=EffectCategory.ESCALATE,
+                            )
+                except ValueError:
+                    continue
 
-        if command_name in HARD_DENY_SHELL_COMMANDS:
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="shell",
-                cwd=cwd,
-                timeout=timeout,
-                reasons=[f"禁止在 shell 模式下执行: {command_name}"],
-                environment_snapshot=snapshot,
-            )
+        # 2. Classify pipe chain
+        effect = self._classify_pipe_chain(command)
 
+        # 3. Determine action: shell metacharacters other than pipe add inherent risk
+        has_non_pipe_meta = any([
+            "&&" in command or "||" in command,
+            ";" in command,
+            "$(" in command or "`" in command,
+            ">" in command or ">>" in command,  # Redirects always require approval
+        ])
+
+        if effect == EffectCategory.ESCALATE:
+            action = CommandAction.DENY
+        elif has_non_pipe_meta:
+            # Command substitution, chaining, etc. → always require approval
+            action = CommandAction.REQUIRE_APPROVAL
+        else:
+            # Pure pipe chain → use effect-based action map
+            action = EFFECT_ACTION_MAP[effect]
+
+        # 3. Build reasons and risks
         reasons = []
         if "|" in command:
             reasons.append("使用管道: |")
@@ -231,68 +246,37 @@ class CommandPolicy:
         if "2>" in command:
             reasons.append("使用错误重定向: 2>")
 
-        has_destructive = any(
-            tok in command for tok in ["rm ", "chmod ", "chown ", "delete", "-delete"]
-        )
-        has_write_redirect = ">" in command or ">>" in command
-
         risks = ["命令会交给本地 shell 解释执行，无法完全静态校验路径安全"]
-
-        if has_destructive:
-            risks.append("包含破坏性操作")
-        elif has_write_redirect:
-            risks.append("包含写入/重定向操作")
 
         approval_kind = "shell_command"
 
         return CommandDecision(
-            action=CommandAction.REQUIRE_APPROVAL,
+            action=action,
             execution_mode="shell",
             command=command,
             argv=None,
             cwd=cwd,
             timeout=timeout,
-            reasons=reasons or ["使用 shell 元语法"],
+            reasons=reasons or [f"效果分类: {effect.value}"],
             risks=risks,
             approval_kind=approval_kind,
             environment_snapshot=snapshot,
+            effect_category=effect,
         )
+
+    # ── Argv command evaluation ────────────────────────────────────
 
     def _evaluate_argv_command(
         self,
         command: str,
+        argv: list[str],
         cwd: str,
         timeout: int,
         snapshot: EnvironmentSnapshot,
     ) -> CommandDecision:
-        import shlex
-
-        try:
-            argv = shlex.split(command, posix=not self.shell_security._is_windows())
-        except ValueError as exc:
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="argv",
-                cwd=cwd,
-                timeout=timeout,
-                reasons=[f"命令解析失败: {exc}"],
-                environment_snapshot=snapshot,
-            )
-
-        if not argv:
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="argv",
-                cwd=cwd,
-                timeout=timeout,
-                reasons=["命令不能为空"],
-                environment_snapshot=snapshot,
-            )
-
         command_name = self.shell_security._command_name(argv[0])
 
+        # 1. Hard deny patterns
         for pattern, reason in HARD_DENY_PATTERNS:
             if len(argv) >= len(pattern) and argv[:len(pattern)] == pattern:
                 return CommandDecision(
@@ -306,6 +290,7 @@ class CommandPolicy:
                     environment_snapshot=snapshot,
                 )
 
+        # Additional rm -rf checks
         if command_name == "rm" and ("-rf" in argv or "-fr" in argv):
             target_idx = None
             for i, arg in enumerate(argv[1:], 1):
@@ -327,96 +312,184 @@ class CommandPolicy:
                         environment_snapshot=snapshot,
                     )
 
-        if command_name in HARD_DENY_PREFIXES_ARGV:
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="argv",
-                argv=argv,
-                cwd=cwd,
-                timeout=timeout,
-                reasons=[f"禁止执行: {command_name}"],
-                environment_snapshot=snapshot,
-            )
+        # 2. Classify using registry
+        effect = self._classify_argv_command(argv)
+        action = EFFECT_ACTION_MAP[effect]
 
-        inline_flags = INLINE_CODE_COMMANDS.get(command_name)
-        if inline_flags and any(arg in inline_flags for arg in argv[1:]):
-            return CommandDecision(
-                action=CommandAction.REQUIRE_APPROVAL,
-                command=command,
-                execution_mode="argv",
-                argv=argv,
-                cwd=cwd,
-                timeout=timeout,
-                reasons=[f"内联代码执行: {command_name}"],
-                risks=["内联代码无法静态校验"],
-                approval_kind="argv_approval",
-                environment_snapshot=snapshot,
-            )
+        # 3. Build decision details based on effect
+        reasons = []
+        risks = []
+        approval_kind = "argv_approval"
 
-        if command_name in HIGH_RISK_ARGV_COMMANDS:
-            reasons = [f"高风险命令: {command_name}"]
-            risks = []
+        if effect == EffectCategory.DESTRUCTIVE:
+            reasons.append(f"破坏性命令: {command_name}")
             if command_name == "rm" and "-rf" in argv:
                 risks.append("递归强制删除")
             elif command_name == "rm":
                 risks.append("删除文件")
             elif command_name in {"chmod", "chown"}:
                 risks.append("修改文件权限或所有权")
+        elif effect == EffectCategory.NETWORK_OUT:
+            reasons.append(f"网络请求命令: {command_name}")
+            risks.append("可能向外部发送数据")
+        elif effect == EffectCategory.WRITE_SYSTEM:
+            reasons.append(f"系统级写入: {command_name}")
+            risks.append("修改系统状态")
+        elif effect == EffectCategory.CODE_GEN:
+            reasons.append(f"内联代码执行: {command_name}")
+            risks.append("内联代码无法静态校验")
+        elif effect == EffectCategory.ESCALATE:
+            reasons.append(f"禁止执行: {command_name}")
+        elif effect == EffectCategory.UNKNOWN:
+            reasons.append(f"未知命令: {command_name}")
+            risks.append("未注册命令，无法判断效果")
 
-            path_error = self._validate_argv_paths(argv[1:], command_name)
-            if path_error:
-                return CommandDecision(
-                    action=CommandAction.DENY,
-                    command=command,
-                    execution_mode="argv",
-                    argv=argv,
-                    cwd=cwd,
-                    timeout=timeout,
-                    reasons=[path_error],
-                    environment_snapshot=snapshot,
-                )
+        # 4. Validate paths for non-DENY decisions
+        if action != CommandAction.DENY:
+            if command_name not in self.shell_security.NON_PATH_ARGUMENT_COMMANDS:
+                path_error = self._validate_argv_paths(argv[1:], command_name)
+                if path_error:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="argv",
+                        argv=argv,
+                        cwd=cwd,
+                        timeout=timeout,
+                        reasons=[path_error],
+                        environment_snapshot=snapshot,
+                    )
 
-            suggested_prefix = None
-
-            return CommandDecision(
-                action=CommandAction.REQUIRE_APPROVAL,
-                command=command,
-                execution_mode="argv",
-                argv=argv,
-                cwd=cwd,
-                timeout=timeout,
-                reasons=reasons,
-                risks=risks,
-                approval_kind="argv_approval",
-                suggested_prefix_rule=suggested_prefix,
-                environment_snapshot=snapshot,
-            )
-
-        if command_name not in self.shell_security.NON_PATH_ARGUMENT_COMMANDS:
-            path_error = self._validate_argv_paths(argv[1:], command_name)
-            if path_error:
-                return CommandDecision(
-                    action=CommandAction.DENY,
-                    command=command,
-                    execution_mode="argv",
-                    argv=argv,
-                    cwd=cwd,
-                    timeout=timeout,
-                    reasons=[path_error],
-                    environment_snapshot=snapshot,
-                )
-
-        logger.info("低风险 argv 命令允许执行: %s", command)
         return CommandDecision(
-            action=CommandAction.ALLOW,
-            command=command,
+            action=action,
             execution_mode="argv",
+            command=command,
             argv=argv,
             cwd=cwd,
             timeout=timeout,
+            reasons=reasons or [f"效果分类: {effect.value}"],
+            risks=risks,
+            approval_kind=approval_kind,
             environment_snapshot=snapshot,
+            effect_category=effect,
         )
+
+    # ── Effect classification helpers ──────────────────────────────
+
+    def _classify_argv_command(self, argv: list[str]) -> EffectCategory:
+        """Classify an argv command using the registry with override resolution."""
+        command_name = self.shell_security._command_name(argv[0])
+        entry = self.registry.lookup(command_name)
+
+        if entry is None:
+            return EffectCategory.UNKNOWN
+
+        # Start with base category
+        effect = entry.category
+
+        # Check flag overrides first (e.g., python -c → CODE_GEN, python --version → READ_ONLY)
+        # Collect all matching flag overrides and pick the most dangerous one
+        flag_effects: list[EffectCategory] = []
+        for arg in argv[1:]:
+            if arg in entry.flag_overrides:
+                flag_effects.append(entry.flag_overrides[arg])
+        if flag_effects:
+            effect = most_dangerous(flag_effects)
+
+        # Check subcommand overrides (e.g., git push → NETWORK_OUT)
+        if entry.allow_subcommands and len(argv) >= 2:
+            subcmd = argv[1]
+            if not subcmd.startswith("-") and subcmd in entry.subcommand_overrides:
+                subcmd_effect = entry.subcommand_overrides[subcmd]
+                if EFFECT_DANGER_LEVEL[subcmd_effect] > EFFECT_DANGER_LEVEL[effect]:
+                    effect = subcmd_effect
+
+        # Shell interpreter override: bash script.sh → WRITE_PROJECT
+        if command_name in SHELL_INTERPRETERS:
+            effect = self._shell_interpreter_override(command_name, argv, effect)
+
+        return effect
+
+    def _shell_interpreter_override(
+        self, command_name: str, argv: list[str], current_effect: EffectCategory
+    ) -> EffectCategory:
+        """Override shell interpreter classification based on arguments.
+
+        Rules:
+        1. If -c/-e/--eval present → CODE_GEN (no override)
+        2. If a non-flag argument looks like a file path → WRITE_PROJECT
+        3. Otherwise → keep current effect (ESCALATE → DENY)
+        """
+        # Check for inline eval flags first
+        for arg in argv[1:]:
+            if arg in INLINE_EVAL_FLAGS:
+                return EffectCategory.CODE_GEN
+
+        # Check for file-like argument
+        for arg in argv[1:]:
+            if not arg.startswith("-"):
+                if self.shell_security._looks_like_path(arg):
+                    return EffectCategory.WRITE_PROJECT
+                # Also treat script-name-like args with dots or slashes
+                if "." in arg or "/" in arg:
+                    return EffectCategory.WRITE_PROJECT
+
+        return current_effect
+
+    def _classify_pipe_chain(self, command: str) -> EffectCategory:
+        """Classify a shell command containing pipes and redirects."""
+        effects: list[EffectCategory] = []
+
+        # Detect redirects → WRITE_PROJECT
+        if ">" in command or ">>" in command or "2>" in command:
+            effects.append(EffectCategory.WRITE_PROJECT)
+
+        # Split by pipe and classify each segment
+        pipe_segments = self._split_pipe_chain(command)
+        for segment in pipe_segments:
+            segment = segment.strip()
+            if not segment:
+                continue
+            try:
+                seg_argv = shlex.split(segment, posix=True)
+                if seg_argv:
+                    seg_effect = self._classify_argv_command(seg_argv)
+                    effects.append(seg_effect)
+            except ValueError:
+                effects.append(EffectCategory.UNKNOWN)
+
+        if not effects:
+            return EffectCategory.UNKNOWN
+
+        return most_dangerous(effects)
+
+    def _split_pipe_chain(self, command: str) -> list[str]:
+        """Split a shell command by | (pipe), respecting basic quoting."""
+        segments: list[str] = []
+        current: list[str] = []
+        in_single = False
+        in_double = False
+
+        i = 0
+        while i < len(command):
+            ch = command[i]
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                current.append(ch)
+            elif ch == '"' and not in_single:
+                in_double = not in_double
+                current.append(ch)
+            elif ch == '|' and not in_single and not in_double:
+                segments.append(''.join(current))
+                current = []
+            else:
+                current.append(ch)
+            i += 1
+
+        if current:
+            segments.append(''.join(current))
+
+        return segments
 
     def _validate_argv_paths(self, args: list[str], command_name: str) -> str | None:
         try:

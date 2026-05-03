@@ -41,10 +41,11 @@ class TestShellTool:
 
     @pytest.mark.asyncio
     async def test_execute_command_with_pipe(self, shell_tool):
+        # READ_ONLY pipe chain (echo | wc) is now ALLOW under effect classification
         result = await shell_tool.execute({"command": "echo hello | wc -c"})
 
-        assert result.approval_required is True
-        assert result.approval is not None
+        assert result.success is True
+        assert result.approval_required is False
 
     @pytest.mark.asyncio
     async def test_execute_common_command(self, shell_tool):
@@ -68,7 +69,8 @@ class TestShellTool:
 
     @pytest.mark.asyncio
     async def test_execute_pipe_command_returns_approval_required(self, shell_tool):
-        result = await shell_tool.execute({"command": "echo hello | wc -c"})
+        # Destructive pipe chain (rm | something) requires approval
+        result = await shell_tool.execute({"command": "rm file.txt && echo done"})
 
         assert result.approval_required is True
         assert result.success is False

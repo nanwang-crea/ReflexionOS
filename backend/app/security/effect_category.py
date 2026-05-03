@@ -2,9 +2,14 @@
 import enum
 import logging
 
-from app.security.command_policy import CommandAction
-
 logger = logging.getLogger(__name__)
+
+
+class CommandAction(str, enum.Enum):
+    """Action to take for a command based on its effect classification."""
+    ALLOW = "allow"
+    REQUIRE_APPROVAL = "require_approval"
+    DENY = "deny"
 
 
 class EffectCategory(str, enum.Enum):

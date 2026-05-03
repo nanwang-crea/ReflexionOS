@@ -85,7 +85,7 @@ class CommandEffectRegistry:
         # ── WRITE_PROJECT ──────────────────────────────────────────
         write_project_commands = [
             "mkdir", "touch", "cp", "mv", "ln", "tar", "unzip",
-            "make", "cmake", "pre-commit",
+            "make", "cmake", "pre-commit", "pytest",
         ]
         for cmd in write_project_commands:
             self.register(cmd, CommandEffectEntry(category=EffectCategory.WRITE_PROJECT))
