@@ -6,10 +6,18 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from app.config.settings import config_manager
+from app.execution.approval_flow import ApprovalFlow, ApprovalResult
 from app.execution.context_manager import LoopContext
 from app.execution.initial_plan_bootstrapper import InitialPlanBootstrapper
 from app.execution.loop_message_builder import LoopMessageBuilder
-from app.execution.models import LoopResult, LoopStatus, StepStatus
+from app.execution.models import (
+    LoopPhase,
+    LoopResult,
+    LoopStatus,
+    LoopStep,
+    RuntimeState,
+    StepStatus,
+)
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
@@ -18,15 +26,6 @@ from app.llm.retry import RetryExhaustedError
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
-
-
-# loop 阶段
-class LoopPhase:
-    PLANNING = "planning"
-    TOOL_EXECUTION = "tool_execution"
-    ERROR_RECOVERY = "error_recovery"
-    FINAL_SUMMARY = "final_summary"
-    DONE = "done"
 
 
 class RapidExecutionLoop:
@@ -72,12 +71,8 @@ class RapidExecutionLoop:
             tool_registry=self.tool_registry,
             emit=self._emit,
         )
-        self._approval_resume_event: asyncio.Event | None = None
-        self._approval_result: dict | None = None
-
-        # 状态追踪
-        self.has_executed_tools = False
-        self.consecutive_failures = 0
+        self.approval_flow = ApprovalFlow(emit=self._emit)
+        self._runtime: RuntimeState | None = None
 
     async def _emit(self, event_type: str, data: dict) -> None:
         """发送事件"""
@@ -88,15 +83,229 @@ class RapidExecutionLoop:
                 logger.error("事件回调失败: %s", e)
 
     def get_approval_resume_event(self) -> asyncio.Event:
-        if self._approval_resume_event is None:
-            self._approval_resume_event = asyncio.Event()
-        return self._approval_resume_event
+        return self.approval_flow._resume_event
 
     def set_approval_result(self, result: dict | None) -> None:
-        self._approval_result = result
-        event = self._approval_resume_event
-        if event is not None:
-            event.set()
+        self.approval_flow.set_approval_result(result)
+
+    # -- phase handlers ---------------------------------------------------
+
+    async def _handle_planning(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """PLANNING 阶段：调用 LLM 决策，决定下一阶段。"""
+        rt.response = await self._call_llm(context)
+
+        if rt.response.has_tool_calls:
+            rt.turn_retries = 0
+            return LoopPhase.TOOL_EXECUTION
+
+        # 没有工具调用
+        if rt.has_executed_tools:
+            if rt.response.has_content:
+                # 已经有可直接返回给用户的答案，不再强制进入总结
+                result.status = LoopStatus.COMPLETED
+                result.result = rt.response.content
+                return LoopPhase.DONE
+            else:
+                # 没有最终回答时，再进入兜底总结阶段
+                return LoopPhase.FINAL_SUMMARY
+        else:
+            # 没执行过工具，直接完成
+            if rt.response.has_content:
+                result.status = LoopStatus.COMPLETED
+                result.result = rt.response.content
+                return LoopPhase.DONE
+            else:
+                raise RuntimeError("模型未返回任何内容，也未发起工具调用")
+
+    async def _handle_tool_execution(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """TOOL_EXECUTION 阶段：执行工具调用，处理审批与失败。"""
+        rt.step_num += 1
+
+        for tool_call in rt.response.tool_calls:
+            step = await self.tool_executor.execute(tool_call, context, rt.step_num)
+            result.steps.append(step)
+            context.add_step(step)
+
+            if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                return await self._handle_approval(step, context, result, rt)
+
+            if step.status == StepStatus.FAILED:
+                rt.consecutive_failures += 1
+
+                # 发送工具失败事件
+                await self._emit(
+                    "tool:error",
+                    {
+                        "tool_name": tool_call.name,
+                        "step_number": step.step_number,
+                        "tool_call_id": step.tool_call_id,
+                        "error": step.error,
+                        "duration": step.duration,
+                        "arguments": step.args,
+                    },
+                )
+
+                # 检查是否需要进入错误恢复
+                if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
+                    return LoopPhase.ERROR_RECOVERY
+            else:
+                rt.consecutive_failures = 0
+                rt.has_executed_tools = True
+
+        return LoopPhase.PLANNING
+
+    async def _handle_approval(
+        self,
+        step: LoopStep,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """审批子处理器：等待审批结果，决定后续状态。"""
+        result.status = LoopStatus.WAITING_FOR_APPROVAL
+        result.result = step.output
+
+        await self._emit(
+            "run:waiting_for_approval",
+            {
+                "run_id": result.id,
+                "approval_id": step.approval_id,
+                "step_number": step.step_number,
+                "tool_name": step.tool,
+            },
+        )
+
+        approval = await self.approval_flow.wait_for_approval(step, result.id)
+
+        if approval.approved:
+            result.status = LoopStatus.RESUMING
+            tool_output = approval.output or approval.error or ""
+            context.add_message(
+                "tool",
+                content=tool_output,
+                tool_call_id=step.tool_call_id,
+            )
+            context.update_history(step, tool_output)
+            step.status = StepStatus.SUCCESS if approval.success else StepStatus.FAILED
+            step.output = approval.output
+            step.error = approval.error
+            step.duration = 0.0
+
+            # Emit tool:result so the runtime adapter closes the
+            # waiting-for-approval tool_trace (updates payload and
+            # streamState from streaming → completed/failed).
+            await self._emit(
+                "tool:result",
+                {
+                    "tool_name": step.tool,
+                    "tool_call_id": step.tool_call_id,
+                    "step_number": step.step_number,
+                    "success": approval.success,
+                    "output": approval.output,
+                    "error": approval.error,
+                    "duration": 0.0,
+                },
+            )
+
+            await self._emit(
+                "run:resuming",
+                {
+                    "run_id": result.id,
+                    "approval_id": step.approval_id,
+                    "execution_success": approval.success,
+                },
+            )
+
+            rt.has_executed_tools = True
+            return LoopPhase.PLANNING
+        else:
+            step.status = StepStatus.FAILED
+            step.error = "审批被拒绝"
+
+            # Emit tool:error so the runtime adapter closes the
+            # waiting-for-approval tool_trace (streamState → failed).
+            await self._emit(
+                "tool:error",
+                {
+                    "tool_name": step.tool,
+                    "tool_call_id": step.tool_call_id,
+                    "step_number": step.step_number,
+                    "error": "审批被拒绝",
+                    "duration": 0.0,
+                    "arguments": step.args,
+                },
+            )
+
+            # Emit run:cancelled so the runtime adapter and
+            # projection transition the run to CANCELLED and
+            # close any open messages.
+            await self._emit(
+                "run:cancelled",
+                {
+                    "status": LoopStatus.CANCELLED.value,
+                    "result": "审批被拒绝",
+                    "total_steps": len(result.steps),
+                },
+            )
+
+            result.status = LoopStatus.CANCELLED
+            result.result = "审批被拒绝"
+            return LoopPhase.DONE
+
+    async def _handle_error_recovery(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """ERROR_RECOVERY 阶段：将错误信息注入上下文，准备重试。"""
+        last_step = result.steps[-1] if result.steps else None
+
+        if not last_step:
+            return LoopPhase.FINAL_SUMMARY
+
+        error_prompt = self.prompt_manager.get_error_prompt(
+            error=last_step.error or "Unknown error",
+            tool=last_step.tool,
+            code_snippet="",
+        )
+
+        # 添加错误信息到上下文
+        context.add_message("user", error_prompt)
+
+        # 重置连续失败计数
+        rt.consecutive_failures = 0
+        rt.turn_retries += 1
+
+        if rt.turn_retries > self.MAX_TURN_RETRIES:
+            # 超过重试次数，强制总结
+            return LoopPhase.FINAL_SUMMARY
+
+        return LoopPhase.PLANNING
+
+    async def _handle_final_summary(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """FINAL_SUMMARY 阶段：获取最终总结。"""
+        summary = await self._get_final_summary(context)
+        result.result = summary
+        result.status = LoopStatus.COMPLETED
+        return LoopPhase.DONE
+
+    # -- main loop --------------------------------------------------------
 
     async def run(
         self,
@@ -136,6 +345,9 @@ class RapidExecutionLoop:
             system_sections=system_sections,
         )
 
+        rt = RuntimeState()
+        self._runtime = rt
+
         # 发送开始事件
         await self._emit("run:start", {"run_id": loop_result.id, "task": task})
 
@@ -144,202 +356,19 @@ class RapidExecutionLoop:
         try:
             await self.initial_plan_bootstrapper.bootstrap(context)
 
-            state = LoopPhase.PLANNING
-            step_num = 0
-            turn_retries = 0
+            handlers: dict[LoopPhase, Callable] = {
+                LoopPhase.PLANNING: self._handle_planning,
+                LoopPhase.TOOL_EXECUTION: self._handle_tool_execution,
+                LoopPhase.ERROR_RECOVERY: self._handle_error_recovery,
+                LoopPhase.FINAL_SUMMARY: self._handle_final_summary,
+            }
 
-            while state != LoopPhase.DONE and step_num < self.max_steps:
-                if state == LoopPhase.PLANNING:
-                    # 调用 LLM 决策
-                    response = await self._call_llm(context)
-
-                    # 检查是否有工具调用
-                    if response.has_tool_calls:
-                        state = LoopPhase.TOOL_EXECUTION
-                        turn_retries = 0
-                    else:
-                        # 没有工具调用
-                        if self.has_executed_tools:
-                            if response.has_content:
-                                # 已经有可直接返回给用户的答案，不再强制进入总结
-                                loop_result.status = LoopStatus.COMPLETED
-                                loop_result.result = response.content
-                                state = LoopPhase.DONE
-                            else:
-                                # 没有最终回答时，再进入兜底总结阶段
-                                state = LoopPhase.FINAL_SUMMARY
-                        else:
-                            # 没执行过工具，直接完成
-                            if response.has_content:
-                                loop_result.status = LoopStatus.COMPLETED
-                                loop_result.result = response.content
-                                state = LoopPhase.DONE
-                            else:
-                                raise RuntimeError("模型未返回任何内容，也未发起工具调用")
-
-                elif state == LoopPhase.TOOL_EXECUTION:
-                    step_num += 1
-
-                    # 执行所有工具调用
-                    for tool_call in response.tool_calls:
-                        step = await self.tool_executor.execute(tool_call, context, step_num)
-                        loop_result.steps.append(step)
-                        context.add_step(step)
-
-                        if step.status == StepStatus.WAITING_FOR_APPROVAL:
-                            loop_result.status = LoopStatus.WAITING_FOR_APPROVAL
-                            loop_result.result = step.output
-                            await self._emit(
-                                "run:waiting_for_approval",
-                                {
-                                    "run_id": loop_result.id,
-                                    "approval_id": step.approval_id,
-                                    "step_number": step.step_number,
-                                    "tool_name": step.tool,
-                                },
-                            )
-                            resume_event = self.get_approval_resume_event()
-                            await resume_event.wait()
-                            approval_result = self._approval_result
-                            self._approval_result = None
-                            self._approval_resume_event = asyncio.Event()
-                            if approval_result is not None:
-                                loop_result.status = LoopStatus.RESUMING
-                                tool_output = approval_result.get("output") or approval_result.get("error") or ""
-                                context.add_message(
-                                    "tool",
-                                    content=tool_output,
-                                    tool_call_id=step.tool_call_id,
-                                )
-                                context.update_history(step, tool_output)
-                                step.status = StepStatus.SUCCESS if approval_result.get("success") else StepStatus.FAILED
-                                step.output = approval_result.get("output")
-                                step.error = approval_result.get("error")
-                                step.duration = 0.0
-
-                                # Emit tool:result so the runtime adapter closes the
-                                # waiting-for-approval tool_trace (updates payload and
-                                # streamState from streaming → completed/failed).
-                                await self._emit(
-                                    "tool:result",
-                                    {
-                                        "tool_name": step.tool,
-                                        "tool_call_id": step.tool_call_id,
-                                        "step_number": step.step_number,
-                                        "success": approval_result.get("success", False),
-                                        "output": approval_result.get("output"),
-                                        "error": approval_result.get("error"),
-                                        "duration": 0.0,
-                                    },
-                                )
-
-                                await self._emit(
-                                    "run:resuming",
-                                    {
-                                        "run_id": loop_result.id,
-                                        "approval_id": step.approval_id,
-                                        "execution_success": approval_result.get("success"),
-                                    },
-                                )
-                                state = LoopPhase.PLANNING
-                                self.has_executed_tools = True
-                            else:
-                                step.status = StepStatus.FAILED
-                                step.error = "审批被拒绝"
-
-                                # Emit tool:error so the runtime adapter closes the
-                                # waiting-for-approval tool_trace (streamState → failed).
-                                await self._emit(
-                                    "tool:error",
-                                    {
-                                        "tool_name": step.tool,
-                                        "tool_call_id": step.tool_call_id,
-                                        "step_number": step.step_number,
-                                        "error": "审批被拒绝",
-                                        "duration": 0.0,
-                                        "arguments": step.args,
-                                    },
-                                )
-
-                                # Emit run:cancelled so the runtime adapter and
-                                # projection transition the run to CANCELLED and
-                                # close any open messages.
-                                await self._emit(
-                                    "run:cancelled",
-                                    {
-                                        "status": LoopStatus.CANCELLED.value,
-                                        "result": "审批被拒绝",
-                                        "total_steps": len(loop_result.steps),
-                                    },
-                                )
-
-                                loop_result.status = LoopStatus.CANCELLED
-                                loop_result.result = "审批被拒绝"
-                                state = LoopPhase.DONE
-                            continue
-
-                        if step.status == StepStatus.FAILED:
-                            self.consecutive_failures += 1
-
-                            # 发送工具失败事件
-                            await self._emit(
-                                "tool:error",
-                                {
-                                    "tool_name": tool_call.name,
-                                    "step_number": step.step_number,
-                                    "tool_call_id": step.tool_call_id,
-                                    "error": step.error,
-                                    "duration": step.duration,
-                                    "arguments": step.args,
-                                },
-                            )
-
-                            # 检查是否需要进入错误恢复
-                            if self.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                                state = LoopPhase.ERROR_RECOVERY
-                                break
-                        else:
-                            self.consecutive_failures = 0
-                            self.has_executed_tools = True
-
-                    if state == LoopPhase.TOOL_EXECUTION:
-                        # 工具执行完成，回到规划状态
-                        state = LoopPhase.PLANNING
-
-                elif state == LoopPhase.ERROR_RECOVERY:
-                    # 错误恢复：给 LLM 错误信息，让它修正
-                    last_step = loop_result.steps[-1] if loop_result.steps else None
-
-                    if last_step:
-                        error_prompt = self.prompt_manager.get_error_prompt(
-                            error=last_step.error or "Unknown error",
-                            tool=last_step.tool,
-                            code_snippet="",
-                        )
-
-                        # 添加错误信息到上下文
-                        context.add_message("user", error_prompt)
-
-                        # 重置连续失败计数
-                        self.consecutive_failures = 0
-
-                        # 回到规划状态
-                        state = LoopPhase.PLANNING
-                        turn_retries += 1
-
-                        if turn_retries > self.MAX_TURN_RETRIES:
-                            # 超过重试次数，强制总结
-                            state = LoopPhase.FINAL_SUMMARY
-
-                elif state == LoopPhase.FINAL_SUMMARY:
-                    # 强制获取最终总结
-                    summary = await self._get_final_summary(context)
-                    loop_result.result = summary
-                    loop_result.status = LoopStatus.COMPLETED
-                    state = LoopPhase.DONE
+            while rt.phase != LoopPhase.DONE and rt.step_num < self.max_steps:
+                handler = handlers[rt.phase]
+                rt.phase = await handler(context, loop_result, rt)
 
             # 超过最大步数
-            if step_num >= self.max_steps and loop_result.status != LoopStatus.WAITING_FOR_APPROVAL:
+            if rt.step_num >= self.max_steps and loop_result.status != LoopStatus.WAITING_FOR_APPROVAL:
                 loop_result.status = LoopStatus.COMPLETED
                 loop_result.result = loop_result.result or "执行完成（达到最大步数）"
                 logger.warning("执行达到最大步数")
@@ -384,6 +413,7 @@ class RapidExecutionLoop:
             await self._emit("run:error", {"error": str(e)})
 
         finally:
+            self._runtime = None
             loop_result.total_duration = time.time() - start_time
             loop_result.completed_at = datetime.now()
 
@@ -404,6 +434,8 @@ class RapidExecutionLoop:
 
         return loop_result
 
+    # -- helpers ----------------------------------------------------------
+
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """
         调用 LLM（使用原生工具调用）
@@ -417,7 +449,6 @@ class RapidExecutionLoop:
         tools = self.tool_definitions.for_context(context)
         messages = self.message_builder.build(context, tools)
 
-        # 流式调用 LLM，并在接收内容时持续推送到前端
         content_parts = []
         tool_calls = []
         finish_reason = "stop"
@@ -443,7 +474,6 @@ class RapidExecutionLoop:
             model=self.llm.get_model_name(),
         )
 
-        # 记录到上下文
         if response.has_content or response.has_tool_calls:
             context.add_message(
                 "assistant",
@@ -469,14 +499,12 @@ class RapidExecutionLoop:
         Returns:
             str: 最终回答内容
         """
-        # 添加最终回答请求
         context.add_message("user", self.prompt_manager.get_final_response_prompt(context.task))
 
         tools = self.tool_definitions.for_context(context)
         messages = self.message_builder.build(context, tools)
 
         try:
-            # 流式获取总结
             summary_parts = []
             async for chunk in self.llm.stream_complete(messages, tools=None):
                 if chunk.type == "content" and chunk.content:
@@ -495,7 +523,6 @@ class RapidExecutionLoop:
         except Exception as e:
             logger.error("获取总结失败: %s", e)
 
-        # Fallback: 生成简单总结
         steps_count = len(context.steps)
         fallback = f"任务执行完成，共执行了 {steps_count} 个步骤。"
         return fallback

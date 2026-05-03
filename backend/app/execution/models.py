@@ -1,8 +1,12 @@
+import asyncio
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.llm.base import LLMResponse
 
 
 class LoopStatus(str, Enum):
@@ -48,3 +52,27 @@ class LoopResult(BaseModel):
     total_duration: float | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
+
+
+class LoopPhase(str, Enum):
+    """状态机阶段 — 继承 str 保持与现有字符串比较兼容"""
+
+    PLANNING = "planning"
+    TOOL_EXECUTION = "tool_execution"
+    ERROR_RECOVERY = "error_recovery"
+    FINAL_SUMMARY = "final_summary"
+    DONE = "done"
+
+
+@dataclass
+class RuntimeState:
+    """单次 run 的可变状态快照 — handler 只操作这个对象"""
+
+    phase: LoopPhase = LoopPhase.PLANNING
+    step_num: int = 0
+    turn_retries: int = 0
+    consecutive_failures: int = 0
+    has_executed_tools: bool = False
+    response: LLMResponse | None = None
+    approval_resume_event: asyncio.Event = field(default_factory=asyncio.Event)
+    approval_result: dict | None = None
