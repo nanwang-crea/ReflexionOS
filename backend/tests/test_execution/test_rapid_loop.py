@@ -830,6 +830,119 @@ class TestRapidExecutionLoop:
         assert "run:complete" not in event_types
 
     @pytest.mark.asyncio
+    async def test_approval_resume_continues_loop_execution(self, mock_llm):
+        """When approval is granted, the loop resumes and continues executing."""
+        registry = ToolRegistry()
+        registry.register(ApprovalTool())
+        registry.register(MockTool())
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=5,
+            event_callback=callback,
+        )
+
+        approval_tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+        mock_tool_call = LLMToolCall(name="mock", arguments={"path": "."})
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    content="需要审批",
+                    tool_calls=[approval_tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+            elif call_count[0] == 2:
+                async for chunk in self._stream_response(
+                    content="审批通过，继续执行",
+                    tool_calls=[mock_tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="任务完成"):
+                    yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        async def resume_after_delay():
+            await asyncio.sleep(0.1)
+            execution_loop.set_approval_result({
+                "success": True,
+                "output": "approved output",
+                "error": None,
+            })
+
+        asyncio.get_event_loop().create_task(resume_after_delay())
+
+        result = await execution_loop.run("需要审批的任务")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 2
+        assert result.steps[0].status == StepStatus.SUCCESS
+        assert result.steps[0].tool == "approval_tool"
+        assert result.steps[1].tool == "mock"
+        assert call_count[0] == 3
+
+        event_types = [event["type"] for event in events]
+        assert "run:waiting_for_approval" in event_types
+        assert "run:resuming" in event_types
+        assert "run:complete" in event_types
+
+    @pytest.mark.asyncio
+    async def test_approval_deny_cancels_loop_execution(self, mock_llm):
+        """When approval is denied, the loop cancels."""
+        registry = ToolRegistry()
+        registry.register(ApprovalTool())
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=5,
+            event_callback=callback,
+        )
+
+        approval_tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(
+                content="需要审批",
+                tool_calls=[approval_tool_call],
+                finish_reason="tool_calls",
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        async def deny_after_delay():
+            await asyncio.sleep(0.1)
+            execution_loop.set_approval_result(None)
+
+        asyncio.get_event_loop().create_task(deny_after_delay())
+
+        result = await execution_loop.run("需要审批的任务")
+
+        assert result.status == LoopStatus.CANCELLED
+        assert result.result == "审批被拒绝"
+
+        event_types = [event["type"] for event in events]
+        assert "run:waiting_for_approval" in event_types
+        assert "run:complete" not in event_types
+
+    @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
         """测试工具失败恢复"""
 

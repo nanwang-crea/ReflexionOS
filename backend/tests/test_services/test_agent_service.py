@@ -1480,3 +1480,123 @@ async def test_deny_tool_call_does_not_execute_command(monkeypatch, tmp_path):
 
     run = conversation_service.run_repo.get(started.run.id)
     assert run.status == RunStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
+    """Approval should resume the execution loop, not terminate the run."""
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    approval_id = "approval-resume-e2e"
+
+    from app.execution.models import LoopResult, LoopStatus as ExecLoopStatus
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+            self._approval_resume_event = asyncio.Event()
+            self._approval_result = None
+
+        def get_approval_resume_event(self):
+            return self._approval_resume_event
+
+        def set_approval_result(self, result):
+            self._approval_result = result
+            self._approval_resume_event.set()
+
+        async def run(self, **kwargs):
+            await self.event_callback("run:start", {"run_id": kwargs.get("run_id", "run-1")})
+            await self.event_callback(
+                "tool:start",
+                {"tool_name": "shell", "arguments": {"command": "echo hello | wc"}, "tool_call_id": "call-1", "step_number": 1},
+            )
+            await self.event_callback(
+                "approval:required",
+                {
+                    "approval_id": approval_id,
+                    "tool_call_id": "call-1",
+                    "tool_name": "shell",
+                    "arguments": {"command": "echo hello | wc"},
+                    "step_number": 1,
+                    "approval": {
+                        "approval_id": approval_id,
+                        "tool_name": "shell",
+                        "summary": "需要审批后继续",
+                        "reasons": [],
+                        "risks": [],
+                        "payload": {"approved_decision": {"action": "allow", "command": "echo hello | wc", "execution_mode": "shell", "argv": None, "cwd": str(tmp_path), "timeout": 60, "reasons": [], "risks": [], "approval_kind": "shell_command", "environment_snapshot": {"cwd": str(tmp_path)}}},
+                    },
+                },
+            )
+            await self.event_callback(
+                "run:waiting_for_approval",
+                {"run_id": kwargs.get("run_id", "run-1"), "approval_id": approval_id},
+            )
+
+            await self._approval_resume_event.wait()
+
+            if self._approval_result is not None:
+                await self.event_callback("tool:result", {"tool_name": "shell", "tool_call_id": "call-1", "success": True, "output": "6", "error": None, "duration": 0.1})
+                await self.event_callback("run:resuming", {"run_id": kwargs.get("run_id", "run-1"), "approval_id": approval_id})
+                await self.event_callback("llm:content", {"content": "审批通过，继续执行"})
+                await self.event_callback("run:complete", {})
+                return LoopResult(id=kwargs.get("run_id", "run-1"), task=kwargs.get("task", ""), status=ExecLoopStatus.COMPLETED, result="审批通过，继续执行")
+            else:
+                await self.event_callback("run:cancelled", {})
+                return LoopResult(id=kwargs.get("run_id", "run-1"), task=kwargs.get("task", ""), status=ExecLoopStatus.CANCELLED, result="审批被拒绝")
+
+    captured_loops = []
+
+    def capture_loop(**kwargs):
+        loop = StubRapidExecutionLoop(**kwargs)
+        captured_loops.append(loop)
+        return loop
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", agent_service_module.ConversationRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", capture_loop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+
+    started = await service.start_turn(
+        project_id="project-1",
+        session_id="session-1",
+        content="运行需要审批的任务",
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    await asyncio.sleep(0.1)
+    assert len(captured_loops) == 1
+    stub_loop = captured_loops[0]
+
+    pending = service.pending_approval_store.get(approval_id)
+    assert pending is not None
+
+    await service.approve_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id=approval_id,
+    )
+
+    await asyncio.sleep(0.2)
+
+    pending = service.pending_approval_store.get(approval_id)
+    assert pending.status == "approved"
+
+    run = conversation_service.run_repo.get(started.run.id)
+    assert run.status == RunStatus.COMPLETED
