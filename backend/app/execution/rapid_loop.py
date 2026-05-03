@@ -261,6 +261,18 @@ class RapidExecutionLoop:
                                     },
                                 )
 
+                                # Emit run:cancelled so the runtime adapter and
+                                # projection transition the run to CANCELLED and
+                                # close any open messages.
+                                await self._emit(
+                                    "run:cancelled",
+                                    {
+                                        "status": LoopStatus.CANCELLED.value,
+                                        "result": "审批被拒绝",
+                                        "total_steps": len(loop_result.steps),
+                                    },
+                                )
+
                                 loop_result.status = LoopStatus.CANCELLED
                                 loop_result.result = "审批被拒绝"
                                 state = LoopPhase.DONE

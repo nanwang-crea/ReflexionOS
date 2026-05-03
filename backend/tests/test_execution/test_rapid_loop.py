@@ -396,8 +396,9 @@ class TestRapidExecutionLoop:
         event_types = [event["type"] for event in events]
         assert "approval:required" in event_types
         assert "run:waiting_for_approval" in event_types
-        # Deny now emits tool:error to close the waiting-for-approval tool trace
+        # Deny now emits tool:error and run:cancelled to properly terminate
         assert "tool:error" in event_types
+        assert "run:cancelled" in event_types
         assert "run:complete" not in event_types
         assert len(captured_calls) == 1
 
@@ -941,6 +942,8 @@ class TestRapidExecutionLoop:
 
         event_types = [event["type"] for event in events]
         assert "run:waiting_for_approval" in event_types
+        # Deny emits run:cancelled to properly terminate the run
+        assert "run:cancelled" in event_types
         assert "run:complete" not in event_types
 
     @pytest.mark.asyncio
