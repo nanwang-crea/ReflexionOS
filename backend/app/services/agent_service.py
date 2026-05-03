@@ -660,7 +660,14 @@ class AgentService:
         """
         from app.tools.base import ToolResult
 
-        approved_decision_data = pending.approval_payload.get("approved_decision")
+        # approved_decision lives inside ToolApprovalRequest.payload, which is nested
+        # under the "payload" key in the approval_payload dict (the model_dump() of
+        # ToolApprovalRequest).  Try both the nested path and the top level so that
+        # callers who store the decision directly at top level also work.
+        approved_decision_data = (
+            pending.approval_payload.get("payload", {}).get("approved_decision")
+            or pending.approval_payload.get("approved_decision")
+        )
         if not approved_decision_data:
             return ToolResult(
                 success=False,
