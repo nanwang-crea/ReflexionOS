@@ -8,16 +8,24 @@ from app.security.sandbox.sandbox_policy import SandboxPolicy
 
 
 class LandlockProfileBuilder(ProfileBuilder):
-    """Linux Landlock/bwrap profile builder.
+    """Linux bwrap profile builder (pragmatic mode).
 
-    Generates a bwrap argument list using the template method pattern.
-    Each private method appends bwrap flags to ``self.args`` based on
-    the policy provided at construction time.
+    Philosophy (same as SeatbeltProfileBuilder):
+    - Do NOT fight the OS — bind ``/`` as writable by default
+    - Only restrict high-risk capabilities:
+        - network (via --unshare-net)
+        - sensitive file paths (--ro-bind to deny write)
+        - system write protection (--ro-bind for /usr, /System, etc.)
     """
 
-    # System paths always mounted read-only (if they exist)
+    # Paths always mounted read-only to prevent system corruption
     _SYSTEM_RO_PATHS: ClassVar[tuple[str, ...]] = (
-        "/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc",
+        "/usr", "/bin", "/sbin", "/lib", "/lib64",
+    )
+
+    # Sensitive paths always denied even in permissive mode
+    _DENIED_PATHS: ClassVar[tuple[str, ...]] = (
+        "/etc/shadow", "/etc/ssh", "/root/.ssh", "/root/.gnupg",
     )
 
     def __init__(self, policy: SandboxPolicy, *, cwd: str) -> None:
@@ -36,35 +44,36 @@ class LandlockProfileBuilder(ProfileBuilder):
     # -- template methods ---------------------------------------------------
 
     def _base(self) -> None:
-        """Base bwrap isolation flags."""
-        self.args.append("--unshare-all")
+        """Base bwrap isolation — minimal, not aggressive."""
         self.args.append("--die-with-parent")
 
     def _network(self) -> None:
-        """Network namespace sharing."""
+        """Restrict network when policy says so."""
         if not self.policy.allow_network:
             self.args.append("--unshare-net")
 
     def _binds(self) -> None:
-        """Bind mounts for system, user, and project paths."""
+        """Bind mounts — allow by default, restrict only dangerous paths."""
 
-        # System paths — always read-only
+        # Bind entire root filesystem as writable (pragmatic: allow default)
+        if os.path.isdir("/"):
+            self.args.extend(["--bind", "/", "/"])
+
+        # Override system paths as read-only (prevent system corruption)
         for prefix in self._SYSTEM_RO_PATHS:
             if os.path.isdir(prefix):
                 self.args.extend(["--ro-bind", prefix, prefix])
 
-        # User home directories — controlled by policy
-        if os.path.isdir("/home"):
-            if self.policy.allow_user_read and self.policy.allow_user_write:
-                self.args.extend(["--bind", "/home", "/home"])
-            elif self.policy.allow_user_read:
-                self.args.extend(["--ro-bind", "/home", "/home"])
+        # Override sensitive paths as read-only
+        for p in self._DENIED_PATHS:
+            if os.path.exists(p):
+                self.args.extend(["--ro-bind", p, p])
 
-        # Writable bind mounts for allowed paths
+        # Explicit allowed paths (writable, for project directories)
         for p in self.policy.allowed_paths:
             self.args.extend(["--bind", p, p])
 
-        # Read-only bind mounts for caller-specified paths
+        # Read-only paths (caller-specified)
         for p in self.policy.read_only_paths:
             self.args.extend(["--ro-bind", p, p])
 
