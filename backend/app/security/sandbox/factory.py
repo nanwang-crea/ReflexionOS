@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.landlock import LandlockSandbox
+from app.security.sandbox.sandbox_policy import SandboxLevel
 from app.security.sandbox.seatbelt import SeatbeltSandbox
 
 
@@ -41,15 +42,21 @@ class NullSandbox(SandboxProvider):
         return command
 
 
-def create_sandbox() -> SandboxProvider:
+def create_sandbox(level: SandboxLevel = SandboxLevel.DEV) -> SandboxProvider:
     """Return the first available sandbox provider, or NullSandbox.
 
     Tries Seatbelt (macOS) first, then Landlock/bwrap (Linux).
     If neither is available, returns a NullSandbox that passes
     commands through unchanged.
+
+    Parameters
+    ----------
+    level:
+        The sandbox strictness level.  Passed to the selected provider
+        so it can derive the appropriate policy.
     """
     for cls in (SeatbeltSandbox, LandlockSandbox):
-        provider = cls()
+        provider = cls(level=level)
         if provider.is_available():
             return provider
     return NullSandbox()

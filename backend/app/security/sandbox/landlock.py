@@ -7,10 +7,15 @@ import subprocess
 import sys
 
 from app.security.sandbox.base import SandboxProvider
+from app.security.sandbox.landlock_profile import LandlockProfileBuilder
+from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
 
 
 class LandlockSandbox(SandboxProvider):
     """Sandbox provider for Linux using bubblewrap (bwrap)."""
+
+    def __init__(self, level: SandboxLevel = SandboxLevel.DEV) -> None:
+        self.level = level
 
     def is_available(self) -> bool:
         if sys.platform != "linux":
@@ -31,48 +36,6 @@ class LandlockSandbox(SandboxProvider):
         except (OSError, subprocess.TimeoutExpired):
             return False
 
-    def _build_bwrap_args(
-        self,
-        *,
-        cwd: str,
-        allowed_paths: list[str] | None = None,
-        read_only_paths: list[str] | None = None,
-        allow_network: bool = False,
-    ) -> list[str]:
-        allowed_paths = allowed_paths or []
-        read_only_paths = read_only_paths or []
-
-        args: list[str] = [
-            "--unshare-all",
-            "--die-with-parent",
-        ]
-
-        if not allow_network:
-            args.append("--unshare-net")
-
-        # Writable bind mounts for allowed paths
-        for p in allowed_paths:
-            args.extend(["--bind", p, p])
-
-        # Read-only system paths
-        for prefix in ("/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/home"):
-            if os.path.isdir(prefix):
-                args.extend(["--ro-bind", prefix, prefix])
-
-        # Read-only paths requested by caller
-        for p in read_only_paths:
-            args.extend(["--ro-bind", p, p])
-
-        # Virtual filesystems
-        args.extend(["--proc", "/proc"])
-        args.extend(["--dev", "/dev"])
-        args.extend(["--tmpfs", "/tmp"])
-
-        # Working directory
-        args.extend(["--chdir", cwd])
-
-        return args
-
     def wrap_command(
         self,
         argv: list[str],
@@ -83,12 +46,13 @@ class LandlockSandbox(SandboxProvider):
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> list[str]:
-        bwrap_args = self._build_bwrap_args(
-            cwd=cwd,
+        policy = SandboxPolicy.from_level(
+            self.level,
+            allow_network=allow_network,
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
-            allow_network=allow_network,
         )
+        bwrap_args = LandlockProfileBuilder(policy, cwd=cwd).build()
         return ["bwrap"] + bwrap_args + ["--"] + list(argv)
 
     def wrap_shell_command(
@@ -101,11 +65,12 @@ class LandlockSandbox(SandboxProvider):
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> str:
-        bwrap_args = self._build_bwrap_args(
-            cwd=cwd,
+        policy = SandboxPolicy.from_level(
+            self.level,
+            allow_network=allow_network,
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
-            allow_network=allow_network,
         )
+        bwrap_args = LandlockProfileBuilder(policy, cwd=cwd).build()
         args_str = " ".join(shlex.quote(a) for a in bwrap_args)
         return f"bwrap {args_str} -- {command}"

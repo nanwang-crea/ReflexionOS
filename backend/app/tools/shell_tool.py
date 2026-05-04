@@ -122,7 +122,6 @@ class ShellTool(BaseTool):
                 argv,
                 cwd=cwd,
                 allowed_paths=self.path_security.allowed_base_paths,
-                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
                 allow_network=allow_network,
             )
 
@@ -161,7 +160,6 @@ class ShellTool(BaseTool):
                 command,
                 cwd=cwd,
                 allowed_paths=self.path_security.allowed_base_paths,
-                read_only_paths=["/usr", "/bin", "/sbin", "/lib"],
                 allow_network=allow_network,
             )
 

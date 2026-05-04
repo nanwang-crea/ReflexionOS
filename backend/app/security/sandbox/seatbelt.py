@@ -5,11 +5,15 @@ import shlex
 import sys
 
 from app.security.sandbox.base import SandboxProvider
-from app.security.sandbox.seatbelt_profile import build_seatbelt_profile
+from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
+from app.security.sandbox.seatbelt_profile import SeatbeltProfileBuilder
 
 
 class SeatbeltSandbox(SandboxProvider):
     """Sandbox provider for macOS using the Seatbelt sandbox-exec mechanism."""
+
+    def __init__(self, level: SandboxLevel = SandboxLevel.DEV) -> None:
+        self.level = level
 
     def is_available(self) -> bool:
         return sys.platform == "darwin" and os.path.exists("/usr/bin/sandbox-exec")
@@ -24,11 +28,13 @@ class SeatbeltSandbox(SandboxProvider):
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> list[str]:
-        profile = build_seatbelt_profile(
+        policy = SandboxPolicy.from_level(
+            self.level,
+            allow_network=allow_network,
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
-            allow_network=allow_network,
         )
+        profile = SeatbeltProfileBuilder(policy).build()
         return ["/usr/bin/sandbox-exec", "-p", profile, "--"] + list(argv)
 
     def wrap_shell_command(
@@ -41,9 +47,11 @@ class SeatbeltSandbox(SandboxProvider):
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> str:
-        profile = build_seatbelt_profile(
+        policy = SandboxPolicy.from_level(
+            self.level,
+            allow_network=allow_network,
             allowed_paths=allowed_paths,
             read_only_paths=read_only_paths,
-            allow_network=allow_network,
         )
+        profile = SeatbeltProfileBuilder(policy).build()
         return f"/usr/bin/sandbox-exec -p {shlex.quote(profile)} -- {command}"

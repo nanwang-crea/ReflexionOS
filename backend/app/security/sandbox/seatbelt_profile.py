@@ -1,85 +1,95 @@
 from __future__ import annotations
 
+from app.security.sandbox.profile_builder import ProfileBuilder
+from app.security.sandbox.sandbox_policy import SandboxPolicy
 
-def build_seatbelt_profile(
-    allowed_paths: list[str] | None = None,
-    read_only_paths: list[str] | None = None,
-    allow_network: bool = False,
-    level: str = "dev",  # "strict" | "dev" | "permissive"
-) -> str:
-    allowed_paths = allowed_paths or []
-    read_only_paths = read_only_paths or []
 
-    lines: list[str] = []
+class SeatbeltProfileBuilder(ProfileBuilder):
+    """macOS Seatbelt (sandbox-exec) profile builder.
 
-    # --- header ---
-    lines.append("(version 1)")
-    lines.append("(deny default)")
+    Generates a .sb profile string using the template method pattern.
+    Each private method appends Seatbelt rules to ``self.lines`` based on
+    the policy provided at construction time.
+    """
 
-    # ========================
-    # 基础系统（必须）
-    # ========================
-    for prefix in ("/usr", "/bin", "/sbin", "/lib", "/System", "/dev", "/etc"):
-        lines.append(f'(allow file-read* (subpath "{prefix}"))')
+    def __init__(self, policy: SandboxPolicy) -> None:
+        super().__init__(policy)
+        self.lines: list[str] = []
 
-    # dyld / 可执行映射（否则 Python / git 会崩）
-    lines.append("(allow file-map-executable)")
+    def build(self) -> str:
+        self._header()
+        self._system()
+        self._temp()
+        self._user()
+        self._paths()
+        self._process()
+        self._ipc()
+        self._network()
+        self._misc()
+        return "\n".join(self.lines)
 
-    # ========================
-    # 临时目录
-    # ========================
-    for p in ("/tmp", "/private/tmp", "/var/folders"):
-        lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
+    # -- template methods ---------------------------------------------------
 
-    # ========================
-    # 用户目录（dev 以上必须）
-    # ========================
-    if level in ("dev", "permissive"):
-        lines.append('(allow file-read* (subpath "/Users"))')
-        lines.append('(allow file-write* (subpath "/Users"))')
-        lines.append('(allow process-exec (subpath "/Users"))')
+    def _header(self) -> None:
+        self.lines.append("(version 1)")
+        self.lines.append("(deny default)")
 
-    # ========================
-    # 项目路径
-    # ========================
-    for p in allowed_paths:
-        lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
+    def _system(self) -> None:
+        """Read-only system binary/library paths (always needed)."""
+        for prefix in ("/usr", "/bin", "/sbin", "/lib", "/System", "/dev", "/etc"):
+            self.lines.append(f'(allow file-read* (subpath "{prefix}"))')
+        # dyld / executable mapping — without this Python/git crash
+        self.lines.append("(allow file-map-executable)")
 
-    for p in read_only_paths:
-        lines.append(f'(allow file-read* (subpath "{p}"))')
+    def _temp(self) -> None:
+        """Temporary directories (always read-write)."""
+        for p in ("/tmp", "/private/tmp", "/var/folders"):
+            self.lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
 
-    # ========================
-    # 进程执行
-    # ========================
-    if level == "strict":
-        for prefix in ("/usr", "/bin", "/sbin"):
-            lines.append(f'(allow process-exec (subpath "{prefix}"))')
-    else:
-        # dev / permissive：必须放开，否则 venv / git / python 会挂
-        lines.append("(allow process-exec)")
+    def _user(self) -> None:
+        """User home directory — controlled by policy."""
+        if self.policy.allow_user_read:
+            self.lines.append('(allow file-read* (subpath "/Users"))')
+        if self.policy.allow_user_write:
+            self.lines.append('(allow file-write* (subpath "/Users"))')
+        if self.policy.allow_user_exec:
+            self.lines.append('(allow process-exec (subpath "/Users"))')
 
-    lines.append("(allow process-fork)")
-    lines.append("(allow process-info*)")  # 防止部分程序 abort
+    def _paths(self) -> None:
+        """Project-specific read-write and read-only paths."""
+        for p in self.policy.allowed_paths:
+            self.lines.append(f'(allow file-read* file-write* (subpath "{p}"))')
+        for p in self.policy.read_only_paths:
+            self.lines.append(f'(allow file-read* (subpath "{p}"))')
 
-    # ========================
-    # IPC（关键）
-    # ========================
-    if level in ("dev", "permissive"):
-        lines.append("(allow ipc*)")
-        lines.append("(allow mach*)")  # ⚠️ macOS 核心，否则 git 直接 SIGABRT
+    def _process(self) -> None:
+        """Process execution and forking."""
+        if self.policy.allow_process_exec_all:
+            # dev / permissive: must allow, otherwise venv / git / python break
+            self.lines.append("(allow process-exec)")
+        else:
+            # strict: only system paths
+            for prefix in ("/usr", "/bin", "/sbin"):
+                self.lines.append(f'(allow process-exec (subpath "{prefix}"))')
+        self.lines.append("(allow process-fork)")
+        self.lines.append("(allow process-info*)")  # prevents some programs from aborting
 
-    # ========================
-    # 网络
-    # ========================
-    if allow_network:
-        lines.append("(allow network*)")
-    else:
-        lines.append("(deny network*)")
+    def _ipc(self) -> None:
+        """Inter-process communication."""
+        if self.policy.allow_ipc:
+            self.lines.append("(allow ipc*)")
+        if self.policy.allow_mach:
+            # macOS core IPC — without this git SIGABRTs
+            self.lines.append("(allow mach*)")
 
-    # ========================
-    # 其他
-    # ========================
-    lines.append("(allow signal)")
-    lines.append("(allow sysctl-read)")
+    def _network(self) -> None:
+        """Network access."""
+        if self.policy.allow_network:
+            self.lines.append("(allow network*)")
+        else:
+            self.lines.append("(deny network*)")
 
-    return "\n".join(lines)
+    def _misc(self) -> None:
+        """Miscellaneous always-needed permissions."""
+        self.lines.append("(allow signal)")
+        self.lines.append("(allow sysctl-read)")
