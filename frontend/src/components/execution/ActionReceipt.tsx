@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, Check, ChevronRight, Clock3, Loader2, Terminal, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, Loader2, Terminal, X } from 'lucide-react'
 import { type ActionReceiptDetail, type ActionReceiptStatus, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
 
 export type ApprovalActionType = 'approve' | 'deny'
@@ -61,20 +61,123 @@ function ShellApprovalDetail({ shell }: { shell: ShellApprovalPayload }) {
   )
 }
 
+const DETAIL_STATUS_ORDER: Record<string, number> = {
+  failed: 0,
+  cancelled: 1,
+  running: 2,
+  waiting_for_approval: 3,
+  success: 4,
+  pending: 5,
+}
+
+function ActionReceiptDetailRow({ detail }: { detail: ActionReceiptDetail }) {
+  const hasOutput = !!detail.output
+  const hasError = !!detail.error
+  const [outputOpen, setOutputOpen] = useState(false)
+  const errorInitiallyOpen = detail.status === 'failed' && hasError
+  const [errorExpanded, setErrorExpanded] = useState(errorInitiallyOpen)
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+        <span className={`h-1.5 w-1.5 rounded-full ${
+          detail.status === 'failed' ? 'bg-red-400' :
+          detail.status === 'cancelled' ? 'bg-amber-400' :
+          detail.status === 'running' ? 'bg-blue-400' :
+          detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-slate-300'
+        }`} />
+        <span>{detail.summary}</span>
+        {detail.duration !== undefined && (
+          <span className="text-xs text-slate-400">{detail.duration.toFixed(2)}s</span>
+        )}
+        {hasOutput && (
+          <button
+            type="button"
+            onClick={() => setOutputOpen(prev => !prev)}
+            className="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            输出
+            {outputOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        )}
+        {hasError && (
+          <button
+            type="button"
+            onClick={() => setErrorExpanded(prev => !prev)}
+            className="inline-flex items-center gap-0.5 text-xs text-red-400 hover:text-red-600 transition-colors"
+          >
+            错误
+            {errorExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        )}
+      </div>
+
+      <AnimatePresence initial={false}>
+        {outputOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <pre className="mt-2 overflow-auto rounded-xl bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-500 whitespace-pre-wrap">
+              {trimOutput(detail.output!)}
+            </pre>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {errorExpanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <pre className="mt-2 overflow-auto rounded-xl bg-red-50 px-3 py-2 text-xs leading-6 text-red-600 whitespace-pre-wrap">
+              {trimOutput(detail.error!)}
+            </pre>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {detail.approval?.shell && (
+        <ShellApprovalDetail shell={detail.approval.shell} />
+      )}
+    </div>
+  )
+}
+
 export function ActionReceipt({ status, details, onApprovalAction }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
+  const topRef = useRef<HTMLButtonElement>(null)
+
   const label = useMemo(() => {
-    if (details.length === 1 && status !== 'completed') {
+    if (details.length === 1 && status !== 'completed' && status !== 'partial_failed') {
       return details[0].summary
     }
     return summarizeReceipt(details, status)
   }, [details, status])
 
+  const sortedDetails = useMemo(() => {
+    return [...details].sort((a, b) => {
+      const orderA = DETAIL_STATUS_ORDER[a.status] ?? 99
+      const orderB = DETAIL_STATUS_ORDER[b.status] ?? 99
+      return orderA - orderB
+    })
+  }, [details])
+
   const lineClassName = status === 'failed'
     ? 'text-red-500 hover:text-red-600'
-    : status === 'cancelled'
+    : status === 'partial_failed'
       ? 'text-amber-500 hover:text-amber-600'
-      : 'text-slate-400 hover:text-slate-600'
+      : status === 'cancelled'
+        ? 'text-amber-500 hover:text-amber-600'
+        : 'text-slate-400 hover:text-slate-600'
+
   const approvalDetails = status === 'waiting_for_approval' && onApprovalAction
     ? details
       .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
@@ -86,10 +189,19 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
       }))
     : []
 
+  const handleCollapse = () => {
+    setOpen(false)
+    // Scroll to top button after close animation
+    requestAnimationFrame(() => {
+      topRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }
+
   return (
     <div className="mb-8 max-w-[920px]">
       <div className="flex flex-wrap items-center gap-2">
         <button
+          ref={topRef}
           type="button"
           onClick={() => setOpen(prev => !prev)}
           className={`group flex items-center gap-2 text-left text-[15px] transition-colors ${lineClassName}`}
@@ -109,6 +221,9 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
           )}
           {status === 'failed' && (
             <AlertCircle className="h-3.5 w-3.5" />
+          )}
+          {status === 'partial_failed' && (
+            <AlertTriangle className="h-3.5 w-3.5" />
           )}
           {status === 'cancelled' && (
             <AlertCircle className="h-3.5 w-3.5" />
@@ -149,38 +264,19 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
             className="overflow-hidden"
           >
             <div className="mt-3 space-y-3 border-l border-slate-200 pl-4">
-              {details.map((detail) => (
-                <div key={detail.id}>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    <span className={`h-1.5 w-1.5 rounded-full ${
-                      detail.status === 'failed' ? 'bg-red-400' :
-                      detail.status === 'cancelled' ? 'bg-amber-400' :
-                      detail.status === 'running' ? 'bg-blue-400' :
-                      detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-slate-300'
-                    }`} />
-                    <span>{detail.summary}</span>
-                    {detail.duration !== undefined && (
-                      <span className="text-xs text-slate-400">{detail.duration.toFixed(2)}s</span>
-                    )}
-                  </div>
-
-                  {detail.output && (
-                    <pre className="mt-2 overflow-auto rounded-xl bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-500 whitespace-pre-wrap">
-                      {trimOutput(detail.output)}
-                    </pre>
-                  )}
-
-                  {detail.error && (
-                    <pre className="mt-2 overflow-auto rounded-xl bg-red-50 px-3 py-2 text-xs leading-6 text-red-600 whitespace-pre-wrap">
-                      {trimOutput(detail.error)}
-                    </pre>
-                  )}
-
-                  {detail.approval?.shell && (
-                    <ShellApprovalDetail shell={detail.approval.shell} />
-                  )}
-                </div>
+              {sortedDetails.map((detail) => (
+                <ActionReceiptDetailRow key={detail.id} detail={detail} />
               ))}
+              <div className="flex justify-center pt-1 pb-2">
+                <button
+                  type="button"
+                  onClick={handleCollapse}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                >
+                  <ChevronRight className="h-3 w-3 rotate-180" />
+                  收起
+                </button>
+              </div>
             </div>
           </motion.div>
         )}

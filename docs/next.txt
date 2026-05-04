@@ -1,26 +1,6 @@
-当前的那个shell的security是不是太死板了，都是关键字，业界一般是怎么做的？
-禁止使用shell元语法是否过于严格，让很多任务无法执行（待检查）
-运行 git add -A
-0.08s
-null
-运行 git status
-0.05s
-null
-运行 git -C "/Users/munan/Documents/munan/my_pr...
-0.05s
-null
-运行 ls -la "/Users/munan/Documents/munan/my_pr...
-0.07s
-null
-运行 cd /Users/munan/Documents/munan/my_project...
-cd /Users/munan/Documents/munan/my_project/ai && ls
-模式: shell
-原因: 使用链式操作: &&或||
-风险: 命令会交给本地 shell 解释执行，无法完全静态校验路径安全
-
+修复新建聊天时候的名字
 
 发现我当前虽然有了记忆但是像对文件的读取，之前读取过了，之后再问问题还是会重复读取呢？这个像codex或者claude时如何优化的呢？
-前端当一个命令出错时，会显示好几个命令出错
 
 集成测试话术
 按效果分类逐个测试，每个话术对应不同的 EffectCategory，你能在前端看到不同的审批行为：

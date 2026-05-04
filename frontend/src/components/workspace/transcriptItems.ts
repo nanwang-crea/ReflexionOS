@@ -50,8 +50,9 @@ function getToolTraceStatus(message: ConversationMessage): ActionReceiptDetail['
 }
 
 function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatus {
-  if (messages.some((message) => message.streamState === 'failed')) {
-    return 'failed'
+  const failedCount = messages.filter((m) => m.streamState === 'failed').length
+  if (failedCount > 0) {
+    return failedCount === messages.length ? 'failed' : 'partial_failed'
   }
   if (messages.some((message) => message.streamState === 'cancelled')) {
     return 'cancelled'

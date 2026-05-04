@@ -1,5 +1,5 @@
 type ReceiptDetailStatus = 'pending' | 'running' | 'waiting_for_approval' | 'success' | 'failed' | 'cancelled'
-export type ActionReceiptStatus = 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancelled'
+export type ActionReceiptStatus = 'running' | 'waiting_for_approval' | 'completed' | 'partial_failed' | 'failed' | 'cancelled'
 type ReceiptCategory = 'explore' | 'search' | 'create' | 'edit' | 'delete' | 'command' | 'other'
 
 export interface ShellApprovalPayload {
@@ -219,7 +219,17 @@ function formatSegment(prefix: string, verb: string, count: number, unit: string
   return `${prefix}${verb} ${count} ${unit}`
 }
 
-export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionReceiptStatus) {
+function countByStatus(details: ActionReceiptDetail[]) {
+  let failedCount = 0
+  let successCount = 0
+  details.forEach((d) => {
+    if (d.status === 'failed') failedCount += 1
+    else if (d.status === 'success') successCount += 1
+  })
+  return { failedCount, successCount }
+}
+
+function buildSummarySegments(details: ActionReceiptDetail[], prefix: string): string[] {
   const exploreTargets = new Set<string>()
   const createTargets = new Set<string>()
   const editTargets = new Set<string>()
@@ -269,11 +279,6 @@ export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionR
     }
   })
 
-  const prefix = status === 'running' || status === 'waiting_for_approval'
-    ? '正在'
-    : status === 'cancelled'
-      ? '已取消'
-      : '已'
   const segments = [
     formatSegment(prefix, '探索', exploreTargets.size, '个文件'),
     formatSegment(prefix, '探索', searchCount, '次搜索'),
@@ -281,20 +286,47 @@ export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionR
     formatSegment(prefix, '编辑', editTargets.size, '个文件'),
     formatSegment(prefix, '删除', deleteTargets.size, '个文件'),
     formatSegment(prefix, '运行', commandCount, '条命令'),
-  ].filter(Boolean)
+  ].filter((s): s is string => s !== null)
 
   if (segments.length === 0 && otherCount > 0) {
     segments.push(`${prefix}处理 ${details.length} 个操作`)
   }
 
-  const summary = segments.join('，') || `${prefix}处理 1 个操作`
+  return segments
+}
+
+export function summarizeReceipt(details: ActionReceiptDetail[], status: ActionReceiptStatus) {
+  const { failedCount } = countByStatus(details)
+
+  // partial_failed: 只统计成功项的 summary，失败数量前置
+  if (status === 'partial_failed') {
+    const successDetails = details.filter((d) => d.status !== 'failed')
+    const failedLabel = failedCount === 1 ? '1 项失败' : `${failedCount} 项失败`
+    const successSegments = buildSummarySegments(successDetails, '已')
+    const successSummary = successSegments.join('，') || '其余成功'
+    return `${failedLabel} · ${successSummary}`
+  }
+
+  // failed (全部失败)
   if (status === 'failed') {
+    const prefix = '已'
+    const segments = buildSummarySegments(details, prefix)
+    const summary = segments.join('，') || `${prefix}处理 ${details.length} 个操作`
     return `执行失败 · ${summary}`
   }
 
+  // cancelled
   if (status === 'cancelled') {
+    const prefix = '已'
+    const segments = buildSummarySegments(details, prefix)
+    const summary = segments.join('，') || `${prefix}处理 ${details.length} 个操作`
     return `执行已取消 · ${summary}`
   }
 
-  return summary
+  // running / waiting_for_approval / completed
+  const prefix = status === 'running' || status === 'waiting_for_approval'
+    ? '正在'
+    : '已'
+  const segments = buildSummarySegments(details, prefix)
+  return segments.join('，') || `${prefix}处理 1 个操作`
 }
