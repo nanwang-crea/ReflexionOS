@@ -1,4 +1,94 @@
 当前的那个shell的security是不是太死板了，都是关键字，业界一般是怎么做的？
-禁止使用shell元语法是否过于严格，让很多任务无法执行
+禁止使用shell元语法是否过于严格，让很多任务无法执行（待检查）
+运行 git add -A
+0.08s
+null
+运行 git status
+0.05s
+null
+运行 git -C "/Users/munan/Documents/munan/my_pr...
+0.05s
+null
+运行 ls -la "/Users/munan/Documents/munan/my_pr...
+0.07s
+null
+运行 cd /Users/munan/Documents/munan/my_project...
+cd /Users/munan/Documents/munan/my_project/ai && ls
+模式: shell
+原因: 使用链式操作: &&或||
+风险: 命令会交给本地 shell 解释执行，无法完全静态校验路径安全
+
 
 发现我当前虽然有了记忆但是像对文件的读取，之前读取过了，之后再问问题还是会重复读取呢？这个像codex或者claude时如何优化的呢？
+前端当一个命令出错时，会显示好几个命令出错
+
+集成测试话术
+按效果分类逐个测试，每个话术对应不同的 EffectCategory，你能在前端看到不同的审批行为：
+1. READ_ONLY → 直接执行（无审批）
+你说的话	AI 会执行的命令
+"看一下当前目录有什么文件"	ls
+"查看当前 git 提交历史"	git log
+"看看 git status"	git status
+"当前工作目录是什么"	pwd
+预期：所有命令直接执行，不出现审批按钮。
+2. WRITE_PROJECT → 直接执行（无审批）
+你说的话	AI 会执行的命令
+"运行 pytest 测试"	pytest -q
+"安装 numpy 依赖"	pip install numpy
+"创建一个 build 目录"	mkdir build
+"把 README.md 加入 git 暂存"	git add README.md
+"运行 bash deploy.sh"	bash deploy.sh
+预期：所有命令直接执行，不出现审批按钮。bash deploy.sh 是之前会被 DENY 的命令，现在变成了 ALLOW。
+3. READ_ONLY 管道 → 直接执行（核心改进）
+你说的话	AI 会执行的命令
+"查看 git log 并只取前10行"	git log | head
+"看看有多少文件"	ls | wc -l
+"在文件里搜一下 TODO"	grep -r TODO src/ | head
+预期：这是最大的 UX 改进。以前任何含 | 的命令都要审批，现在只读管道直接执行。
+4. WRITE_PROJECT 管道 → 直接执行
+你说的话	AI 会执行的命令
+"跑测试并把输出保存到文件"	pytest 2>&1 | tee result.log
+预期：以前需要审批，现在直接执行。
+5. DESTRUCTIVE → 需要审批
+你说的话	AI 会执行的命令
+"删除 build 目录"	rm -rf build/
+"给脚本加执行权限"	chmod +x script.sh
+"重置 git 到上一个提交"	git reset --hard HEAD~1
+预期：出现绿色✓/红色✗按钮，展开面板显示命令、理由、风险。
+6. NETWORK_OUT → 需要审批
+你说的话	AI 会执行的命令
+"推送代码到远程仓库"	git push origin main
+"下载一个文件"	curl https://example.com
+"拉取远程代码"	git pull origin main
+预期：出现审批面板，理由显示"网络请求命令"。
+7. CODE_GEN → 需要审批
+你说的话
+"用 python 执行一行代码打印 hello"
+"用 bash -c 执行一个命令"
+预期：出现审批面板，理由显示"内联代码执行"。
+8. ESCALATE → 直接拒绝
+你说的话	AI 会执行的命令
+"用 sudo 安装软件"	sudo apt install foo
+"打开一个交互式 bash"	bash
+预期：命令被直接拒绝，返回错误消息，不出现审批面板。
+9. UNKNOWN → 需要审批
+你说的话	AI 会执行的命令
+"用 just 运行默认任务"	just
+预期：未注册的命令需要审批，理由显示"未知命令"。
+---
+推荐测试顺序
+建议按以下顺序测试，每一步都能验证不同的分类行为：
+1. 先测 ALLOW 场景："列出当前目录的文件" → 应该直接执行
+2. 测管道 ALLOW："查看 git log 的前5行" → 应该直接执行（这是最核心的改进）
+3. 测 DESTRUCTIVE 审批："删除 pycache 目录" → 应该弹出审批，点击✓执行
+4. 测 NETWORK_OUT 审批："推送代码到远程" → 应该弹出审批
+5. 测 ESCALATE 拒绝："用 sudo 看看系统日志" → 应该直接拒绝
+6. 测 CODE_GEN 审批："用 python -c 打印当前时间" → 应该弹出审批
+每个审批面板展开后，你应该能看到：
+- 命令内容（等宽字体）
+- 效果分类（如 destructive、network_out、code_gen）
+- 理由（如"破坏性命令: rm"、"网络请求命令: git push"）
+- 风险描述（如"递归强制删除"、"可能向外部发送数据"）
+
+
+发送消息添加一个对列，同一个session

@@ -320,20 +320,45 @@ class TestHardDenyRules:
 
 
 class TestShellMetaCommands:
-    def test_and_chain_requires_approval(self, policy):
-        decision = policy.evaluate(command="pytest -q && git status --short")
-        assert decision.action == CommandAction.REQUIRE_APPROVAL
+    def test_and_chain_read_only_allows(self, policy):
+        """&& chain of read-only commands → ALLOW"""
+        decision = policy.evaluate(command="pwd && ls")
+        assert decision.action == CommandAction.ALLOW
         assert decision.execution_mode == "shell"
 
+    def test_and_chain_write_project_allows(self, policy):
+        """&& chain with write-project commands → ALLOW"""
+        decision = policy.evaluate(command="pytest -q && git status --short")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.execution_mode == "shell"
+
+    def test_and_chain_destructive_requires_approval(self, policy):
+        """&& chain with destructive command → REQUIRE_APPROVAL"""
+        decision = policy.evaluate(command="rm -rf build/ && echo done")
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.effect_category == EffectCategory.DESTRUCTIVE
+
+    def test_and_chain_network_requires_approval(self, policy):
+        """&& chain with network command → REQUIRE_APPROVAL"""
+        decision = policy.evaluate(command="git add . && git push origin main")
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+
     def test_command_substitution_requires_approval(self, policy):
+        """Command substitution ($()) cannot be statically validated → REQUIRE_APPROVAL"""
         decision = policy.evaluate(command="echo $(pwd)")
         assert decision.action == CommandAction.REQUIRE_APPROVAL
         assert decision.execution_mode == "shell"
 
-    def test_redirect_requires_approval(self, policy):
-        decision = policy.evaluate(command="npm test > /tmp/test.log")
-        assert decision.action == CommandAction.REQUIRE_APPROVAL
-        assert decision.execution_mode == "shell"
+    def test_semicolon_chain_allows_read_only(self, policy):
+        """Semicolon chain of read-only commands → ALLOW"""
+        decision = policy.evaluate(command="pwd; ls")
+        assert decision.action == CommandAction.ALLOW
+
+    def test_redirect_write_project(self, policy):
+        """Redirect adds WRITE_PROJECT → ALLOW for write-project commands"""
+        decision = policy.evaluate(command="pytest > result.log")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.effect_category == EffectCategory.WRITE_PROJECT
 
 
 # ── 11. ENVIRONMENT SNAPSHOT ────────────────────────────────────

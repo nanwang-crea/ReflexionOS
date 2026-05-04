@@ -211,24 +211,24 @@ class CommandPolicy:
                 except ValueError:
                     continue
 
-        # 2. Classify pipe chain
-        effect = self._classify_pipe_chain(command)
+        # 2. Classify the entire shell command (pipes, &&/||, ;, redirects)
+        effect = self._classify_shell_command(command)
 
-        # 3. Determine action: shell metacharacters other than pipe add inherent risk
-        has_non_pipe_meta = any([
-            "&&" in command or "||" in command,
-            ";" in command,
-            "$(" in command or "`" in command,
-            ">" in command or ">>" in command,  # Redirects always require approval
+        # 3. Determine action based on effect classification
+        #    - &&/|| chains are treated like pipes: split, classify each, aggregate
+        #    - Command substitution $() and backticks always require approval (cannot statically validate)
+        #    - Redirects >/>/> always add WRITE_PROJECT but are still effect-classified
+        has_unvalidated_meta = any([
+            "$(" in command or "`" in command,  # Command substitution — cannot statically validate
         ])
 
         if effect == EffectCategory.ESCALATE:
             action = CommandAction.DENY
-        elif has_non_pipe_meta:
-            # Command substitution, chaining, etc. → always require approval
+        elif has_unvalidated_meta:
+            # Command substitution content is opaque → always require approval
             action = CommandAction.REQUIRE_APPROVAL
         else:
-            # Pure pipe chain → use effect-based action map
+            # All other shell commands use effect-based action map
             action = EFFECT_ACTION_MAP[effect]
 
         # 3. Build reasons and risks
@@ -246,7 +246,13 @@ class CommandPolicy:
         if "2>" in command:
             reasons.append("使用错误重定向: 2>")
 
-        risks = ["命令会交给本地 shell 解释执行，无法完全静态校验路径安全"]
+        risks = []
+        if has_unvalidated_meta:
+            risks.append("命令会交给本地 shell 解释执行，包含命令替换，无法完全静态校验")
+        elif effect in (EffectCategory.WRITE_SYSTEM, EffectCategory.DESTRUCTIVE,
+                        EffectCategory.NETWORK_OUT, EffectCategory.CODE_GEN,
+                        EffectCategory.UNKNOWN):
+            risks.append("命令会交给本地 shell 解释执行，无法完全静态校验路径安全")
 
         approval_kind = "shell_command"
 
@@ -436,17 +442,22 @@ class CommandPolicy:
 
         return current_effect
 
-    def _classify_pipe_chain(self, command: str) -> EffectCategory:
-        """Classify a shell command containing pipes and redirects."""
+    def _classify_shell_command(self, command: str) -> EffectCategory:
+        """Classify a shell command containing pipes, &&/||, ;, and redirects.
+
+        Splits by |, &&, ||, and ; — classifies each segment independently,
+        then returns the most dangerous effect category.
+        Redirects (>, >>, 2>) add WRITE_PROJECT to the effect list.
+        """
         effects: list[EffectCategory] = []
 
         # Detect redirects → WRITE_PROJECT
         if ">" in command or ">>" in command or "2>" in command:
             effects.append(EffectCategory.WRITE_PROJECT)
 
-        # Split by pipe and classify each segment
-        pipe_segments = self._split_pipe_chain(command)
-        for segment in pipe_segments:
+        # Split by all shell operators (|, &&, ||, ;) and classify each segment
+        segments = self._split_shell_chain(command)
+        for segment in segments:
             segment = segment.strip()
             if not segment:
                 continue
@@ -463,8 +474,12 @@ class CommandPolicy:
 
         return most_dangerous(effects)
 
-    def _split_pipe_chain(self, command: str) -> list[str]:
-        """Split a shell command by | (pipe), respecting basic quoting."""
+    def _split_shell_chain(self, command: str) -> list[str]:
+        """Split a shell command by |, &&, ||, and ; respecting basic quoting.
+
+        This handles the most common shell metacharacters that chain commands.
+        Each resulting segment is a single command that can be classified independently.
+        """
         segments: list[str] = []
         current: list[str] = []
         in_single = False
@@ -473,17 +488,47 @@ class CommandPolicy:
         i = 0
         while i < len(command):
             ch = command[i]
+
+            # Handle quoting
             if ch == "'" and not in_double:
                 in_single = not in_single
                 current.append(ch)
+                i += 1
+                continue
             elif ch == '"' and not in_single:
                 in_double = not in_double
                 current.append(ch)
-            elif ch == '|' and not in_single and not in_double:
-                segments.append(''.join(current))
-                current = []
-            else:
-                current.append(ch)
+                i += 1
+                continue
+
+            # Only split on metacharacters outside quotes
+            if not in_single and not in_double:
+                # Check for && (must check before single &)
+                if ch == '&' and i + 1 < len(command) and command[i + 1] == '&':
+                    segments.append(''.join(current))
+                    current = []
+                    i += 2  # Skip both &
+                    continue
+                # Check for || (must check before single |)
+                elif ch == '|' and i + 1 < len(command) and command[i + 1] == '|':
+                    segments.append(''.join(current))
+                    current = []
+                    i += 2  # Skip both |
+                    continue
+                # Check for | (single pipe)
+                elif ch == '|':
+                    segments.append(''.join(current))
+                    current = []
+                    i += 1
+                    continue
+                # Check for ; (semicolon)
+                elif ch == ';':
+                    segments.append(''.join(current))
+                    current = []
+                    i += 1
+                    continue
+
+            current.append(ch)
             i += 1
 
         if current:
