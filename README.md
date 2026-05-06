@@ -12,12 +12,10 @@ ReflexionOS is an open-source desktop coding agent. Point it at a local project,
 If you've wondered how a coding agent like Codex works internally — how it calls tools, manages execution, handles security — this project is built to be readable and learnable.
 
 ## Screenshots
-
-<!-- TODO: Add screenshots here -->
-<!-- Example: ![Agent Workspace](.github/assets/agent-workspace.png) -->
-<!-- Example: ![Projects Board](.github/assets/projects-board.png) -->
-
-*Screenshots coming soon.*
+![Agent Workspace](.github/assets/agent-workspace.png)
+![Projects Board](.github/assets/projects-board.png)
+![Agent Workspace — tool receipts streaming in real time](.github/assets/real-time.png)
+![LLM Provider Configuration](.github/assets/projects-board.png)
 
 ## Features
 
