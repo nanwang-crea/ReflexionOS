@@ -43,7 +43,7 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
           <Minimize2 className="h-4 w-4" />
         </button>
       </div>
-      <ol className="mt-4 max-h-72 overflow-y-auto space-y-2 pr-2">
+      <ol className="mt-4 max-h-[40vh] overflow-y-auto space-y-2 pr-2">
         {plan.steps.map((step) => (
           <li
             key={step.id}

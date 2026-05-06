@@ -36,7 +36,8 @@ export default function SettingsPage() {
   } = useSettingsPageController()
 
   return (
-    <div className="p-8">
+    <div className="h-full overflow-y-auto bg-white">
+      <div className="mx-auto max-w-5xl px-10 py-10">
       <h2 className="mb-6 text-2xl font-bold text-gray-900">Settings</h2>
 
       <div className="grid gap-6 xl:grid-cols-[280px,minmax(0,1fr)]">
@@ -168,36 +169,36 @@ export default function SettingsPage() {
                 </button>
               </div>
 
-              <div className="space-y-3">
+              <div className="max-h-[50vh] space-y-3 overflow-y-auto">
                 {draftProvider.models.map((model) => (
                   <div key={model.id} className="rounded-lg border border-gray-200 p-4">
-                    <div className="grid gap-3 md:grid-cols-[1fr,1fr,auto,auto]">
+                    <div className="grid gap-3 sm:grid-cols-[1fr,1fr] md:grid-cols-[1fr,1fr,auto,auto]">
                       <input
                         type="text"
-                         value={model.display_name}
-                         onChange={(e) => handleModelFieldChange(model.id, 'display_name', e.target.value)}
-                        className="rounded-lg border border-gray-300 px-3 py-2"
+                        value={model.display_name}
+                        onChange={(e) => handleModelFieldChange(model.id, 'display_name', e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2"
                         placeholder="显示名称，例如 GPT-4.1"
                       />
                       <input
                         type="text"
-                         value={model.model_name}
-                         onChange={(e) => handleModelFieldChange(model.id, 'model_name', e.target.value)}
-                        className="rounded-lg border border-gray-300 px-3 py-2"
+                        value={model.model_name}
+                        onChange={(e) => handleModelFieldChange(model.id, 'model_name', e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2"
                         placeholder="模型名称，例如 gpt-4.1"
                       />
                       <label className="flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
                         <input
                           type="checkbox"
-                           checked={model.enabled}
-                           onChange={(e) => handleModelFieldChange(model.id, 'enabled', e.target.checked)}
+                          checked={model.enabled}
+                          onChange={(e) => handleModelFieldChange(model.id, 'enabled', e.target.checked)}
                         />
                         启用
                       </label>
                       <button
                         type="button"
-                         onClick={() => handleRemoveModel(model.id)}
-                         disabled={draftProvider.models.length === 1}
+                        onClick={() => handleRemoveModel(model.id)}
+                        disabled={draftProvider.models.length === 1}
                         className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
                       >
                         删除
@@ -345,7 +346,8 @@ export default function SettingsPage() {
             <p className="mt-2 text-sm text-gray-500">Version 0.1.0</p>
           </div>
         </div>
+       </div>
       </div>
     </div>
-  )
+   )
 }
