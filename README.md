@@ -209,6 +209,10 @@ cd frontend
 pnpm capture:screenshots
 ```
 
+## Community
+
+<a href="https://linux.do/latest">LINUX DO</a>
+
 ## License
 
 MIT
