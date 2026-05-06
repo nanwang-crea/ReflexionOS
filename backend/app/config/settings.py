@@ -9,7 +9,7 @@ from app.models.llm_config import LLMSettings
 class ExecutionSettings(BaseModel):
     """执行配置"""
 
-    max_steps: int = Field(default=50, ge=1, le=200)
+    max_steps: int = Field(default=100, ge=1, le=200)
     max_execution_time: int = Field(default=600)  # 10分钟
 
 

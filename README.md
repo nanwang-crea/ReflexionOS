@@ -1,57 +1,62 @@
 # ReflexionOS
 
-> A transparent, local-first desktop coding agent with streaming tool receipts and patch-based code edits.
+> An open-source, local-first desktop coding agent — like Codex, but you can see what it's doing.
 
-[Electron](https://www.electronjs.org/)
-[Frontend](#tech-stack)
-[Backend](#tech-stack)
-[Tests](#current-status)
-[License](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Electron](https://img.shields.io/badge/desktop-Electron-blue)](https://www.electronjs.org/)
+[![Python](https://img.shields.io/badge/backend-Python%203.12-green)](https://www.python.org/)
+[![React](https://img.shields.io/badge/frontend-React-blue)](https://react.dev/)
 
-ReflexionOS is built for people who want a Codex/Cursor-style agent experience, but with much more visibility into what the agent is actually doing.
+ReflexionOS is an open-source desktop coding agent. Point it at a local project, and the agent reads files, runs commands, and applies patches — with every step visible in real time.
 
-Instead of hiding everything behind a single spinner, ReflexionOS lets you point an agent at a real local project and watch the work happen:
-
-- what file it explores
-- what command it runs
-- what patch it applies
-- when it is thinking, executing, or summarizing
-
-If transparent coding agents are your thing, a star helps a lot.
+If you've wondered how a coding agent like Codex works internally — how it calls tools, manages execution, handles security — this project is built to be readable and learnable.
 
 ## Screenshots
 
+<!-- TODO: Add screenshots here -->
+<!-- Example: ![Agent Workspace](.github/assets/agent-workspace.png) -->
+<!-- Example: ![Projects Board](.github/assets/projects-board.png) -->
 
+*Screenshots coming soon.*
 
-## Why ReflexionOS
+## Features
 
-- **Desktop-first agent UX**: Electron shell, local project picker, multi-project workspace, and session-based chats.
-- **Observable execution**: tool calls stream into the conversation as structured receipts instead of disappearing behind a spinner.
-- **Patch-based editing**: code changes happen through unified diffs, which makes agent behavior easier to inspect and reason about.
-- **Local project control**: the agent runs against paths on your machine with explicit path and shell security layers.
-- **Built for iteration**: chat, inspect, cancel, retry, and continue without leaving the app.
+### Observable Execution
 
-## What Works Today
+Agent actions don't disappear behind a spinner. Every tool call streams into the conversation as a structured **ActionReceipt** — you can see:
 
-- Electron desktop app with a React workspace UI
-- FastAPI backend for agent orchestration and APIs
-- Single execution-stream WebSocket for realtime run events
-- Session-based project conversations
-- File, shell, and patch tools
-- Action receipts for exploration, search, commands, and edits
-- OpenAI-compatible configuration with API key and custom base URL
-- Built-in skills registry foundation
-- Project persistence and execution history APIs
+- What file it's reading
+- What command it's running and the output
+- What patch it's applying and which lines changed
+- Whether it's thinking, executing, or summarizing
 
-## Product Snapshot
+Not a log you check after the fact. Real-time, expandable, traceable.
 
-ReflexionOS is built around one simple loop:
+### Patch-Based Code Editing
 
-1. Choose a local project
-2. Ask the agent to inspect, debug, or change something
-3. Watch the execution unfold in a visible, tool-driven conversation
+Code changes go through unified diffs (`apply_patch`), not whole-file rewrites:
 
-The core bet is simple: **agent UX gets better when the work is visible**.
+- Small, auditable diffs instead of opaque file replacements
+- You can see exactly which lines the agent changed
+- Safer — no accidental rewrites from a single bad generation
+
+### Deep Security System
+
+The agent can run shell commands, but nothing goes unchecked:
+
+- **8-level effect classification** — every command is rated from read-only to destructive
+- **80+ pre-registered commands** — common commands have built-in risk ratings
+- **Full pipeline detection** — `&&`, `||`, `;`, pipes, redirects, and command substitution are all classified correctly
+- **Human approval for high-risk operations** — Approve/Deny buttons right in the UI
+- **OS-level sandboxing** — Seatbelt on macOS, Landlock on Linux, real system-level isolation
+- **Hard deny patterns** — `rm -rf /`, `curl | bash`, and similar patterns are always blocked
+
+### Local-First, Desktop Native
+
+- Electron desktop app — not a CLI, not a web-only tool
+- Projects live on your machine, the agent operates on your real project paths
+- Data stays local — no cloud storage, no telemetry
+- Multi-project, multi-session workspace
 
 ## Architecture
 
@@ -68,8 +73,6 @@ flowchart LR
     T --> T3["Patch Tool"]
 ```
 
-
-
 ## Quick Start
 
 ### Recommended Desktop Development Path
@@ -84,14 +87,14 @@ cd backend
 python -m pip install -r requirements.txt
 ```
 
-1. Install frontend dependencies:
+2. Install frontend dependencies:
 
 ```bash
 cd frontend
 pnpm install
 ```
 
-1. Start the desktop app:
+3. Start the desktop app:
 
 ```bash
 cd frontend
@@ -167,19 +170,15 @@ pnpm dev:web
 
 ## Current Status
 
-ReflexionOS is already usable as an experimental local coding agent workspace, but it is still early.
+ReflexionOS is usable as an experimental local coding agent workspace, but it is still early.
 
-What that means in practice:
+- Core agent loop is implemented
+- Desktop shell is up and running
+- Project/chat UX is in place
+- Streaming execution feedback works
+- Some surfaces like plugins and automation are still scaffolded for future work
 
-- core agent loop is implemented
-- desktop shell is up and running
-- project/chat UX is in place
-- streaming execution feedback works
-- some surfaces like plugins and automation are still scaffolded for future work
-
-Backend test snapshot:
-
-- **95 tests passing**
+Backend test snapshot: **95 tests passing**
 
 ## Roadmap
 
@@ -192,14 +191,10 @@ Backend test snapshot:
 
 ## Who This Is For
 
-ReflexionOS is a good fit if you care about questions like:
-
-- What does a transparent coding agent UX look like on desktop?
-- How should an agent expose tool calls and edits to users?
-- Can patch-based code generation feel safer and more understandable?
-- What is the right balance between autonomy and observability?
-
-If those questions are interesting to you, this repo is worth watching.
+- Developers curious about how coding agents work internally
+- People who want an agent they can observe and trust, not a black box
+- Anyone building or contributing to open-source AI tooling
+- Teams that need local-first, air-gapped agent tooling
 
 ## Documentation
 
