@@ -13,3 +13,6 @@ sqlalchemy==2.0.25
 pytest==7.4.4
 pytest-asyncio==0.23.3
 ruff==0.11.8
+
+# Packaging dependencies
+pyinstaller==6.13.0

@@ -5,7 +5,7 @@ const IMPORT_NAME_OVERRIDES = {
   'python-dotenv': 'dotenv',
 }
 
-const TEST_SECTION_HEADER = /^#\s*(test|tests|development|dev)(?:\s+dependencies)?\s*$/i
+const NON_RUNTIME_SECTION_HEADER = /^#\s*(test|tests|development|dev|packaging)(?:\s+dependencies)?\s*$/i
 const RUNTIME_SECTION_HEADER = /^#\s*runtime(?:\s+dependencies)?\s*$/i
 const DEFAULT_IGNORED_PACKAGES = new Set(['pytest', 'pytest-asyncio'])
 
@@ -44,7 +44,7 @@ function probeModuleNamesFromRequirements(text) {
       continue
     }
 
-    if (TEST_SECTION_HEADER.test(line)) {
+    if (NON_RUNTIME_SECTION_HEADER.test(line)) {
       inRuntimeSection = false
       continue
     }

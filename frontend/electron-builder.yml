@@ -1,0 +1,25 @@
+appId: dev.reflexionos.app
+productName: ReflexionOS
+electronVersion: 31.7.7
+electronDist: node_modules/electron/dist
+directories:
+  output: release
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+extraResources:
+  - from: build-resources/backend-bin
+    to: backend-bin
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true

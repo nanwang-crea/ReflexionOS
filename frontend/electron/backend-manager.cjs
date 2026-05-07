@@ -1,4 +1,5 @@
 const http = require('http')
+const fs = require('fs')
 const path = require('path')
 const { spawn, spawnSync } = require('child_process')
 const { buildImportProbeCode, readProbeModuleNames } = require('./backend-runtime-requirements.cjs')
@@ -7,6 +8,8 @@ const BACKEND_HOST = '127.0.0.1'
 const BACKEND_PORT = 8000
 const HEALTH_PATH = '/health'
 const SHUTDOWN_TIMEOUT_MS = 5000
+const PACKAGED_BACKEND_DIR = 'backend-bin'
+const PACKAGED_BACKEND_NAME = 'reflexion-backend'
 
 function probeHealth(timeoutMs = 1500) {
   return new Promise((resolve) => {
@@ -72,15 +75,54 @@ function findPythonCommand(requirementsPath) {
   return null
 }
 
+function resolvePackagedBackendExecutable(resourcesPath, platform = process.platform) {
+  const executableName = platform === 'win32'
+    ? `${PACKAGED_BACKEND_NAME}.exe`
+    : PACKAGED_BACKEND_NAME
+
+  return path.join(resourcesPath, PACKAGED_BACKEND_DIR, executableName)
+}
+
+function buildBackendLaunchPlan(options) {
+  if (options.appIsPackaged && options.backendExecutablePath) {
+    return {
+      command: options.backendExecutablePath,
+      args: [],
+      cwd: path.dirname(options.backendExecutablePath),
+      mode: 'packaged',
+    }
+  }
+
+  const args = options.pythonCommand === 'py'
+    ? ['-3', '-m', 'uvicorn', 'app.main:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
+    : ['-m', 'uvicorn', 'app.main:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
+
+  return {
+    command: options.pythonCommand,
+    args,
+    cwd: options.backendDir,
+    mode: 'python',
+  }
+}
+
 class BackendManager {
   constructor(options = {}) {
     this.backendDir = options.backendDir
-    this.requirementsPath = path.join(this.backendDir, 'requirements.txt')
+    this.resourcesPath = options.resourcesPath
+    this.appIsPackaged = Boolean(options.appIsPackaged)
+    this.requirementsPath = this.backendDir
+      ? path.join(this.backendDir, 'requirements.txt')
+      : null
     this.childProcess = null
     this.state = 'stopped'
     this.error = null
     this.managed = false
-    this.pythonCommand = findPythonCommand(this.requirementsPath)
+    this.backendExecutablePath = this.appIsPackaged && this.resourcesPath
+      ? resolvePackagedBackendExecutable(this.resourcesPath)
+      : null
+    this.pythonCommand = this.backendExecutablePath || !this.requirementsPath
+      ? null
+      : findPythonCommand(this.requirementsPath)
   }
 
   get url() {
@@ -105,7 +147,13 @@ class BackendManager {
       return this.getStatus()
     }
 
-    if (!this.pythonCommand) {
+    if (this.backendExecutablePath && !fs.existsSync(this.backendExecutablePath)) {
+      this.state = 'error'
+      this.error = `未找到内置后端可执行文件: ${this.backendExecutablePath}`
+      throw new Error(this.error)
+    }
+
+    if (!this.backendExecutablePath && !this.pythonCommand) {
       this.state = 'error'
       this.error = '未找到满足 backend/requirements.txt 的 Python 环境，请设置 REFLEXION_PYTHON_PATH。'
       throw new Error(this.error)
@@ -119,12 +167,16 @@ class BackendManager {
     this.error = null
     this.managed = true
 
-    const args = this.pythonCommand === 'py'
-      ? ['-3', '-m', 'uvicorn', 'app.main:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
-      : ['-m', 'uvicorn', 'app.main:app', '--host', BACKEND_HOST, '--port', String(BACKEND_PORT)]
+    const launchPlan = buildBackendLaunchPlan({
+      appIsPackaged: this.appIsPackaged,
+      backendDir: this.backendDir,
+      backendExecutablePath: this.backendExecutablePath,
+      pythonCommand: this.pythonCommand,
+      platform: process.platform,
+    })
 
-    this.childProcess = spawn(this.pythonCommand, args, {
-      cwd: this.backendDir,
+    this.childProcess = spawn(launchPlan.command, launchPlan.args, {
+      cwd: launchPlan.cwd,
       env: process.env,
       stdio: 'pipe',
     })
@@ -206,4 +258,6 @@ module.exports = {
   BACKEND_HOST,
   BACKEND_PORT,
   BackendManager,
+  buildBackendLaunchPlan,
+  resolvePackagedBackendExecutable,
 }

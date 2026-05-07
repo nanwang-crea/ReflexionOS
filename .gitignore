@@ -32,6 +32,10 @@ build/
 dist/
 *.egg-info/
 .eggs/
+frontend/build-resources/
+frontend/release/
+backend/build/
+backend/dist/
 
 # Logs
 *.log

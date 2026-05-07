@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "ReflexionOS Desktop Application",
   "packageManager": "pnpm@10.30.3",
+  "main": "electron/main.cjs",
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
@@ -15,6 +16,10 @@
     "dev:web": "vite",
     "dev:desktop": "electron ./electron/main.cjs",
     "build": "tsc && vite build",
+    "package:backend": "node ./scripts/package-backend.mjs",
+    "prepare:backend-bin": "node ./scripts/prepare-backend-bin.mjs",
+    "dist:mac": "pnpm build && pnpm package:backend && pnpm prepare:backend-bin && electron-builder --mac",
+    "dist:win": "pnpm build && pnpm package:backend && pnpm prepare:backend-bin && electron-builder --win",
     "capture:screenshots": "pnpm build && node ./scripts/capture-screenshots.mjs",
     "preview": "vite preview",
     "start": "electron ./electron/main.cjs",
@@ -42,6 +47,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.4.17",
     "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
     "eslint": "^9.25.1",
     "eslint-plugin-react-hooks": "^5.2.0",
     "postcss": "^8.4.35",

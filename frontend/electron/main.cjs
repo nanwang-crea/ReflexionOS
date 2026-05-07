@@ -6,7 +6,9 @@ const { BackendManager } = require('./backend-manager.cjs')
 
 const frontendDir = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendDir, '..')
-const backendDir = path.join(repoRoot, 'backend')
+const backendDir = app.isPackaged
+  ? null
+  : path.join(repoRoot, 'backend')
 const rendererDistPath = path.join(frontendDir, 'dist', 'index.html')
 const preloadPath = path.join(__dirname, 'preload.cjs')
 const rendererDevUrl = process.env.ELECTRON_RENDERER_URL || null
@@ -34,7 +36,11 @@ const sceneConfig = {
 
 let mainWindow = null
 
-const backendManager = new BackendManager({ backendDir })
+const backendManager = new BackendManager({
+  appIsPackaged: app.isPackaged,
+  backendDir,
+  resourcesPath: process.resourcesPath,
+})
 
 function buildRendererUrl(route = '/agent', params = {}) {
   if (rendererDevUrl) {

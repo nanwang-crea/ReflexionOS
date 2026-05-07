@@ -117,6 +117,33 @@ pnpm build
 pnpm start
 ```
 
+### Package Desktop Releases
+
+The normal development path still uses the local Python environment described above. Release
+packages bundle a PyInstaller-built backend executable into the Electron app so end users do not
+need to install Python, Node, pnpm, or backend dependencies.
+
+Build on each target platform:
+
+```bash
+cd backend
+python -m pip install -r requirements.txt
+
+cd ../frontend
+pnpm install
+pnpm dist:mac   # macOS only
+pnpm dist:win   # Windows only
+```
+
+Release artifacts are written to `frontend/release/`.
+
+Build releases from a clean Python environment, such as a fresh virtualenv or CI runner. PyInstaller
+analyzes the active environment, so global Conda environments with large optional packages can make
+local smoke builds much slower and larger than CI builds.
+
+The release skeleton is currently unsigned. macOS distribution still needs Developer ID signing and
+notarization, and Windows distribution should use a code-signing certificate before public release.
+
 ## Quick Demo Flow
 
 1. Open the desktop app

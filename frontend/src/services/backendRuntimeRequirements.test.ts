@@ -17,6 +17,9 @@ sqlalchemy==2.0.25
 # Test dependencies
 pytest==7.4.4
 pytest-asyncio==0.23.3
+
+# Packaging dependencies
+pyinstaller==6.13.0
 `)
 
     expect(modules).toEqual([
