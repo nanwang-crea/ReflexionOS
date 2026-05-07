@@ -123,19 +123,50 @@ The normal development path still uses the local Python environment described ab
 packages bundle a PyInstaller-built backend executable into the Electron app so end users do not
 need to install Python, Node, pnpm, or backend dependencies.
 
-Build on each target platform:
+Daily development still uses the existing command:
+
+```bash
+cd frontend
+pnpm dev
+```
+
+Build macOS releases on macOS:
 
 ```bash
 cd backend
+python -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 
 cd ../frontend
 pnpm install
-pnpm dist:mac   # macOS only
-pnpm dist:win   # Windows only
+pnpm dist:mac
+```
+
+Build Windows releases on Windows:
+
+```powershell
+cd backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+
+cd ..\frontend
+pnpm install
+pnpm dist:win
 ```
 
 Release artifacts are written to `frontend/release/`.
+
+To build with GitHub Actions, open the `Release Desktop` workflow and run it manually, or push a
+version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds macOS and Windows artifacts separately and uploads them as workflow artifacts.
 
 Build releases from a clean Python environment, such as a fresh virtualenv or CI runner. PyInstaller
 analyzes the active environment, so global Conda environments with large optional packages can make
