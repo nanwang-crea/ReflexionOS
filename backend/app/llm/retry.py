@@ -39,15 +39,23 @@ async def retry_async(
     max_retries: int = MAX_RETRIES,
     on_retry: Callable[[Exception, int, int], None] | None = None,
     raise_retry_exhausted: bool = False,
+    cancel_event: asyncio.Event | None = None,
 ) -> Any:
     """
     Retry an async callable with exponential backoff.
 
     Only exceptions in *retryable_exceptions* trigger a retry;
     everything else propagates immediately.
+
+    If *cancel_event* is provided and becomes set, the retry loop
+    aborts immediately by raising ``asyncio.CancelledError``.
+    The event is checked before each attempt and during the
+    back-off sleep (which is interrupted as soon as the event fires).
     """
     last_exc: Exception | None = None
     for attempt in range(max_retries + 1):
+        if cancel_event is not None and cancel_event.is_set():
+            raise asyncio.CancelledError()
         try:
             return await fn()
         except retryable_exceptions as exc:
@@ -68,7 +76,18 @@ async def retry_async(
                     delay,
                     exc,
                 )
-            await asyncio.sleep(delay)
+            if cancel_event is not None:
+                done, _ = await asyncio.wait(
+                    [asyncio.ensure_future(asyncio.sleep(delay)),
+                     asyncio.ensure_future(cancel_event.wait())],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for task in done:
+                    task.exception()
+                if cancel_event.is_set():
+                    raise asyncio.CancelledError()
+            else:
+                await asyncio.sleep(delay)
 
     if raise_retry_exhausted and last_exc is not None:
         raise RetryExhaustedError(last_exc, max_retries=max_retries) from last_exc

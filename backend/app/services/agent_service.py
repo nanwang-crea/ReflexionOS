@@ -68,6 +68,8 @@ class AgentService:
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
         self._execution_loops: dict[str, "RapidExecutionLoop"] = {}
+        self._cancel_events: dict[str, asyncio.Event] = {}
+        self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
@@ -268,6 +270,8 @@ class AgentService:
         model_id: str | None,
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
+        cancel_event = asyncio.Event()
+        self._cancel_events[run_id] = cancel_event
 
         async def on_llm_retry(exc: Exception, attempt: int, delay: float) -> None:
             logger.warning(
@@ -290,7 +294,7 @@ class AgentService:
                 },
             )
 
-        llm = LLMAdapterFactory.create(resolved_llm, on_retry=on_llm_retry)
+        llm = LLMAdapterFactory.create(resolved_llm, on_retry=on_llm_retry, cancel_event=cancel_event)
         runtime_adapter = ConversationRuntimeAdapter(
             conversation_service=self.conversation_service,
             session_id=session_id,
@@ -337,13 +341,15 @@ class AgentService:
         try:
             session = self.session_repo.get(session_id)
             if session and session.title == "新建聊天":
-                asyncio.create_task(
+                title_task = asyncio.create_task(
                     self._generate_session_title(
                         llm=llm,
                         session_id=session_id,
                         task=task,
                     )
                 )
+                self._title_tasks[run_id] = title_task
+                title_task.add_done_callback(lambda _: self._title_tasks.pop(run_id, None))
 
             assembly = self.context_assembler.build_for_session(
                 session_id=session_id,
@@ -381,6 +387,7 @@ class AgentService:
         finally:
             self._runtime_adapters.pop(run_id, None)
             self._execution_loops.pop(run_id, None)
+            self._cancel_events.pop(run_id, None)
 
     def _register_pending_approval(
         self,
@@ -539,6 +546,14 @@ class AgentService:
         await self._broadcast_conversation_events(session_id=session_id, events=events)
 
     async def cancel_run(self, run_id: str) -> Run:
+        cancel_event = self._cancel_events.get(run_id)
+        if cancel_event is not None:
+            cancel_event.set()
+
+        title_task = self._title_tasks.pop(run_id, None)
+        if title_task is not None and not title_task.done():
+            title_task.cancel()
+
         running = self.running_tasks.get(run_id)
         if running is not None and not running.done():
             running.cancel()

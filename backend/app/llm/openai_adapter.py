@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator
@@ -32,10 +33,11 @@ _RETRYABLE = (RateLimitError, APITimeoutError, APIConnectionError, InternalServe
 class OpenAIAdapter(UniversalLLMInterface):
     """OpenAI API 适配器 - 支持原生工具调用和流式输出"""
 
-    def __init__(self, config: ResolvedLLMConfig, *, on_retry=None):
+    def __init__(self, config: ResolvedLLMConfig, *, on_retry=None, cancel_event: asyncio.Event | None = None):
         self.config = config
         self.model = config.model
         self.on_retry = on_retry
+        self.cancel_event = cancel_event
 
         self.client = AsyncOpenAI(
             api_key=config.api_key or "reflexion-placeholder-key",
@@ -76,6 +78,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             retryable_exceptions=_RETRYABLE,
             on_retry=self.on_retry,
             raise_retry_exhausted=True,
+            cancel_event=self.cancel_event,
         )
 
         return self._parse_response(response)
@@ -116,6 +119,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             retryable_exceptions=_RETRYABLE,
             on_retry=self.on_retry,
             raise_retry_exhausted=True,
+            cancel_event=self.cancel_event,
         )
 
         # 收集 tool_calls（流式时需要聚合）
