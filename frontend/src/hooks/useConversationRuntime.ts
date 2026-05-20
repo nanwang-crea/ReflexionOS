@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/conversationApi'
 import { useConversationStore } from '@/features/conversation/conversationStore'
+import { useSessionStore } from '@/features/sessions/sessionStore'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
 import {
@@ -210,6 +211,17 @@ export function useConversationRuntime(
         steps: data.steps,
         current_step_index: data.current_step_index,
       })
+    })
+    ws.on('session:title_updated', (data) => {
+      const store = useSessionStore.getState()
+      const sessionsByProjectId = store.sessionsByProjectId
+      for (const [projectId, sessions] of Object.entries(sessionsByProjectId)) {
+        const session = sessions.find((s) => s.id === data.session_id)
+        if (session) {
+          store.upsertSession(projectId, { ...session, title: data.title })
+          break
+        }
+      }
     })
 
     await ws.connect(sessionId)

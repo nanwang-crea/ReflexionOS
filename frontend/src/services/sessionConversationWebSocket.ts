@@ -67,6 +67,11 @@ export interface PlanDto {
   current_step_index: number
 }
 
+export interface SessionTitleUpdatedDto {
+  session_id: string
+  title: string
+}
+
 interface SessionConversationEvents {
   'connection:open': { sessionId: string }
   'connection:error': { sessionId: string; error: unknown }
@@ -85,6 +90,7 @@ interface SessionConversationEvents {
   'conversation:error': ConversationErrorDto
   'llm:retry': LlmRetryDto
   'plan:updated': PlanDto
+  'session:title_updated': SessionTitleUpdatedDto
 }
 
 function buildSyncMessage(afterSeq: number) {
@@ -233,6 +239,10 @@ class SessionConversationWebSocket {
 
     if (message.type === 'plan:updated') {
       this.emit('plan:updated', message.data as PlanDto)
+    }
+
+    if (message.type === 'session:title_updated') {
+      this.emit('session:title_updated', message.data as SessionTitleUpdatedDto)
     }
   }
 

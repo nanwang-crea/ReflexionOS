@@ -67,11 +67,9 @@ describe('useSidebarSessionActions', () => {
     expect(dialogService.notifyError).toHaveBeenCalledWith('创建聊天失败')
   })
 
-  it('prompts for session rename through the dialog service', async () => {
+  it('renames session with provided title', async () => {
     updateSessionMock.mockResolvedValue(undefined)
-    const dialogService = createDialogService({
-      promptText: vi.fn(() => '新的标题'),
-    })
+    const dialogService = createDialogService()
     const actions = useSidebarSessionActions({
       busy: false,
       projects: [createProject('project-1')],
@@ -85,15 +83,8 @@ describe('useSidebarSessionActions', () => {
       dialogService,
     })
 
-    await actions.handleRenameSession({
-      id: 'session-1',
-      projectId: 'project-1',
-      title: '旧标题',
-      createdAt: '2026-04-20T00:00:00Z',
-      updatedAt: '2026-04-20T00:00:00Z',
-    })
+    await actions.handleRenameSession('session-1', '新的标题')
 
-    expect(dialogService.promptText).toHaveBeenCalledWith('重命名聊天', '旧标题')
     expect(updateSessionMock).toHaveBeenCalledWith('session-1', '新的标题')
   })
 })

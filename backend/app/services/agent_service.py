@@ -14,7 +14,14 @@ from app.llm.base import LLMMessage, MessageRole
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
-from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus
+from app.models.conversation import (
+    ConversationEvent,
+    EventType,
+    Message,
+    MessageType,
+    Run,
+    RunStatus,
+)
 from app.models.conversation_snapshot import StartTurnResult
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
@@ -36,6 +43,7 @@ from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
+from .session_service import SessionUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -327,7 +335,16 @@ class AgentService:
         self._execution_loops[run_id] = execution_loop
 
         try:
-            # 该部分拿回来了最近的历史信息，同时也拿回了supplemental_block,这个也是从message拿到的
+            session = self.session_repo.get(session_id)
+            if session and session.title == "新建聊天":
+                asyncio.create_task(
+                    self._generate_session_title(
+                        llm=llm,
+                        session_id=session_id,
+                        task=task,
+                    )
+                )
+
             assembly = self.context_assembler.build_for_session(
                 session_id=session_id,
                 project_id=project_id,
@@ -390,6 +407,49 @@ class AgentService:
             tool_arguments=arguments if isinstance(arguments, dict) else {},
             approval_payload=approval_payload if isinstance(approval_payload, dict) else {},
         )
+
+    async def _generate_session_title(
+        self,
+        *,
+        llm,
+        session_id: str,
+        task: str,
+    ) -> None:
+        try:
+            session = self.session_repo.get(session_id)
+            if not session or session.title != "新建聊天":
+                return
+
+            prompt = (
+                "根据用户的第一条消息生成一个简短的会话标题（不超过20字），"
+                "直接输出标题文本，不要加引号或其他格式。"
+                f"用户消息：{task}"
+            )
+            response = await llm.complete(
+                [
+                    LLMMessage(role=MessageRole.USER, content=prompt),
+                ],
+                tools=None,
+            )
+            title = (getattr(response, "content", None) or "").strip()[:20]
+            if not title:
+                title = task[:20]
+        except Exception:
+            logger.exception("会话标题生成失败: session_id=%s", session_id)
+            title = task[:20]
+
+        try:
+            from .session_service import session_service as default_session_service
+            updated = default_session_service.update_session(
+                session_id, SessionUpdate(title=title)
+            )
+            await self.conversation_broadcaster.send_event(
+                session_id,
+                "session:title_updated",
+                {"session_id": session_id, "title": updated.title},
+            )
+        except Exception:
+            logger.exception("会话标题更新失败: session_id=%s", session_id)
 
     async def _generate_and_persist_continuation_artifact(
         self,

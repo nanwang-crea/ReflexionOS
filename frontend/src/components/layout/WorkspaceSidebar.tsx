@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSessionStore } from '@/features/sessions/sessionStore'
 import {
@@ -69,6 +69,122 @@ function deriveProjectSelection(
   }
 
   return projects[0] || null
+}
+
+function SessionRow({
+  session,
+  active,
+  busy,
+  onSelect,
+  onRename,
+  onDelete,
+}: {
+  session: SessionSummary
+  active: boolean
+  busy: boolean
+  onSelect: () => void
+  onRename: (sessionId: string, title: string) => Promise<void>
+  onDelete: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(session.title)
+  const [renaming, setRenaming] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [editing])
+
+  useEffect(() => {
+    if (!editing) {
+      setEditTitle(session.title)
+    }
+  }, [session.title, editing])
+
+  const submitRename = async () => {
+    const trimmed = editTitle.trim()
+    if (!trimmed || trimmed === session.title) {
+      setEditing(false)
+      setEditTitle(session.title)
+      return
+    }
+
+    setRenaming(true)
+    try {
+      await onRename(session.id, trimmed)
+      setEditing(false)
+    } catch {
+      setEditTitle(session.title)
+    } finally {
+      setRenaming(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      submitRename()
+    } else if (e.key === 'Escape') {
+      setEditing(false)
+      setEditTitle(session.title)
+    }
+  }
+
+  return (
+    <div
+      className={`group flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[15px] transition ${
+        active
+          ? 'bg-slate-200 text-slate-900'
+          : 'text-slate-600 hover:bg-slate-200/70'
+      } ${busy ? 'opacity-75' : ''}`}
+    >
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          value={editTitle}
+          onChange={(e) => setEditTitle(e.target.value)}
+          onBlur={submitRename}
+          onKeyDown={handleKeyDown}
+          disabled={renaming}
+          className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[15px] text-slate-700 outline-none focus:border-slate-400"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={onSelect}
+          disabled={busy}
+          className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
+        >
+          <span className="truncate">{session.title}</span>
+          <span className="shrink-0 text-slate-400">
+            {formatRelativeTime(session.updatedAt)}
+          </span>
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        disabled={busy || renaming}
+        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-slate-600 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+        title="重命名聊天"
+      >
+        <Pencil className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={busy}
+        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+        title="删除聊天"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  )
 }
 
 export function WorkspaceSidebar() {
@@ -379,44 +495,15 @@ export function WorkspaceSidebar() {
                               const active = currentSessionId === session.id && currentProject?.id === project.id
 
                               return (
-                                <div
+                                <SessionRow
                                   key={session.id}
-                                  className={`group flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[15px] transition ${
-                                    active
-                                      ? 'bg-slate-200 text-slate-900'
-                                      : 'text-slate-600 hover:bg-slate-200/70'
-                                  } ${busy ? 'opacity-75' : ''}`}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSessionSelect(project, session.id)}
-                                    disabled={busy}
-                                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
-                                  >
-                                    <span className="truncate">{session.title}</span>
-                                    <span className="shrink-0 text-slate-400">
-                                      {formatRelativeTime(session.updatedAt)}
-                                    </span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRenameSession(session)}
-                                    disabled={busy}
-                                    className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-slate-600 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
-                                    title="重命名聊天"
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteSession(session)}
-                                    disabled={busy}
-                                    className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
-                                    title="删除聊天"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </button>
-                                </div>
+                                  session={session}
+                                  active={active}
+                                  busy={busy}
+                                  onSelect={() => handleSessionSelect(project, session.id)}
+                                  onRename={handleRenameSession}
+                                  onDelete={() => handleDeleteSession(session)}
+                                />
                               )
                             })}
 

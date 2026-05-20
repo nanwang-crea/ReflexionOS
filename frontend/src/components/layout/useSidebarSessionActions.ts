@@ -94,21 +94,22 @@ export function useSidebarSessionActions({
     }
   }
 
-  const handleRenameSession = async (session: SessionSummary) => {
+  const handleRenameSession = async (sessionId: string, nextTitle: string) => {
     if (busy) {
       return
     }
 
-    const nextTitle = dialogService.promptText('重命名聊天', session.title)?.trim()
-    if (!nextTitle || nextTitle === session.title) {
+    const trimmed = nextTitle.trim()
+    if (!trimmed) {
       return
     }
 
     try {
-      await renameSession(session.id, nextTitle)
+      await renameSession(sessionId, trimmed)
     } catch (error) {
       console.error('Failed to rename session:', error)
       dialogService.notifyError('重命名聊天失败')
+      throw error
     }
   }
 
@@ -117,7 +118,7 @@ export function useSidebarSessionActions({
       return
     }
 
-    if (!dialogService.confirmAction(`确定删除聊天“${session.title}”吗？`)) {
+    if (!dialogService.confirmAction(`确定删除聊天"${session.title}"吗？`)) {
       return
     }
 
