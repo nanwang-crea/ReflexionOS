@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
 import { isElectronRuntime } from '@/services/desktopClient'
+import { useToastStore } from '@/stores/toastStore'
 import { useConversationStore } from '@/features/conversation/conversationStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -235,6 +236,7 @@ export function WorkspaceSidebar() {
   useEffect(() => {
     ensureProjectsLoaded().catch((error) => {
       console.error('Failed to load projects:', error)
+      useToastStore.getState().addToast('error', '加载项目列表失败')
     })
   }, [])
 

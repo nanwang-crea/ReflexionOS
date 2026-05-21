@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
+import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
 import {
   applyProviderToDefaultSelection,
@@ -88,7 +89,10 @@ export function useSettingsPageController(options?: {
   }), [dialogService.notifyError, options?.createActions, refreshSettings])
 
   useEffect(() => {
-    refreshSettings().catch(() => undefined)
+    refreshSettings().catch((error) => {
+      console.error('Failed to refresh settings:', error)
+      useToastStore.getState().addToast('error', '刷新设置失败')
+    })
   }, [refreshSettings])
 
   const handleSelectProvider = useCallback((providerId: string) => {

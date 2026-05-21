@@ -1,5 +1,6 @@
 import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 import { cloneProvider, createEmptyProvider } from './providerDraft'
 
@@ -136,6 +137,7 @@ export function createSettingsPageLoader(options: SettingsPageLoaderOptions) {
       }
     } catch (error) {
       console.error('Failed to load LLM settings:', error)
+      useToastStore.getState().addToast('error', '加载 LLM 设置失败，请检查配置')
       options.resetStoredSettings()
       setProviders([])
       setDefaultSelection(createEmptySelection())

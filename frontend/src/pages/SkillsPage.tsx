@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Sparkles, Wrench } from 'lucide-react'
 import { skillApi } from '@/services/apiClient'
+import { useToastStore } from '@/stores/toastStore'
 import type { Skill } from '@/types/skill'
 
 export default function SkillsPage() {
@@ -15,6 +16,7 @@ export default function SkillsPage() {
         setSkills(response.data)
       } catch (error) {
         console.error('Failed to load skills:', error)
+        useToastStore.getState().addToast('warning', '加载技能列表失败')
       } finally {
         setLoading(false)
       }

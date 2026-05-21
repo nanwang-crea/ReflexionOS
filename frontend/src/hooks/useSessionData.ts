@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
 import { useSessionStore } from '@/features/sessions/sessionStore'
 import { useProjectStore } from '@/stores/projectStore'
+import { useToastStore } from '@/stores/toastStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { SessionSummary } from '@/types/workspace'
 
@@ -54,6 +55,7 @@ export function useSessionData(): UseSessionDataResult {
   useEffect(() => {
     ensureLLMSettingsLoaded().catch((error) => {
       console.error('Failed to load LLM settings:', error)
+      useToastStore.getState().addToast('warning', '加载 LLM 设置失败')
     })
   }, [])
 
