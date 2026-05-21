@@ -207,4 +207,12 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
         logger.info("WebSocket 断开连接: %s", session_id)
     except Exception as exc:  # pragma: no cover
         logger.error("WebSocket 错误: %s", exc)
+        try:
+            await _send_error(
+                websocket,
+                code="internal_error",
+                message=f"内部错误: {exc}",
+            )
+        except Exception:
+            pass
         ws_manager.disconnect(websocket, session_id)
