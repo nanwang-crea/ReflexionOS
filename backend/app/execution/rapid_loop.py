@@ -75,12 +75,12 @@ class RapidExecutionLoop:
         self._runtime: RuntimeState | None = None
 
     async def _emit(self, event_type: str, data: dict) -> None:
-        """发送事件"""
         if self.event_callback:
             try:
                 await self.event_callback(event_type, data)
             except Exception as e:
                 logger.error("事件回调失败: %s", e)
+                raise
 
     def get_approval_resume_event(self) -> asyncio.Event:
         return self.approval_flow._resume_event

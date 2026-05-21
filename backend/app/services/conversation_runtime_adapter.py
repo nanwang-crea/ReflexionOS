@@ -90,7 +90,7 @@ class ConversationRuntimeAdapter:
             return self._append_events(self._execution_complete_events())
 
         if event_type == "run:cancelled":
-            return self._append_events(self._execution_cancelled_events())
+            return self._append_events(self._execution_cancelled_events(data))
 
         return []
 
@@ -320,24 +320,47 @@ class ConversationRuntimeAdapter:
             events.append(terminal_event)
         return events
 
-    def _execution_cancelled_events(self) -> list[ConversationEvent]:
-        events = self._close_open_messages_for_cancel()
+    def _execution_cancelled_events(self, data: dict) -> list[ConversationEvent]:
+        reason = data.get("reason")
+        error_msg = data.get("error")
+
+        if reason == "llm_retry_exhausted":
+            error_code = "llm_retry_exhausted"
+            error_message = (
+                f"LLM 重试次数已达上限: {error_msg}" if error_msg else "LLM 重试次数已达上限"
+            )
+        elif reason == "user_cancelled":
+            error_code = "run_cancelled"
+            error_message = "本次执行已取消"
+        else:
+            error_code = "run_cancelled"
+            error_message = data.get("result") or "本次执行已取消"
+
+        events = self._close_open_messages_for_cancel(error_code, error_message)
 
         terminal_event = self._run_terminal_event(
             EventType.RUN_CANCELLED,
-            payload_json={"finished_at": datetime.now().isoformat()},
+            payload_json={
+                "finished_at": datetime.now().isoformat(),
+                "error_code": error_code,
+                "error_message": error_message,
+            },
         )
         if terminal_event is not None:
             events.append(terminal_event)
             events.append(self._cancel_notice_event())
         return events
 
-    def _close_open_messages_for_cancel(self) -> list[ConversationEvent]:
+    def _close_open_messages_for_cancel(
+        self,
+        error_code: str = "run_cancelled",
+        error_message: str = "本次执行已取消",
+    ) -> list[ConversationEvent]:
         events = self._assistant_terminal_events(
             terminal_event_type=EventType.MESSAGE_FAILED,
             payload_json={
-                "error_code": "run_cancelled",
-                "error_message": "本次执行已取消",
+                "error_code": error_code,
+                "error_message": error_message,
             },
         )
         open_ids: set[str] = {
@@ -369,8 +392,8 @@ class ConversationRuntimeAdapter:
                     message_id=message_id,
                     run_id=self.run_id,
                     payload_json={
-                        "error_code": "run_cancelled",
-                        "error_message": "本次执行已取消",
+                        "error_code": error_code,
+                        "error_message": error_message,
                     },
                 )
             )
