@@ -14,6 +14,22 @@ export const apiClient = axios.create({
   },
 })
 
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (axios.isAxiosError(error) && error.response?.data) {
+      const data = error.response.data as Record<string, unknown>
+      if (typeof data.message === 'string' && typeof data.code === 'string') {
+        error.response.data = {
+          ...data,
+          detail: data.message,
+        }
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export const projectApi = {
   list: () => apiClient.get('/api/projects'),
   create: (data: { name: string; path: string; language?: string }) =>

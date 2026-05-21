@@ -28,8 +28,8 @@ interface CreateProviderActionsOptions {
 
 export function createProviderActions(options: CreateProviderActionsOptions) {
   const getErrorMessage = (error: unknown, fallback: string) => {
-    if (axios.isAxiosError<{ detail?: string }>(error)) {
-      return error.response?.data?.detail || fallback
+    if (axios.isAxiosError<{ detail?: string; message?: string }>(error)) {
+      return error.response?.data?.message || error.response?.data?.detail || fallback
     }
 
     return fallback
