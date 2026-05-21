@@ -1,6 +1,8 @@
 import re
 from dataclasses import dataclass
 
+from app.errors import ValidationError as AppValidationError
+
 
 @dataclass
 class Hunk:
@@ -23,10 +25,10 @@ class CodexPatch:
     lines: list[str]
 
 
-class CodexPatchParseError(ValueError):
-    """Codex-style patch 解析错误"""
+class CodexPatchParseError(AppValidationError):
 
-    pass
+    def __init__(self, message: str):
+        super().__init__(message=message)
 
 
 class DiffParser:

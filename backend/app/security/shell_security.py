@@ -6,14 +6,16 @@ import shlex
 import sys
 from dataclasses import dataclass
 
+from app.errors import SecurityError as AppSecurityError
 from app.security.path_security import PathSecurity
 
 logger = logging.getLogger(__name__)
 
 
-class ShellSecurityError(Exception):
-    """Shell 安全错误"""
-    pass
+class ShellSecurityError(AppSecurityError):
+
+    def __init__(self, message: str):
+        super().__init__(message=message)
 
 
 @dataclass

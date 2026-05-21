@@ -1,13 +1,15 @@
 import logging
 import os
 
+from app.errors import SecurityError as AppSecurityError
+
 logger = logging.getLogger(__name__)
 
 
-class SecurityError(Exception):
-    """安全错误"""
+class SecurityError(AppSecurityError):
 
-    pass
+    def __init__(self, message: str):
+        super().__init__(message=message)
 
 
 class PathSecurity:

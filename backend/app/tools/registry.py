@@ -1,15 +1,16 @@
 import logging
 
+from app.errors import ToolNotFoundError as AppToolNotFoundError
 from app.llm.base import LLMToolDefinition
 from app.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
-class ToolNotFoundError(Exception):
-    """工具未找到错误"""
+class ToolNotFoundError(AppToolNotFoundError):
 
-    pass
+    def __init__(self, tool_name: str):
+        super().__init__(tool_name=tool_name)
 
 
 class ToolRegistry:
