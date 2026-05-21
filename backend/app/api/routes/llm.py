@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from app.errors import NotFoundError, ValidationError
 from app.models.llm_config import (
     DefaultLLMSelection,
     ProviderConnectionTestRequest,
@@ -11,64 +12,64 @@ from app.services.llm_provider_service import llm_provider_service
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
 
+def _value_error_to_app_error(exc: ValueError) -> NotFoundError | ValidationError:
+    msg = str(exc)
+    if "不存在" in msg:
+        return NotFoundError(resource="供应商", message=msg)
+    return ValidationError(message=msg)
+
+
 @router.get("/providers", response_model=list[ProviderInstanceConfig])
 async def list_providers():
-    """获取已配置的供应商实例"""
     return llm_provider_service.list_providers()
 
 
 @router.post("/providers", response_model=ProviderInstanceConfig)
 async def create_provider(provider: ProviderInstanceConfig):
-    """创建供应商实例"""
     try:
         return llm_provider_service.create_provider(provider)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _value_error_to_app_error(exc) from exc
 
 
 @router.put("/providers/{provider_id}", response_model=ProviderInstanceConfig)
 async def update_provider(provider_id: str, provider: ProviderInstanceConfig):
-    """更新供应商实例"""
     try:
         return llm_provider_service.update_provider(provider_id, provider)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _value_error_to_app_error(exc) from exc
 
 
 @router.delete("/providers/{provider_id}")
 async def delete_provider(provider_id: str):
-    """删除供应商实例"""
     try:
         llm_provider_service.delete_provider(provider_id)
         return {"message": "供应商已删除"}
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise NotFoundError(resource="供应商", resource_id=provider_id, message=str(exc)) from exc
 
 
 @router.post("/providers/test", response_model=ProviderConnectionTestResult)
 async def test_provider_connection(request: ProviderConnectionTestRequest):
-    """测试供应商连接"""
     try:
         return await llm_provider_service.test_provider_connection(
             request.provider,
             request.model_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ValidationError(message=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise ValidationError(message=f"连接测试失败: {exc}") from exc
 
 
 @router.get("/default", response_model=DefaultLLMSelection)
 async def get_default_selection():
-    """获取全局默认供应商与模型"""
     return llm_provider_service.get_default_selection()
 
 
 @router.put("/default", response_model=DefaultLLMSelection)
 async def set_default_selection(selection: DefaultLLMSelection):
-    """设置全局默认供应商与模型"""
     try:
         return llm_provider_service.set_default_selection(selection)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _value_error_to_app_error(exc) from exc

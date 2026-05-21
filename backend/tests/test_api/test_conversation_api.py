@@ -98,7 +98,9 @@ def test_get_conversation_snapshot_returns_404_for_missing_session(client):
     response = client.get("/api/sessions/missing-session/conversation")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "会话不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "会话" in body["message"]
 
 
 @pytest.mark.asyncio

@@ -50,14 +50,18 @@ def test_create_session_rejects_missing_project(client):
     response = client.post("/api/projects/missing-project/sessions", json={"title": "新建聊天"})
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "项目不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "项目不存在" in body["message"]
 
 
 def test_get_project_sessions_returns_404_for_missing_project(client):
     response = client.get("/api/projects/missing-project/sessions")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "项目不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "项目不存在" in body["message"]
 
 
 def test_get_session_returns_session_resource(client):
@@ -82,7 +86,9 @@ def test_get_session_returns_404_for_missing_resource(client):
     response = client.get("/api/sessions/missing-session")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "会话不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "会话" in body["message"]
 
 
 def test_patch_session_updates_existing_resource(client):
@@ -132,7 +138,9 @@ def test_patch_session_returns_404_for_missing_resource(client):
     response = client.patch("/api/sessions/missing-session", json={"title": "新标题"})
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "会话不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "会话" in body["message"]
 
 
 def test_delete_session_removes_existing_resource(client):
@@ -154,7 +162,9 @@ def test_delete_session_returns_404_for_missing_resource(client):
     response = client.delete("/api/sessions/missing-session")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "会话不存在"}
+    body = response.json()
+    assert body["code"] == "not_found"
+    assert "会话" in body["message"]
 
 
 def test_history_endpoint_is_removed(client):
