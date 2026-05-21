@@ -183,15 +183,36 @@ export function WorkspaceTranscript({
             }
 
             if (message.messageType === 'assistant_message') {
+              const isFailed = message.streamState === 'failed'
+              const isCancelled = message.streamState === 'cancelled'
+              const errorCode = message.payloadJson?.error_code as string | undefined
+              const errorMessage = message.payloadJson?.error_message as string | undefined
+
               return (
                 <SlideIn key={message.id} direction="up">
                   <div className="mb-10">
-                    <MarkdownRenderer
-                      content={message.contentText || ''}
-                      variant="plain"
-                      isStreaming={message.streamState === 'streaming'}
-                      className={transcriptClassName}
-                    />
+                    {message.contentText && (
+                      <MarkdownRenderer
+                        content={message.contentText}
+                        variant="plain"
+                        isStreaming={message.streamState === 'streaming'}
+                        className={transcriptClassName}
+                      />
+                    )}
+                    {(isFailed || isCancelled) && (errorMessage || errorCode) && (
+                      <div className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
+                        isFailed
+                          ? 'border-red-200 bg-red-50 text-red-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-800'
+                      }`}>
+                        <div className="flex items-center gap-2 font-medium">
+                          {isFailed ? '执行失败' : '执行已取消'}
+                        </div>
+                        {errorMessage && (
+                          <div className="mt-1 text-xs opacity-80">{errorMessage}</div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </SlideIn>
               )

@@ -210,6 +210,44 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     }
   }
 
+  if (event.eventType === 'message.failed') {
+    return {
+      ...currentState,
+      lastEventSeq: event.seq,
+      messagesById: {
+        ...currentState.messagesById,
+        [event.messageId]: {
+          ...currentMessage,
+          streamState: 'failed',
+          payloadJson: {
+            ...currentMessage.payloadJson,
+            ...event.payloadJson,
+          },
+          updatedAt: event.createdAt,
+        },
+      },
+    }
+  }
+
+  if (event.eventType === 'message.cancelled') {
+    return {
+      ...currentState,
+      lastEventSeq: event.seq,
+      messagesById: {
+        ...currentState.messagesById,
+        [event.messageId]: {
+          ...currentMessage,
+          streamState: 'cancelled',
+          payloadJson: {
+            ...currentMessage.payloadJson,
+            ...event.payloadJson,
+          },
+          updatedAt: event.createdAt,
+        },
+      },
+    }
+  }
+
   return {
     ...currentState,
     lastEventSeq: event.seq,
