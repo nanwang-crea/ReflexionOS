@@ -10,6 +10,7 @@ import {
   type SessionConversationLiveMessageDto,
 } from '@/services/sessionConversationWebSocket'
 import type { ConversationEvent, ConversationLiveMessage, ConversationState } from '@/types/conversation'
+import { useToastStore } from '@/stores/toastStore'
 
 interface StartTurnPayload {
   sessionId: string
@@ -175,6 +176,8 @@ export function useConversationRuntime(
     })
     ws.on('conversation:error', (data) => {
       console.error('Conversation websocket error:', data)
+      const message = typeof data.message === 'string' ? data.message : '对话发生错误'
+      useToastStore.getState().addToast('error', message)
       setIsCancelling(false)
     })
     ws.on('conversation:event', (rawEvent) => {
@@ -305,6 +308,8 @@ export function useConversationRuntime(
 
     connectSession(currentSessionId).catch((error) => {
       console.error('Failed to initialize conversation runtime:', error)
+      const message = error instanceof Error ? error.message : '连接失败'
+      useToastStore.getState().addToast('error', `对话连接失败: ${message}`)
       setConnectionStatus('disconnected')
     })
   }, [closeWebSocket, connectSession, currentSessionId])
