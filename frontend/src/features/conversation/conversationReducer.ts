@@ -160,6 +160,24 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
   }
 
   if (!event.messageId) {
+    if ((event.eventType === 'run.failed' || event.eventType === 'run.cancelled') && event.runId) {
+      const run = currentState.runsById[event.runId]
+      if (run) {
+        return {
+          ...currentState,
+          lastEventSeq: event.seq,
+          runsById: {
+            ...currentState.runsById,
+            [event.runId]: {
+              ...run,
+              status: event.eventType === 'run.failed' ? 'failed' : 'cancelled',
+              errorCode: (event.payloadJson.error_code as string | null) ?? null,
+              errorMessage: (event.payloadJson.error_message as string | null) ?? null,
+            },
+          },
+        }
+      }
+    }
     return {
       ...currentState,
       lastEventSeq: event.seq,

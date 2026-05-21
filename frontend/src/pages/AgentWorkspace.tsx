@@ -3,6 +3,7 @@ import { ChatInput } from '@/components/chat/ChatInput'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import { useConversationStore } from '@/features/conversation/conversationStore'
 import { useConversationData } from '@/hooks/useConversationData'
 import { useConversationRuntime } from '@/hooks/useConversationRuntime'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
@@ -23,6 +24,9 @@ export default function AgentWorkspace() {
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan } = useConversationData(currentSessionId)
+  const runsById = currentSessionId
+    ? useConversationStore((s) => s.conversationsBySessionId[currentSessionId]?.runsById)
+    : undefined
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
 
   // When plan disappears (run ends), reset minimized state so next plan starts expanded
@@ -60,6 +64,7 @@ export default function AgentWorkspace() {
 
         <WorkspaceTranscript
           {...viewModel.transcriptProps}
+          runsById={runsById}
           isPlanMinimized={effectivePlanMinimized}
           onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
         />

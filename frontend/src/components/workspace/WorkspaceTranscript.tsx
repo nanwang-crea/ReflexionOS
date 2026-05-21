@@ -6,7 +6,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
 import type { Project } from '@/types/project'
-import type { ConversationMessage } from '@/types/conversation'
+import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
@@ -54,6 +54,7 @@ interface WorkspaceTranscriptProps {
   onScrollToBottom?: () => void
   onApprovalAction?: ToolApprovalActionHandler
   messagesEndRef: RefObject<HTMLDivElement>
+  runsById?: Record<string, ConversationRun>
 }
 
 export function WorkspaceTranscript({
@@ -73,6 +74,7 @@ export function WorkspaceTranscript({
   onScrollToBottom,
   onApprovalAction,
   messagesEndRef,
+  runsById,
 }: WorkspaceTranscriptProps) {
   const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
   const hasVisibleStreamingMessage = messages.some((message) => {
@@ -185,8 +187,9 @@ export function WorkspaceTranscript({
             if (message.messageType === 'assistant_message') {
               const isFailed = message.streamState === 'failed'
               const isCancelled = message.streamState === 'cancelled'
-              const errorCode = message.payloadJson?.error_code as string | undefined
-              const errorMessage = message.payloadJson?.error_message as string | undefined
+              const run = message.runId != null ? runsById?.[message.runId] : undefined
+              const errorCode = (message.payloadJson?.error_code as string | undefined) ?? run?.errorCode ?? undefined
+              const errorMessage = (message.payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
 
               return (
                 <SlideIn key={message.id} direction="up">
