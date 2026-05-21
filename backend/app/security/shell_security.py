@@ -6,16 +6,10 @@ import shlex
 import sys
 from dataclasses import dataclass
 
-from app.errors import SecurityError as AppSecurityError
+from app.errors import SecurityError
 from app.security.path_security import PathSecurity
 
 logger = logging.getLogger(__name__)
-
-
-class ShellSecurityError(AppSecurityError):
-
-    def __init__(self, message: str):
-        super().__init__(message=message)
 
 
 @dataclass
@@ -81,17 +75,17 @@ class ShellSecurity:
         """
         command_normalized = command.strip()
         if not command_normalized:
-            raise ShellSecurityError("命令不能为空")
+            raise SecurityError(message="命令不能为空", detail={"source": "shell"})
 
         has_meta = bool(self.SHELL_META_PATTERN.search(command_normalized))
 
         try:
             argv = shlex.split(command_normalized, posix=not self._is_windows())
         except ValueError as exc:
-            raise ShellSecurityError(f"命令解析失败: {exc}") from exc
+            raise SecurityError(message=f"命令解析失败: {exc}", detail={"source": "shell"}) from exc
 
         if not argv:
-            raise ShellSecurityError("命令不能为空")
+            raise SecurityError(message="命令不能为空", detail={"source": "shell"})
 
         command_name = self._command_name(argv[0])
 
@@ -117,7 +111,10 @@ class ShellSecurity:
                 if not self._looks_like_path(candidate):
                     continue
                 if self._is_windows_absolute_path(candidate) and not self._is_windows():
-                    raise ShellSecurityError(f"路径不在允许范围内: {candidate}")
+                    raise SecurityError(
+                        message=f"路径不在允许范围内: {candidate}",
+                        detail={"source": "shell"},
+                    )
                 path_security.validate_path(os.path.expanduser(candidate))
 
     def _path_candidates(self, arg: str) -> list[str]:

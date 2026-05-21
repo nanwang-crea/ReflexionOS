@@ -6,7 +6,7 @@ import pytest
 from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMToolCall, StreamChunk
-from app.llm.retry import RetryExhaustedError
+from app.llm.retry import LLMRetryExhaustedError
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
@@ -682,7 +682,7 @@ class TestRapidExecutionLoop:
         async def mock_stream(messages, tools=None):
             nonlocal call_count
             call_count += 1
-            raise RetryExhaustedError(ValueError("network down"), max_retries=5)
+            raise LLMRetryExhaustedError(ValueError("network down"), max_retries=5)
             yield
 
         mock_llm.stream_complete = mock_stream

@@ -286,6 +286,8 @@ class ConversationRuntimeAdapter:
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
+        if self.assistant_message_id is None:
+            self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
         events = self._assistant_terminal_events(
             terminal_event_type=EventType.MESSAGE_FAILED,
             payload_json={
@@ -336,6 +338,8 @@ class ConversationRuntimeAdapter:
             error_code = "run_cancelled"
             error_message = data.get("result") or "本次执行已取消"
 
+        if self.assistant_message_id is None:
+            self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
         events = self._close_open_messages_for_cancel(error_code, error_message)
 
         terminal_event = self._run_terminal_event(
@@ -348,7 +352,7 @@ class ConversationRuntimeAdapter:
         )
         if terminal_event is not None:
             events.append(terminal_event)
-            events.append(self._cancel_notice_event())
+            events.append(self._cancel_notice_event(error_message=error_message))
         return events
 
     def _close_open_messages_for_cancel(
@@ -492,7 +496,7 @@ class ConversationRuntimeAdapter:
         self._assistant_content = ""
         return events
 
-    def _cancel_notice_event(self) -> ConversationEvent:
+    def _cancel_notice_event(self, error_message: str | None = None) -> ConversationEvent:
         message_id = f"msg-{uuid4().hex[:8]}"
         return self._new_event(
             event_type=EventType.SYSTEM_NOTICE_EMITTED,
@@ -503,7 +507,7 @@ class ConversationRuntimeAdapter:
                 "turn_id": self.turn_id,
                 "turn_message_index": self._reserve_turn_message_index(),
                 "notice_code": "run_cancelled",
-                "content_text": "本次执行已取消",
+                "content_text": error_message or "本次执行已取消",
                 "related_run_id": self.run_id,
                 "retryable": True,
             },

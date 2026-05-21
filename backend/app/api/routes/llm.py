@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.errors import NotFoundError, ValidationError
+from app.errors import NotFoundError, ValidationError, value_error_to_app_error
 from app.models.llm_config import (
     DefaultLLMSelection,
     ProviderConnectionTestRequest,
@@ -10,13 +10,6 @@ from app.models.llm_config import (
 from app.services.llm_provider_service import llm_provider_service
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
-
-
-def _value_error_to_app_error(exc: ValueError) -> NotFoundError | ValidationError:
-    msg = str(exc)
-    if "不存在" in msg:
-        return NotFoundError(resource="供应商", message=msg)
-    return ValidationError(message=msg)
 
 
 @router.get("/providers", response_model=list[ProviderInstanceConfig])
@@ -29,7 +22,7 @@ async def create_provider(provider: ProviderInstanceConfig):
     try:
         return llm_provider_service.create_provider(provider)
     except ValueError as exc:
-        raise _value_error_to_app_error(exc) from exc
+        raise value_error_to_app_error(exc, resource="供应商") from exc
 
 
 @router.put("/providers/{provider_id}", response_model=ProviderInstanceConfig)
@@ -37,7 +30,7 @@ async def update_provider(provider_id: str, provider: ProviderInstanceConfig):
     try:
         return llm_provider_service.update_provider(provider_id, provider)
     except ValueError as exc:
-        raise _value_error_to_app_error(exc) from exc
+        raise value_error_to_app_error(exc, resource="供应商") from exc
 
 
 @router.delete("/providers/{provider_id}")
@@ -72,4 +65,4 @@ async def set_default_selection(selection: DefaultLLMSelection):
     try:
         return llm_provider_service.set_default_selection(selection)
     except ValueError as exc:
-        raise _value_error_to_app_error(exc) from exc
+        raise value_error_to_app_error(exc, resource="供应商") from exc

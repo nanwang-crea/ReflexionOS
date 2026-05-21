@@ -1,6 +1,6 @@
 import pytest
 
-from app.llm.retry import RetryExhaustedError, _retry_delay, retry_async
+from app.llm.retry import LLMRetryExhaustedError, _retry_delay, retry_async
 
 
 class TestRetryDelay:
@@ -134,7 +134,7 @@ class TestRetryAsync:
             call_count += 1
             raise ValueError("always fails")
 
-        with pytest.raises(RetryExhaustedError) as exc_info:
+        with pytest.raises(LLMRetryExhaustedError) as exc_info:
             await retry_async(
                 fn,
                 retryable_exceptions=(ValueError,),

@@ -76,3 +76,12 @@ class ExecutionError(AppError):
 
     def __init__(self, message: str, detail: dict | None = None):
         super().__init__(message=message, detail=detail)
+
+
+def value_error_to_app_error(
+    exc: ValueError, *, resource: str = "资源"
+) -> NotFoundError | ValidationError:
+    msg = str(exc)
+    if "不存在" in msg:
+        return NotFoundError(resource=resource, message=msg)
+    return ValidationError(message=msg)

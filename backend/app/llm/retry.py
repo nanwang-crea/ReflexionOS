@@ -7,7 +7,7 @@ import random
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from app.errors import LLMRetryExhaustedError as RetryExhaustedError
+from app.errors import LLMRetryExhaustedError
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,6 @@ async def retry_async(
                 await asyncio.sleep(delay)
 
     if raise_retry_exhausted and last_exc is not None:
-        raise RetryExhaustedError(last_exception=last_exc, max_retries=max_retries) from last_exc
+        raise LLMRetryExhaustedError(last_exception=last_exc, max_retries=max_retries) from last_exc
 
     raise last_exc  # type: ignore[misc]

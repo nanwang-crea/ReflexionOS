@@ -2,9 +2,10 @@ import logging
 import os
 from typing import Any
 
+from app.errors import ValidationError
 from app.security.path_security import PathSecurity
 from app.tools.base import BaseTool, ToolResult
-from app.tools.diff_parser import CodexPatchParseError, CodexPatchParser, DiffParser, Hunk
+from app.tools.diff_parser import CodexPatchParser, DiffParser, Hunk
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ class PatchTool(BaseTool):
     async def _execute_codex_patch(self, patch_text: str) -> ToolResult:
         try:
             parsed = self.codex_parser.parse(patch_text)
-        except CodexPatchParseError as e:
+        except ValidationError as e:
             return ToolResult(success=False, error=str(e))
 
         file_path = self.security.validate_write_path(parsed.file_path)

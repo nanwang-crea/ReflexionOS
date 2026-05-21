@@ -1,4 +1,3 @@
-# backend/app/security/command_policy.py
 import logging
 import os
 import shlex
@@ -6,10 +5,17 @@ import subprocess
 
 from pydantic import BaseModel, Field
 
+from app.errors import SecurityError
 from app.security.command_effect_registry import CommandEffectRegistry
-from app.security.effect_category import EffectCategory, EFFECT_DANGER_LEVEL, EFFECT_ACTION_MAP, most_dangerous, CommandAction
-from app.security.path_security import PathSecurity, SecurityError
-from app.security.shell_security import ShellSecurity, ShellSecurityError
+from app.security.effect_category import (
+    EFFECT_ACTION_MAP,
+    EFFECT_DANGER_LEVEL,
+    CommandAction,
+    EffectCategory,
+    most_dangerous,
+)
+from app.security.path_security import PathSecurity
+from app.security.shell_security import ShellSecurity
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +146,9 @@ class CommandPolicy:
         # Parse command using ShellSecurity (without path validation — we handle that ourselves)
         try:
             result = self.shell_security.validate_command(command_normalized)
-        except ShellSecurityError as e:
+        except SecurityError as e:
+            if not (e.detail and e.detail.get("source") == "shell"):
+                raise
             return CommandDecision(
                 action=CommandAction.DENY,
                 command=command,

@@ -1,16 +1,10 @@
 import logging
 
-from app.errors import ToolNotFoundError as AppToolNotFoundError
+from app.errors import ToolNotFoundError
 from app.llm.base import LLMToolDefinition
 from app.tools.base import BaseTool
 
 logger = logging.getLogger(__name__)
-
-
-class ToolNotFoundError(AppToolNotFoundError):
-
-    def __init__(self, tool_name: str):
-        super().__init__(tool_name=tool_name)
 
 
 class ToolRegistry:
@@ -33,7 +27,7 @@ class ToolRegistry:
         """获取工具的 JSON Schema"""
         tool = self.get(name)
         if not tool:
-            raise ToolNotFoundError(f"工具不存在: {name}")
+            raise ToolNotFoundError(tool_name=name)
         return tool.get_schema()
 
     @staticmethod
