@@ -1,3 +1,5 @@
+import { useToastStore } from '@/stores/toastStore'
+
 export interface DialogService {
   notifyError: (message: string) => void
   confirmAction: (message: string) => boolean
@@ -6,7 +8,7 @@ export interface DialogService {
 
 export const nativeDialogService: DialogService = {
   notifyError: (message) => {
-    window.alert(message)
+    useToastStore.getState().addToast('error', message)
   },
   confirmAction: (message) => window.confirm(message),
   promptText: (message, defaultValue) => window.prompt(message, defaultValue),
