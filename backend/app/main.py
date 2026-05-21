@@ -1,10 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import llm, projects, sessions, skills, websocket
 from app.app_services import agent_service
+from app.errors import AppError
 
 
 @asynccontextmanager
@@ -21,6 +23,18 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.exception_handler(AppError)
+async def app_error_handler(_request: Request, exc: AppError):
+    status_code = 400
+    if exc.code == "not_found":
+        status_code = 404
+    elif exc.code == "security_error":
+        status_code = 403
+    return JSONResponse(
+        status_code=status_code,
+        content=exc.to_dict(),
+    )
 
 app.add_middleware(
     CORSMiddleware,
