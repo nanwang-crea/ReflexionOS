@@ -70,13 +70,15 @@ async def retry_async(
                     exc,
                 )
             if cancel_event is not None:
-                done, _ = await asyncio.wait(
+                done, pending = await asyncio.wait(
                     [asyncio.ensure_future(asyncio.sleep(delay)),
                      asyncio.ensure_future(cancel_event.wait())],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 for task in done:
                     task.exception()
+                for task in pending:
+                    task.cancel()
                 if cancel_event.is_set():
                     raise asyncio.CancelledError()
             else:
