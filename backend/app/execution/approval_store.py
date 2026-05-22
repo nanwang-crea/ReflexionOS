@@ -1,31 +1,14 @@
-import uuid
 from copy import deepcopy
 from datetime import datetime
 from threading import RLock
 from typing import Literal
 
-from pydantic import BaseModel, Field
-
-
-ApprovalStatus = Literal["pending", "approved", "denied", "expired", "stale"]
-ApprovalDecision = Literal["allow_once", "deny", "trust_and_allow"]
-AllowApprovalDecision = Literal["allow_once", "trust_and_allow"]
-
-
-class PendingToolApproval(BaseModel):
-    id: str = Field(default_factory=lambda: f"approval-{uuid.uuid4().hex[:12]}")
-    session_id: str
-    turn_id: str
-    run_id: str
-    step_number: int
-    tool_call_id: str
-    tool_name: str
-    tool_arguments: dict
-    approval_payload: dict
-    status: ApprovalStatus = "pending"
-    created_at: datetime = Field(default_factory=datetime.now)
-    decided_at: datetime | None = None
-    decision: ApprovalDecision | None = None
+from app.models.approval import (
+    AllowApprovalDecision,
+    ApprovalDecision,
+    ApprovalStatus,
+    PendingToolApproval,
+)
 
 
 class PendingApprovalStore:

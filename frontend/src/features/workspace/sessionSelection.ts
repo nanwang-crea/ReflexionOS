@@ -1,4 +1,5 @@
 import type { ProviderInstance, ProviderModel } from '@/types/llm'
+import { getEnabledModels } from '@/utils/llmHelpers'
 
 interface WorkspaceSelection {
   providerId: string | null
@@ -13,9 +14,7 @@ interface ResolveSessionSelectionOptions {
   preferredModelId?: string | null
 }
 
-export function getEnabledModels(provider: ProviderInstance | null | undefined) {
-  return provider?.models.filter((model) => model.enabled) || []
-}
+
 
 export function getAvailableProviders(providers: ProviderInstance[]) {
   return providers.filter((provider) => provider.enabled && getEnabledModels(provider).length > 0)

@@ -1,26 +1,12 @@
-修复新建聊天时候的名字
 
 发现我当前虽然有了记忆但是像对文件的读取，之前读取过了，之后再问问题还是会重复读取呢？这个像codex或者claude时如何优化的呢？
 
 
-发送消息添加一个对列，同一个session
+发送消息添加一个队列，同一个session（即同一个会话），可以根据队列顺序继续往下面执行
+
+添加多个Subagent可以进行执行的操作
+
 
 判断当前前后端是否存在双路径的地方，以及除了必要构建之外有没有什么脏代码，冗余的地方，为未来预留的不算
 
-[backend] Shell 命令执行失败: /usr/bin/sandbox-exec -p '(version 1)
-(allow default)
-(allow file-read* file-write* (subpath "/tmp"))
-(allow file-read* file-write* (subpath "/private/tmp"))
-(allow file-read* file-write* (subpath "/var/folders"))
-(deny file-write* (subpath "/System"))
-(deny file-write* (subpath "/usr"))
-(deny file-read* (subpath "/Users/*/.ssh"))
-(deny file-read* (subpath "/Users/*/.gnupg"))
-(allow file-read* file-write* (subpath "/Users/munan/Documents/munan/my_project/ai/ReflexionOS/backend"))
-(allow file-read* file-write* (subpath "/Users/munan/Documents/munan/my_project/ai/ReflexionOS"))
-(deny network*)
-(allow process-exec)
-(allow process-fork)
-(allow signal)
-(allow sysctl-read)' -- grep -rn "'/api/" frontend/src --include="*.ts" --include="*.tsx" | grep -v "node_modules" | grep -v ".test." | grep -v "apiClient.ts", 返回码: 1
-出现这个问题之后前端就卡死在运行中了，不会往下继续进行
+需要完善修改代码的改变查看了

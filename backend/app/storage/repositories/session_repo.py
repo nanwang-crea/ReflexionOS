@@ -1,10 +1,13 @@
+from app.errors import NotFoundValueError
 from app.models.session import Session
 from app.storage.models import SessionModel
 
+from .base_repo import BaseRepository
 
-class SessionRepository:
+
+class SessionRepository(BaseRepository[Session]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, Session)
 
     def create(self, session: Session, *, db_session=None) -> Session:
         if db_session is None:
@@ -15,7 +18,7 @@ class SessionRepository:
         db_session.add(model)
         db_session.flush()
         db_session.refresh(model)
-        return Session.model_validate(model)
+        return self._to_domain(model)
 
     def get(self, session_id: str, *, db_session=None) -> Session | None:
         if db_session is None:
@@ -23,7 +26,7 @@ class SessionRepository:
                 return self.get(session_id, db_session=managed_session)
 
         model = db_session.query(SessionModel).filter_by(id=session_id).first()
-        return Session.model_validate(model) if model else None
+        return self._to_domain(model)
 
     def list_by_project(self, project_id: str) -> list[Session]:
         with self.db.get_session() as db_session:
@@ -33,7 +36,7 @@ class SessionRepository:
                 .order_by(SessionModel.updated_at.desc())
                 .all()
             )
-            return [Session.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def update(self, session: Session, *, db_session=None) -> Session:
         if db_session is None:
@@ -42,7 +45,7 @@ class SessionRepository:
 
         model = db_session.query(SessionModel).filter_by(id=session.id).first()
         if model is None:
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
 
         model.title = session.title
         model.preferred_provider_id = session.preferred_provider_id
@@ -51,7 +54,7 @@ class SessionRepository:
         model.active_turn_id = session.active_turn_id
         db_session.flush()
         db_session.refresh(model)
-        return Session.model_validate(model)
+        return self._to_domain(model)
 
     def delete(self, session_id: str, *, db_session=None) -> bool:
         if db_session is None:

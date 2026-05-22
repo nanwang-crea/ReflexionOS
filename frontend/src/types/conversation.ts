@@ -1,6 +1,6 @@
-type ConversationTurnStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
+export type ConversationTurnStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
 
-export type ConversationRunStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
+export type ConversationRunStatus = ConversationTurnStatus
 
 type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
@@ -105,7 +105,7 @@ export interface ConversationState {
   messagesById: Record<string, ConversationMessage>
 }
 
-interface PlanStep {
+export interface PlanStep {
   id: number
   description: string
   status: 'pending' | 'in_progress' | 'completed' | 'blocked'
@@ -115,5 +115,5 @@ interface PlanStep {
 export interface Plan {
   goal: string
   steps: PlanStep[]
-  current_step_index: number
+  currentStepIndex: number
 }

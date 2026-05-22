@@ -1,23 +1,9 @@
-from uuid import uuid4
-
-from pydantic import BaseModel
-
-from app.models.session import Session
+from app.errors import NotFoundValueError
+from app.ids import new_session_id
+from app.models.session import DEFAULT_SESSION_TITLE, Session, SessionCreate, SessionUpdate
 from app.storage.database import db as default_db
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
-
-
-class SessionCreate(BaseModel):
-    title: str | None = None
-    preferred_provider_id: str | None = None
-    preferred_model_id: str | None = None
-
-
-class SessionUpdate(BaseModel):
-    title: str | None = None
-    preferred_provider_id: str | None = None
-    preferred_model_id: str | None = None
 
 
 class SessionService:
@@ -41,9 +27,9 @@ class SessionService:
         self._get_project_or_raise(project_id)
 
         session = Session(
-            id=f"session-{uuid4().hex[:8]}",
+            id=new_session_id(),
             project_id=project_id,
-            title=payload.title or "新建聊天",
+            title=payload.title or DEFAULT_SESSION_TITLE,
             preferred_provider_id=payload.preferred_provider_id,
             preferred_model_id=payload.preferred_model_id,
         )
@@ -56,10 +42,16 @@ class SessionService:
     def get_session(self, session_id: str) -> Session | None:
         return self.session_repo.get(session_id)
 
+    def get_session_or_raise(self, session_id: str) -> Session:
+        session = self.session_repo.get(session_id)
+        if not session:
+            raise NotFoundValueError("会话不存在")
+        return session
+
     def update_session(self, session_id: str, payload: SessionUpdate) -> Session:
         session = self.session_repo.get(session_id)
         if not session:
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
 
         payload_data = payload.model_dump(exclude_unset=True)
         updated_session = session.model_copy(
@@ -79,13 +71,13 @@ class SessionService:
 
     def delete_session(self, session_id: str) -> bool:
         if not self.session_repo.delete(session_id):
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
         return True
 
     def _get_project_or_raise(self, project_id: str):
         project = self.project_repo.get(project_id)
         if not project:
-            raise ValueError("项目不存在")
+            raise NotFoundValueError("项目不存在")
         return project
 
 

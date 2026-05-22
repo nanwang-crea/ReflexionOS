@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   getAvailableProviders,
-  getEnabledModels,
   resolveSessionSelection,
 } from '@/features/workspace/sessionSelection'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ProviderInstance } from '@/types/llm'
+import { getEnabledModels } from '@/utils/llmHelpers'
 
 export interface SessionSelectionState {
   providerId: string | null

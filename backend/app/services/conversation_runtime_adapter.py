@@ -1,6 +1,7 @@
 from datetime import datetime
-from uuid import uuid4
 
+from app.errors import NotFoundValueError
+from app.ids import new_event_id, new_message_id
 from app.llm.base import MessageRole
 from app.models.conversation import (
     ConversationEvent,
@@ -128,12 +129,12 @@ class ConversationRuntimeAdapter:
 
     def _buffer_assistant_delta(self, delta: str) -> None:
         if self.assistant_message_id is None:
-            self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
+            self.assistant_message_id = new_message_id()
         self._assistant_content = f"{self._assistant_content}{delta}"
 
     def _tool_start_events(self, data: dict) -> list[ConversationEvent]:
         tool_key = self._tool_key(data)
-        message_id = f"msg-{uuid4().hex[:8]}"
+        message_id = new_message_id()
         self.tool_message_ids[tool_key] = message_id
         self._latest_tool_key = tool_key
         return [
@@ -287,7 +288,7 @@ class ConversationRuntimeAdapter:
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
         if self.assistant_message_id is None:
-            self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
+            self.assistant_message_id = new_message_id()
         events = self._assistant_terminal_events(
             terminal_event_type=EventType.MESSAGE_FAILED,
             payload_json={
@@ -339,7 +340,7 @@ class ConversationRuntimeAdapter:
             error_message = data.get("result") or "本次执行已取消"
 
         if self.assistant_message_id is None:
-            self.assistant_message_id = f"msg-{uuid4().hex[:8]}"
+            self.assistant_message_id = new_message_id()
         events = self._close_open_messages_for_cancel(error_code, error_message)
 
         terminal_event = self._run_terminal_event(
@@ -369,7 +370,7 @@ class ConversationRuntimeAdapter:
         )
         open_ids: set[str] = {
             message.id
-            for message in self.conversation_service.message_repo.list_by_turn(self.turn_id)
+            for message in self.conversation_service.list_turn_messages(self.turn_id)
             if message.run_id == self.run_id
             and message.message_type in {MessageType.ASSISTANT_MESSAGE, MessageType.TOOL_TRACE}
             and message.stream_state in {StreamState.IDLE, StreamState.STREAMING}
@@ -404,6 +405,26 @@ class ConversationRuntimeAdapter:
 
         return events
 
+    def _create_assistant_message_event(
+        self, *, message_id: str, turn_message_index: int
+    ) -> ConversationEvent:
+        return self._new_event(
+            event_type=EventType.MESSAGE_CREATED,
+            message_id=message_id,
+            run_id=self.run_id,
+            payload_json={
+                "message_id": message_id,
+                "turn_id": self.turn_id,
+                "run_id": self.run_id,
+                "role": MessageRole.ASSISTANT,
+                "message_type": "assistant_message",
+                "turn_message_index": turn_message_index,
+                "display_mode": "default",
+                "content_text": "",
+                "payload_json": {},
+            },
+        )
+
     def _assistant_terminal_events(
         self,
         *,
@@ -416,25 +437,11 @@ class ConversationRuntimeAdapter:
             return []
 
         events: list[ConversationEvent] = []
-        if self.conversation_service.message_repo.get(self.assistant_message_id) is None:
-            events.append(
-                self._new_event(
-                    event_type=EventType.MESSAGE_CREATED,
-                    message_id=self.assistant_message_id,
-                    run_id=self.run_id,
-                    payload_json={
-                        "message_id": self.assistant_message_id,
-                        "turn_id": self.turn_id,
-                        "run_id": self.run_id,
-                        "role": MessageRole.ASSISTANT,
-                        "message_type": "assistant_message",
-                        "turn_message_index": self._reserve_turn_message_index(),
-                        "display_mode": "default",
-                        "content_text": "",
-                        "payload_json": {},
-                    },
-                )
-            )
+        if self.conversation_service.get_message(self.assistant_message_id) is None:
+            events.append(self._create_assistant_message_event(
+                message_id=self.assistant_message_id,
+                turn_message_index=self._reserve_turn_message_index(),
+            ))
 
         if self._assistant_content:
             events.append(
@@ -463,21 +470,9 @@ class ConversationRuntimeAdapter:
         message_id = self.assistant_message_id
         content_text = self._assistant_content
         events = [
-            self._new_event(
-                event_type=EventType.MESSAGE_CREATED,
+            self._create_assistant_message_event(
                 message_id=message_id,
-                run_id=self.run_id,
-                payload_json={
-                    "message_id": message_id,
-                    "turn_id": self.turn_id,
-                    "run_id": self.run_id,
-                    "role": MessageRole.ASSISTANT,
-                    "message_type": "assistant_message",
-                    "turn_message_index": self._reserve_turn_message_index(),
-                    "display_mode": "default",
-                    "content_text": "",
-                    "payload_json": {},
-                },
+                turn_message_index=self._reserve_turn_message_index(),
             ),
             self._new_event(
                 event_type=EventType.MESSAGE_CONTENT_COMMITTED,
@@ -497,7 +492,7 @@ class ConversationRuntimeAdapter:
         return events
 
     def _cancel_notice_event(self, error_message: str | None = None) -> ConversationEvent:
-        message_id = f"msg-{uuid4().hex[:8]}"
+        message_id = new_message_id()
         return self._new_event(
             event_type=EventType.SYSTEM_NOTICE_EMITTED,
             run_id=self.run_id,
@@ -528,13 +523,13 @@ class ConversationRuntimeAdapter:
         )
 
     def _run_is_terminal(self) -> bool:
-        run = self.conversation_service.run_repo.get(self.run_id)
+        run = self.conversation_service.get_run(self.run_id)
         if run is None:
             return False
         return run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
 
     def _message_is_terminal(self, message_id: str) -> bool:
-        message = self.conversation_service.message_repo.get(message_id)
+        message = self.conversation_service.get_message(message_id)
         if message is None:
             return False
         return message.stream_state in {
@@ -553,7 +548,7 @@ class ConversationRuntimeAdapter:
     def _reserve_turn_message_index(self) -> int:
         if self._reserved_turn_message_index is None:
             self._reserved_turn_message_index = (
-                self.conversation_service.message_repo.next_turn_message_index(self.turn_id)
+                self.conversation_service.next_message_index(self.turn_id)
             )
             return self._reserved_turn_message_index
 
@@ -578,7 +573,7 @@ class ConversationRuntimeAdapter:
         run_id: str | None = None,
     ) -> ConversationEvent:
         return ConversationEvent(
-            id=f"evt-{uuid4().hex[:8]}",
+            id=new_event_id(),
             session_id=self.session_id,
             turn_id=self.turn_id,
             run_id=run_id or self.run_id,

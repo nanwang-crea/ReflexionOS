@@ -5,15 +5,18 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from app.errors import NotFoundValueError
 from app.execution.approval_store import PendingApprovalStore
 from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
+from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
+from app.models.approval import PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
     EventType,
@@ -23,6 +26,7 @@ from app.models.conversation import (
     RunStatus,
 )
 from app.models.conversation_snapshot import StartTurnResult
+from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import create_sandbox
@@ -43,7 +47,6 @@ from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
-from .session_service import SessionUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +123,11 @@ class AgentService:
     ) -> StartTurnResult:
         project = self.project_repo.get(project_id)
         if not project:
-            raise ValueError("项目不存在")
+            raise NotFoundValueError("项目不存在")
 
         session = self.session_repo.get(session_id)
         if not session:
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
         if session.project_id != project.id:
             raise ValueError("会话不属于当前项目")
 
@@ -325,7 +328,6 @@ class AgentService:
 
         async def event_callback(event_type: str, data: dict):
             if event_type == "plan:updated":
-                # Plan state is ephemeral per-run, only broadcast to frontend
                 await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
             else:
                 await persist_and_broadcast(event_type, data)
@@ -340,7 +342,7 @@ class AgentService:
 
         try:
             session = self.session_repo.get(session_id)
-            if session and session.title == "新建聊天":
+            if session and session.title == DEFAULT_SESSION_TITLE:
                 title_task = asyncio.create_task(
                     self._generate_session_title(
                         llm=llm,
@@ -377,7 +379,6 @@ class AgentService:
                     task=task,
                 )
             except Exception:
-                # Best-effort: never fail an already-completed run due to continuation generation.
                 logger.exception("Continuation artifact generation failed: run_id=%s", run_id)
         except asyncio.CancelledError:
             raise
@@ -424,7 +425,7 @@ class AgentService:
     ) -> None:
         try:
             session = self.session_repo.get(session_id)
-            if not session or session.title != "新建聊天":
+            if not session or session.title != DEFAULT_SESSION_TITLE:
                 return
 
             prompt = (
@@ -467,11 +468,7 @@ class AgentService:
         run_id: str,
         task: str,
     ) -> None:
-        """
-        Task 6: Replace heuristic continuation generation with a single LLM-driven compression step,
-        then persist as a real system_notice message.
-        """
-        turn_messages = self.conversation_service.message_repo.list_by_turn(turn_id)
+        turn_messages = self.conversation_service.list_turn_messages(turn_id)
         prompt_input = self.continuation_builder.build_prompt_input(
             task=task,
             messages=turn_messages,
@@ -495,7 +492,7 @@ class AgentService:
         if not content:
             return
 
-        next_index = self.conversation_service.message_repo.next_turn_message_index(turn_id)
+        next_index = self.conversation_service.next_message_index(turn_id)
         message_id = f"msg-cont-{uuid4().hex[:8]}"
         artifact = build_continuation_artifact(
             session_id=session_id,
@@ -509,7 +506,7 @@ class AgentService:
             session_id,
             [
                 ConversationEvent(
-                    id=f"evt-{uuid4().hex[:8]}",
+                    id=new_event_id(),
                     session_id=session_id,
                     turn_id=turn_id,
                     run_id=run_id,
@@ -528,7 +525,7 @@ class AgentService:
                     },
                 ),
                 ConversationEvent(
-                    id=f"evt-{uuid4().hex[:8]}",
+                    id=new_event_id(),
                     session_id=session_id,
                     turn_id=turn_id,
                     run_id=run_id,
@@ -564,9 +561,9 @@ class AgentService:
             with contextlib.suppress(asyncio.CancelledError):
                 await running
 
-        run = self.conversation_service.run_repo.get(run_id)
+        run = self.conversation_service.get_run(run_id)
         if run is None:
-            raise ValueError("运行不存在")
+            raise NotFoundValueError("运行不存在")
         if run.status == RunStatus.CANCELLED:
             self.pending_approval_store.expire_for_run(run_id)
             return run
@@ -582,9 +579,9 @@ class AgentService:
                 run_id=run_id,
             )
         persisted_events = runtime_adapter.handle_event("run:cancelled", {})
-        cancelled = self.conversation_service.run_repo.get(run_id)
+        cancelled = self.conversation_service.get_run(run_id)
         if cancelled is None:
-            raise ValueError("运行不存在")
+            raise NotFoundValueError("运行不存在")
         if cancelled.status == RunStatus.CANCELLED:
             self.pending_approval_store.expire_for_run(run_id)
         await self._broadcast_conversation_events(
@@ -623,17 +620,17 @@ class AgentService:
         terminal_event_type: EventType | None = None
         terminal_payload: dict | None = None
 
-        with self.conversation_service._acquire_session_write_lock(session_id):
-            run = self.conversation_service.run_repo.get(run_id)
+        with self.conversation_service.acquire_session_write_lock(session_id):
+            run = self.conversation_service.get_run(run_id)
             if run is None:
-                raise ValueError("运行不存在")
+                raise NotFoundValueError("运行不存在")
             if run.session_id != session_id:
                 raise ValueError("运行不属于当前会话")
             if run.status != RunStatus.WAITING_FOR_APPROVAL:
                 raise ValueError("运行未在等待审批")
             pending = self.pending_approval_store.get(approval_id)
             if pending is None:
-                raise ValueError("审批不存在")
+                raise NotFoundValueError("审批不存在")
             if pending.session_id != session_id:
                 raise ValueError("审批不属于当前会话")
             if pending.run_id != run_id:
@@ -645,7 +642,7 @@ class AgentService:
                 self.pending_approval_store.approve(approval_id)
                 trace_status = "approved"
 
-                execution_result = await self._execute_approved_tool(pending)
+                execution_result = await self._execute_approved_tool(pending, run_id=run_id)
 
                 loop = self._execution_loops.get(run_id)
                 if loop is not None:
@@ -685,7 +682,7 @@ class AgentService:
             if trace_message is not None:
                 events_to_append.append(
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=session_id,
                         turn_id=run.turn_id,
                         run_id=run_id,
@@ -702,7 +699,7 @@ class AgentService:
 
             events_to_append.append(
                 ConversationEvent(
-                    id=f"evt-{uuid4().hex[:8]}",
+                    id=new_event_id(),
                     session_id=session_id,
                     turn_id=run.turn_id,
                     run_id=run_id,
@@ -714,7 +711,7 @@ class AgentService:
             if terminal_event_type is not None:
                 events_to_append.append(
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=session_id,
                         turn_id=run.turn_id,
                         run_id=run_id,
@@ -723,11 +720,11 @@ class AgentService:
                     )
                 )
 
-            events = self.conversation_service._append_events_locked(session_id, events_to_append)
+            events = self.conversation_service.append_events_locked(session_id, events_to_append)
         await self._broadcast_conversation_events(session_id=session_id, events=events)
 
     async def _execute_approved_tool(
-        self, pending
+        self, pending: PendingToolApproval, *, run_id: str
     ) -> "ToolResult":
         """Execute a previously approved tool call using the stored decision.
 
@@ -737,10 +734,6 @@ class AgentService:
         """
         from app.tools.base import ToolResult
 
-        # approved_decision lives inside ToolApprovalRequest.payload, which is nested
-        # under the "payload" key in the approval_payload dict (the model_dump() of
-        # ToolApprovalRequest).  Try both the nested path and the top level so that
-        # callers who store the decision directly at top level also work.
         approved_decision_data = (
             pending.approval_payload.get("payload", {}).get("approved_decision")
             or pending.approval_payload.get("approved_decision")
@@ -752,7 +745,8 @@ class AgentService:
             )
 
         project_path = approved_decision_data.get("cwd") if isinstance(approved_decision_data, dict) else None
-        tool_registry = self._build_run_tool_registry(project_path)
+        loop = self._execution_loops.get(run_id)
+        tool_registry = getattr(loop, "tool_registry", None) or self._build_run_tool_registry(project_path)
 
         tool = tool_registry.get(pending.tool_name)
         if tool is None:
@@ -774,16 +768,13 @@ class AgentService:
     def _find_pending_approval_trace_message(
         self, *, run_id: str, approval_id: str
     ) -> Message | None:
-        run = self.conversation_service.run_repo.get(run_id)
+        run = self.conversation_service.get_run(run_id)
         if run is None:
             return None
 
-        for message in self.conversation_service.message_repo.list_by_turn(run.turn_id):
+        for message in self.conversation_service.list_turn_messages(run.turn_id):
             if message.run_id != run_id or message.message_type != MessageType.TOOL_TRACE:
                 continue
             if message.payload_json.get("approval_id") == approval_id:
                 return message
         return None
-
-
-agent_service = AgentService()

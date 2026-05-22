@@ -1,8 +1,9 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from threading import Lock, RLock
-from uuid import uuid4
 
+from app.errors import NotFoundValueError
+from app.ids import new_event_id, new_message_id, new_run_id, new_turn_id
 from app.llm.base import MessageRole
 from app.models.conversation import ConversationEvent, EventType, RunStatus, TurnStatus
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
@@ -49,10 +50,10 @@ class ConversationService:
     def append_events(
         self, session_id: str, events: list[ConversationEvent]
     ) -> list[ConversationEvent]:
-        with self._acquire_session_write_lock(session_id):
-            return self._append_events_locked(session_id, events)
+        with self.acquire_session_write_lock(session_id):
+            return self.append_events_locked(session_id, events)
 
-    def _append_events_locked(
+    def append_events_locked(
         self, session_id: str, events: list[ConversationEvent]
     ) -> list[ConversationEvent]:
         if not events:
@@ -64,7 +65,7 @@ class ConversationService:
         with self.db.get_session() as db_session:
             session = self.session_repo.get(session_id, db_session=db_session)
             if session is None:
-                raise ValueError("会话不存在")
+                raise NotFoundValueError("会话不存在")
 
             persisted = self.event_repo.append_many(
                 events,
@@ -76,7 +77,7 @@ class ConversationService:
 
             latest_session = self.session_repo.get(session_id, db_session=db_session)
             if latest_session is None:
-                raise ValueError("会话不存在")
+                raise NotFoundValueError("会话不存在")
 
             self.session_repo.update(
                 latest_session.model_copy(update={"last_event_seq": persisted[-1].seq}),
@@ -93,7 +94,7 @@ class ConversationService:
             return lock
 
     @contextmanager
-    def _acquire_session_write_lock(self, session_id: str):
+    def acquire_session_write_lock(self, session_id: str):
         lock = self._get_session_write_lock(session_id)
         lock.acquire()
         try:
@@ -104,7 +105,7 @@ class ConversationService:
     def get_snapshot(self, session_id: str) -> ConversationSnapshot:
         session = self.session_repo.get(session_id)
         if session is None:
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
 
         return ConversationSnapshot(
             session=session,
@@ -119,7 +120,7 @@ class ConversationService:
     def requires_resync(self, session_id: str, after_seq: int) -> bool:
         session = self.session_repo.get(session_id)
         if session is None:
-            raise ValueError("会话不存在")
+            raise NotFoundValueError("会话不存在")
 
         first_seq = self.event_repo.first_seq(session_id)
         if first_seq is None:
@@ -157,23 +158,23 @@ class ConversationService:
         model_id: str,
         workspace_ref: str | None,
     ) -> StartTurnResult:
-        with self._acquire_session_write_lock(session_id):
+        with self.acquire_session_write_lock(session_id):
             session = self.session_repo.get(session_id)
             if session is None:
-                raise ValueError("会话不存在")
+                raise NotFoundValueError("会话不存在")
             if session.active_turn_id is not None:
                 raise ValueError("会话已有活跃轮次，不能重复创建")
 
-            turn_id = f"turn-{uuid4().hex[:8]}"
-            run_id = f"run-{uuid4().hex[:8]}"
-            user_message_id = f"msg-{uuid4().hex[:8]}"
+            turn_id = new_turn_id()
+            run_id = new_run_id()
+            user_message_id = new_message_id()
             next_turn_index = self.turn_repo.next_turn_index(session_id)
 
-            self._append_events_locked(
+            self.append_events_locked(
                 session_id,
                 [
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=session_id,
                         turn_id=turn_id,
                         event_type=EventType.TURN_CREATED,
@@ -184,7 +185,7 @@ class ConversationService:
                         },
                     ),
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=session_id,
                         turn_id=turn_id,
                         message_id=user_message_id,
@@ -202,7 +203,7 @@ class ConversationService:
                         },
                     ),
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=session_id,
                         turn_id=turn_id,
                         run_id=run_id,
@@ -230,25 +231,25 @@ class ConversationService:
     def cancel_run(self, run_id: str):
         run = self.run_repo.get(run_id)
         if run is None:
-            raise ValueError("运行不存在")
+            raise NotFoundValueError("运行不存在")
 
-        with self._acquire_session_write_lock(run.session_id):
+        with self.acquire_session_write_lock(run.session_id):
             latest_run = self.run_repo.get(run_id)
             if latest_run is None:
-                raise ValueError("运行不存在")
+                raise NotFoundValueError("运行不存在")
             if latest_run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
                 return latest_run
 
             turn = self.turn_repo.get(latest_run.turn_id)
             if turn is None:
-                raise ValueError("轮次不存在")
+                raise NotFoundValueError("轮次不存在")
 
-            notice_message_id = f"msg-{uuid4().hex[:8]}"
-            self._append_events_locked(
+            notice_message_id = new_message_id()
+            self.append_events_locked(
                 latest_run.session_id,
                 [
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=latest_run.session_id,
                         turn_id=latest_run.turn_id,
                         run_id=latest_run.id,
@@ -259,7 +260,7 @@ class ConversationService:
                         },
                     ),
                     ConversationEvent(
-                        id=f"evt-{uuid4().hex[:8]}",
+                        id=new_event_id(),
                         session_id=latest_run.session_id,
                         turn_id=turn.id,
                         run_id=latest_run.id,
@@ -282,8 +283,23 @@ class ConversationService:
 
             cancelled = self.run_repo.get(run_id)
             if cancelled is None:
-                raise ValueError("运行不存在")
+                raise NotFoundValueError("运行不存在")
             return cancelled
+
+    def get_run(self, run_id: str) -> "Run | None":
+        return self.run_repo.get(run_id)
+
+    def list_turn_messages(self, turn_id: str) -> "list[Message]":
+        return self.message_repo.list_by_turn(turn_id)
+
+    def next_message_index(self, turn_id: str) -> int:
+        return self.message_repo.next_turn_message_index(turn_id)
+
+    def get_message(self, message_id: str) -> "Message | None":
+        return self.message_repo.get(message_id)
+
+    _acquire_session_write_lock = acquire_session_write_lock
+    _append_events_locked = append_events_locked
 
 
 conversation_service = ConversationService()

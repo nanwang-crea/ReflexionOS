@@ -3,12 +3,27 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+DEFAULT_SESSION_TITLE = "新建聊天"
+
+
+class SessionCreate(BaseModel):
+    title: str | None = None
+    preferred_provider_id: str | None = None
+    preferred_model_id: str | None = None
+
+
+class SessionUpdate(BaseModel):
+    title: str | None = None
+    preferred_provider_id: str | None = None
+    preferred_model_id: str | None = None
+
+
 class Session(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
     project_id: str
-    title: str = "新建聊天"
+    title: str = DEFAULT_SESSION_TITLE
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
     last_event_seq: int = 0

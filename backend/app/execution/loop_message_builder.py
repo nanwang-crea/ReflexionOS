@@ -10,6 +10,15 @@ class LoopMessageBuilder:
         self.prompt_manager = prompt_manager
         self.max_context_groups = max_context_groups
 
+    @staticmethod
+    def _inject_context_sections(context: LoopContext, messages: list[LLMMessage]) -> None:
+        for section in context.system_sections or []:
+            if str(section or "").strip():
+                messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(section)))
+        supplemental = context.supplemental_context
+        if supplemental and str(supplemental).strip():
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
+
     def build(self, context: LoopContext, tools: list[LLMToolDefinition]) -> list[LLMMessage]:
         messages = [
             LLMMessage(
@@ -17,13 +26,7 @@ class LoopMessageBuilder:
             )
         ]
 
-        for section in getattr(context, "system_sections", []) or []:
-            if str(section or "").strip():
-                messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(section)))
-
-        supplemental = getattr(context, "supplemental_context", None)
-        if supplemental and str(supplemental).strip():
-            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
+        self._inject_context_sections(context, messages)
 
         if context.plan:
             messages.append(
@@ -56,13 +59,7 @@ class LoopMessageBuilder:
             )
         ]
 
-        for section in getattr(context, "system_sections", []) or []:
-            if str(section or "").strip():
-                messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(section)))
-
-        supplemental = getattr(context, "supplemental_context", None)
-        if supplemental and str(supplemental).strip():
-            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
+        self._inject_context_sections(context, messages)
 
         for msg in self.recent_context_messages(context):
             if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:

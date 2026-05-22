@@ -1,10 +1,12 @@
 from app.models.conversation import ConversationEvent
 from app.storage.models import ConversationEventModel
 
+from .base_repo import BaseRepository
 
-class ConversationEventRepository:
+
+class ConversationEventRepository(BaseRepository[ConversationEvent]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, ConversationEvent)
 
     def append_many(
         self,
@@ -48,7 +50,7 @@ class ConversationEventRepository:
         db_session.flush()
         for model in models:
             db_session.refresh(model)
-        return [ConversationEvent.model_validate(model) for model in models]
+        return self._to_domain_list(models)
 
     def list_after_seq(self, session_id: str, after_seq: int) -> list[ConversationEvent]:
         with self.db.get_session() as db_session:
@@ -61,7 +63,7 @@ class ConversationEventRepository:
                 .order_by(ConversationEventModel.seq.asc())
                 .all()
             )
-            return [ConversationEvent.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def first_seq(self, session_id: str, *, db_session=None) -> int | None:
         if db_session is None:

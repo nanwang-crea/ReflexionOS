@@ -52,11 +52,11 @@ class RapidExecutionLoop:
         event_callback: Callable[[str, dict], Awaitable[None]] = None,
     ):
         self.llm = llm
-        self.tool_registry = tool_registry
+        self._tool_registry = tool_registry
         self.max_steps = max_steps or config_manager.settings.execution.max_steps
         self.prompt_manager = PromptManager()
         self.event_callback = event_callback
-        self.tool_definitions = RuntimeToolDefinitions(tool_registry)
+        self.tool_definitions = RuntimeToolDefinitions(self._tool_registry)
         self.message_builder = LoopMessageBuilder(
             prompt_manager=self.prompt_manager,
             max_context_groups=self.MAX_CONTEXT_GROUPS,
@@ -68,11 +68,15 @@ class RapidExecutionLoop:
             emit=self._emit,
         )
         self.tool_executor = ToolCallExecutor(
-            tool_registry=self.tool_registry,
+            tool_registry=self._tool_registry,
             emit=self._emit,
         )
         self.approval_flow = ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
+
+    @property
+    def tool_registry(self):
+        return self._tool_registry
 
     async def _emit(self, event_type: str, data: dict) -> None:
         if self.event_callback:

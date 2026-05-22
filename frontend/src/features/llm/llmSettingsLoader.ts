@@ -2,6 +2,7 @@ import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
+import { createEmptySelection } from '@/utils/llmHelpers'
 import { cloneProvider, createEmptyProvider } from './providerDraft'
 
 interface LoadedLLMSettings {
@@ -38,13 +39,7 @@ interface SettingsPageLoadStateOptions {
   setDraftProvider: (provider: ProviderInstance) => void
 }
 
-function createEmptySelection(): DefaultLLMSelection {
-  return {
-    provider_id: null,
-    model_id: null,
-    configured: false,
-  }
-}
+
 
 function createLoadedSnapshot(state: LLMSettingsLoaderState): LoadedLLMSettings {
   return {

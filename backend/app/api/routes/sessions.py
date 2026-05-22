@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 
-from app.errors import NotFoundError, value_error_to_app_error
+from app.errors import value_error_to_app_error
 from app.models.conversation_snapshot import ConversationSnapshot
-from app.models.session import Session
+from app.models.session import Session, SessionCreate, SessionUpdate
 from app.services.conversation_service import conversation_service
-from app.services.session_service import SessionCreate, SessionUpdate, session_service
+from app.services.session_service import session_service
 
 router = APIRouter(prefix="/api", tags=["sessions"])
 
@@ -27,10 +27,10 @@ async def list_project_sessions(project_id: str):
 
 @router.get("/sessions/{session_id}", response_model=Session)
 async def get_session(session_id: str):
-    session = session_service.get_session(session_id)
-    if not session:
-        raise NotFoundError(resource="会话", resource_id=session_id)
-    return session
+    try:
+        return session_service.get_session_or_raise(session_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="会话") from exc
 
 
 @router.get("/sessions/{session_id}/conversation", response_model=ConversationSnapshot)

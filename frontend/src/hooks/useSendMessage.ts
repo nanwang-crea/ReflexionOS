@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/sessionActions'
 import { nativeDialogService } from '@/services/dialogService'
 import { useProjectStore } from '@/stores/projectStore'
@@ -96,16 +97,21 @@ export function useSendMessage(options: {
   const { currentProject } = useProjectStore()
   const { createSession } = useSessionActions()
 
-  const sendMessage = createSendMessage({
-    currentProject,
-    currentSession: options.currentSession,
-    configured: options.configured,
-    selection: options.selection,
-    createSession,
-    writeSessionPreferences: writeSessionPreferencesAction,
-    startTurn: options.startTurn,
-    notify: nativeDialogService.notifyError,
-  })
+  const sendMessage = useCallback(
+    (message: string) => {
+      createSendMessage({
+        currentProject,
+        currentSession: options.currentSession,
+        configured: options.configured,
+        selection: options.selection,
+        createSession,
+        writeSessionPreferences: writeSessionPreferencesAction,
+        startTurn: options.startTurn,
+        notify: nativeDialogService.notifyError,
+      })(message)
+    },
+    [currentProject, options.currentSession, options.configured, options.selection, createSession, options.startTurn]
+  )
 
   return {
     sendMessage,

@@ -1,9 +1,7 @@
+from app.models.message_search_document import MessageSearchDocument
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
 from app.storage.repositories.message_repo import MessageRepository
-from app.storage.repositories.message_search_document_repo import (
-    MessageSearchDocument,
-    MessageSearchDocumentRepository,
-)
+from app.storage.repositories.message_search_document_repo import MessageSearchDocumentRepository
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository

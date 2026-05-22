@@ -2,13 +2,16 @@ import json
 
 from sqlalchemy import case, func
 
+from app.errors import NotFoundValueError
 from app.models.conversation import Message, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
 
+from .base_repo import BaseRepository
 
-class MessageRepository:
+
+class MessageRepository(BaseRepository[Message]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, Message)
 
     def create(self, message: Message, *, db_session=None) -> Message:
         if db_session is None:
@@ -19,7 +22,7 @@ class MessageRepository:
         db_session.add(model)
         db_session.flush()
         db_session.refresh(model)
-        return Message.model_validate(model)
+        return self._to_domain(model)
 
     def get(self, message_id: str, *, db_session=None) -> Message | None:
         if db_session is None:
@@ -27,7 +30,7 @@ class MessageRepository:
                 return self.get(message_id, db_session=managed_session)
 
         model = db_session.query(MessageModel).filter_by(id=message_id).first()
-        return Message.model_validate(model) if model else None
+        return self._to_domain(model)
 
     def list_by_session(self, session_id: str) -> list[Message]:
         with self.db.get_session() as db_session:
@@ -47,7 +50,7 @@ class MessageRepository:
                 )
                 .all()
             )
-            return [Message.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def list_by_turn(self, turn_id: str) -> list[Message]:
         with self.db.get_session() as db_session:
@@ -57,7 +60,7 @@ class MessageRepository:
                 .order_by(MessageModel.turn_message_index.asc())
                 .all()
             )
-            return [Message.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def update(self, message: Message, *, db_session=None) -> Message:
         if db_session is None:
@@ -66,7 +69,7 @@ class MessageRepository:
 
         model = db_session.query(MessageModel).filter_by(id=message.id).first()
         if model is None:
-            raise ValueError("消息不存在")
+            raise NotFoundValueError("消息不存在")
 
         model.stream_state = message.stream_state.value
         model.content_text = message.content_text
@@ -75,7 +78,7 @@ class MessageRepository:
         model.completed_at = message.completed_at
         db_session.flush()
         db_session.refresh(model)
-        return Message.model_validate(model)
+        return self._to_domain(model)
 
     def next_turn_message_index(self, turn_id: str, *, db_session=None) -> int:
         if db_session is None:
@@ -99,12 +102,6 @@ class MessageRepository:
         limit: int = 8,
         scan_limit: int = 200,
     ) -> list[Message]:
-        """
-        Return recent user/assistant messages suitable for context seeding.
-
-        Filters out continuation artifacts, empty messages, and messages from
-        the current turn — all at the SQL level.
-        """
         resolved_limit = max(0, int(limit)) if limit else 0
         resolved_scan = max(50, int(scan_limit)) if scan_limit else 200
         if resolved_limit <= 0:
@@ -131,7 +128,7 @@ class MessageRepository:
 
             models = query.order_by(MessageModel.created_at.desc()).limit(resolved_scan).all()
 
-            selected = [Message.model_validate(m) for m in reversed(models)][-resolved_limit:]
+            selected = self._to_domain_list(list(reversed(models)))[-resolved_limit:]
             return selected
 
     def get_latest_continuation_artifact(
@@ -140,7 +137,6 @@ class MessageRepository:
         *,
         db_session=None,
     ) -> Message | None:
-        """Return the most recent continuation artifact for a session, or None."""
 
         def _query(session):
             model = (
@@ -156,7 +152,7 @@ class MessageRepository:
                 .limit(1)
                 .first()
             )
-            return Message.model_validate(model) if model else None
+            return self._to_domain(model)
 
         if db_session is None:
             with self.db.get_session() as managed_session:

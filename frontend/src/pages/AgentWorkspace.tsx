@@ -24,9 +24,9 @@ export default function AgentWorkspace() {
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan } = useConversationData(currentSessionId)
-  const runsById = currentSessionId
-    ? useConversationStore((s) => s.conversationsBySessionId[currentSessionId]?.runsById)
-    : undefined
+  const runsById = useConversationStore((s) =>
+    currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
+  )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
 
   // When plan disappears (run ends), reset minimized state so next plan starts expanded

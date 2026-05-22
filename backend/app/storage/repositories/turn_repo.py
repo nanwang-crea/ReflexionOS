@@ -1,12 +1,15 @@
 from datetime import datetime
 
+from app.errors import NotFoundValueError
 from app.models.conversation import Turn
 from app.storage.models import TurnModel
 
+from .base_repo import BaseRepository
 
-class TurnRepository:
+
+class TurnRepository(BaseRepository[Turn]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, Turn)
 
     def create(self, turn: Turn, *, db_session=None) -> Turn:
         if db_session is None:
@@ -17,7 +20,7 @@ class TurnRepository:
         db_session.add(model)
         db_session.flush()
         db_session.refresh(model)
-        return Turn.model_validate(model)
+        return self._to_domain(model)
 
     def get(self, turn_id: str, *, db_session=None) -> Turn | None:
         if db_session is None:
@@ -25,7 +28,7 @@ class TurnRepository:
                 return self.get(turn_id, db_session=managed_session)
 
         model = db_session.query(TurnModel).filter_by(id=turn_id).first()
-        return Turn.model_validate(model) if model else None
+        return self._to_domain(model)
 
     def list_by_session(self, session_id: str) -> list[Turn]:
         with self.db.get_session() as db_session:
@@ -35,7 +38,7 @@ class TurnRepository:
                 .order_by(TurnModel.turn_index.asc())
                 .all()
             )
-            return [Turn.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def update(self, turn: Turn, *, db_session=None) -> Turn:
         if db_session is None:
@@ -44,7 +47,7 @@ class TurnRepository:
 
         model = db_session.query(TurnModel).filter_by(id=turn.id).first()
         if model is None:
-            raise ValueError("轮次不存在")
+            raise NotFoundValueError("轮次不存在")
 
         model.status = turn.status.value
         model.active_run_id = turn.active_run_id
@@ -52,7 +55,7 @@ class TurnRepository:
         model.updated_at = turn.updated_at
         db_session.flush()
         db_session.refresh(model)
-        return Turn.model_validate(model)
+        return self._to_domain(model)
 
     def next_turn_index(self, session_id: str, *, db_session=None) -> int:
         if db_session is None:
@@ -85,4 +88,4 @@ class TurnRepository:
             .order_by(TurnModel.completed_at.asc(), TurnModel.turn_index.asc())
             .all()
         )
-        return [Turn.model_validate(model) for model in models]
+        return self._to_domain_list(models)

@@ -154,6 +154,14 @@ vi.mock('@/hooks/useSessionActions', () => ({
   }),
 }))
 
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>()
+  return {
+    ...actual,
+    useCallback: (fn: unknown) => fn,
+  }
+})
+
 vi.mock('@/features/sessions/sessionActions', () => ({
   writeSessionPreferences: writeSessionPreferencesMock,
 }))

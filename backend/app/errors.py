@@ -78,10 +78,14 @@ class ExecutionError(AppError):
         super().__init__(message=message, detail=detail)
 
 
+class NotFoundValueError(ValueError):
+    """ValueError that should be mapped to a 404 NotFound response."""
+    pass
+
+
 def value_error_to_app_error(
     exc: ValueError, *, resource: str = "资源"
 ) -> NotFoundError | ValidationError:
-    msg = str(exc)
-    if "不存在" in msg:
-        return NotFoundError(resource=resource, message=msg)
-    return ValidationError(message=msg)
+    if isinstance(exc, NotFoundValueError):
+        return NotFoundError(resource=resource, message=str(exc))
+    return ValidationError(message=str(exc))

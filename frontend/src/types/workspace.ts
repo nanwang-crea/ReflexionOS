@@ -8,14 +8,11 @@ export interface SessionSummary {
   updatedAt: string
 }
 
-export interface SessionCreatePayload {
+export interface SessionPayload {
   title?: string
   preferredProviderId?: string | null
   preferredModelId?: string | null
 }
 
-export interface SessionUpdatePayload {
-  title?: string
-  preferredProviderId?: string | null
-  preferredModelId?: string | null
-}
+export type SessionCreatePayload = SessionPayload
+export type SessionUpdatePayload = SessionPayload

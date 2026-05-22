@@ -2,30 +2,15 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
-
+from app.models.message_search_document import MessageSearchDocument
 from app.storage.models import MessageSearchDocumentModel
 
-
-class MessageSearchDocument(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    message_id: str
-    session_id: str
-    turn_id: str
-    run_id: str | None = None
-    role: str
-    message_type: str
-    turn_index: int
-    turn_message_index: int
-    search_text: str = ""
-    created_at: datetime = Field(default_factory=datetime.now)
-    updated_at: datetime = Field(default_factory=datetime.now)
+from .base_repo import BaseRepository
 
 
-class MessageSearchDocumentRepository:
+class MessageSearchDocumentRepository(BaseRepository[MessageSearchDocument]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, MessageSearchDocument)
 
     def get(self, message_id: str, *, db_session=None) -> MessageSearchDocument | None:
         if db_session is None:
@@ -35,7 +20,7 @@ class MessageSearchDocumentRepository:
         model = (
             db_session.query(MessageSearchDocumentModel).filter_by(message_id=message_id).first()
         )
-        return MessageSearchDocument.model_validate(model) if model else None
+        return self._to_domain(model)
 
     def upsert(
         self,
@@ -98,4 +83,4 @@ class MessageSearchDocumentRepository:
 
         db_session.flush()
         db_session.refresh(model)
-        return MessageSearchDocument.model_validate(model)
+        return self._to_domain(model)

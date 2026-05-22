@@ -2,12 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
+import { createEmptySelection, getEnabledModels } from '@/utils/llmHelpers'
 import {
   applyProviderToDefaultSelection,
   cloneProvider,
   createEmptyModel,
   createEmptyProvider,
-  getEnabledModels,
 } from './providerDraft'
 import {
   createSettingsPageLoader,
@@ -18,13 +18,7 @@ import { createSettingsPageActions } from './providerActions'
 
 type TestResult = { type: 'success' | 'error'; message: string } | null
 
-function createEmptySelection(): DefaultLLMSelection {
-  return {
-    provider_id: null,
-    model_id: null,
-    configured: false,
-  }
-}
+
 
 export function useSettingsPageController(options?: {
   dialogService?: DialogService

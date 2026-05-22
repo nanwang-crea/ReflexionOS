@@ -31,10 +31,7 @@ export async function writeSessionPreferences(
   sessionId: string,
   payload: Pick<SessionUpdatePayload, 'preferredProviderId' | 'preferredModelId'>
 ): Promise<SessionSummary> {
-  const response = await sessionApi.updateSession(sessionId, payload)
-  useSessionStore.getState().upsertSession(response.data.projectId, response.data)
-  await ensureProjectSessionsLoaded(response.data.projectId)
-  return response.data
+  return updateSession(sessionId, payload)
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<SessionSummary> {

@@ -1,4 +1,5 @@
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
+import { getEnabledModels } from '@/utils/llmHelpers'
 
 function createLocalId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -35,9 +36,7 @@ export function cloneProvider(provider: ProviderInstance): ProviderInstance {
   }
 }
 
-export function getEnabledModels(provider: ProviderInstance | null | undefined) {
-  return provider?.models.filter((model) => model.enabled) || []
-}
+
 
 export function normalizeProviderDraft(provider: ProviderInstance): ProviderInstance {
   const models = provider.models.map((model) => ({

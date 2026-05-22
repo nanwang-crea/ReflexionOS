@@ -1,10 +1,13 @@
+from app.errors import NotFoundValueError
 from app.models.conversation import Run
 from app.storage.models import RunModel
 
+from .base_repo import BaseRepository
 
-class RunRepository:
+
+class RunRepository(BaseRepository[Run]):
     def __init__(self, db):
-        self.db = db
+        super().__init__(db, Run)
 
     def create(self, run: Run, *, db_session=None) -> Run:
         if db_session is None:
@@ -15,7 +18,7 @@ class RunRepository:
         db_session.add(model)
         db_session.flush()
         db_session.refresh(model)
-        return Run.model_validate(model)
+        return self._to_domain(model)
 
     def get(self, run_id: str, *, db_session=None) -> Run | None:
         if db_session is None:
@@ -23,7 +26,7 @@ class RunRepository:
                 return self.get(run_id, db_session=managed_session)
 
         model = db_session.query(RunModel).filter_by(id=run_id).first()
-        return Run.model_validate(model) if model else None
+        return self._to_domain(model)
 
     def list_by_session(self, session_id: str) -> list[Run]:
         with self.db.get_session() as db_session:
@@ -37,7 +40,7 @@ class RunRepository:
                 )
                 .all()
             )
-            return [Run.model_validate(model) for model in models]
+            return self._to_domain_list(models)
 
     def update(self, run: Run, *, db_session=None) -> Run:
         if db_session is None:
@@ -46,7 +49,7 @@ class RunRepository:
 
         model = db_session.query(RunModel).filter_by(id=run.id).first()
         if model is None:
-            raise ValueError("运行不存在")
+            raise NotFoundValueError("运行不存在")
 
         model.status = run.status.value
         model.started_at = run.started_at
@@ -55,4 +58,4 @@ class RunRepository:
         model.error_message = run.error_message
         db_session.flush()
         db_session.refresh(model)
-        return Run.model_validate(model)
+        return self._to_domain(model)

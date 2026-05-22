@@ -15,6 +15,7 @@ class TurnStatus(str, Enum):
 
 class RunStatus(str, Enum):
     CREATED = "created"
+    PENDING = "pending"
     RUNNING = "running"
     WAITING_FOR_APPROVAL = "waiting_for_approval"
     RESUMING = "resuming"

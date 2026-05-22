@@ -468,7 +468,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
         isRunning
         plan={{
           goal: '修复计划显示',
-          current_step_index: 1,
+          currentStepIndex: 1,
           steps: [
             { id: 1, description: '定位问题', status: 'completed', findings: '' },
             { id: 2, description: '修改实现', status: 'in_progress', findings: '' },

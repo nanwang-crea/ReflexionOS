@@ -1,22 +1,7 @@
 import { useMemo } from 'react'
 import { useConversationStore } from '@/features/conversation/conversationStore'
-import type { ConversationState } from '@/types/conversation'
 import type { ConversationMessage } from '@/types/conversation'
-
-const ACTIVE_RUN_STATUSES = new Set(['created', 'running', 'waiting_for_approval', 'resuming'])
-
-function resolveActiveRunId(conversation: ConversationState | undefined) {
-  const activeTurnId = conversation?.session?.activeTurnId
-  if (activeTurnId) {
-    const activeRunId = conversation.turnsById[activeTurnId]?.activeRunId
-    if (activeRunId) {
-      return activeRunId
-    }
-  }
-
-  const activeRun = Object.values(conversation?.runsById ?? {}).find((run) => ACTIVE_RUN_STATUSES.has(run.status))
-  return activeRun?.id ?? null
-}
+import { ACTIVE_RUN_STATUSES, resolveActiveRunId } from '@/utils/activeRun'
 
 export function useConversationData(currentSessionId: string | null) {
   const conversation = useConversationStore((state) => {

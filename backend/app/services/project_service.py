@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.errors import NotFoundValueError
 from app.models.project import Project, ProjectCreate
 from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
@@ -20,6 +21,12 @@ class ProjectService:
         """获取项目"""
         return self.repo.get(project_id)
 
+    def get_project_or_raise(self, project_id: str) -> Project:
+        project = self.repo.get(project_id)
+        if not project:
+            raise NotFoundValueError("项目不存在")
+        return project
+
     def list_projects(self) -> list[Project]:
         """列出所有项目"""
         return self.repo.list_all()
@@ -27,6 +34,10 @@ class ProjectService:
     def delete_project(self, project_id: str) -> bool:
         """删除项目"""
         return self.repo.delete(project_id)
+
+    def delete_project_or_raise(self, project_id: str) -> None:
+        if not self.repo.delete(project_id):
+            raise NotFoundValueError("项目不存在")
 
     def get_project_structure(self, project_id: str) -> dict:
         """获取项目结构"""
@@ -46,6 +57,12 @@ class ProjectService:
                 )
 
         return {"files": structure[:100]}
+
+    def get_project_structure_or_raise(self, project_id: str) -> dict:
+        structure = self.get_project_structure(project_id)
+        if not structure:
+            raise NotFoundValueError("项目不存在或路径无效")
+        return structure
 
 
 project_service = ProjectService()

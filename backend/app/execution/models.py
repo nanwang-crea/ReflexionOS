@@ -7,16 +7,7 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.llm.base import LLMResponse
-
-
-class LoopStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    WAITING_FOR_APPROVAL = "waiting_for_approval"
-    RESUMING = "resuming"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+from app.models.conversation import RunStatus as LoopStatus
 
 
 class StepStatus(str, Enum):

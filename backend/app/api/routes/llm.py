@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.errors import NotFoundError, ValidationError, value_error_to_app_error
+from app.errors import ValidationError, value_error_to_app_error
 from app.models.llm_config import (
     DefaultLLMSelection,
     ProviderConnectionTestRequest,
@@ -39,7 +39,7 @@ async def delete_provider(provider_id: str):
         llm_provider_service.delete_provider(provider_id)
         return {"message": "供应商已删除"}
     except ValueError as exc:
-        raise NotFoundError(resource="供应商", resource_id=provider_id, message=str(exc)) from exc
+        raise value_error_to_app_error(exc, resource="供应商") from exc
 
 
 @router.post("/providers/test", response_model=ProviderConnectionTestResult)

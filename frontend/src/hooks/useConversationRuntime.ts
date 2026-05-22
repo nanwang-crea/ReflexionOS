@@ -9,8 +9,9 @@ import {
   type SessionConversationEventDto,
   type SessionConversationLiveMessageDto,
 } from '@/services/sessionConversationWebSocket'
-import type { ConversationEvent, ConversationLiveMessage, ConversationState } from '@/types/conversation'
+import type { ConversationEvent, ConversationLiveMessage } from '@/types/conversation'
 import { useToastStore } from '@/stores/toastStore'
+import { resolveActiveRunId } from '@/utils/activeRun'
 
 interface StartTurnPayload {
   sessionId: string
@@ -23,7 +24,7 @@ const INCREMENTAL_EVENT_TYPES = new Set([
   'message.payload_updated',
 ])
 
-const ACTIVE_RUN_STATUSES = new Set(['created', 'running', 'waiting_for_approval', 'resuming'])
+
 
 export function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
@@ -94,22 +95,7 @@ function toConversationLiveMessage(message: SessionConversationLiveMessageDto): 
   }
 }
 
-function resolveActiveRunId(conversation: ConversationState | undefined): string | null {
-  if (!conversation) {
-    return null
-  }
 
-  const activeTurnId = conversation.session?.activeTurnId
-  if (activeTurnId) {
-    const activeRunId = conversation.turnsById[activeTurnId]?.activeRunId
-    if (activeRunId) {
-      return activeRunId
-    }
-  }
-
-  const running = Object.values(conversation.runsById).find((run) => ACTIVE_RUN_STATUSES.has(run.status))
-  return running?.id ?? null
-}
 
 export function useConversationRuntime(
   currentSessionId: string | null,
@@ -212,7 +198,7 @@ export function useConversationRuntime(
       useConversationStore.getState().setPlan(sessionId, {
         goal: data.goal,
         steps: data.steps,
-        current_step_index: data.current_step_index,
+        currentStepIndex: data.current_step_index,
       })
     })
     ws.on('session:title_updated', (data) => {

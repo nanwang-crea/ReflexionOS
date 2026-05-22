@@ -691,6 +691,7 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             await self.event_callback("llm:content", {"content": "hello"})
@@ -756,6 +757,7 @@ async def test_run_turn_registers_pending_approval_from_runtime_event(monkeypatc
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             await self.event_callback(
@@ -845,6 +847,7 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             captured_registries.append(kwargs["tool_registry"])
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
@@ -923,6 +926,7 @@ async def test_run_tool_registry_includes_memory_tool(monkeypatch, tmp_path):
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             captured_registries.append(kwargs["tool_registry"])
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
@@ -992,6 +996,7 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             captured.update(kwargs)
@@ -1063,6 +1068,7 @@ async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
             self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             await self.event_callback("run:complete", {})
@@ -1142,7 +1148,7 @@ async def test_run_turn_skips_continuation_after_cancelled_execution(monkeypatch
 
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):
-            pass
+            self.tool_registry = kwargs.get("tool_registry")
 
         async def run(self, **kwargs):
             return LoopResult(
@@ -1510,6 +1516,7 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
             self.event_callback = kwargs["event_callback"]
             self._approval_resume_event = asyncio.Event()
             self._approval_result = None
+            self.tool_registry = None
 
         def get_approval_resume_event(self):
             return self._approval_resume_event

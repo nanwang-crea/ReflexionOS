@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.errors import NotFoundError
+from app.errors import value_error_to_app_error
 from app.models.project import Project, ProjectCreate
 from app.services.project_service import project_service
 
@@ -19,22 +19,24 @@ async def list_projects():
 
 @router.get("/{project_id}", response_model=Project)
 async def get_project(project_id: str):
-    project = project_service.get_project(project_id)
-    if not project:
-        raise NotFoundError(resource="项目", resource_id=project_id)
-    return project
+    try:
+        return project_service.get_project_or_raise(project_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str):
-    if not project_service.delete_project(project_id):
-        raise NotFoundError(resource="项目", resource_id=project_id)
-    return {"message": "项目已删除"}
+    try:
+        project_service.delete_project_or_raise(project_id)
+        return {"message": "项目已删除"}
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.get("/{project_id}/structure")
 async def get_project_structure(project_id: str):
-    structure = project_service.get_project_structure(project_id)
-    if not structure:
-        raise NotFoundError(resource="项目", resource_id=project_id, message="项目不存在或路径无效")
-    return structure
+    try:
+        return project_service.get_project_structure_or_raise(project_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
