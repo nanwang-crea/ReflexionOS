@@ -2,6 +2,11 @@ from datetime import datetime
 
 from app.llm.base import MessageRole
 from app.memory.message_normalizer import normalize_message_text
+from app.storage.repositories.message_search_document_repo import MessageSearchDocumentRepository
+from app.storage.repositories.message_repo import MessageRepository
+from app.storage.repositories.run_repo import RunRepository
+from app.storage.repositories.session_repo import SessionRepository
+from app.storage.repositories.turn_repo import TurnRepository
 from app.models.conversation import (
     ConversationEvent,
     EventType,
@@ -17,7 +22,13 @@ from app.models.conversation import (
 
 class ConversationProjection:
     def __init__(
-        self, *, session_repo, turn_repo, run_repo, message_repo, message_search_repo=None
+        self,
+        *,
+        session_repo: SessionRepository,
+        turn_repo: TurnRepository,
+        run_repo: RunRepository,
+        message_repo: MessageRepository,
+        message_search_repo: MessageSearchDocumentRepository | None = None,
     ):
         self.session_repo = session_repo
         self.turn_repo = turn_repo

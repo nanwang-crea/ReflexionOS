@@ -302,7 +302,7 @@ def test_start_turn_concurrent_requests_only_allow_one_active_turn(tmp_path, mon
     service = ConversationService(db=db)
     service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
 
-    original_append_events = service._append_events_locked
+    original_append_events = service.append_events_locked
     barrier = Barrier(2)
 
     def barriered_append_events(session_id, events):
@@ -310,7 +310,7 @@ def test_start_turn_concurrent_requests_only_allow_one_active_turn(tmp_path, mon
             barrier.wait(timeout=0.2)
         return original_append_events(session_id, events)
 
-    monkeypatch.setattr(service, "_append_events_locked", barriered_append_events)
+    monkeypatch.setattr(service, "append_events_locked", barriered_append_events)
 
     def run_start_turn(content: str):
         try:

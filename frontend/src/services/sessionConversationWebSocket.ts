@@ -1,4 +1,5 @@
 import { getSessionConversationWebSocketUrl } from './runtimeConfig'
+import type { PlanStep as PlanStepDto } from '@/types/conversation'
 
 type EventHandler<T = unknown> = (data: T) => void
 
@@ -52,13 +53,6 @@ export interface LlmRetryDto {
   max_retries: number
   delay: number
   message: string
-}
-
-interface PlanStepDto {
-  id: number
-  description: string
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
-  findings: string
 }
 
 export interface PlanDto {

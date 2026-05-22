@@ -97,21 +97,19 @@ export function useSendMessage(options: {
   const { currentProject } = useProjectStore()
   const { createSession } = useSessionActions()
 
-  const sendMessage = useCallback(
-    (message: string) => {
-      createSendMessage({
-        currentProject,
-        currentSession: options.currentSession,
-        configured: options.configured,
-        selection: options.selection,
-        createSession,
-        writeSessionPreferences: writeSessionPreferencesAction,
-        startTurn: options.startTurn,
-        notify: nativeDialogService.notifyError,
-      })(message)
-    },
-    [currentProject, options.currentSession, options.configured, options.selection, createSession, options.startTurn]
-  )
+  const sendMessage = useCallback(async (message: string) => {
+    const sendFn = createSendMessage({
+      currentProject,
+      currentSession: options.currentSession,
+      configured: options.configured,
+      selection: options.selection,
+      createSession,
+      writeSessionPreferences: writeSessionPreferencesAction,
+      startTurn: options.startTurn,
+      notify: nativeDialogService.notifyError,
+    })
+    await sendFn(message)
+  }, [currentProject, options.currentSession, options.configured, options.selection, createSession, options.startTurn])
 
   return {
     sendMessage,

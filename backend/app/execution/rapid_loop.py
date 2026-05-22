@@ -48,8 +48,8 @@ class RapidExecutionLoop:
         self,
         llm: UniversalLLMInterface,
         tool_registry: ToolRegistry,
-        max_steps: int = None,
-        event_callback: Callable[[str, dict], Awaitable[None]] = None,
+        max_steps: int | None = None,
+        event_callback: Callable[[str, dict], Awaitable[None]] | None = None,
     ):
         self.llm = llm
         self._tool_registry = tool_registry
@@ -75,7 +75,7 @@ class RapidExecutionLoop:
         self._runtime: RuntimeState | None = None
 
     @property
-    def tool_registry(self):
+    def tool_registry(self) -> ToolRegistry:
         return self._tool_registry
 
     async def _emit(self, event_type: str, data: dict) -> None:

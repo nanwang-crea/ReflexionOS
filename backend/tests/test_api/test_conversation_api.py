@@ -141,7 +141,7 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     )
     runtime.handle_event("run:complete", {})
 
-    next_index = conversation_service.message_repo.next_turn_message_index(started.turn.id)
+    next_index = conversation_service.next_message_index(started.turn.id)
     artifact = build_continuation_artifact(
         session_id="session-1",
         turn_id=started.turn.id,

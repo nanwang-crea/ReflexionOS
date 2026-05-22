@@ -70,7 +70,7 @@ def _append_waiting_for_approval(conversation_service, *, session_id, turn_id, r
                     "run_id": run_id,
                     "role": "assistant",
                     "message_type": "tool_trace",
-                    "turn_message_index": conversation_service.message_repo.next_turn_message_index(
+                    "turn_message_index": conversation_service.next_message_index(
                         turn_id
                     ),
                     "display_mode": "default",
@@ -357,7 +357,7 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
     cancel_event_seqs = _event_seqs(cancel_replay_messages)
     assert cancel_event_seqs == sorted(cancel_event_seqs)
 
-    cancelled_run = conversation_service.run_repo.get(started.run.id)
+    cancelled_run = conversation_service.get_run(started.run.id)
     assert cancelled_run is not None
     assert cancelled_run.status.value == "cancelled"
 
@@ -398,9 +398,9 @@ async def test_agent_service_approve_tool_call_updates_trace_and_completes_run(
     )
 
     events = conversation_service.list_events_after("session-1", 0)
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     turn = conversation_service.turn_repo.get(started.turn.id)
-    trace = conversation_service.message_repo.get(message_id)
+    trace = conversation_service.get_message(message_id)
     snapshot = conversation_service.get_snapshot("session-1")
     assert run is not None
     assert turn is not None
@@ -457,9 +457,9 @@ async def test_agent_service_deny_tool_call_updates_trace_and_cancels_run(
     )
 
     events = conversation_service.list_events_after("session-1", 0)
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     turn = conversation_service.turn_repo.get(started.turn.id)
-    trace = conversation_service.message_repo.get(message_id)
+    trace = conversation_service.get_message(message_id)
     snapshot = conversation_service.get_snapshot("session-1")
     assert run is not None
     assert turn is not None
@@ -749,7 +749,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
         assert result.success is True
 
         # Persist a continuation artifact through the normal event path.
-        next_index = conversation_service.message_repo.next_turn_message_index(turn_id)
+        next_index = conversation_service.next_message_index(turn_id)
         artifact = build_continuation_artifact(
             session_id="session-1",
             turn_id=turn_id,

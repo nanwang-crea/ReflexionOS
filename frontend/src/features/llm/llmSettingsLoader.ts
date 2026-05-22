@@ -1,9 +1,6 @@
 import { llmApi } from '@/services/apiClient'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
-import { createEmptySelection } from '@/utils/llmHelpers'
-import { cloneProvider, createEmptyProvider } from './providerDraft'
 
 interface LoadedLLMSettings {
   providers: ProviderInstance[]
@@ -13,9 +10,7 @@ interface LoadedLLMSettings {
 interface LLMSettingsLoaderState {
   loaded: boolean
   providers: ProviderInstance[]
-  defaultProviderId: string | null
-  defaultModelId: string | null
-  configured: boolean
+  defaultSelection: DefaultLLMSelection
 }
 
 interface CreateLLMSettingsLoaderOptions {
@@ -25,30 +20,10 @@ interface CreateLLMSettingsLoaderOptions {
   setLLMState: (settings: LoadedLLMSettings) => void
 }
 
-interface SettingsPageLoaderOptions {
-  ensureSettingsLoaded: (options?: { force?: boolean }) => Promise<LoadedLLMSettings>
-  resetStoredSettings: () => void
-}
-
-interface SettingsPageLoadStateOptions {
-  preferredProviderId?: string | null
-  setLoading: (loading: boolean) => void
-  setProviders: (providers: ProviderInstance[]) => void
-  setDefaultSelection: (selection: DefaultLLMSelection) => void
-  setSelectedProviderId: (providerId: string | null) => void
-  setDraftProvider: (provider: ProviderInstance) => void
-}
-
-
-
 function createLoadedSnapshot(state: LLMSettingsLoaderState): LoadedLLMSettings {
   return {
     providers: state.providers,
-    selection: {
-      provider_id: state.defaultProviderId,
-      model_id: state.defaultModelId,
-      configured: state.configured,
-    },
+    selection: state.defaultSelection,
   }
 }
 
@@ -98,55 +73,10 @@ export function ensureLLMSettingsLoaded(options?: { force?: boolean }) {
   return ensureLLMSettingsLoadedInternal(options)
 }
 
-export function createSettingsPageLoader(options: SettingsPageLoaderOptions) {
-  return async function loadSettings({
-    preferredProviderId,
-    setLoading,
-    setProviders,
-    setDefaultSelection,
-    setSelectedProviderId,
-    setDraftProvider,
-  }: SettingsPageLoadStateOptions) {
-    setLoading(true)
-
-    try {
-      const loadedSettings = await options.ensureSettingsLoaded({
-        force: preferredProviderId !== undefined,
-      })
-      const nextProviders = loadedSettings.providers
-      const nextSelection = loadedSettings.selection
-
-      setProviders(nextProviders)
-      setDefaultSelection(nextSelection)
-
-      const nextSelectedProvider = nextProviders.find((provider) => provider.id === preferredProviderId)
-        || nextProviders[0]
-        || null
-
-      if (nextSelectedProvider) {
-        setSelectedProviderId(nextSelectedProvider.id)
-        setDraftProvider(cloneProvider(nextSelectedProvider))
-      } else {
-        setSelectedProviderId(null)
-        setDraftProvider(createEmptyProvider())
-      }
-    } catch (error) {
-      console.error('Failed to load LLM settings:', error)
-      useToastStore.getState().addToast('error', '加载 LLM 设置失败，请检查配置')
-      options.resetStoredSettings()
-      setProviders([])
-      setDefaultSelection(createEmptySelection())
-      setSelectedProviderId(null)
-      setDraftProvider(createEmptyProvider())
-    } finally {
-      setLoading(false)
-    }
-  }
-}
-
 export function resetLLMSettingsStore() {
   useSettingsStore.setState({
     providers: [],
+    defaultSelection: { provider_id: null, model_id: null, configured: false },
     defaultProviderId: null,
     defaultModelId: null,
     configured: false,

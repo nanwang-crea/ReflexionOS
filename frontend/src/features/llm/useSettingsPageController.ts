@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { useToastStore } from '@/stores/toastStore'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
 import { createEmptySelection, getEnabledModels } from '@/utils/llmHelpers'
@@ -10,7 +11,6 @@ import {
   createEmptyProvider,
 } from './providerDraft'
 import {
-  createSettingsPageLoader,
   ensureLLMSettingsLoaded,
   resetLLMSettingsStore,
 } from './llmSettingsLoader'
@@ -18,14 +18,11 @@ import { createSettingsPageActions } from './providerActions'
 
 type TestResult = { type: 'success' | 'error'; message: string } | null
 
-
-
 export function useSettingsPageController(options?: {
   dialogService?: DialogService
-  createLoader?: typeof createSettingsPageLoader
   createActions?: typeof createSettingsPageActions
 }) {
-  const [providers, setProviders] = useState<ProviderInstance[]>([])
+  const storeProviders = useSettingsStore((s) => s.providers)
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null)
   const [draftProvider, setDraftProvider] = useState<ProviderInstance>(createEmptyProvider())
   const [defaultSelection, setDefaultSelection] = useState<DefaultLLMSelection>(createEmptySelection())
@@ -35,6 +32,10 @@ export function useSettingsPageController(options?: {
   const [testing, setTesting] = useState(false)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<TestResult>(null)
+
+  const storeSelectionSeqRef = useRef(0)
+
+  const providers = storeProviders
 
   const selectedSavedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId) || null,
@@ -56,19 +57,52 @@ export function useSettingsPageController(options?: {
     setTestResult(null)
   }, [])
 
-  const loadSettings = useMemo(() => (options?.createLoader || createSettingsPageLoader)({
-    ensureSettingsLoaded: ensureLLMSettingsLoaded,
-    resetStoredSettings: resetLLMSettingsStore,
-  }), [options?.createLoader])
+  const refreshSettings = useCallback(async (preferredProviderId?: string | null) => {
+    setLoading(true)
 
-  const refreshSettings = useCallback((preferredProviderId?: string | null) => loadSettings({
-    preferredProviderId,
-    setLoading,
-    setProviders,
-    setDefaultSelection,
-    setSelectedProviderId,
-    setDraftProvider,
-  }), [loadSettings])
+    try {
+      const loadedSettings = await ensureLLMSettingsLoaded({
+        force: preferredProviderId !== undefined,
+      })
+
+      const nextProviders = loadedSettings.providers
+      const nextSelection = loadedSettings.selection
+      const nextSelectedProvider = nextProviders.find((provider) => provider.id === preferredProviderId)
+        || nextProviders[0]
+        || null
+
+      setDefaultSelection(nextSelection)
+      storeSelectionSeqRef.current += 1
+
+      if (nextSelectedProvider) {
+        setSelectedProviderId(nextSelectedProvider.id)
+        setDraftProvider(cloneProvider(nextSelectedProvider))
+      } else {
+        setSelectedProviderId(null)
+        setDraftProvider(createEmptyProvider())
+      }
+    } catch (error) {
+      console.error('Failed to load LLM settings:', error)
+      useToastStore.getState().addToast('error', '加载 LLM 设置失败，请检查配置')
+      resetLLMSettingsStore()
+      setDefaultSelection(createEmptySelection())
+      setSelectedProviderId(null)
+      setDraftProvider(createEmptyProvider())
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const currentSeq = storeSelectionSeqRef.current
+    if (currentSeq > 0) {
+      return
+    }
+    refreshSettings().catch((error) => {
+      console.error('Failed to refresh settings:', error)
+      useToastStore.getState().addToast('error', '刷新设置失败')
+    })
+  }, [refreshSettings])
 
   const dialogService = options?.dialogService || nativeDialogService
 
@@ -81,13 +115,6 @@ export function useSettingsPageController(options?: {
     onTestResult: setTestResult,
     onError: dialogService.notifyError,
   }), [dialogService.notifyError, options?.createActions, refreshSettings])
-
-  useEffect(() => {
-    refreshSettings().catch((error) => {
-      console.error('Failed to refresh settings:', error)
-      useToastStore.getState().addToast('error', '刷新设置失败')
-    })
-  }, [refreshSettings])
 
   const handleSelectProvider = useCallback((providerId: string) => {
     const provider = providers.find((item) => item.id === providerId)
@@ -165,7 +192,7 @@ export function useSettingsPageController(options?: {
     await providerActions.deleteProvider({
       selectedSavedProvider,
       resetDraft,
-      confirmDelete: (provider) => dialogService.confirmAction(`确定删除供应商“${provider.name}”吗？`),
+      confirmDelete: (provider) => dialogService.confirmAction(`确定删除供应商"${provider.name}"吗？`),
     })
   }, [dialogService, providerActions, resetDraft, selectedSavedProvider])
 

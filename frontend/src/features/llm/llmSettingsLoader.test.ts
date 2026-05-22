@@ -64,6 +64,7 @@ describe('ensureLLMSettingsLoaded', () => {
     const { useSettingsStore } = await import('@/stores/settingsStore')
     useSettingsStore.setState({
       providers: [],
+      defaultSelection: { provider_id: null, model_id: null, configured: false },
       defaultProviderId: null,
       defaultModelId: null,
       configured: false,
@@ -84,6 +85,7 @@ describe('ensureLLMSettingsLoaded', () => {
     const { useSettingsStore } = await import('@/stores/settingsStore')
     useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
+      defaultSelection: { provider_id: 'provider-a', model_id: 'model-a', configured: true },
       defaultProviderId: 'provider-a',
       defaultModelId: 'model-a',
       configured: true,
@@ -103,83 +105,14 @@ describe('ensureLLMSettingsLoaded', () => {
   })
 })
 
-describe('settings page loader', () => {
-  it('loads settings into page state and selects the preferred provider when present', async () => {
-    const providers = [createProvider('provider-a', 'model-a'), createProvider('provider-b', 'model-b')]
-    const selection: DefaultLLMSelection = {
-      provider_id: 'provider-a',
-      model_id: 'model-a',
-      configured: true,
-    }
-    const setLoading = vi.fn()
-    const setProviders = vi.fn()
-    const setDefaultSelection = vi.fn()
-    const setSelectedProviderId = vi.fn()
-    const setDraftProvider = vi.fn()
-
-    const { createSettingsPageLoader } = await import('./llmSettingsLoader')
-    const loadSettings = createSettingsPageLoader({
-      ensureSettingsLoaded: vi.fn().mockResolvedValue({ providers, selection }),
-      resetStoredSettings: vi.fn(),
-    })
-
-    await loadSettings({
-      preferredProviderId: 'provider-b',
-      setLoading,
-      setProviders,
-      setDefaultSelection,
-      setSelectedProviderId,
-      setDraftProvider,
-    })
-
-    expect(setLoading).toHaveBeenNthCalledWith(1, true)
-    expect(setProviders).toHaveBeenCalledWith(providers)
-    expect(setDefaultSelection).toHaveBeenCalledWith(selection)
-    expect(setSelectedProviderId).toHaveBeenCalledWith('provider-b')
-    expect(setDraftProvider).toHaveBeenCalledWith(expect.objectContaining({ id: 'provider-b' }))
-    expect(setLoading).toHaveBeenLastCalledWith(false)
-  })
-
-  it('resets page and store state when loading settings fails', async () => {
-    const setLoading = vi.fn()
-    const setProviders = vi.fn()
-    const setDefaultSelection = vi.fn()
-    const setSelectedProviderId = vi.fn()
-    const setDraftProvider = vi.fn()
-    const resetStoredSettings = vi.fn()
-
-    const { createSettingsPageLoader } = await import('./llmSettingsLoader')
-    const loadSettings = createSettingsPageLoader({
-      ensureSettingsLoaded: vi.fn().mockRejectedValue(new Error('boom')),
-      resetStoredSettings,
-    })
-
-    await loadSettings({
-      setLoading,
-      setProviders,
-      setDefaultSelection,
-      setSelectedProviderId,
-      setDraftProvider,
-    })
-
-    expect(resetStoredSettings).toHaveBeenCalledTimes(1)
-    expect(setProviders).toHaveBeenCalledWith([])
-    expect(setDefaultSelection).toHaveBeenCalledWith({
-      provider_id: null,
-      model_id: null,
-      configured: false,
-    })
-    expect(setSelectedProviderId).toHaveBeenCalledWith(null)
-    expect(setDraftProvider).toHaveBeenCalledWith(expect.objectContaining({ name: '' }))
-    expect(setLoading).toHaveBeenLastCalledWith(false)
-  })
-
-  it('resets stored settings to an unloaded state after load failure', async () => {
+describe('resetLLMSettingsStore', () => {
+  it('resets stored settings to an unloaded state', async () => {
     const { useSettingsStore } = await import('@/stores/settingsStore')
     const { resetLLMSettingsStore } = await import('./llmSettingsLoader')
 
     useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
+      defaultSelection: { provider_id: 'provider-a', model_id: 'model-a', configured: true },
       defaultProviderId: 'provider-a',
       defaultModelId: 'model-a',
       configured: true,

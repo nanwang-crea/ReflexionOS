@@ -80,7 +80,7 @@ class ContextAssembler:
                 )
 
         # 3) Supplemental block: latest continuation artifact (SQL-level query).
-        artifact = self.conversation_service.message_repo.get_latest_continuation_artifact(
+        artifact = self.conversation_service.get_latest_continuation_artifact(
             session_id
         )
         supplemental_block = (
@@ -90,7 +90,7 @@ class ContextAssembler:
         )
 
         # 4) Recent seed candidates (SQL-level filter + slice).
-        candidates = self.conversation_service.message_repo.list_recent_seed_candidates(
+        candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,
             limit=max_seed_messages,

@@ -189,7 +189,7 @@ def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_
     )
     adapter.handle_event("run:complete", {})
 
-    messages = service.message_repo.list_by_turn(started.turn.id)
+    messages = service.list_turn_messages(started.turn.id)
 
     assert [
         (message.message_type, message.content_text or message.payload_json.get("tool_name"))
@@ -250,7 +250,7 @@ def test_run_cancelled_assigns_unique_turn_message_indexes_with_buffered_assista
     adapter.handle_event("llm:content", {"content": "处理中..."})
     adapter.handle_event("run:cancelled", {})
 
-    messages = service.message_repo.list_by_turn(started.turn.id)
+    messages = service.list_turn_messages(started.turn.id)
 
     assert [(message.message_type, message.turn_message_index) for message in messages] == [
         (MessageType.USER_MESSAGE, 1),

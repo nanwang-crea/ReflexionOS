@@ -12,7 +12,7 @@ from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
-from app.llm.base import LLMMessage, MessageRole
+from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
@@ -34,6 +34,7 @@ from app.security.shell_security import ShellSecurity
 from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
+from app.tools.base import ToolResult
 from app.tools.file_tool import FileTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
@@ -67,6 +68,7 @@ class AgentService:
         llm_provider_service: LLMProviderService | None = None,
         conversation_broadcaster: ConversationBroadcaster | None = None,
         pending_approval_store: PendingApprovalStore | None = None,
+        session_service=None,
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
@@ -80,6 +82,7 @@ class AgentService:
         self.llm_provider_service = llm_provider_service or default_llm_provider_service
         self.conversation_broadcaster = conversation_broadcaster or NoopConversationBroadcaster()
         self.pending_approval_store = pending_approval_store or PendingApprovalStore()
+        self.session_service = session_service
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
         self.continuation_builder = ContinuationArtifactBuilder()
@@ -419,7 +422,7 @@ class AgentService:
     async def _generate_session_title(
         self,
         *,
-        llm,
+        llm: UniversalLLMInterface,
         session_id: str,
         task: str,
     ) -> None:
@@ -447,8 +450,10 @@ class AgentService:
             title = task[:20]
 
         try:
-            from .session_service import session_service as default_session_service
-            updated = default_session_service.update_session(
+            session_svc = self.session_service
+            if session_svc is None:
+                from .session_service import session_service as session_svc
+            updated = session_svc.update_session(
                 session_id, SessionUpdate(title=title)
             )
             await self.conversation_broadcaster.send_event(
@@ -462,7 +467,7 @@ class AgentService:
     async def _generate_and_persist_continuation_artifact(
         self,
         *,
-        llm,
+        llm: UniversalLLMInterface,
         session_id: str,
         turn_id: str,
         run_id: str,
@@ -732,8 +737,6 @@ class AgentService:
         Any tool that returns approval_required must accept _approved_decision
         in its args dict and execute the stored decision instead of re-evaluating.
         """
-        from app.tools.base import ToolResult
-
         approved_decision_data = (
             pending.approval_payload.get("payload", {}).get("approved_decision")
             or pending.approval_payload.get("approved_decision")

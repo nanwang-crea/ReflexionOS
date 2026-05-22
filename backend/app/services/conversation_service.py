@@ -5,7 +5,7 @@ from threading import Lock, RLock
 from app.errors import NotFoundValueError
 from app.ids import new_event_id, new_message_id, new_run_id, new_turn_id
 from app.llm.base import MessageRole
-from app.models.conversation import ConversationEvent, EventType, RunStatus, TurnStatus
+from app.models.conversation import ConversationEvent, EventType, Message, Run, RunStatus, Turn, TurnStatus
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
@@ -287,19 +287,33 @@ class ConversationService:
             return cancelled
 
     def get_run(self, run_id: str) -> "Run | None":
+        """Get a run by ID."""
         return self.run_repo.get(run_id)
 
     def list_turn_messages(self, turn_id: str) -> "list[Message]":
+        """List all messages for a turn."""
         return self.message_repo.list_by_turn(turn_id)
 
     def next_message_index(self, turn_id: str) -> int:
+        """Get the next message index for a turn."""
         return self.message_repo.next_turn_message_index(turn_id)
 
     def get_message(self, message_id: str) -> "Message | None":
+        """Get a message by ID."""
         return self.message_repo.get(message_id)
 
-    _acquire_session_write_lock = acquire_session_write_lock
-    _append_events_locked = append_events_locked
+    def get_turn(self, turn_id: str) -> Turn | None:
+        """Get a turn by ID."""
+        return self.turn_repo.get(turn_id)
+
+    def get_latest_continuation_artifact(self, session_id: str, *, db_session=None) -> Message | None:
+        """Get the most recent continuation artifact for a session."""
+        return self.message_repo.get_latest_continuation_artifact(session_id, db_session=db_session)
+
+    def list_recent_seed_candidates(self, session_id: str, **kwargs) -> list[Message]:
+        """Return recent messages suitable for context seeding."""
+        return self.message_repo.list_recent_seed_candidates(session_id, **kwargs)
+
 
 
 conversation_service = ConversationService()

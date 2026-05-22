@@ -121,7 +121,7 @@ def append_waiting_for_approval(conversation_service, *, session_id, turn_id, ru
                     "run_id": run_id,
                     "role": "assistant",
                     "message_type": "tool_trace",
-                    "turn_message_index": conversation_service.message_repo.next_turn_message_index(
+                    "turn_message_index": conversation_service.next_message_index(
                         turn_id
                     ),
                     "display_mode": "default",
@@ -503,8 +503,8 @@ async def test_tool_call_approval_decision_updates_trace_and_terminates_run(
     ]
     assert EventType.RUN_RESUMING not in tail_event_types
 
-    trace = conversation_service.message_repo.get(message_id)
-    run = conversation_service.run_repo.get(started.run.id)
+    trace = conversation_service.get_message(message_id)
+    run = conversation_service.get_run(started.run.id)
     turn = conversation_service.turn_repo.get(started.turn.id)
     snapshot = conversation_service.get_snapshot("session-1")
     pending = service.pending_approval_store.get("approval-1")
@@ -569,7 +569,7 @@ async def test_approve_tool_call_does_not_revive_run_cancelled_before_append(
     )
     before_seq = conversation_service.get_snapshot("session-1").session.last_event_seq
     approval_append_attempted = threading.Event()
-    original_acquire_session_write_lock = conversation_service._acquire_session_write_lock
+    original_acquire_session_write_lock = conversation_service.acquire_session_write_lock
     original_append_events = conversation_service.append_events
     approval_errors: list[Exception] = []
 
@@ -612,7 +612,7 @@ async def test_approve_tool_call_does_not_revive_run_cancelled_before_append(
             approval_id="approval-1",
         )
 
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     assert run is not None
     assert run.status == RunStatus.CANCELLED
     pending = service.pending_approval_store.get("approval-1")
@@ -1422,10 +1422,10 @@ async def test_approve_tool_call_executes_stored_shell_command_and_resumes_run(
     pending = service.pending_approval_store.get("approval-resume")
     assert pending.status == "approved"
 
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     assert run.status == RunStatus.COMPLETED
 
-    trace = conversation_service.message_repo.get(message_id)
+    trace = conversation_service.get_message(message_id)
     assert trace.payload_json["status"] == "approved"
 
 
@@ -1481,10 +1481,10 @@ async def test_deny_tool_call_does_not_execute_command(monkeypatch, tmp_path):
     pending = service.pending_approval_store.get("approval-deny")
     assert pending.status == "denied"
 
-    trace = conversation_service.message_repo.get(message_id)
+    trace = conversation_service.get_message(message_id)
     assert trace.payload_json["status"] == "denied"
 
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     assert run.status == RunStatus.CANCELLED
 
 
@@ -1605,5 +1605,5 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
     pending = service.pending_approval_store.get(approval_id)
     assert pending.status == "approved"
 
-    run = conversation_service.run_repo.get(started.run.id)
+    run = conversation_service.get_run(started.run.id)
     assert run.status == RunStatus.COMPLETED
