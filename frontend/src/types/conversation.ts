@@ -1,12 +1,24 @@
-export type ConversationTurnStatus = 'created' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
+export type ConversationTurnStatus = 'created' | 'running' | 'completed' | 'failed' | 'cancelled'
 
-export type ConversationRunStatus = ConversationTurnStatus
+export type ConversationRunStatus = 'created' | 'pending' | 'running' | 'waiting_for_approval' | 'resuming' | 'completed' | 'failed' | 'cancelled'
 
 type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
 type ConversationMessageType = 'user_message' | 'assistant_message' | 'tool_trace' | 'system_notice'
 
 type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+
+export interface ConversationSessionDto {
+  id: string
+  project_id: string
+  title: string
+  preferred_provider_id?: string | null
+  preferred_model_id?: string | null
+  last_event_seq: number
+  active_turn_id: string | null
+  created_at: string
+  updated_at: string
+}
 
 export interface ConversationSession {
   id: string
@@ -105,15 +117,4 @@ export interface ConversationState {
   messagesById: Record<string, ConversationMessage>
 }
 
-export interface PlanStep {
-  id: number
-  description: string
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
-  findings: string
-}
-
-export interface Plan {
-  goal: string
-  steps: PlanStep[]
-  currentStepIndex: number
-}
+export type { Plan, PlanStep } from '@/types/plan'

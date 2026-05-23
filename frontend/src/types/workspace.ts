@@ -1,12 +1,6 @@
-export interface SessionSummary {
-  id: string
-  projectId: string
-  title: string
-  preferredProviderId?: string
-  preferredModelId?: string
-  createdAt: string
-  updatedAt: string
-}
+import type { ConversationSession } from '@/types/conversation'
+
+export type SessionSummary = ConversationSession
 
 export interface SessionPayload {
   title?: string

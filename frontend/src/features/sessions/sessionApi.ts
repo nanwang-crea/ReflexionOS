@@ -1,30 +1,25 @@
 import type { AxiosResponse } from 'axios'
 import { apiClient } from '@/services/apiClient'
 import type {
+  ConversationSession,
+  ConversationSessionDto,
+} from '@/types/conversation'
+import type {
   SessionCreatePayload,
-  SessionSummary,
   SessionUpdatePayload,
 } from '@/types/workspace'
 
-interface SessionSummaryDto {
-  id: string
-  project_id: string
-  title: string
-  preferred_provider_id?: string | null
-  preferred_model_id?: string | null
-  created_at: string
-  updated_at: string
-}
-
-function toSessionSummary(session: SessionSummaryDto): SessionSummary {
+function toSessionSummary(dto: ConversationSessionDto): ConversationSession {
   return {
-    id: session.id,
-    projectId: session.project_id,
-    title: session.title,
-    preferredProviderId: session.preferred_provider_id ?? undefined,
-    preferredModelId: session.preferred_model_id ?? undefined,
-    createdAt: session.created_at,
-    updatedAt: session.updated_at,
+    id: dto.id,
+    projectId: dto.project_id,
+    title: dto.title,
+    preferredProviderId: dto.preferred_provider_id ?? undefined,
+    preferredModelId: dto.preferred_model_id ?? undefined,
+    lastEventSeq: dto.last_event_seq ?? 0,
+    activeTurnId: dto.active_turn_id ?? null,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
   }
 }
 
@@ -39,8 +34,8 @@ function toSessionPayload(data: SessionCreatePayload | SessionUpdatePayload) {
 }
 
 async function mapSessionResponse(
-  request: Promise<AxiosResponse<SessionSummaryDto>>
-): Promise<AxiosResponse<SessionSummary>> {
+  request: Promise<AxiosResponse<ConversationSessionDto>>
+): Promise<AxiosResponse<ConversationSession>> {
   const response = await request
   return {
     ...response,
@@ -49,8 +44,8 @@ async function mapSessionResponse(
 }
 
 async function mapSessionListResponse(
-  request: Promise<AxiosResponse<SessionSummaryDto[]>>
-): Promise<AxiosResponse<SessionSummary[]>> {
+  request: Promise<AxiosResponse<ConversationSessionDto[]>>
+): Promise<AxiosResponse<ConversationSession[]>> {
   const response = await request
   return {
     ...response,
@@ -60,16 +55,16 @@ async function mapSessionListResponse(
 
 export const sessionApi = {
   listProjectSessions: (projectId: string) =>
-    mapSessionListResponse(apiClient.get<SessionSummaryDto[]>(`/api/projects/${projectId}/sessions`)),
+    mapSessionListResponse(apiClient.get<ConversationSessionDto[]>(`/api/projects/${projectId}/sessions`)),
   createSession: (projectId: string, data: SessionCreatePayload) =>
     mapSessionResponse(
-      apiClient.post<SessionSummaryDto>(
+      apiClient.post<ConversationSessionDto>(
         `/api/projects/${projectId}/sessions`,
         toSessionPayload(data)
       )
     ),
   updateSession: (sessionId: string, data: SessionUpdatePayload) =>
-    mapSessionResponse(apiClient.patch<SessionSummaryDto>(`/api/sessions/${sessionId}`, toSessionPayload(data))),
+    mapSessionResponse(apiClient.patch<ConversationSessionDto>(`/api/sessions/${sessionId}`, toSessionPayload(data))),
   deleteSession: (sessionId: string) =>
     apiClient.delete(`/api/sessions/${sessionId}`),
 }

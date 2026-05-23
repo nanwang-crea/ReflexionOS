@@ -24,8 +24,6 @@ const INCREMENTAL_EVENT_TYPES = new Set([
   'message.payload_updated',
 ])
 
-
-
 export function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
@@ -94,8 +92,6 @@ function toConversationLiveMessage(message: SessionConversationLiveMessageDto): 
     delta: message.delta,
   }
 }
-
-
 
 export function useConversationRuntime(
   currentSessionId: string | null,

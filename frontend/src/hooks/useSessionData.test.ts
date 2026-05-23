@@ -62,6 +62,8 @@ function createSession(id: string): SessionSummary {
     title: id,
     preferredProviderId: 'provider-a',
     preferredModelId: 'model-a',
+    lastEventSeq: 0,
+    activeTurnId: null,
     createdAt: '2026-04-21T00:00:00Z',
     updatedAt: '2026-04-21T00:00:00Z',
   }

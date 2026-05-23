@@ -14,8 +14,6 @@ interface ResolveSessionSelectionOptions {
   preferredModelId?: string | null
 }
 
-
-
 export function getAvailableProviders(providers: ProviderInstance[]) {
   return providers.filter((provider) => provider.enabled && getEnabledModels(provider).length > 0)
 }

@@ -53,5 +53,3 @@ export const llmApi = {
 export const skillApi = {
   list: () => apiClient.get('/api/skills'),
 }
-
-export const buildSessionConversationPath = (sessionId: string) => `/api/sessions/${sessionId}/conversation`

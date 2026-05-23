@@ -36,8 +36,6 @@ export function cloneProvider(provider: ProviderInstance): ProviderInstance {
   }
 }
 
-
-
 export function normalizeProviderDraft(provider: ProviderInstance): ProviderInstance {
   const models = provider.models.map((model) => ({
     ...model,

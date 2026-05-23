@@ -17,26 +17,10 @@ async def list_projects():
     return project_service.list_projects()
 
 
-@router.get("/{project_id}", response_model=Project)
-async def get_project(project_id: str):
-    try:
-        return project_service.get_project_or_raise(project_id)
-    except ValueError as exc:
-        raise value_error_to_app_error(exc, resource="项目") from exc
-
-
 @router.delete("/{project_id}")
 async def delete_project(project_id: str):
     try:
         project_service.delete_project_or_raise(project_id)
         return {"message": "项目已删除"}
-    except ValueError as exc:
-        raise value_error_to_app_error(exc, resource="项目") from exc
-
-
-@router.get("/{project_id}/structure")
-async def get_project_structure(project_id: str):
-    try:
-        return project_service.get_project_structure_or_raise(project_id)
     except ValueError as exc:
         raise value_error_to_app_error(exc, resource="项目") from exc

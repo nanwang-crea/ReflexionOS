@@ -228,6 +228,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
             id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -256,6 +258,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -314,6 +318,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -343,6 +349,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -371,6 +379,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -409,6 +419,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
@@ -454,6 +466,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
           id: 'session-1',
           projectId: 'project-1',
           title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}

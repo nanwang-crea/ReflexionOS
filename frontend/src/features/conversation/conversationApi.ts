@@ -1,24 +1,13 @@
 import type { AxiosResponse } from 'axios'
-import { apiClient, buildSessionConversationPath } from '@/services/apiClient'
+import { apiClient } from '@/services/apiClient'
 import type {
   ConversationMessage,
   ConversationRun,
   ConversationSession,
+  ConversationSessionDto,
   ConversationSnapshot,
   ConversationTurn,
 } from '@/types/conversation'
-
-interface ConversationSessionDto {
-  id: string
-  project_id: string
-  title: string
-  preferred_provider_id?: string | null
-  preferred_model_id?: string | null
-  last_event_seq: number
-  active_turn_id: string | null
-  created_at: string
-  updated_at: string
-}
 
 interface ConversationTurnDto {
   id: string
@@ -152,6 +141,10 @@ async function mapConversationResponse(
     ...response,
     data: toConversationSnapshot(response.data),
   }
+}
+
+function buildSessionConversationPath(sessionId: string) {
+  return `/api/sessions/${sessionId}/conversation`
 }
 
 export const conversationApi = {

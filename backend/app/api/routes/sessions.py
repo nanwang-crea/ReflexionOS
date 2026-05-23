@@ -25,14 +25,6 @@ async def list_project_sessions(project_id: str):
         raise value_error_to_app_error(exc, resource="会话") from exc
 
 
-@router.get("/sessions/{session_id}", response_model=Session)
-async def get_session(session_id: str):
-    try:
-        return session_service.get_session_or_raise(session_id)
-    except ValueError as exc:
-        raise value_error_to_app_error(exc, resource="会话") from exc
-
-
 @router.get("/sessions/{session_id}/conversation", response_model=ConversationSnapshot)
 async def get_session_conversation(session_id: str):
     try:
