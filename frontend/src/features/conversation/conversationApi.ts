@@ -3,11 +3,11 @@ import { apiClient } from '@/services/apiClient'
 import type {
   ConversationMessage,
   ConversationRun,
-  ConversationSession,
   ConversationSessionDto,
   ConversationSnapshot,
   ConversationTurn,
 } from '@/types/conversation'
+import { toConversationSession } from '@/types/conversation'
 
 interface ConversationTurnDto {
   id: string
@@ -58,20 +58,6 @@ interface ConversationSnapshotDto {
   turns: ConversationTurnDto[]
   runs: ConversationRunDto[]
   messages: ConversationMessageDto[]
-}
-
-function toConversationSession(dto: ConversationSessionDto): ConversationSession {
-  return {
-    id: dto.id,
-    projectId: dto.project_id,
-    title: dto.title,
-    preferredProviderId: dto.preferred_provider_id ?? undefined,
-    preferredModelId: dto.preferred_model_id ?? undefined,
-    lastEventSeq: dto.last_event_seq,
-    activeTurnId: dto.active_turn_id,
-    createdAt: dto.created_at,
-    updatedAt: dto.updated_at,
-  }
 }
 
 function toConversationTurn(dto: ConversationTurnDto): ConversationTurn {

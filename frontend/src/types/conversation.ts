@@ -20,6 +20,20 @@ export interface ConversationSessionDto {
   updated_at: string
 }
 
+export function toConversationSession(dto: ConversationSessionDto): ConversationSession {
+  return {
+    id: dto.id,
+    projectId: dto.project_id,
+    title: dto.title,
+    preferredProviderId: dto.preferred_provider_id ?? undefined,
+    preferredModelId: dto.preferred_model_id ?? undefined,
+    lastEventSeq: dto.last_event_seq,
+    activeTurnId: dto.active_turn_id,
+    createdAt: dto.created_at,
+    updatedAt: dto.updated_at,
+  }
+}
+
 export interface ConversationSession {
   id: string
   projectId: string

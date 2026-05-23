@@ -4,24 +4,11 @@ import type {
   ConversationSession,
   ConversationSessionDto,
 } from '@/types/conversation'
+import { toConversationSession } from '@/types/conversation'
 import type {
   SessionCreatePayload,
   SessionUpdatePayload,
 } from '@/types/workspace'
-
-function toSessionSummary(dto: ConversationSessionDto): ConversationSession {
-  return {
-    id: dto.id,
-    projectId: dto.project_id,
-    title: dto.title,
-    preferredProviderId: dto.preferred_provider_id ?? undefined,
-    preferredModelId: dto.preferred_model_id ?? undefined,
-    lastEventSeq: dto.last_event_seq ?? 0,
-    activeTurnId: dto.active_turn_id ?? null,
-    createdAt: dto.created_at,
-    updatedAt: dto.updated_at,
-  }
-}
 
 function toSessionPayload(data: SessionCreatePayload | SessionUpdatePayload) {
   return Object.fromEntries(
@@ -39,7 +26,7 @@ async function mapSessionResponse(
   const response = await request
   return {
     ...response,
-    data: toSessionSummary(response.data),
+    data: toConversationSession(response.data),
   }
 }
 
@@ -49,7 +36,7 @@ async function mapSessionListResponse(
   const response = await request
   return {
     ...response,
-    data: response.data.map(toSessionSummary),
+    data: response.data.map(toConversationSession),
   }
 }
 
