@@ -9,7 +9,7 @@ from app.models.llm_config import LLMSettings
 class ExecutionSettings(BaseModel):
     """执行配置"""
 
-    max_steps: int = Field(default=1000, ge=1, le=200)
+    max_steps: int = Field(default=1000, ge=1, le=1000)
     max_execution_time: int = Field(default=600)
     # Tier 2: 超出窗口的旧消息逐条截断但始终可见（tool output 截断至 tool_output_max_chars）
     tier2_truncate_threshold_tokens: int = Field(default=50_000, ge=1)

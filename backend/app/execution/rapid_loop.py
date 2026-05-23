@@ -60,6 +60,7 @@ class RapidExecutionLoop:
         self.message_builder = LoopMessageBuilder(
             prompt_manager=self.prompt_manager,
             max_context_groups=self.MAX_CONTEXT_GROUPS,
+            tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
         )
         self.initial_plan_bootstrapper = InitialPlanBootstrapper(
             llm=self.llm,
