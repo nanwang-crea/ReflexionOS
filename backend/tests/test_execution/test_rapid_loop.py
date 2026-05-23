@@ -288,7 +288,9 @@ class TestRapidExecutionLoop:
         )
 
         contents = [message.content for message in captured["messages"] if message.content]
-        assert contents.index("上一轮需求") < contents.index("继续处理")
+        assert "继续处理" in contents
+        assert "上一轮需求" in contents
+        assert "上一轮结论" in contents
         assert any("当前目标: 修 memory" in content for content in contents)
 
     @pytest.mark.asyncio

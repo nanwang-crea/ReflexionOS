@@ -46,9 +46,24 @@ class ContinuationArtifactBuilder:
         self.tool_output_head_chars = tool_output_head_chars
         self.tool_output_tail_chars = tool_output_tail_chars
 
-    def build_prompt_input(self, *, task: str, messages: list[Message]) -> ContinuationPromptInput:
+    def build_prompt_input(
+        self,
+        *,
+        task: str,
+        messages: list[Message],
+        existing_summary: str | None = None,
+    ) -> ContinuationPromptInput:
+        """
+        构建 continuation 压缩的 prompt 输入。
+        existing_summary: mid-run Tier 3 压缩产出的摘要，传入后作为已有摘要前缀，
+                          只需压缩新增消息，减少 transcript 长度和 LLM 调用开销。
+        """
         items = self._build_items(messages)
         transcript = self._fit_global_budget(items)
+
+        if existing_summary:
+            transcript = f"[已有摘要]\n{existing_summary}\n\n[新增对话]\n{transcript}"
+
         return ContinuationPromptInput(
             task=self._truncate_text(task or "", self.max_task_chars),
             transcript=transcript,

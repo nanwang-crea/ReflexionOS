@@ -40,6 +40,7 @@ from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
+from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 
 from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
@@ -72,7 +73,7 @@ class AgentService:
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
-        self._execution_loops: dict[str, "RapidExecutionLoop"] = {}
+        self._execution_loops: dict[str, RapidExecutionLoop] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
@@ -336,6 +337,7 @@ class AgentService:
                 await persist_and_broadcast(event_type, data)
 
         run_tool_registry = self._build_run_tool_registry(project_path)
+        run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         execution_loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=run_tool_registry,
@@ -380,6 +382,7 @@ class AgentService:
                     turn_id=turn_id,
                     run_id=run_id,
                     task=task,
+                    compacted_summary=loop_result.compacted_summary,
                 )
             except Exception:
                 logger.exception("Continuation artifact generation failed: run_id=%s", run_id)
@@ -472,11 +475,13 @@ class AgentService:
         turn_id: str,
         run_id: str,
         task: str,
+        compacted_summary: str | None = None,
     ) -> None:
         turn_messages = self.conversation_service.list_turn_messages(turn_id)
         prompt_input = self.continuation_builder.build_prompt_input(
             task=task,
             messages=turn_messages,
+            existing_summary=compacted_summary,
         )
         if not prompt_input.transcript:
             return

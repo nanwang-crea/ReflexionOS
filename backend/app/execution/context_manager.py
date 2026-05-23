@@ -5,6 +5,7 @@ from typing import Any
 from app.execution.models import LoopStep
 from app.execution.plan_engine import Plan
 from app.llm.base import MessageRole
+from app.llm.token_counter import count_messages_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,12 @@ class LoopContext:
         self.supplemental_context: str | None = None
         # Plan engine
         self.plan: Plan | None = None
+        # 三级上下文模型：实时 token 计数，超阈值触发 Tier 2 截断 / Tier 3 LLM 摘要
+        self.total_tokens: int = 0
+        # Tier 3 压缩后的摘要缓存，滚动更新；摘要中包含 [可 session_recall 取回] 标记
+        self.compacted_summary: str | None = None
+        # 消息分组计数，assistant+tool_calls 开启一组，用于判断窗口溢出
+        self.group_count: int = 0
 
     @classmethod
     def from_run_input(
@@ -91,3 +98,20 @@ class LoopContext:
             message["tool_call_id"] = tool_call_id
 
         self.messages.append(message)
+        # 累加 token 计数，用于实时上下文压力检测
+        msg_tokens = count_messages_tokens([message])
+        self.total_tokens += msg_tokens
+        self._update_group_count(message)
+
+    def recalculate_tokens(self) -> None:
+        """Tier 3 压缩替换 messages 后，重新遍历计算 total_tokens"""
+        self.total_tokens = count_messages_tokens(self.messages)
+
+    def _update_group_count(self, message: dict[str, Any]) -> None:
+        """更新消息分组计数：assistant+tool_calls 开启新组，tool 消息归入当前组"""
+        if message["role"] == MessageRole.ASSISTANT and message.get("tool_calls"):
+            self.group_count += 1
+        elif message["role"] == MessageRole.TOOL:
+            pass
+        else:
+            self.group_count += 1

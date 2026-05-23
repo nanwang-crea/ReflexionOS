@@ -126,3 +126,26 @@ def test_continuation_builder_applies_global_budget_recent_first():
     assert len(prompt_input.transcript) <= 500
     assert "最新用户需求必须保留" in prompt_input.transcript
     assert "已按 continuation 预算省略" in prompt_input.transcript
+
+
+def test_build_prompt_input_with_existing_summary():
+    builder = ContinuationArtifactBuilder()
+    messages = [
+        build_message(
+            id="msg-user",
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            content_text="Fix bug",
+        ),
+        build_message(
+            id="msg-assistant",
+            content_text="I fixed it",
+        ),
+    ]
+    result = builder.build_prompt_input(
+        task="Fix bug",
+        messages=messages,
+        existing_summary="用户原始意图: Fix bug\n已执行的操作: read foo.py",
+    )
+    assert "已有摘要" in result.transcript
+    assert "Fix bug" in result.transcript

@@ -10,7 +10,13 @@ class ExecutionSettings(BaseModel):
     """执行配置"""
 
     max_steps: int = Field(default=1000, ge=1, le=200)
-    max_execution_time: int = Field(default=600)  # 10分钟
+    max_execution_time: int = Field(default=600)
+    # Tier 2: 超出窗口的旧消息逐条截断但始终可见（tool output 截断至 tool_output_max_chars）
+    tier2_truncate_threshold_tokens: int = Field(default=50_000, ge=1)
+    # Tier 3: Tier 2 之后仍超限，将旧消息经 LLM 压缩为摘要（不可逆，但可 session_recall 回溯）
+    tier3_compact_threshold_tokens: int = Field(default=100_000, ge=1)
+    # Tier 2 中 tool output 的最大字符数，超出部分 head+tail 截断并标记 [可 session_recall 取回]
+    tool_output_max_chars: int = Field(default=2_400, ge=100)
 
 
 class MemorySettings(BaseModel):

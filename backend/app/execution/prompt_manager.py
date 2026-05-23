@@ -126,6 +126,47 @@ $transcript
             variables=["task", "transcript"],
         )
 
+        self.register_template(
+            name="midrun_compress_system",
+            template="""You are generating a mid-run context compaction summary.
+The agent is in the middle of executing a task and the context window is under pressure.
+You must compress older conversation history into a concise summary.
+
+This summary is DERIVED from the transcript below. Do not invent facts.
+If unsure, state uncertainty.
+Write in Chinese.
+
+Output MUST be plain text with EXACTLY these 5 sections:
+用户原始意图: <the user's original intent, preserving key phrasing>
+已执行的操作: <key operations performed, one per line, mark recallable items>
+  - <operation description> [可 session_recall 取回完整内容]
+已确认的发现: <important findings confirmed so far>
+当前进度: <what step are we at, what remains>
+未解决的问题: <open issues that still need attention>
+
+Rules:
+- For each file read or shell execution, include [可 session_recall 取回完整内容] marker
+- Preserve the user's original intent verbatim as much as possible
+- Keep operation descriptions short but specific (include file names, function names)
+- If an existing summary is provided, integrate it with new information""",
+            variables=[],
+        )
+
+        self.register_template(
+            name="midrun_compress_input",
+            template="""Compress the following conversation history into a mid-run summary.
+
+Task (current user input):
+$task
+
+$existing_summary_block
+
+New conversation history (oldest to newest):
+$transcript
+""",
+            variables=["task", "transcript", "existing_summary_block"],
+        )
+
         # Error Prompt
         self.register_template(
             name="error",
@@ -177,6 +218,26 @@ Please try a different approach or fix the issue.""",
     def get_initial_plan_prompt(self) -> str:
         """Prompt for the non-streamed initial planning preflight."""
         return self.get_template("initial_plan").render()
+
+    def get_midrun_compression_system_prompt(self) -> str:
+        return self.get_template("midrun_compress_system").render()
+
+    def get_midrun_compression_prompt(
+        self,
+        *,
+        task: str,
+        transcript: str,
+        existing_summary: str | None = None,
+    ) -> str:
+        if existing_summary:
+            existing_summary_block = f"[已有摘要]\n{existing_summary}\n\n[新增对话]"
+        else:
+            existing_summary_block = ""
+        return self.get_template("midrun_compress_input").render(
+            task=task or "",
+            transcript=transcript or "",
+            existing_summary_block=existing_summary_block,
+        )
 
     def get_continuation_compression_prompt(self, *, task: str, transcript: str) -> str:
         """User input for a single LLM-generated continuation/handoff artifact."""
