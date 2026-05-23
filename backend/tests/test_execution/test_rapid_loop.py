@@ -767,6 +767,8 @@ class TestRapidExecutionLoop:
             "tool_name": "explode",
             "step_number": 1,
             "tool_call_id": tool_call.id,
+            "success": False,
+            "output": None,
             "error": "boom",
             "duration": result.steps[-1].duration,
             "arguments": {"path": "README.md"},

@@ -144,7 +144,7 @@ class ShellTool(BaseTool):
             return ToolResult(success=True, output=output, data={"return_code": process.returncode})
         else:
             logger.warning("argv 命令执行失败: %s, 返回码: %s", " ".join(argv), process.returncode)
-            return ToolResult(success=False, output=output, error=error)
+            return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
 
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
@@ -191,7 +191,7 @@ class ShellTool(BaseTool):
             return ToolResult(success=True, output=output, data={"return_code": process.returncode})
         else:
             logger.warning("Shell 命令执行失败: %s, 返回码: %s", command, process.returncode)
-            return ToolResult(success=False, output=output, error=error)
+            return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
 
     def _create_approval_result(self, decision: CommandDecision) -> ToolResult:
         import uuid

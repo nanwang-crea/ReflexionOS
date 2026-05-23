@@ -53,38 +53,44 @@ export function createSendMessage(dependencies: SendMessageDependencies) {
       return
     }
 
-    const requiresFreshSession = (
-      !dependencies.currentSession ||
-      dependencies.currentSession.projectId !== dependencies.currentProject.id
-    )
-    let targetSession: SessionSummary
+    try {
+      const requiresFreshSession = (
+        !dependencies.currentSession ||
+        dependencies.currentSession.projectId !== dependencies.currentProject.id
+      )
+      let targetSession: SessionSummary
 
-    if (requiresFreshSession) {
-      targetSession = await dependencies.createSession(dependencies.currentProject.id, {
-        preferredProviderId: dependencies.selection.providerId,
-        preferredModelId: dependencies.selection.modelId,
-      })
-    } else {
-      if (!dependencies.currentSession) {
-        return
+      if (requiresFreshSession) {
+        targetSession = await dependencies.createSession(dependencies.currentProject.id, {
+          preferredProviderId: dependencies.selection.providerId,
+          preferredModelId: dependencies.selection.modelId,
+        })
+      } else {
+        if (!dependencies.currentSession) {
+          return
+        }
+
+        targetSession = dependencies.currentSession
       }
 
-      targetSession = dependencies.currentSession
-    }
+      if (!requiresFreshSession) {
+        await dependencies.writeSessionPreferences(targetSession.id, {
+          preferredProviderId: dependencies.selection.providerId,
+          preferredModelId: dependencies.selection.modelId,
+        })
+      }
 
-    if (!requiresFreshSession) {
-      await dependencies.writeSessionPreferences(targetSession.id, {
-        preferredProviderId: dependencies.selection.providerId,
-        preferredModelId: dependencies.selection.modelId,
+      await dependencies.startTurn({
+        sessionId: targetSession.id,
+        message,
+        providerId: dependencies.selection.providerId,
+        modelId: dependencies.selection.modelId,
       })
+    } catch (error) {
+      console.error('Failed to send message:', error)
+      const errorMessage = error instanceof Error ? error.message : '发送消息失败'
+      dependencies.notify(errorMessage)
     }
-
-    await dependencies.startTurn({
-      sessionId: targetSession.id,
-      message,
-      providerId: dependencies.selection.providerId,
-      modelId: dependencies.selection.modelId,
-    })
   }
 }
 

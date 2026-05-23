@@ -50,6 +50,9 @@ function getToolTraceStatus(message: ConversationMessage): ActionReceiptDetail['
 }
 
 function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatus {
+  if (messages.some((message) => message.payloadJson.status === 'waiting_for_approval')) {
+    return 'waiting_for_approval'
+  }
   const failedCount = messages.filter((m) => m.streamState === 'failed').length
   if (failedCount > 0) {
     return failedCount === messages.length ? 'failed' : 'partial_failed'
@@ -59,9 +62,6 @@ function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatu
   }
   if (messages.some((message) => message.payloadJson.status === 'denied')) {
     return 'cancelled'
-  }
-  if (messages.some((message) => message.payloadJson.status === 'waiting_for_approval')) {
-    return 'waiting_for_approval'
   }
   if (messages.some((message) => (
     !isApprovalDecisionStatus(message.payloadJson.status) &&

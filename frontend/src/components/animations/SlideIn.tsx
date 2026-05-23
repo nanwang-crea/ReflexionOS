@@ -26,7 +26,7 @@ export function SlideIn({
   }
   
   if (reducedMotion) {
-    return <div className={className}>{children}</div>
+    return <motion.div className={className}>{children}</motion.div>
   }
   
   return (

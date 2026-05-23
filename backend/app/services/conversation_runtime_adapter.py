@@ -68,14 +68,22 @@ class ConversationRuntimeAdapter:
             return self._append_events(self._tool_result_events(data))
 
         if event_type == "tool:error":
+            tool_key = self._tool_key(data)
+            message_id = self.tool_message_ids.get(tool_key)
+            if message_id and self._message_is_terminal(message_id):
+                return []
             failed_data = {
                 "tool_name": data.get("tool_name"),
                 "step_number": data.get("step_number"),
                 "success": False,
-                "output": None,
+                "output": data.get("output"),
                 "error": data.get("error"),
                 "duration": data.get("duration"),
             }
+            if data.get("tool_call_id") is not None:
+                failed_data["tool_call_id"] = data.get("tool_call_id")
+            if data.get("arguments") is not None:
+                failed_data["arguments"] = data.get("arguments")
             return self._append_events(self._tool_result_events(failed_data))
 
         if event_type == "approval:required":

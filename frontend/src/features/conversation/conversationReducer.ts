@@ -160,27 +160,76 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
   }
 
   if (!event.messageId) {
-    if ((event.eventType === 'run.failed' || event.eventType === 'run.cancelled') && event.runId) {
+    if (event.runId) {
       const run = currentState.runsById[event.runId]
       if (run) {
-        return {
-          ...currentState,
-          lastEventSeq: event.seq,
-          runsById: {
-            ...currentState.runsById,
-            [event.runId]: {
-              ...run,
-              status: event.eventType === 'run.failed' ? 'failed' : 'cancelled',
-              errorCode: (event.payloadJson.error_code as string | null) ?? null,
-              errorMessage: (event.payloadJson.error_message as string | null) ?? null,
+        if (event.eventType === 'run.completed') {
+          return {
+            ...currentState,
+            lastEventSeq: event.seq,
+            runsById: {
+              ...currentState.runsById,
+              [event.runId]: {
+                ...run,
+                status: 'completed',
+                finishedAt: (event.payloadJson.finished_at as string) ?? null,
+              },
             },
-          },
+          }
+        }
+        if (event.eventType === 'run.failed' || event.eventType === 'run.cancelled') {
+          return {
+            ...currentState,
+            lastEventSeq: event.seq,
+            runsById: {
+              ...currentState.runsById,
+              [event.runId]: {
+                ...run,
+                status: event.eventType === 'run.failed' ? 'failed' : 'cancelled',
+                errorCode: (event.payloadJson.error_code as string | null) ?? null,
+                errorMessage: (event.payloadJson.error_message as string | null) ?? null,
+              },
+            },
+          }
         }
       }
     }
     return {
       ...currentState,
       lastEventSeq: event.seq,
+    }
+  }
+
+  if (event.eventType === 'message.created') {
+    const p = event.payloadJson
+    const messageId = (p.message_id as string) ?? event.messageId
+    if (currentState.messagesById[messageId]) {
+      return { ...currentState, lastEventSeq: event.seq }
+    }
+    const newMessage: ConversationMessage = {
+      id: messageId,
+      sessionId: event.sessionId,
+      turnId: event.turnId ?? currentState.session?.activeTurnId ?? '',
+      runId: event.runId ?? null,
+      turnMessageIndex: (p.turn_message_index as number) ?? 0,
+      role: (p.role as ConversationMessage['role']) ?? 'assistant',
+      messageType: (p.message_type as ConversationMessage['messageType']) ?? 'tool_trace',
+      streamState: 'idle',
+      displayMode: (p.display_mode as string) ?? 'default',
+      contentText: (p.content_text as string) ?? '',
+      payloadJson: (p.payload_json as Record<string, unknown>) ?? {},
+      createdAt: event.createdAt,
+      updatedAt: event.createdAt,
+      completedAt: null,
+    }
+    return {
+      ...currentState,
+      lastEventSeq: event.seq,
+      messageOrder: [...currentState.messageOrder, messageId],
+      messagesById: {
+        ...currentState.messagesById,
+        [messageId]: newMessage,
+      },
     }
   }
 
@@ -241,6 +290,22 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
             ...currentMessage.payloadJson,
             ...event.payloadJson,
           },
+          updatedAt: event.createdAt,
+        },
+      },
+    }
+  }
+
+  if (event.eventType === 'message.completed') {
+    return {
+      ...currentState,
+      lastEventSeq: event.seq,
+      messagesById: {
+        ...currentState.messagesById,
+        [event.messageId]: {
+          ...currentMessage,
+          streamState: 'completed',
+          completedAt: event.createdAt,
           updatedAt: event.createdAt,
         },
       },

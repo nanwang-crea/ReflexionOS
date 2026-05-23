@@ -49,6 +49,7 @@ export function createSnapshotRefreshQueue(
           await refreshSnapshot(sessionId)
         } catch (error) {
           console.error('Failed to refresh conversation snapshot:', error)
+          useToastStore.getState().addToast('error', `对话刷新失败: ${error instanceof Error ? error.message : '刷新对话失败'}`)
         }
       }
     } finally {
@@ -226,7 +227,15 @@ export function useConversationRuntime(
       return
     }
 
-    await connectSession(payload.sessionId)
+    try {
+      await connectSession(payload.sessionId)
+    } catch (error) {
+      console.error('Failed to connect session for startTurn:', error)
+      const message = error instanceof Error ? error.message : '连接失败'
+      useToastStore.getState().addToast('error', `发送消息失败: ${message}`)
+      setConnectionStatus('disconnected')
+      return
+    }
 
     wsRef.current?.startTurn({
       content,

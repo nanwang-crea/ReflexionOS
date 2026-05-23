@@ -105,7 +105,7 @@ class RapidExecutionLoop:
         rt.response = await self._call_llm(context)
 
         if rt.response.has_tool_calls:
-            rt.turn_retries = 0
+            rt.consecutive_failures = 0
             return LoopPhase.TOOL_EXECUTION
 
         # 没有工具调用
@@ -135,6 +135,7 @@ class RapidExecutionLoop:
     ) -> LoopPhase:
         """TOOL_EXECUTION 阶段：执行工具调用，处理审批与失败。"""
         rt.step_num += 1
+        error_recovery_needed = False
 
         for tool_call in rt.response.tool_calls:
             step = await self.tool_executor.execute(tool_call, context, rt.step_num)
@@ -154,6 +155,8 @@ class RapidExecutionLoop:
                         "tool_name": tool_call.name,
                         "step_number": step.step_number,
                         "tool_call_id": step.tool_call_id,
+                        "success": False,
+                        "output": step.output,
                         "error": step.error,
                         "duration": step.duration,
                         "arguments": step.args,
@@ -162,11 +165,13 @@ class RapidExecutionLoop:
 
                 # 检查是否需要进入错误恢复
                 if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                    return LoopPhase.ERROR_RECOVERY
+                    error_recovery_needed = True
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
 
+        if error_recovery_needed:
+            return LoopPhase.ERROR_RECOVERY
         return LoopPhase.PLANNING
 
     async def _handle_approval(

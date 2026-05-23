@@ -99,6 +99,12 @@ class ToolCallExecutor:
             step.duration = time.time() - start_time
 
             tool_output = result.output or result.error or ""
+            if not result.success and result.data and "return_code" in result.data:
+                rc_info = f"\n[进程返回码: {result.data['return_code']}]"
+                if not result.error:
+                    tool_output = tool_output + rc_info
+                else:
+                    tool_output = tool_output + rc_info if not tool_output.endswith(rc_info) else tool_output
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",
@@ -115,6 +121,7 @@ class ToolCallExecutor:
                     "output": result.output,
                     "error": result.error,
                     "duration": step.duration,
+                    **(result.data or {}),
                 },
             )
 

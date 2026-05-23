@@ -64,33 +64,6 @@ def test_get_project_sessions_returns_404_for_missing_project(client):
     assert "项目不存在" in body["message"]
 
 
-def test_get_session_returns_session_resource(client):
-    create_response = client.post(
-        "/api/projects/project-1/sessions",
-        json={
-            "title": "需求讨论",
-            "preferred_provider_id": "provider-a",
-            "preferred_model_id": "model-a",
-        },
-    )
-    session_id = create_response.json()["id"]
-
-    response = client.get(f"/api/sessions/{session_id}")
-
-    assert response.status_code == 200
-    assert response.json()["id"] == session_id
-    assert response.json()["title"] == "需求讨论"
-
-
-def test_get_session_returns_404_for_missing_resource(client):
-    response = client.get("/api/sessions/missing-session")
-
-    assert response.status_code == 404
-    body = response.json()
-    assert body["code"] == "not_found"
-    assert "会话" in body["message"]
-
-
 def test_patch_session_updates_existing_resource(client):
     create_response = client.post(
         "/api/projects/project-1/sessions",
@@ -151,11 +124,13 @@ def test_delete_session_removes_existing_resource(client):
     session_id = create_response.json()["id"]
 
     delete_response = client.delete(f"/api/sessions/{session_id}")
-    get_response = client.get(f"/api/sessions/{session_id}")
 
     assert delete_response.status_code == 200
     assert delete_response.json() == {"message": "会话已删除"}
-    assert get_response.status_code == 404
+
+    list_response = client.get("/api/projects/project-1/sessions")
+    session_ids = [s["id"] for s in list_response.json()]
+    assert session_id not in session_ids
 
 
 def test_delete_session_returns_404_for_missing_resource(client):

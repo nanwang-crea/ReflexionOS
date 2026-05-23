@@ -178,7 +178,7 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
         ? 'text-amber-500 hover:text-amber-600'
         : 'text-slate-400 hover:text-slate-600'
 
-  const approvalDetails = status === 'waiting_for_approval' && onApprovalAction
+  const approvalDetails = onApprovalAction
     ? details
       .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
         detail.status === 'waiting_for_approval' && hasApproval(detail)
