@@ -54,6 +54,12 @@ class FileContentService:
     def __init__(self) -> None:
         pass
 
+    EXCLUDED_DIRS = frozenset({
+        "node_modules", ".git", "__pycache__", ".venv", "venv",
+        ".ruff_cache", ".pytest_cache", "dist", "build", ".mypy_cache",
+        ".tox", ".eggs", ".idea", ".vscode",
+    })
+
     def _get_project_path(self, project_id: str) -> str:
         project = project_service.get_project_or_raise(project_id)
         return project.path
@@ -136,6 +142,93 @@ class FileContentService:
             "modified": modified,
             "language": _infer_language(path),
         }
+
+    async def get_file_tree(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        git_status_map = await self._get_git_status_map(project_path)
+        tree = self._build_tree(project_path, project_path, git_status_map)
+        return {"tree": tree}
+
+    async def _get_git_status_map(self, project_path: str) -> dict[str, str]:
+        try:
+            result = await asyncio.create_subprocess_exec(
+                "git", "status", "--porcelain",
+                cwd=project_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await result.communicate()
+            if result.returncode != 0:
+                return {}
+
+            status_map: dict[str, str] = {}
+            for line in stdout.decode("utf-8", errors="replace").splitlines():
+                if len(line) < 4:
+                    continue
+                code = line[:2].strip()
+                filepath = line[3:].strip()
+                if code in ("M", "R"):
+                    status_map[filepath] = "M"
+                elif code in ("A", "C"):
+                    status_map[filepath] = "A"
+                elif code == "D":
+                    status_map[filepath] = "D"
+                elif code in ("??", "!"):
+                    status_map[filepath] = "U"
+                else:
+                    status_map[filepath] = code[0] if code else "M"
+            return status_map
+        except FileNotFoundError:
+            return {}
+
+    def _build_tree(self, root_path: str, current_path: str, git_status_map: dict[str, str]) -> list[dict]:
+        try:
+            entries = sorted(os.listdir(current_path))
+        except PermissionError:
+            return []
+
+        dirs = []
+        files = []
+
+        for entry in entries:
+            if entry.startswith(".") and entry not in (".env", ".env.local"):
+                continue
+
+            full_path = os.path.join(current_path, entry)
+
+            if os.path.isdir(full_path):
+                if entry in self.EXCLUDED_DIRS:
+                    continue
+                dirs.append(entry)
+            elif os.path.isfile(full_path):
+                files.append(entry)
+
+        result = []
+
+        for d in dirs:
+            full_path = os.path.join(current_path, d)
+            rel_path = os.path.relpath(full_path, root_path)
+            children = self._build_tree(root_path, full_path, git_status_map)
+            result.append({
+                "name": d,
+                "type": "directory",
+                "path": rel_path,
+                "git_status": None,
+                "children": children,
+            })
+
+        for f in files:
+            full_path = os.path.join(current_path, f)
+            rel_path = os.path.relpath(full_path, root_path)
+            result.append({
+                "name": f,
+                "type": "file",
+                "path": rel_path,
+                "git_status": git_status_map.get(rel_path),
+                "children": None,
+            })
+
+        return result
 
     async def write_file_content(self, project_id: str, path: str, content: str) -> dict:
         project_path = self._get_project_path(project_id)

@@ -111,6 +111,21 @@ class TestFileContentAPI:
         with open(file_path, encoding="utf-8") as f:
             assert f.read() == "print('hello')\n"
 
+    def test_get_file_tree(self, client, git_project):
+        project_id = _create_project(client, git_project)
+
+        resp = client.get("/api/files/tree", params={"project_id": project_id})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "tree" in data
+        tree = data["tree"]
+        names = [n["name"] for n in tree]
+        assert "example.py" in names
+
+        example_node = next(n for n in tree if n["name"] == "example.py")
+        assert example_node["type"] == "file"
+        assert example_node["path"] == "example.py"
+
     def test_write_file_content_sensitive_blocked(self, client, git_project):
         project_id = _create_project(client, git_project)
         resp = client.post("/api/files/write", json={

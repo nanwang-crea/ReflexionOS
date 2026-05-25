@@ -7,6 +7,7 @@ from app.models.file_content import (
     FileWriteRequest,
     FileWriteResponse,
 )
+from app.models.file_tree import FileTreeResponse
 from app.services.file_content_service import file_content_service
 
 router = APIRouter(prefix="/api/files", tags=["files"])
@@ -30,6 +31,16 @@ async def get_diff_content(
 ):
     try:
         return await file_content_service.get_diff_content(project_id, path)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
+
+
+@router.get("/tree", response_model=FileTreeResponse)
+async def get_file_tree(
+    project_id: str = Query(..., description="项目 ID"),
+):
+    try:
+        return await file_content_service.get_file_tree(project_id)
     except ValueError as exc:
         raise value_error_to_app_error(exc, resource="项目") from exc
 
