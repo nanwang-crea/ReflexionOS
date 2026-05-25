@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { CodeTab } from '@/components/workspace/CodeTab'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
 import { useConversationStore } from '@/features/conversation/conversationStore'
+import { useCodeTabStore } from '@/features/code/codeTabStore'
 import { useConversationData } from '@/hooks/useConversationData'
 import { useConversationRuntime } from '@/hooks/useConversationRuntime'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { ToastContainer } from '@/components/common/Toast'
+import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
@@ -28,6 +31,15 @@ export default function AgentWorkspace() {
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
   )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
+  const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
+  const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
+
+  const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
+    const path = detail.arguments?.path as string | undefined
+    if (!path) return
+    const defaultSubTab = detail.category === 'edit' || detail.category === 'create' ? 'diff' : 'edit'
+    setActiveFile(path, '', defaultSubTab)
+  }, [setActiveFile])
 
   // When plan disappears (run ends), reset minimized state so next plan starts expanded
   const effectivePlanMinimized = plan ? isPlanMinimized : false
@@ -62,31 +74,38 @@ export default function AgentWorkspace() {
       <div className="flex h-full flex-col bg-white">
         <WorkspaceHeader {...viewModel.headerProps} />
 
-        <WorkspaceTranscript
-          {...viewModel.transcriptProps}
-          runsById={runsById}
-          isPlanMinimized={effectivePlanMinimized}
-          onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
-        />
+        {workspaceTab === 'code' ? (
+          <CodeTab />
+        ) : (
+          <>
+            <WorkspaceTranscript
+              {...viewModel.transcriptProps}
+              runsById={runsById}
+              isPlanMinimized={effectivePlanMinimized}
+              onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
+              onDetailClick={handleDetailClick}
+            />
 
-        <div className="border-t border-gray-200 bg-white">
-          {plan && effectivePlanMinimized && (
-            <PlanMinimizedBar
-              plan={plan}
-              onExpand={() => setIsPlanMinimized(false)}
-            />
-          )}
-          <div className="p-4">
-            <ChatInput
-              onSend={sendMessage}
-              onCancel={cancelRun}
-              {...viewModel.inputProps}
-            />
-            {!viewModel.currentProject && (
-              <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
-            )}
-          </div>
-        </div>
+            <div className="border-t border-gray-200 bg-white">
+              {plan && effectivePlanMinimized && (
+                <PlanMinimizedBar
+                  plan={plan}
+                  onExpand={() => setIsPlanMinimized(false)}
+                />
+              )}
+              <div className="p-4">
+                <ChatInput
+                  onSend={sendMessage}
+                  onCancel={cancelRun}
+                  {...viewModel.inputProps}
+                />
+                {!viewModel.currentProject && (
+                  <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </>
   )
