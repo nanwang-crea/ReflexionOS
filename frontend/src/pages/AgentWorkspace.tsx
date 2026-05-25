@@ -12,6 +12,7 @@ import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import { ToastContainer } from '@/components/common/Toast'
+import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 
 export default function AgentWorkspace() {
@@ -70,8 +71,10 @@ export default function AgentWorkspace() {
   return (
     <>
       <ToastContainer />
-      <div className="flex h-full flex-col bg-white">
-        <WorkspaceHeader {...viewModel.headerProps} />
+      <div className="flex h-full">
+        <FileSidebar />
+        <div className="flex h-full flex-col bg-white flex-1 min-w-0">
+          <WorkspaceHeader {...viewModel.headerProps} />
 
         {workspaceTab === 'code' ? (
           <CodeTab />
@@ -105,6 +108,7 @@ export default function AgentWorkspace() {
             </div>
           </>
         )}
+        </div>
       </div>
     </>
   )
