@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { GripVertical, PanelLeftClose, RefreshCw } from 'lucide-react'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
 import { fileApi } from '@/features/code/fileApi'
 import { useProjectStore } from '@/stores/projectStore'
@@ -8,14 +8,19 @@ import type { FileTreeNode } from '@/types/fileTree'
 
 export function FileSidebar() {
   const sidebarOpen = useCodeTabStore((s) => s.sidebarOpen)
+  const sidebarWidth = useCodeTabStore((s) => s.sidebarWidth)
   const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
+  const setSidebarWidth = useCodeTabStore((s) => s.setSidebarWidth)
   const currentProject = useProjectStore((s) => s.currentProject)
 
   const [tree, setTree] = useState<FileTreeNode[]>([])
   const [loading, setLoading] = useState(false)
+  const resizingRef = useRef(false)
+  const startXRef = useRef(0)
+  const startWidthRef = useRef(0)
 
   useEffect(() => {
-    if (!currentProject) return
+    if (!currentProject || !sidebarOpen) return
     let cancelled = false
     setLoading(true)
 
@@ -34,25 +39,38 @@ export function FileSidebar() {
 
     load()
     return () => { cancelled = true }
-  }, [currentProject])
+  }, [currentProject, sidebarOpen])
 
-  if (!sidebarOpen) {
-    return (
-      <div className="flex flex-col items-center border-r border-gray-200 bg-white py-3">
-        <button
-          type="button"
-          onClick={() => setSidebarOpen(true)}
-          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-          title="展开文件栏"
-        >
-          <PanelLeftOpen className="h-4 w-4" />
-        </button>
-      </div>
-    )
-  }
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    resizingRef.current = true
+    startXRef.current = e.clientX
+    startWidthRef.current = sidebarWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return
+      const delta = startXRef.current - moveEvent.clientX
+      setSidebarWidth(startWidthRef.current - delta)
+    }
+
+    const onMouseUp = () => {
+      resizingRef.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [sidebarWidth, setSidebarWidth])
+
+  if (!sidebarOpen) return null
 
   return (
-    <div className="flex h-full w-60 flex-col border-r border-gray-200 bg-white">
+    <div className="relative flex h-full flex-col border-r border-gray-200 bg-white" style={{ width: sidebarWidth }}>
       <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
         <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
           文件
@@ -94,6 +112,16 @@ export function FileSidebar() {
             <FileTreeItem key={node.path} node={node} depth={0} />
           ))
         )}
+      </div>
+
+      <div
+        onMouseDown={handleResizeMouseDown}
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize group"
+        title="拖拽调整宽度"
+      >
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-sm bg-transparent p-0.5 opacity-0 group-hover:opacity-100 group-hover:bg-slate-200 transition-opacity">
+          <GripVertical className="h-3 w-3 text-slate-400" />
+        </div>
       </div>
     </div>
   )
