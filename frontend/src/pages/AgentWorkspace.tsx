@@ -37,8 +37,7 @@ export default function AgentWorkspace() {
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const path = detail.arguments?.path as string | undefined
     if (!path) return
-    const defaultSubTab = detail.category === 'edit' || detail.category === 'create' ? 'diff' : 'edit'
-    setActiveFile(path, '', defaultSubTab)
+    setActiveFile(path, '')
   }, [setActiveFile])
 
   // When plan disappears (run ends), reset minimized state so next plan starts expanded

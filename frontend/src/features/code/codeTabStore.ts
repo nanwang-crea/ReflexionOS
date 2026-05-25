@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 
 export type WorkspaceTab = 'chat' | 'code'
-export type CodeSubTab = 'diff' | 'edit'
 
 export interface ActiveFile {
   path: string
@@ -10,34 +9,45 @@ export interface ActiveFile {
 
 interface CodeTabState {
   workspaceTab: WorkspaceTab
-  codeSubTab: CodeSubTab
   activeFile: ActiveFile | null
   isDirty: boolean
+  sidebarOpen: boolean
+  expandedDirs: Record<string, boolean>
 }
 
 interface CodeTabActions {
   setWorkspaceTab: (tab: WorkspaceTab) => void
-  setCodeSubTab: (subTab: CodeSubTab) => void
-  setActiveFile: (path: string, language: string, defaultSubTab?: CodeSubTab) => void
+  setActiveFile: (path: string, language: string) => void
   setDirty: (dirty: boolean) => void
   clearActiveFile: () => void
+  setSidebarOpen: (open: boolean) => void
+  toggleDir: (path: string) => void
+  setDirExpanded: (path: string, expanded: boolean) => void
 }
 
 export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => ({
   workspaceTab: 'chat',
-  codeSubTab: 'diff',
   activeFile: null,
   isDirty: false,
+  sidebarOpen: true,
+  expandedDirs: {},
 
   setWorkspaceTab: (tab) => set({ workspaceTab: tab }),
-  setCodeSubTab: (subTab) => set({ codeSubTab: subTab }),
-  setActiveFile: (path, language, defaultSubTab) =>
-    set((state) => ({
+  setActiveFile: (path, language) =>
+    set({
       activeFile: { path, language },
       isDirty: false,
       workspaceTab: 'code',
-      codeSubTab: defaultSubTab ?? state.codeSubTab,
-    })),
+    }),
   setDirty: (dirty) => set({ isDirty: dirty }),
   clearActiveFile: () => set({ activeFile: null, isDirty: false }),
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  toggleDir: (path) =>
+    set((state) => ({
+      expandedDirs: { ...state.expandedDirs, [path]: !state.expandedDirs[path] },
+    })),
+  setDirExpanded: (path, expanded) =>
+    set((state) => ({
+      expandedDirs: { ...state.expandedDirs, [path]: expanded },
+    })),
 }))

@@ -5,6 +5,7 @@ import type {
   FileWriteRequest,
   FileWriteResponse,
 } from '@/types/file'
+import type { FileTreeResponse } from '@/types/fileTree'
 
 export const fileApi = {
   getContent: (projectId: string, path: string) =>
@@ -19,4 +20,9 @@ export const fileApi = {
 
   writeFile: (data: FileWriteRequest) =>
     apiClient.post<FileWriteResponse>('/api/files/write', data),
+
+  getTree: (projectId: string) =>
+    apiClient.get<FileTreeResponse>('/api/files/tree', {
+      params: { project_id: projectId },
+    }),
 }
