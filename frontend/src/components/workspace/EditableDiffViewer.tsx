@@ -12,13 +12,20 @@ interface EditableDiffViewerProps {
 
 export function EditableDiffViewer({ original, modified, language, onChange, onSave }: EditableDiffViewerProps) {
   const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null)
+  const mountedRef = useRef(false)
+  const lastOriginalRef = useRef(original)
+  const lastModifiedRef = useRef(modified)
 
   function handleMount(ed: editor.IStandaloneDiffEditor) {
     editorRef.current = ed
+    mountedRef.current = true
+    lastOriginalRef.current = original
+    lastModifiedRef.current = modified
 
     const modifiedEditor = ed.getModifiedEditor()
     modifiedEditor.onDidChangeModelContent(() => {
       const value = modifiedEditor.getValue()
+      lastModifiedRef.current = value
       onChange(value)
     })
 
@@ -29,16 +36,39 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
   }
 
   useEffect(() => {
-    if (editorRef.current) {
-      const originalModel = editorRef.current.getOriginalEditor().getModel()
-      const modifiedModel = editorRef.current.getModifiedEditor().getModel()
-      if (originalModel) originalModel.setValue(original)
-      if (modifiedModel) modifiedModel.setValue(modified)
+    if (!editorRef.current || !mountedRef.current) return
+
+    const origChanged = original !== lastOriginalRef.current
+    const modChanged = modified !== lastModifiedRef.current
+
+    if (!origChanged && !modChanged) return
+
+    const originalModel = editorRef.current.getOriginalEditor().getModel()
+    const modifiedModel = editorRef.current.getModifiedEditor().getModel()
+
+    if (origChanged && originalModel) {
+      originalModel.setValue(original)
+      lastOriginalRef.current = original
     }
-  }, [original, modified])
+
+    if (modChanged && modifiedModel) {
+      const modifiedEditor = editorRef.current.getModifiedEditor()
+      const currentEditValue = modifiedEditor.getValue()
+      if (currentEditValue !== modified) {
+        modifiedEditor.pushUndoStop()
+        modifiedEditor.executeEdits('external-update', [{
+          range: modifiedEditor.getModel()!.getFullModelRange(),
+          text: modified,
+        }])
+        modifiedEditor.pushUndoStop()
+      }
+      lastModifiedRef.current = modified
+    }
+  }, [original, modified, onChange])
 
   return (
     <DiffEditor
+      key={`${original.length}-${modified.length}`}
       height="100%"
       language={language}
       original={original}
@@ -53,6 +83,12 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
         lineNumbers: 'on',
         automaticLayout: true,
         enableSplitViewResizing: true,
+        wordWrap: 'on',
+        tabSize: 2,
+        quickSuggestions: true,
+        suggestOnTriggerCharacters: true,
+        parameterHints: { enabled: true },
+        formatOnPaste: true,
       } as editor.IDiffEditorConstructionOptions}
     />
   )
