@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import llm, projects, sessions, skills, websocket
+from app.api.routes import files, llm, projects, sessions, skills, websocket
 from app.app_services import agent_service
 from app.errors import AppError
 
@@ -49,6 +49,7 @@ app.include_router(sessions.router)
 app.include_router(llm.router)
 app.include_router(skills.router)
 app.include_router(websocket.router)
+app.include_router(files.router)
 
 
 @app.get("/")

@@ -1,0 +1,121 @@
+import os
+import subprocess
+import tempfile
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app
+
+
+@pytest.fixture
+def client():
+    return TestClient(app)
+
+
+@pytest.fixture
+def git_project():
+    """Create a temporary git repo with a test file"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        subprocess.run(["git", "init"], cwd=tmpdir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.email", "test@test.com"],
+            cwd=tmpdir, check=True, capture_output=True,
+        )
+        subprocess.run(
+            ["git", "config", "user.name", "Test"],
+            cwd=tmpdir, check=True, capture_output=True,
+        )
+
+        file_path = os.path.join(tmpdir, "example.py")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("def hello():\n    return 'world'\n")
+        subprocess.run(["git", "add", "."], cwd=tmpdir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "init"],
+            cwd=tmpdir, check=True, capture_output=True,
+        )
+
+        yield tmpdir
+
+
+def _create_project(client, path):
+    resp = client.post("/api/projects", json={"name": "test", "path": path})
+    assert resp.status_code == 200
+    return resp.json()["id"]
+
+
+class TestFileContentAPI:
+    def test_get_file_content_existing(self, client, git_project):
+        project_id = _create_project(client, git_project)
+        resp = client.get("/api/files/content", params={"project_id": project_id, "path": "example.py"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["exists"] is True
+        assert "def hello()" in data["content"]
+        assert data["language"] == "python"
+
+    def test_get_file_content_nonexistent(self, client, git_project):
+        project_id = _create_project(client, git_project)
+        resp = client.get("/api/files/content", params={"project_id": project_id, "path": "nope.py"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["exists"] is False
+        assert data["content"] == ""
+
+    def test_get_file_content_path_traversal_blocked(self, client, git_project):
+        project_id = _create_project(client, git_project)
+        resp = client.get("/api/files/content", params={"project_id": project_id, "path": "../etc/passwd"})
+        assert resp.status_code in (400, 403)
+
+    def test_get_diff_content_modified_file(self, client, git_project):
+        project_id = _create_project(client, git_project)
+
+        file_path = os.path.join(git_project, "example.py")
+        with open(file_path, "w", encoding="utf-8") as f:
+            f.write("def hello():\n    return 'changed'\n")
+
+        resp = client.get("/api/files/diff-content", params={"project_id": project_id, "path": "example.py"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "'world'" in data["original"]
+        assert "'changed'" in data["modified"]
+        assert data["language"] == "python"
+
+    def test_get_diff_content_new_file(self, client, git_project):
+        project_id = _create_project(client, git_project)
+
+        new_file = os.path.join(git_project, "new.ts")
+        with open(new_file, "w", encoding="utf-8") as f:
+            f.write("const x = 1;\n")
+
+        resp = client.get("/api/files/diff-content", params={"project_id": project_id, "path": "new.ts"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["original"] == ""
+        assert "const x = 1" in data["modified"]
+        assert data["language"] == "typescript"
+
+    def test_write_file_content(self, client, git_project):
+        project_id = _create_project(client, git_project)
+        resp = client.post("/api/files/write", json={
+            "project_id": project_id,
+            "path": "written.py",
+            "content": "print('hello')\n",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+
+        file_path = os.path.join(git_project, "written.py")
+        with open(file_path, encoding="utf-8") as f:
+            assert f.read() == "print('hello')\n"
+
+    def test_write_file_content_sensitive_blocked(self, client, git_project):
+        project_id = _create_project(client, git_project)
+        resp = client.post("/api/files/write", json={
+            "project_id": project_id,
+            "path": ".env",
+            "content": "SECRET=abc\n",
+        })
+        assert resp.status_code in (400, 403)
