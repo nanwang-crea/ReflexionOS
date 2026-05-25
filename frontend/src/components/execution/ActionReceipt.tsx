@@ -14,6 +14,7 @@ interface ActionReceiptProps {
   status: ActionReceiptStatus
   details: ActionReceiptDetail[]
   onApprovalAction?: (action: ApprovalActionType, payload: ApprovalActionPayload) => void
+  onDetailClick?: (detail: ActionReceiptDetail) => void
 }
 
 export function sendApprovalAction(
@@ -70,16 +71,27 @@ const DETAIL_STATUS_ORDER: Record<string, number> = {
   pending: 5,
 }
 
-function ActionReceiptDetailRow({ detail }: { detail: ActionReceiptDetail }) {
+function ActionReceiptDetailRow({
+  detail,
+  onDetailClick,
+}: {
+  detail: ActionReceiptDetail
+  onDetailClick?: (detail: ActionReceiptDetail) => void
+}) {
   const hasOutput = !!detail.output
   const hasError = !!detail.error
   const [outputOpen, setOutputOpen] = useState(false)
   const errorInitiallyOpen = detail.status === 'failed' && hasError
   const [errorExpanded, setErrorExpanded] = useState(errorInitiallyOpen)
+  const isClickable = onDetailClick != null
+    && (detail.category === 'edit' || detail.category === 'create' || detail.category === 'delete')
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+    <div
+      className={isClickable ? 'cursor-pointer' : ''}
+      onClick={isClickable ? () => onDetailClick!(detail) : undefined}
+    >
+      <div className={`flex flex-wrap items-center gap-2 text-sm ${isClickable ? 'rounded-md px-1 py-0.5 -mx-1 -my-0.5 hover:bg-slate-50 transition-colors' : 'text-slate-600'}`}>
         <span className={`h-1.5 w-1.5 rounded-full ${
           detail.status === 'failed' ? 'bg-red-400' :
           detail.status === 'cancelled' ? 'bg-amber-400' :
@@ -151,7 +163,7 @@ function ActionReceiptDetailRow({ detail }: { detail: ActionReceiptDetail }) {
   )
 }
 
-export function ActionReceipt({ status, details, onApprovalAction }: ActionReceiptProps) {
+export function ActionReceipt({ status, details, onApprovalAction, onDetailClick }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
   const topRef = useRef<HTMLButtonElement>(null)
 
@@ -265,7 +277,7 @@ export function ActionReceipt({ status, details, onApprovalAction }: ActionRecei
           >
             <div className="mt-3 space-y-3 border-l border-slate-200 pl-4">
               {sortedDetails.map((detail) => (
-                <ActionReceiptDetailRow key={detail.id} detail={detail} />
+                <ActionReceiptDetailRow key={detail.id} detail={detail} onDetailClick={onDetailClick} />
               ))}
               <div className="flex justify-center pt-1 pb-2">
                 <button
