@@ -5,6 +5,7 @@ import { SlideIn } from '@/components/animations/SlideIn'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
+import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { Project } from '@/types/project'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
@@ -53,6 +54,7 @@ interface WorkspaceTranscriptProps {
   isAtBottom?: boolean
   onScrollToBottom?: () => void
   onApprovalAction?: ToolApprovalActionHandler
+  onDetailClick?: (detail: ActionReceiptDetail) => void
   messagesEndRef: RefObject<HTMLDivElement>
   runsById?: Record<string, ConversationRun>
 }
@@ -73,6 +75,7 @@ export function WorkspaceTranscript({
   isAtBottom = true,
   onScrollToBottom,
   onApprovalAction,
+  onDetailClick,
   messagesEndRef,
   runsById,
 }: WorkspaceTranscriptProps) {
@@ -146,6 +149,7 @@ export function WorkspaceTranscript({
                     status={item.status}
                     details={item.details}
                     onApprovalAction={onApprovalAction}
+                    onDetailClick={onDetailClick}
                   />
                 </SlideIn>
               )

@@ -1,6 +1,8 @@
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import type { ApprovalActionPayload, ApprovalActionType } from '@/components/execution/ActionReceipt'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
+
+export type ReceiptDetailClickHandler = (detail: ActionReceiptDetail) => void
 import type { ConversationMessage } from '@/types/conversation'
 import { buildToolTraceDetail } from './transcriptItems'
 
@@ -33,16 +35,19 @@ export function ToolTraceGroup({
   details,
   status,
   onApprovalAction,
+  onDetailClick,
 }: {
   details: ActionReceiptDetail[]
   status: ActionReceiptStatus
   onApprovalAction?: ToolApprovalActionHandler
+  onDetailClick?: ReceiptDetailClickHandler
 }) {
   return (
     <ActionReceipt
       status={status}
       details={details}
       onApprovalAction={onApprovalAction}
+      onDetailClick={onDetailClick}
     />
   )
 }
