@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { GripVertical, PanelLeftClose, RefreshCw } from 'lucide-react'
+import { GripVertical, PanelRightClose, RefreshCw } from 'lucide-react'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
 import { fileApi } from '@/features/code/fileApi'
 import { useProjectStore } from '@/stores/projectStore'
@@ -70,9 +70,9 @@ export function FileSidebar() {
   if (!sidebarOpen) return null
 
   return (
-    <div className="relative flex h-full flex-col border-r border-gray-200 bg-white" style={{ width: sidebarWidth }}>
-      <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
-        <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+    <div className="relative flex h-full flex-col border-l border-edge bg-surface-primary" style={{ width: sidebarWidth }}>
+      <div className="flex items-center justify-between border-b border-edge-subtle px-3 py-2">
+        <span className="text-xs font-medium text-content-muted uppercase tracking-wider">
           文件
         </span>
         <div className="flex items-center gap-1">
@@ -86,7 +86,7 @@ export function FileSidebar() {
                 .catch((err) => console.error('Refresh failed:', err))
                 .finally(() => setLoading(false))
             }}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
             title="刷新"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
@@ -94,19 +94,19 @@ export function FileSidebar() {
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            className="rounded-md p-1 text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
             title="收起文件栏"
           >
-            <PanelLeftClose className="h-3.5 w-3.5" />
+            <PanelRightClose className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto py-1">
         {!currentProject ? (
-          <div className="px-3 py-4 text-xs text-slate-400">请先选择项目</div>
+          <div className="px-3 py-4 text-xs text-content-muted">请先选择项目</div>
         ) : loading ? (
-          <div className="px-3 py-4 text-xs text-slate-400">加载中...</div>
+          <div className="px-3 py-4 text-xs text-content-muted">加载中...</div>
         ) : (
           tree.map((node) => (
             <FileTreeItem key={node.path} node={node} depth={0} />
@@ -119,7 +119,7 @@ export function FileSidebar() {
         className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize group"
         title="拖拽调整宽度"
       >
-        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-sm bg-transparent p-0.5 opacity-0 group-hover:opacity-100 group-hover:bg-slate-200 transition-opacity">
+        <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-sm bg-transparent p-0.5 opacity-0 group-hover:opacity-100 group-hover:bg-surface-tertiary transition-opacity">
           <GripVertical className="h-3 w-3 text-slate-400" />
         </div>
       </div>

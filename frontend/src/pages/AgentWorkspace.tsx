@@ -36,6 +36,7 @@ export default function AgentWorkspace() {
   )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
   const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
+  const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
   const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
   const togglePanel = useTerminalStore((s) => s.togglePanel)
   const createTerminal = useTerminalStore((s) => s.createTerminal)
@@ -56,6 +57,14 @@ export default function AgentWorkspace() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [togglePanel, createTerminal, currentProject])
+
+  useEffect(() => {
+    if (workspaceTab === 'code') {
+      setSidebarOpen(true)
+    } else {
+      setSidebarOpen(false)
+    }
+  }, [workspaceTab, setSidebarOpen])
 
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const path = detail.arguments?.path as string | undefined
@@ -94,8 +103,7 @@ export default function AgentWorkspace() {
     <>
       <ToastContainer />
       <div className="flex h-full">
-        <FileSidebar />
-        <div className="flex h-full flex-col bg-white flex-1 min-w-0">
+        <div className="flex h-full flex-col bg-surface-primary flex-1 min-w-0">
           <WorkspaceHeader {...viewModel.headerProps} />
 
         {workspaceTab === 'code' ? (
@@ -136,6 +144,7 @@ export default function AgentWorkspace() {
           </>
         )}
         </div>
+        {workspaceTab === 'code' && <FileSidebar />}
       </div>
     </>
   )
