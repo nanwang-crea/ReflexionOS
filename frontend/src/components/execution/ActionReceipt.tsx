@@ -38,23 +38,23 @@ function trimOutput(value: string, maxLength = 800) {
 
 function ShellApprovalDetail({ shell }: { shell: ShellApprovalPayload }) {
   return (
-    <div className="mt-2 space-y-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+    <div className="mt-2 space-y-1.5 rounded-lg border border-edge bg-surface-tertiary px-3 py-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-content-secondary">
         <Terminal className="h-3.5 w-3.5" />
         <span className="font-mono">{shell.command}</span>
       </div>
       {shell.execution_mode && (
-        <div className="text-xs text-slate-500">
+        <div className="text-xs text-content-muted">
           模式: <span className="font-mono">{shell.execution_mode}</span>
         </div>
       )}
       {shell.reasons && shell.reasons.length > 0 && (
-        <div className="text-xs text-slate-600">
+        <div className="text-xs text-content-secondary">
           <span className="font-medium">原因:</span> {shell.reasons.join('；')}
         </div>
       )}
       {shell.risks && shell.risks.length > 0 && (
-        <div className="text-xs text-amber-700">
+        <div className="text-xs text-status-warning">
           <span className="font-medium">风险:</span> {shell.risks.join('；')}
         </div>
       )}
@@ -91,22 +91,22 @@ function ActionReceiptDetailRow({
       className={isClickable ? 'cursor-pointer' : ''}
       onClick={isClickable ? () => onDetailClick!(detail) : undefined}
     >
-      <div className={`flex flex-wrap items-center gap-2 text-sm ${isClickable ? 'rounded-md px-1 py-0.5 -mx-1 -my-0.5 hover:bg-slate-50 transition-colors' : 'text-slate-600'}`}>
+      <div className={`flex flex-wrap items-center gap-2 text-sm ${isClickable ? 'rounded-md px-1 py-0.5 -mx-1 -my-0.5 hover:bg-surface-tertiary transition-colors' : 'text-content-secondary'}`}>
         <span className={`h-1.5 w-1.5 rounded-full ${
-          detail.status === 'failed' ? 'bg-red-400' :
-          detail.status === 'cancelled' ? 'bg-amber-400' :
+          detail.status === 'failed' ? 'bg-status-error' :
+          detail.status === 'cancelled' ? 'bg-status-warning' :
           detail.status === 'running' ? 'bg-blue-400' :
-          detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-slate-300'
+          detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-content-muted'
         }`} />
         <span>{detail.summary}</span>
         {detail.duration !== undefined && (
-          <span className="text-xs text-slate-400">{detail.duration.toFixed(2)}s</span>
+          <span className="text-xs text-content-muted">{detail.duration.toFixed(2)}s</span>
         )}
         {hasOutput && (
           <button
             type="button"
             onClick={() => setOutputOpen(prev => !prev)}
-            className="inline-flex items-center gap-0.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            className="inline-flex items-center gap-0.5 text-xs text-content-muted hover:text-content-secondary transition-colors"
           >
             输出
             {outputOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -116,7 +116,7 @@ function ActionReceiptDetailRow({
           <button
             type="button"
             onClick={() => setErrorExpanded(prev => !prev)}
-            className="inline-flex items-center gap-0.5 text-xs text-red-400 hover:text-red-600 transition-colors"
+            className="inline-flex items-center gap-0.5 text-xs text-status-error hover:text-red-400 transition-colors"
           >
             错误
             {errorExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -133,7 +133,7 @@ function ActionReceiptDetailRow({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <pre className="mt-2 overflow-auto rounded-xl bg-slate-50 px-3 py-2 text-xs leading-6 text-slate-500 whitespace-pre-wrap">
+            <pre className="mt-2 overflow-auto rounded-xl bg-surface-tertiary px-3 py-2 text-xs leading-6 text-content-muted whitespace-pre-wrap">
               {trimOutput(detail.output!)}
             </pre>
           </motion.div>
@@ -149,7 +149,7 @@ function ActionReceiptDetailRow({
             transition={{ duration: 0.15 }}
             className="overflow-hidden"
           >
-            <pre className="mt-2 overflow-auto rounded-xl bg-red-50 px-3 py-2 text-xs leading-6 text-red-600 whitespace-pre-wrap">
+            <pre className="mt-2 overflow-auto rounded-xl bg-status-error-soft px-3 py-2 text-xs leading-6 text-status-error whitespace-pre-wrap">
               {trimOutput(detail.error!)}
             </pre>
           </motion.div>
@@ -183,12 +183,12 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
   }, [details])
 
   const lineClassName = status === 'failed'
-    ? 'text-red-500 hover:text-red-600'
+    ? 'text-status-error hover:text-red-400'
     : status === 'partial_failed'
-      ? 'text-amber-500 hover:text-amber-600'
+      ? 'text-status-warning hover:text-amber-400'
       : status === 'cancelled'
-        ? 'text-amber-500 hover:text-amber-600'
-        : 'text-slate-400 hover:text-slate-600'
+        ? 'text-status-warning hover:text-amber-400'
+        : 'text-content-muted hover:text-content-secondary'
 
   const approvalDetails = onApprovalAction
     ? details
@@ -249,7 +249,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
               aria-label="批准此操作"
               title="批准此操作"
               onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-emerald-200 text-emerald-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-success-border text-status-success transition-colors hover:bg-status-success-soft hover:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
             >
               <Check className="h-4 w-4" />
             </button>
@@ -258,7 +258,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
               aria-label="拒绝此操作"
               title="拒绝此操作"
               onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-rose-200 text-rose-600 transition-colors hover:bg-rose-50 hover:text-rose-700 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-error-border text-status-error transition-colors hover:bg-status-error-soft hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
             >
               <X className="h-4 w-4" />
             </button>
@@ -275,7 +275,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
-            <div className="mt-3 space-y-3 border-l border-slate-200 pl-4">
+            <div className="mt-3 space-y-3 border-l border-edge pl-4">
               {sortedDetails.map((detail) => (
                 <ActionReceiptDetailRow key={detail.id} detail={detail} onDetailClick={onDetailClick} />
               ))}
@@ -283,7 +283,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
                 <button
                   type="button"
                   onClick={handleCollapse}
-                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                  className="inline-flex items-center gap-1 text-xs text-content-muted hover:text-content-secondary transition-colors"
                 >
                   <ChevronRight className="h-3 w-3 rotate-180" />
                   收起
