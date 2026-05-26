@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GripVertical, PanelRightClose, RefreshCw } from 'lucide-react'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
+import { useGitStore } from '@/features/git/gitStore'
 import { fileApi } from '@/features/code/fileApi'
 import { useProjectStore } from '@/stores/projectStore'
 import { FileTreeItem } from './FileTreeItem'
+import { GitChangesTab } from './git/GitChangesTab'
 import type { FileTreeNode } from '@/types/fileTree'
 
 export function FileSidebar() {
@@ -11,7 +13,10 @@ export function FileSidebar() {
   const sidebarWidth = useCodeTabStore((s) => s.sidebarWidth)
   const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
   const setSidebarWidth = useCodeTabStore((s) => s.setSidebarWidth)
+  const sidebarTab = useCodeTabStore((s) => s.sidebarTab)
+  const setSidebarTab = useCodeTabStore((s) => s.setSidebarTab)
   const currentProject = useProjectStore((s) => s.currentProject)
+  const totalChanges = useGitStore((s) => s.totalChanges)
 
   const [tree, setTree] = useState<FileTreeNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -69,12 +74,11 @@ export function FileSidebar() {
 
   if (!sidebarOpen) return null
 
+  const changesCount = totalChanges()
+
   return (
     <div className="relative flex h-full flex-col border-l border-edge bg-surface-primary" style={{ width: sidebarWidth }}>
       <div className="flex items-center justify-between border-b border-edge-subtle px-3 py-2">
-        <span className="text-xs font-medium text-content-muted uppercase tracking-wider">
-          文件
-        </span>
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -102,17 +106,46 @@ export function FileSidebar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1">
-        {!currentProject ? (
-          <div className="px-3 py-4 text-xs text-content-muted">请先选择项目</div>
-        ) : loading ? (
-          <div className="px-3 py-4 text-xs text-content-muted">加载中...</div>
-        ) : (
-          tree.map((node) => (
-            <FileTreeItem key={node.path} node={node} depth={0} />
-          ))
-        )}
+      <div className="flex border-b border-edge-subtle">
+        <button
+          type="button"
+          onClick={() => setSidebarTab('files')}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+            sidebarTab === 'files'
+              ? 'text-content-primary border-b-2 border-accent'
+              : 'text-content-muted hover:text-content-secondary'
+          }`}
+        >
+          文件
+        </button>
+        <button
+          type="button"
+          onClick={() => setSidebarTab('changes')}
+          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+            sidebarTab === 'changes'
+              ? 'text-content-primary border-b-2 border-accent'
+              : 'text-content-muted hover:text-content-secondary'
+          }`}
+        >
+          变更{changesCount > 0 ? ` ${changesCount}` : ''}
+        </button>
       </div>
+
+      {sidebarTab === 'files' ? (
+        <div className="flex-1 overflow-y-auto py-1">
+          {!currentProject ? (
+            <div className="px-3 py-4 text-xs text-content-muted">请先选择项目</div>
+          ) : loading ? (
+            <div className="px-3 py-4 text-xs text-content-muted">加载中...</div>
+          ) : (
+            tree.map((node) => (
+              <FileTreeItem key={node.path} node={node} depth={0} />
+            ))
+          )}
+        </div>
+      ) : (
+        <GitChangesTab />
+      )}
 
       <div
         onMouseDown={handleResizeMouseDown}

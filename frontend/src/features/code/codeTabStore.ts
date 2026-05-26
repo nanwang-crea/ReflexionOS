@@ -18,6 +18,7 @@ interface CodeTabState {
   sidebarOpen: boolean
   sidebarWidth: number
   expandedDirs: Record<string, boolean>
+  sidebarTab: 'files' | 'changes'
 }
 
 interface CodeTabActions {
@@ -30,6 +31,7 @@ interface CodeTabActions {
   setSidebarWidth: (width: number) => void
   toggleDir: (path: string) => void
   setDirExpanded: (path: string, expanded: boolean) => void
+  setSidebarTab: (tab: 'files' | 'changes') => void
 }
 
 export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH }
@@ -41,6 +43,7 @@ export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => 
   sidebarOpen: false,
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   expandedDirs: {},
+  sidebarTab: 'files' as const,
 
   setWorkspaceTab: (tab) => set({ workspaceTab: tab }),
   setActiveFile: (path, language) =>
@@ -62,4 +65,5 @@ export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => 
     set((state) => ({
       expandedDirs: { ...state.expandedDirs, [path]: expanded },
     })),
+  setSidebarTab: (tab) => set({ sidebarTab: tab }),
 }))
