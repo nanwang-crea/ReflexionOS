@@ -41,24 +41,31 @@ export function TerminalPanel() {
     [panelHeight, setPanelHeight],
   )
 
-  if (!panelVisible) return null
-
-  const activeInstance = instances.find((t) => t.id === activeTerminalId)
-
   return (
-    <div style={{ height: panelHeight }} className="flex flex-col flex-shrink-0">
+    <div
+      style={{ height: panelVisible ? panelHeight : 0 }}
+      className="flex flex-col flex-shrink-0 overflow-hidden"
+    >
       <div
         className="h-1 bg-blue-500 cursor-row-resize hover:h-1.5 transition-all flex-shrink-0"
         onMouseDown={handleMouseDown}
       />
       <TerminalTabBar onClosePanel={togglePanel} />
-      <div className="flex-1 overflow-hidden bg-[#1a1a2e]">
-        {activeInstance ? (
-          <TerminalInstance key={activeInstance.id} terminalId={activeInstance.id} />
-        ) : (
+      <div className="flex-1 overflow-hidden bg-[#1a1a2e] relative">
+        {instances.length === 0 ? (
           <div className="flex h-full items-center justify-center text-slate-500 text-sm">
             没有活动的终端
           </div>
+        ) : (
+          instances.map((inst) => (
+            <div
+              key={inst.id}
+              className="absolute inset-0"
+              style={{ display: inst.id === activeTerminalId ? 'block' : 'none' }}
+            >
+              <TerminalInstance terminalId={inst.id} />
+            </div>
+          ))
         )}
       </div>
     </div>

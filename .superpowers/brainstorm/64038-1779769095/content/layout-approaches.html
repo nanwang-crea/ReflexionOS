@@ -1,0 +1,102 @@
+<h2>终端面板布局方案</h2>
+<p class="subtitle">选择终端在代码模式下的最佳布局方式</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">方案 A：CodeTab 内部面板</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;height:340px;">
+      <div style="display:flex;flex:1;min-height:0;">
+        <div class="mock-sidebar" style="width:60px;flex-shrink:0;font-size:10px;padding:4px;">📁 文件栏</div>
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+          <div class="mock-nav" style="font-size:10px;padding:4px 8px;">文件名.py ★ | 💾保存</div>
+          <div style="flex:1;background:#1e1e1e;border-radius:4px;margin:4px;display:flex;align-items:center;justify-content:center;color:#888;font-size:11px;">Monaco DiffEditor</div>
+          <div style="height:4px;background:#3b82f6;cursor:row-resize;margin:0 4px;border-radius:2px;"></div>
+          <div style="height:100px;background:#1a1a2e;border-radius:0 0 4px 4px;margin:0 4px 4px;display:flex;flex-direction:column;">
+            <div style="display:flex;gap:4px;padding:2px 8px;background:#16213e;font-size:9px;color:#aaa;">
+              <span style="background:#0f3460;padding:1px 6px;border-radius:3px;">终端 1</span>
+              <span style="padding:1px 6px;">终端 2</span>
+              <span style="padding:1px 6px;">+</span>
+            </div>
+            <div style="flex:1;padding:4px 8px;color:#0f0;font-family:monospace;font-size:10px;">$ ls -la<br>total 42<br>drwxr-xr-x  5 user  staff  160 May 26 10:00 .<br>$ _</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A. CodeTab 内嵌面板</h3>
+      <p>终端面板在 CodeTab 组件内部，与编辑器上下分屏</p>
+    </div>
+  </div>
+
+  <div class="mockup">
+    <div class="mockup-header">方案 B：Workspace 级面板（推荐）</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;height:340px;">
+      <div style="display:flex;flex:1;min-height:0;">
+        <div class="mock-sidebar" style="width:60px;flex-shrink:0;font-size:10px;padding:4px;">📁 文件栏</div>
+        <div style="flex:1;display:flex;flex-direction:column;min-width:0;">
+          <div class="mock-nav" style="font-size:10px;padding:4px 8px;">📁 | 标题 | 对话 | 代码 | ● 已连接</div>
+          <div style="flex:1;background:#1e1e1e;border-radius:4px;margin:4px;display:flex;flex-direction:column;">
+            <div style="padding:2px 8px;font-size:10px;color:#ccc;background:#2d2d2d;border-radius:4px 4px 0 0;">文件名.py ★ | 💾保存</div>
+            <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#888;font-size:11px;">Monaco DiffEditor</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;">
+        <div style="height:4px;background:#3b82f6;cursor:row-resize;border-radius:2px;margin:0 4px;"></div>
+        <div style="height:100px;background:#1a1a2e;border-radius:0 0 4px 4px;margin:0 4px 4px;display:flex;flex-direction:column;">
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 8px;background:#16213e;font-size:9px;color:#aaa;">
+            <div style="display:flex;gap:4px;">
+              <span style="background:#0f3460;padding:1px 6px;border-radius:3px;">终端 1</span>
+              <span style="padding:1px 6px;">终端 2</span>
+              <span style="padding:1px 6px;">+</span>
+            </div>
+            <span>✕</span>
+          </div>
+          <div style="flex:1;padding:4px 8px;color:#0f0;font-family:monospace;font-size:10px;">$ ls -la<br>total 42<br>drwxr-xr-x  5 user  staff  160 May 26 10:00 .<br>$ _</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B. Workspace 级面板</h3>
+      <p>终端面板在整个工作区底部，类似 VS Code 的面板系统</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>方案 A 优点</h4>
+      <ul>
+        <li>改动范围小，只需修改 CodeTab</li>
+        <li>终端和编辑器耦合紧密</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>方案 A 缺点</h4>
+      <ul>
+        <li>CodeTab 组件变大，混合编辑器和终端逻辑</li>
+        <li>终端面板随文件切换而重建</li>
+        <li>不利于未来扩展到其他模式</li>
+      </ul>
+    </div>
+  </div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>方案 B 优点</h4>
+      <ul>
+        <li>关注分离清晰，终端独立管理</li>
+        <li>终端不随文件切换而丢失</li>
+        <li>与 VS Code 体验一致</li>
+        <li>未来可扩展到其他模式</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>方案 B 缺点</h4>
+      <ul>
+        <li>需修改 AgentWorkspace 布局</li>
+        <li>初始实现稍复杂</li>
+      </ul>
+    </div>
+  </div>
+</div>

@@ -176,14 +176,23 @@ function getShellCommand() {
 
 ipcMain.handle('terminal:create', (_event, id, cwd) => {
   const shell = getShellCommand()
-  const args = process.platform === 'darwin' ? ['--login'] : []
-  const ptyProcess = pty.spawn(shell, args, {
-    name: 'xterm-256color',
-    cols: 80,
-    rows: 24,
-    cwd: cwd || os.homedir(),
-    env: process.env,
-  })
+  const args = process.platform === 'darwin' ? ['-i', '-l'] : []
+  const effectiveCwd = (cwd && cwd.length > 0) ? cwd : os.homedir()
+  const env = Object.assign({}, process.env, { TERM: 'xterm-256color' })
+
+  let ptyProcess
+  try {
+    ptyProcess = pty.spawn(shell, args, {
+      name: 'xterm-256color',
+      cols: 80,
+      rows: 24,
+      cwd: effectiveCwd,
+      env: env,
+    })
+  } catch (err) {
+    console.error('[terminal] spawn failed:', err)
+    return { pid: -1, error: err.message }
+  }
 
   terminals.set(id, ptyProcess)
 
@@ -194,9 +203,12 @@ ipcMain.handle('terminal:create', (_event, id, cwd) => {
   })
 
   ptyProcess.onExit(({ exitCode }) => {
-    terminals.delete(id)
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('terminal:exit', id, exitCode)
+    console.error('[terminal] exited:', id, 'exitCode:', exitCode)
+    if (terminals.get(id) === ptyProcess) {
+      terminals.delete(id)
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('terminal:exit', id, exitCode)
+      }
     }
   })
 

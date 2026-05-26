@@ -32,6 +32,9 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
   useEffect(() => {
     if (!containerRef.current) return
 
+    let active = true
+    let ptyReady = false
+
     const term = new Terminal({
       theme: {
         background: '#1a1a2e',
@@ -70,26 +73,33 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
     fitAddonRef.current = fitAddon
 
     const unsubData = terminalIpc.onData((id, data) => {
-      if (id === terminalId) {
+      if (id === terminalId && active) {
         term.write(data)
       }
     })
 
-    const unsubExit = terminalIpc.onExit((id) => {
-      if (id === terminalId) {
-        term.writeln('\r\n\x1b[33m进程已退出\x1b[0m')
+    const unsubExit = terminalIpc.onExit((id, exitCode) => {
+      if (id === terminalId && active && ptyReady) {
+        term.writeln(`\r\n\x1b[33m进程已退出 (code=${exitCode})\x1b[0m`)
         markExited(terminalId)
       }
     })
 
     term.onData((data) => {
-      terminalIpc.write(terminalId, data)
+      if (active) {
+        terminalIpc.write(terminalId, data)
+      }
     })
 
     terminalIpc.create(terminalId, cwd).then(({ pid }) => {
-      setPtyPid(terminalId, pid)
+      if (active) {
+        setPtyPid(terminalId, pid)
+        ptyReady = true
+      }
     }).catch((err) => {
-      term.writeln(`\x1b[31m终端创建失败: ${err.message}\x1b[0m`)
+      if (active) {
+        term.writeln(`\x1b[31m终端创建失败: ${err.message}\x1b[0m`)
+      }
     })
 
     const resizeObserver = new ResizeObserver(() => {
@@ -98,6 +108,8 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
     resizeObserver.observe(containerRef.current)
 
     return () => {
+      active = false
+      ptyReady = false
       resizeObserver.disconnect()
       unsubData()
       unsubExit()

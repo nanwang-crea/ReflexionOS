@@ -1,13 +1,14 @@
 {
   "name": "reflexion-os-frontend",
-  "version": "0.1.0",
+  "version": "0.0.3",
   "description": "ReflexionOS Desktop Application",
   "packageManager": "pnpm@10.30.3",
   "main": "electron/main.cjs",
   "pnpm": {
     "onlyBuiltDependencies": [
       "electron",
-      "esbuild"
+      "esbuild",
+      "node-pty"
     ]
   },
   "type": "module",
@@ -29,10 +30,13 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "axios": "^1.6.7",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.8.0",
     "monaco-editor": "^0.55.1",
+    "node-pty": "^1.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
