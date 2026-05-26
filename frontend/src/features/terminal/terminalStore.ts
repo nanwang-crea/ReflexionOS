@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 
 const MIN_PANEL_HEIGHT = 100
 const MAX_PANEL_HEIGHT = 600
-const DEFAULT_PANEL_HEIGHT = 200
+const DEFAULT_PANEL_HEIGHT = 280
 
 export interface TerminalInstance {
   id: string
