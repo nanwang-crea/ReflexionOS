@@ -123,7 +123,7 @@ export default function AgentWorkspace() {
               onDetailClick={handleDetailClick}
             />
 
-            <div className="border-t border-gray-200 bg-white">
+            <div className="border-t border-edge bg-surface-primary">
               {plan && effectivePlanMinimized && (
                 <PlanMinimizedBar
                   plan={plan}
@@ -137,7 +137,7 @@ export default function AgentWorkspace() {
                   {...viewModel.inputProps}
                 />
                 {!viewModel.currentProject && (
-                  <p className="mt-2 text-sm text-gray-500">请先从左侧选择一个项目</p>
+                  <p className="mt-2 text-sm text-content-muted">请先从左侧选择一个项目</p>
                 )}
               </div>
             </div>

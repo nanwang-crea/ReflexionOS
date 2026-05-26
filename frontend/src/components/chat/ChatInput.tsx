@@ -162,7 +162,7 @@ export function ChatInput({
                 type="button"
                 onClick={handleSend}
                 disabled={!value.trim() || disabled || isLoading}
-                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition disabled:cursor-not-allowed disabled:bg-gray-300"
+                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted"
                 whileHover={{ scale: 1.03, y: -1 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400 }}

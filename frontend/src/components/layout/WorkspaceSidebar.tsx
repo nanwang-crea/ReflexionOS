@@ -576,7 +576,7 @@ export function WorkspaceSidebar() {
                   type="text"
                   value={formData.name}
                   onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                   className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
+                   className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
                    placeholder="ReflexionOS"
                 />
               </div>
@@ -587,8 +587,8 @@ export function WorkspaceSidebar() {
                     type="text"
                     value={formData.path}
                     onChange={(event) => setFormData({ ...formData, path: event.target.value })}
-                     className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
-                     placeholder="/path/to/project"
+className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
+                      placeholder="/path/to/project"
                   />
                   {canSelectDirectory && (
                      <button
@@ -607,7 +607,7 @@ export function WorkspaceSidebar() {
                 <select
                   value={formData.language}
                   onChange={(event) => setFormData({ ...formData, language: event.target.value })}
-                   className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
+                   className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
                 >
                   <option value="python">Python</option>
                   <option value="javascript">JavaScript</option>

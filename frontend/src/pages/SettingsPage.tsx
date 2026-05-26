@@ -46,7 +46,7 @@ export default function SettingsPage() {
             <h3 className="text-lg font-semibold text-content-primary">供应商实例</h3>
             <button
               onClick={handleCreateProvider}
-              className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-white hover:bg-accent-hover"
             >
               新增供应商
             </button>
@@ -72,7 +72,7 @@ export default function SettingsPage() {
                 onClick={() => handleSelectProvider(provider.id)}
                 className={`w-full rounded-lg border px-3 py-3 text-left transition ${
                   selectedProviderId === provider.id
-                    ? 'border-blue-300 bg-blue-50'
+                    ? 'border-accent bg-accent-soft'
                     : 'border-edge hover:bg-surface-tertiary'
                 }`}
               >
@@ -108,7 +108,7 @@ export default function SettingsPage() {
                   type="text"
                   value={draftProvider.name}
                   onChange={(e) => handleDraftFieldChange('name', e.target.value)}
-                  className="w-full rounded-lg border border-edge px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                   placeholder="例如：OpenAI 官方"
                 />
               </div>
@@ -120,7 +120,7 @@ export default function SettingsPage() {
                 <select
                   value={draftProvider.provider_type}
                   onChange={(e) => handleDraftFieldChange('provider_type', e.target.value as ProviderType)}
-                  className="w-full rounded-lg border border-edge px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                 >
                   {providerTypeOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -138,7 +138,7 @@ export default function SettingsPage() {
                   type="text"
                   value={draftProvider.base_url || ''}
                   onChange={(e) => handleDraftFieldChange('base_url', e.target.value)}
-                  className="w-full rounded-lg border border-edge px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                   placeholder="https://api.openai.com/v1"
                 />
               </div>
@@ -151,7 +151,7 @@ export default function SettingsPage() {
                   type="password"
                   value={draftProvider.api_key || ''}
                   onChange={(e) => handleDraftFieldChange('api_key', e.target.value)}
-                  className="w-full rounded-lg border border-edge px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                   placeholder="sk-..."
                 />
               </div>
@@ -177,14 +177,14 @@ export default function SettingsPage() {
                         type="text"
                         value={model.display_name}
                         onChange={(e) => handleModelFieldChange(model.id, 'display_name', e.target.value)}
-                        className="w-full rounded-lg border border-edge px-3 py-2"
+                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                         placeholder="显示名称，例如 GPT-4.1"
                       />
                       <input
                         type="text"
                         value={model.model_name}
                         onChange={(e) => handleModelFieldChange(model.id, 'model_name', e.target.value)}
-                        className="w-full rounded-lg border border-edge px-3 py-2"
+                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                         placeholder="模型名称，例如 gpt-4.1"
                       />
                       <label className="flex items-center gap-2 rounded-lg border border-edge px-3 py-2 text-sm text-content-secondary">
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                         type="button"
                         onClick={() => handleRemoveModel(model.id)}
                         disabled={draftProvider.models.length === 1}
-                        className="rounded-lg border border-red-200 px-3 py-2 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:border-edge disabled:text-content-muted"
+                        className="rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:border-edge disabled:text-content-muted"
                       >
                         删除
                       </button>
@@ -216,7 +216,7 @@ export default function SettingsPage() {
               <select
                  value={draftProvider.default_model_id || ''}
                  onChange={(e) => handleDraftFieldChange('default_model_id', e.target.value)}
-                className="w-full rounded-lg border border-edge px-3 py-2"
+                className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
               >
                  {draftProvider.models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -230,8 +230,8 @@ export default function SettingsPage() {
                <div
                  className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
                    testResult.type === 'success'
-                      ? 'border-green-200 bg-green-50 text-green-700'
-                      : 'border-red-200 bg-red-50 text-red-700'
+                       ? 'border-green-500/30 bg-green-500/10 text-green-400'
+                       : 'border-red-500/30 bg-red-500/10 text-red-400'
                   }`}
                 >
                   {testResult.message}
@@ -256,14 +256,14 @@ export default function SettingsPage() {
                   className={`rounded-lg px-4 py-2 ${
                    saving
                       ? 'bg-surface-tertiary text-content-muted'
-                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-accent text-white hover:bg-accent-hover'
                   }`}
                 >
                   {saving ? '保存中...' : '保存供应商'}
                 </button>
                 <button
                   onClick={() => { void handleDeleteProvider() }}
-                  className="rounded-lg border border-red-200 px-4 py-2 text-red-600 hover:bg-red-50"
+                  className="rounded-lg border border-red-500/30 px-4 py-2 text-red-600 hover:bg-red-500/10"
                 >
                  {selectedSavedProvider ? '删除供应商' : '清空草稿'}
               </button>
@@ -287,7 +287,7 @@ export default function SettingsPage() {
                     <select
                        value={defaultSelection.provider_id || ''}
                        onChange={(e) => handleDefaultProviderChange(e.target.value)}
-                       className="w-full rounded-lg border border-edge px-3 py-2"
+                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                      >
                        {providers.map((provider) => (
                         <option key={provider.id} value={provider.id}>
@@ -304,7 +304,7 @@ export default function SettingsPage() {
                     <select
                        value={defaultSelection.model_id || ''}
                        onChange={(e) => handleDefaultModelChange(e.target.value)}
-                       className="w-full rounded-lg border border-edge px-3 py-2"
+                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
                      >
                       {defaultProviderModels.map((model) => (
                         <option key={model.id} value={model.id}>
@@ -322,7 +322,7 @@ export default function SettingsPage() {
                      className={`rounded-lg px-4 py-2 ${
                        savingDefault
                           ? 'bg-surface-tertiary text-content-muted'
-                          : 'bg-blue-600 text-white hover:bg-blue-700'
+                          : 'bg-accent text-white hover:bg-accent-hover'
                       }`}
                     >
                      {savingDefault ? '保存中...' : '保存默认模型'}
