@@ -6,7 +6,7 @@ const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {
   M: 'text-emerald-600',
   A: 'text-emerald-600',
   D: 'text-red-500',
-  U: 'text-slate-400',
+  U: 'text-content-muted',
 }
 
 function GitStatusBadge({ status }: { status: GitStatusCode }) {
@@ -32,13 +32,13 @@ export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: numbe
         <button
           type="button"
           onClick={() => toggleDir(node.path)}
-          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-slate-700 hover:bg-slate-100"
+          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm text-content-secondary hover:bg-surface-tertiary"
           style={{ paddingLeft: `${depth * 12 + 8}px` }}
         >
           {isExpanded ? (
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-content-muted" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-content-muted" />
           )}
           {isExpanded ? (
             <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
@@ -62,12 +62,12 @@ export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: numbe
     <button
       type="button"
       onClick={() => setActiveFile(node.path, '')}
-      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm hover:bg-slate-100 ${
-        isActive ? 'bg-slate-100 text-slate-900 font-medium' : 'text-slate-600'
+      className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm hover:bg-surface-tertiary ${
+        isActive ? 'bg-surface-tertiary text-content-primary font-medium' : 'text-content-secondary'
       }`}
       style={{ paddingLeft: `${depth * 12 + 8 + 20}px` }}
     >
-      <File className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+      <File className="h-3.5 w-3.5 shrink-0 text-content-muted" />
       <span className="truncate">{node.name}</span>
       {node.git_status && <GitStatusBadge status={node.git_status} />}
     </button>

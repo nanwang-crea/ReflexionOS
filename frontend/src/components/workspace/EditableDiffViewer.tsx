@@ -1,6 +1,7 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { DiffEditor } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
+import { useThemeStore } from '@/stores/themeStore'
 
 interface EditableDiffViewerProps {
   original: string
@@ -15,6 +16,21 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
   const mountedRef = useRef(false)
   const lastOriginalRef = useRef(original)
   const lastModifiedRef = useRef(modified)
+
+  const [monacoTheme, setMonacoTheme] = useState<'vs' | 'vs-dark'>('vs')
+
+  useEffect(() => {
+    const update = () => {
+      const t = useThemeStore.getState().theme
+      const resolved = t === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : t
+      setMonacoTheme(resolved === 'dark' ? 'vs-dark' : 'vs')
+    }
+    update()
+    const unsub = useThemeStore.subscribe(update)
+    return () => unsub()
+  }, [])
 
   function handleMount(ed: editor.IStandaloneDiffEditor) {
     editorRef.current = ed
@@ -74,6 +90,7 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
       original={original}
       modified={modified}
       onMount={handleMount}
+      theme={monacoTheme}
       options={{
         readOnly: false,
         renderSideBySide: true,

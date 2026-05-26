@@ -7,7 +7,7 @@ import { useProjectStore } from '@/stores/projectStore'
 
 function CodeTabEmpty() {
   return (
-    <div className="flex h-full items-center justify-center text-slate-400">
+    <div className="flex h-full items-center justify-center text-content-muted">
       从左侧文件栏选择文件查看变更
     </div>
   )
@@ -15,7 +15,7 @@ function CodeTabEmpty() {
 
 function CodeTabLoading() {
   return (
-    <div className="flex h-full items-center justify-center text-slate-400">
+    <div className="flex h-full items-center justify-center text-content-muted">
       加载中...
     </div>
   )
