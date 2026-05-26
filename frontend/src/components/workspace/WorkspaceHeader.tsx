@@ -1,6 +1,7 @@
-import { FolderTree } from 'lucide-react'
+import { FolderTree, TerminalSquare } from 'lucide-react'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import { useCodeTabStore, type WorkspaceTab } from '@/features/code/codeTabStore'
+import { useTerminalStore } from '@/features/terminal/terminalStore'
 
 interface WorkspaceHeaderProps {
   title: string
@@ -19,6 +20,8 @@ export function WorkspaceHeader({
   const setWorkspaceTab = useCodeTabStore((s) => s.setWorkspaceTab)
   const sidebarOpen = useCodeTabStore((s) => s.sidebarOpen)
   const toggleSidebar = useCodeTabStore((s) => s.toggleSidebar)
+  const panelVisible = useTerminalStore((s) => s.panelVisible)
+  const togglePanel = useTerminalStore((s) => s.togglePanel)
 
   return (
     <div className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
@@ -35,6 +38,20 @@ export function WorkspaceHeader({
         >
           <FolderTree className="h-4 w-4" />
         </button>
+        {workspaceTab === 'code' && (
+          <button
+            type="button"
+            onClick={togglePanel}
+            className={`rounded-md p-1.5 transition-colors ${
+              panelVisible
+                ? 'text-slate-700 bg-slate-100'
+                : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+            }`}
+            title={panelVisible ? '隐藏终端' : '显示终端'}
+          >
+            <TerminalSquare className="h-4 w-4" />
+          </button>
+        )}
         <div>
           <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
           {projectPath && (
