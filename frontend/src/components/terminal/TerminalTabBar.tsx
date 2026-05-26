@@ -19,15 +19,15 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
   }
 
   return (
-    <div className="flex items-center justify-between bg-terminal-tabbar px-2 py-1">
+    <div className="flex items-center justify-between bg-surface-secondary border-b border-edge-subtle px-2 py-1">
       <div className="flex items-center gap-1 overflow-x-auto">
         {instances.map((inst) => (
           <div
             key={inst.id}
-            className={`group flex items-center gap-1 rounded px-2 py-0.5 text-xs cursor-pointer whitespace-nowrap ${
+            className={`group flex items-center gap-1 rounded-md px-2.5 py-1 text-xs cursor-pointer whitespace-nowrap transition-colors ${
               inst.id === activeTerminalId
-                ? 'bg-terminal-tab-active text-white'
-                : 'text-content-muted hover:text-content-primary'
+                ? 'bg-surface-tertiary text-content-primary font-medium'
+                : 'text-content-muted hover:text-content-secondary hover:bg-surface-tertiary/50'
             } ${inst.exited ? 'opacity-50' : ''}`}
             onClick={() => setActiveTerminal(inst.id)}
           >
@@ -46,7 +46,7 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
         ))}
         <button
           type="button"
-          className="rounded p-0.5 text-content-muted hover:text-content-primary"
+          className="rounded-md p-1 text-content-muted hover:text-content-primary hover:bg-surface-tertiary/50"
           onClick={handleNew}
           title="新建终端"
         >
@@ -55,7 +55,7 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
       </div>
       <button
         type="button"
-        className="rounded p-0.5 text-content-muted hover:text-content-primary"
+        className="rounded-md p-1 text-content-muted hover:text-content-primary hover:bg-surface-tertiary/50"
         onClick={onClosePanel}
         title="关闭面板"
       >

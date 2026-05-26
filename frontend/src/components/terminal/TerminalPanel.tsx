@@ -44,16 +44,16 @@ export function TerminalPanel() {
   return (
     <div
       style={{ height: panelVisible ? panelHeight : 0 }}
-      className="flex flex-col flex-shrink-0 overflow-hidden"
+      className="flex flex-col flex-shrink-0 overflow-hidden border-t border-edge"
     >
       <div
-        className="h-1 bg-accent cursor-row-resize hover:h-1.5 transition-all flex-shrink-0"
+        className="h-1 cursor-row-resize hover:h-1.5 transition-all flex-shrink-0 bg-surface-tertiary hover:bg-accent/40"
         onMouseDown={handleMouseDown}
       />
       <TerminalTabBar onClosePanel={togglePanel} />
       <div className="flex-1 overflow-hidden bg-terminal-bg relative">
         {instances.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-content-muted text-sm">
+          <div className="flex h-full items-center justify-center text-xs text-gray-400">
             没有活动的终端
           </div>
         ) : (
