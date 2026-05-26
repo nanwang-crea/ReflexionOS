@@ -27,14 +27,14 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
             className={`group flex items-center gap-1 rounded px-2 py-0.5 text-xs cursor-pointer whitespace-nowrap ${
               inst.id === activeTerminalId
                 ? 'bg-terminal-tab-active text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                : 'text-content-muted hover:text-content-primary'
             } ${inst.exited ? 'opacity-50' : ''}`}
             onClick={() => setActiveTerminal(inst.id)}
           >
             <span>{inst.title}{inst.exited ? ' (已退出)' : ''}</span>
             <button
               type="button"
-              className="hidden group-hover:inline-flex text-slate-400 hover:text-white"
+              className="hidden group-hover:inline-flex text-content-muted hover:text-content-primary"
               onClick={(e) => {
                 e.stopPropagation()
                 closeTerminal(inst.id)
@@ -46,7 +46,7 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
         ))}
         <button
           type="button"
-          className="rounded p-0.5 text-slate-400 hover:text-slate-200"
+          className="rounded p-0.5 text-content-muted hover:text-content-primary"
           onClick={handleNew}
           title="新建终端"
         >
@@ -55,7 +55,7 @@ export function TerminalTabBar({ onClosePanel }: TerminalTabBarProps) {
       </div>
       <button
         type="button"
-        className="rounded p-0.5 text-slate-400 hover:text-slate-200"
+        className="rounded p-0.5 text-content-muted hover:text-content-primary"
         onClick={onClosePanel}
         title="关闭面板"
       >

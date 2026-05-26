@@ -95,7 +95,7 @@ export default function SettingsPage() {
                 {selectedSavedProvider ? '编辑供应商' : '新建供应商'}
               </h3>
                 {savedMessage && (
-                  <span className="text-sm text-green-600">{savedMessage}</span>
+                  <span className="text-sm text-status-success">{savedMessage}</span>
                 )}
               </div>
 
@@ -108,7 +108,7 @@ export default function SettingsPage() {
                   type="text"
                   value={draftProvider.name}
                   onChange={(e) => handleDraftFieldChange('name', e.target.value)}
-                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                   placeholder="例如：OpenAI 官方"
                 />
               </div>
@@ -120,7 +120,7 @@ export default function SettingsPage() {
                 <select
                   value={draftProvider.provider_type}
                   onChange={(e) => handleDraftFieldChange('provider_type', e.target.value as ProviderType)}
-                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                 >
                   {providerTypeOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -138,7 +138,7 @@ export default function SettingsPage() {
                   type="text"
                   value={draftProvider.base_url || ''}
                   onChange={(e) => handleDraftFieldChange('base_url', e.target.value)}
-                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                   placeholder="https://api.openai.com/v1"
                 />
               </div>
@@ -151,7 +151,7 @@ export default function SettingsPage() {
                   type="password"
                   value={draftProvider.api_key || ''}
                   onChange={(e) => handleDraftFieldChange('api_key', e.target.value)}
-                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                  className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                   placeholder="sk-..."
                 />
               </div>
@@ -177,14 +177,14 @@ export default function SettingsPage() {
                         type="text"
                         value={model.display_name}
                         onChange={(e) => handleModelFieldChange(model.id, 'display_name', e.target.value)}
-                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                         placeholder="显示名称，例如 GPT-4.1"
                       />
                       <input
                         type="text"
                         value={model.model_name}
                         onChange={(e) => handleModelFieldChange(model.id, 'model_name', e.target.value)}
-                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                        className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                         placeholder="模型名称，例如 gpt-4.1"
                       />
                       <label className="flex items-center gap-2 rounded-lg border border-edge px-3 py-2 text-sm text-content-secondary">
@@ -199,7 +199,7 @@ export default function SettingsPage() {
                         type="button"
                         onClick={() => handleRemoveModel(model.id)}
                         disabled={draftProvider.models.length === 1}
-                        className="rounded-lg border border-red-500/30 px-3 py-2 text-sm text-red-600 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:border-edge disabled:text-content-muted"
+                        className="rounded-lg border border-status-error-border px-3 py-2 text-sm text-status-error hover:bg-status-error-soft disabled:cursor-not-allowed disabled:border-edge disabled:text-content-muted"
                       >
                         删除
                       </button>
@@ -216,7 +216,7 @@ export default function SettingsPage() {
               <select
                  value={draftProvider.default_model_id || ''}
                  onChange={(e) => handleDraftFieldChange('default_model_id', e.target.value)}
-                className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
               >
                  {draftProvider.models.map((model) => (
                   <option key={model.id} value={model.id}>
@@ -230,8 +230,8 @@ export default function SettingsPage() {
                <div
                  className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
                    testResult.type === 'success'
-                       ? 'border-green-500/30 bg-green-500/10 text-green-400'
-                       : 'border-red-500/30 bg-red-500/10 text-red-400'
+                       ? 'border-status-success-border bg-status-success-soft text-status-success'
+                       : 'border-status-error-border bg-status-error-soft text-status-error'
                   }`}
                 >
                   {testResult.message}
@@ -263,7 +263,7 @@ export default function SettingsPage() {
                 </button>
                 <button
                   onClick={() => { void handleDeleteProvider() }}
-                  className="rounded-lg border border-red-500/30 px-4 py-2 text-red-600 hover:bg-red-500/10"
+                  className="rounded-lg border border-status-error-border px-4 py-2 text-status-error hover:bg-status-error-soft"
                 >
                  {selectedSavedProvider ? '删除供应商' : '清空草稿'}
               </button>
@@ -287,7 +287,7 @@ export default function SettingsPage() {
                     <select
                        value={defaultSelection.provider_id || ''}
                        onChange={(e) => handleDefaultProviderChange(e.target.value)}
-                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                      >
                        {providers.map((provider) => (
                         <option key={provider.id} value={provider.id}>
@@ -304,7 +304,7 @@ export default function SettingsPage() {
                     <select
                        value={defaultSelection.model_id || ''}
                        onChange={(e) => handleDefaultModelChange(e.target.value)}
-                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2"
+                       className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
                      >
                       {defaultProviderModels.map((model) => (
                         <option key={model.id} value={model.id}>
@@ -328,9 +328,9 @@ export default function SettingsPage() {
                      {savingDefault ? '保存中...' : '保存默认模型'}
                     </button>
                     {defaultSelection.configured ? (
-                      <span className="text-sm text-green-600">默认模型已就绪</span>
+                      <span className="text-sm text-status-success">默认模型已就绪</span>
                     ) : (
-                    <span className="text-sm text-amber-600">当前尚未形成可执行的默认配置</span>
+                    <span className="text-sm text-status-warning">当前尚未形成可执行的默认配置</span>
                   )}
                 </div>
               </>

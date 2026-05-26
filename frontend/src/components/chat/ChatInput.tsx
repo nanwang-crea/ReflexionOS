@@ -74,7 +74,7 @@ export function ChatInput({
   return (
     <div className="relative">
       <motion.div
-        className="relative overflow-hidden rounded-2xl border-2 border-edge bg-surface-primary transition-all duration-200"
+        className="relative overflow-hidden rounded-2xl border-2 border-edge bg-surface-primary focus-within:border-accent transition-all duration-200"
         animate={{ scale: isFocused ? 1.01 : 1 }}
         transition={{ duration: 0.2 }}
       >
@@ -162,7 +162,7 @@ export function ChatInput({
                 type="button"
                 onClick={handleSend}
                 disabled={!value.trim() || disabled || isLoading}
-                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted"
+                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition focus:ring-2 focus:ring-accent/50 outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted"
                 whileHover={{ scale: 1.03, y: -1 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400 }}

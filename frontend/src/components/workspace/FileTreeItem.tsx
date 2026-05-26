@@ -3,9 +3,9 @@ import type { FileTreeNode, GitStatusCode } from '@/types/fileTree'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
 
 const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {
-  M: 'text-emerald-600',
-  A: 'text-emerald-600',
-  D: 'text-red-500',
+  M: 'text-status-success',
+  A: 'text-status-success',
+  D: 'text-status-error',
   U: 'text-content-muted',
 }
 

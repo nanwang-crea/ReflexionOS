@@ -25,7 +25,7 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 14, scale: 0.98 }}
       transition={{ duration: 0.2 }}
-      className="sticky bottom-4 z-10 mx-auto mt-10 mb-4 w-full max-w-[920px] rounded-[28px] border border-edge bg-surface-primary/95 px-6 py-4 shadow-[0_18px_60px_rgba(15,23,42,0.12)] backdrop-blur"
+      className="sticky bottom-4 z-10 mx-auto mt-10 mb-4 w-full max-w-[920px] rounded-[28px] border border-edge bg-surface-primary/95 px-6 py-4 shadow-theme backdrop-blur"
     >
       <div className="flex items-center justify-between gap-4">
         <div className="flex min-w-0 items-center gap-2 text-content-muted">
@@ -52,7 +52,7 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
               step.status === 'completed' && 'text-content-muted',
                step.status === 'in_progress' && 'font-medium text-content-primary',
                step.status === 'pending' && 'text-content-muted',
-              step.status === 'blocked' && 'text-red-500',
+              step.status === 'blocked' && 'text-status-error',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -68,7 +68,7 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
                 <Circle className="h-4 w-4 text-content-muted" />
               )}
               {step.status === 'blocked' && (
-                <XCircle className="h-4 w-4 text-red-400" />
+                <XCircle className="h-4 w-4 text-status-error" />
               )}
             </span>
             <div className="min-w-0">
