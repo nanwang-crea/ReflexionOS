@@ -142,8 +142,8 @@ function SessionRow({
     <div
       className={`group flex items-center gap-2 rounded-2xl px-4 py-2.5 text-[15px] transition ${
         active
-          ? 'bg-slate-200 text-slate-900'
-          : 'text-slate-600 hover:bg-slate-200/70'
+          ? 'bg-surface-tertiary text-content-primary'
+          : 'text-content-secondary hover:bg-surface-tertiary'
       } ${busy ? 'opacity-75' : ''}`}
     >
       {editing ? (
@@ -155,7 +155,7 @@ function SessionRow({
           onBlur={submitRename}
           onKeyDown={handleKeyDown}
           disabled={renaming}
-          className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[15px] text-slate-700 outline-none focus:border-slate-400"
+           className="min-w-0 flex-1 rounded border border-edge bg-surface-primary px-1.5 py-0.5 text-[15px] text-content-secondary outline-none focus:border-edge"
         />
       ) : (
         <button
@@ -165,7 +165,7 @@ function SessionRow({
           className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
         >
           <span className="truncate">{session.title}</span>
-          <span className="shrink-0 text-slate-400">
+           <span className="shrink-0 text-content-muted">
             {formatRelativeTime(session.updatedAt)}
           </span>
         </button>
@@ -174,7 +174,7 @@ function SessionRow({
         type="button"
         onClick={() => setEditing(true)}
         disabled={busy || renaming}
-        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-slate-600 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-content-secondary group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
         title="重命名聊天"
       >
         <Pencil className="h-4 w-4" />
@@ -183,7 +183,7 @@ function SessionRow({
         type="button"
         onClick={onDelete}
         disabled={busy}
-        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-300/70 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
         title="删除聊天"
       >
         <Trash2 className="h-4 w-4" />
@@ -385,7 +385,7 @@ export function WorkspaceSidebar() {
                 onClick={entry.onClick}
                 disabled={disabled}
                 className={`${sidebarEntryClassName} ${
-                  active ? 'bg-slate-200 text-slate-900' : ''
+                  active ? 'bg-surface-tertiary text-content-primary' : ''
                 } ${
                   disabled ? 'cursor-default opacity-45 hover:bg-transparent' : ''
                 }`}
@@ -404,21 +404,21 @@ export function WorkspaceSidebar() {
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="搜索项目或聊天..."
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-300"
+              className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 text-sm text-content-secondary outline-none transition focus:border-edge"
             />
           </div>
         )}
 
         <div className="mt-8">
-          <div className="mb-3 flex items-center justify-between px-2 text-sm text-slate-400">
+          <div className="mb-3 flex items-center justify-between px-2 text-sm text-content-muted">
             <span className="font-medium">聊天</span>
             <div className="flex items-center gap-1">
                  <button
                  type="button"
                  onClick={handleCreateSession}
                 disabled={busy}
-                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-                title="新建聊天"
+                 className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+                 title="新建聊天"
               >
                 <SquarePen className="h-4 w-4" />
               </button>
@@ -426,8 +426,8 @@ export function WorkspaceSidebar() {
                                  type="button"
                 onClick={() => setShowProjectModal(true)}
                 disabled={busy}
-                className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-200 hover:text-slate-600 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
-                title="新建项目"
+                 className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+                 title="新建项目"
               >
                 <FolderPlus className="h-4 w-4" />
               </button>
@@ -435,9 +435,9 @@ export function WorkspaceSidebar() {
           </div>
 
           {loading ? (
-            <div className="px-2 py-3 text-sm text-slate-400">加载项目中...</div>
+            <div className="px-2 py-3 text-sm text-content-muted">加载项目中...</div>
           ) : filteredProjects.length === 0 ? (
-            <div className="px-2 py-3 text-sm text-slate-400">暂无项目</div>
+            <div className="px-2 py-3 text-sm text-content-muted">暂无项目</div>
           ) : (
             <div className="space-y-4">
               {filteredProjects.map(({ project, sessions: projectSessions }) => {
@@ -453,8 +453,8 @@ export function WorkspaceSidebar() {
                   <div key={project.id}>
                     <div
                       className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 text-[15px] transition ${
-                        busy ? 'opacity-75' : 'hover:bg-slate-200/70'
-                      } ${isCurrentProject ? 'text-slate-900' : 'text-slate-600'}`}
+                        busy ? 'opacity-75' : 'hover:bg-surface-tertiary'
+                      } ${isCurrentProject ? 'text-content-primary' : 'text-content-secondary'}`}
                     >
                                <button
                         type="button"
@@ -463,7 +463,7 @@ export function WorkspaceSidebar() {
                             toggleProjectExpanded(project.id)
                           }
                         }}
-                        className="rounded p-0.5 text-slate-400 hover:bg-slate-200"
+                         className="rounded p-0.5 text-content-muted hover:bg-surface-tertiary"
                       >
                         {expanded ? (
                           <ChevronDown className="h-4 w-4" />
@@ -477,14 +477,14 @@ export function WorkspaceSidebar() {
                         disabled={busy}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-0.5 text-left"
                       >
-                        <Folder className="h-5 w-5 shrink-0 text-slate-500" />
+                         <Folder className="h-5 w-5 shrink-0 text-content-muted" />
                         <span className="truncate text-[17px]">{project.name}</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteProject(project)}
                         disabled={busy}
-                        className="rounded-lg p-1 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
                         title="删除项目"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -494,7 +494,7 @@ export function WorkspaceSidebar() {
                     {expanded && (
                       <div className="mt-2 space-y-1 pl-10">
                         {projectSessions.length === 0 ? (
-                          <div className="px-2 py-2 text-sm text-slate-400">暂无聊天</div>
+                           <div className="px-2 py-2 text-sm text-content-muted">暂无聊天</div>
                         ) : (
                           <>
                             {visibleSessions.map((session) => {
@@ -517,7 +517,7 @@ export function WorkspaceSidebar() {
                               <button
                                 type="button"
                                 onClick={() => toggleProjectShowAll(project.id)}
-                                className="px-4 py-2 text-left text-sm text-slate-400 transition hover:text-slate-600"
+                                className="px-4 py-2 text-left text-sm text-content-muted transition hover:text-content-secondary"
                               >
                                 {showAllSessions ? '收起显示' : '展开显示'}
                               </button>
@@ -567,35 +567,35 @@ export function WorkspaceSidebar() {
 
       {showProjectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-slate-900">新建项目</h3>
+          <div className="w-full max-w-md rounded-3xl bg-surface-primary p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-content-primary">新建项目</h3>
             <div className="mt-5 space-y-4">
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-600">项目名称</label>
+                 <label className="mb-1 block text-sm font-medium text-content-secondary">项目名称</label>
                 <input
                   type="text"
                   value={formData.name}
                   onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-700 outline-none transition focus:border-slate-300"
-                  placeholder="ReflexionOS"
+                   className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
+                   placeholder="ReflexionOS"
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-600">项目路径</label>
+                 <label className="mb-1 block text-sm font-medium text-content-secondary">项目路径</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={formData.path}
                     onChange={(event) => setFormData({ ...formData, path: event.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-700 outline-none transition focus:border-slate-300"
-                    placeholder="/path/to/project"
+                     className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
+                     placeholder="/path/to/project"
                   />
                   {canSelectDirectory && (
                      <button
                       type="button"
                       onClick={handleSelectDirectory}
                       disabled={busy}
-                      className="shrink-0 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50"
+                       className="shrink-0 rounded-xl border border-edge px-3 py-2 text-sm text-content-secondary transition hover:bg-surface-tertiary"
                     >
                       选择目录
                     </button>
@@ -603,11 +603,11 @@ export function WorkspaceSidebar() {
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-sm font-medium text-slate-600">主要语言</label>
+                 <label className="mb-1 block text-sm font-medium text-content-secondary">主要语言</label>
                 <select
                   value={formData.language}
                   onChange={(event) => setFormData({ ...formData, language: event.target.value })}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-slate-700 outline-none transition focus:border-slate-300"
+                   className="w-full rounded-xl border border-edge px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
                 >
                   <option value="python">Python</option>
                   <option value="javascript">JavaScript</option>
@@ -622,14 +622,14 @@ export function WorkspaceSidebar() {
               <button
                 type="button"
                 onClick={() => setShowProjectModal(false)}
-                className="rounded-xl px-4 py-2 text-slate-600 transition hover:bg-slate-100"
+                 className="rounded-xl px-4 py-2 text-content-secondary transition hover:bg-surface-tertiary"
               >
                 取消
               </button>
                <button
                  type="button"
                  onClick={() => handleCreateProject(formData)}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white transition hover:bg-slate-800"
+                 className="rounded-xl bg-accent px-4 py-2 text-white transition hover:bg-accent-hover"
               >
                 创建
               </button>
