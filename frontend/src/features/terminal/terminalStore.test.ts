@@ -11,7 +11,7 @@ describe('terminalStore', () => {
     expect(state.instances).toEqual([])
     expect(state.activeTerminalId).toBeNull()
     expect(state.panelVisible).toBe(false)
-    expect(state.panelHeight).toBe(200)
+    expect(state.panelHeight).toBe(280)
   })
 
   it('should create a terminal instance', () => {
