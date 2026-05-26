@@ -20,7 +20,7 @@ function GitStatusBadge({ status }: { status: GitStatusCode }) {
 export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: number }) {
   const expandedDirs = useCodeTabStore((s) => s.expandedDirs)
   const toggleDir = useCodeTabStore((s) => s.toggleDir)
-  const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
+  const openFile = useCodeTabStore((s) => s.openFile)
   const activeFile = useCodeTabStore((s) => s.activeFile)
 
   const isExpanded = expandedDirs[node.path] ?? false
@@ -61,7 +61,7 @@ export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: numbe
   return (
     <button
       type="button"
-      onClick={() => setActiveFile(node.path, '')}
+      onClick={() => openFile(node.path, 'edit')}
       className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm hover:bg-surface-tertiary ${
         isActive ? 'bg-surface-tertiary text-content-primary font-medium' : 'text-content-secondary'
       }`}

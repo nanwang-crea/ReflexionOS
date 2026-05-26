@@ -21,7 +21,7 @@ interface GitFileItemProps {
 }
 
 export function GitFileItem({ path, status, insertions, deletions, section }: GitFileItemProps) {
-  const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
+  const openFile = useCodeTabStore((s) => s.openFile)
   const stageFiles = useGitStore((s) => s.stageFiles)
   const unstageFiles = useGitStore((s) => s.unstageFiles)
   const discardChanges = useGitStore((s) => s.discardChanges)
@@ -30,7 +30,7 @@ export function GitFileItem({ path, status, insertions, deletions, section }: Gi
   const filename = path.split('/').pop() ?? path
 
   const handleOpenFile = () => {
-    setActiveFile(path, '')
+    openFile(path, 'diff')
   }
 
   const handleStage = () => {

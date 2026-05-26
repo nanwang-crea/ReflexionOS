@@ -37,7 +37,7 @@ export default function AgentWorkspace() {
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
   const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
   const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
-  const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
+  const openFile = useCodeTabStore((s) => s.openFile)
   const togglePanel = useTerminalStore((s) => s.togglePanel)
   const createTerminal = useTerminalStore((s) => s.createTerminal)
   const currentProject = useProjectStore((s) => s.currentProject)
@@ -69,8 +69,9 @@ export default function AgentWorkspace() {
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const path = detail.arguments?.path as string | undefined
     if (!path) return
-    setActiveFile(path, '')
-  }, [setActiveFile])
+    const viewMode = ['edit', 'create', 'delete'].includes(detail.category) ? 'diff' : 'edit'
+    openFile(path, viewMode)
+  }, [openFile])
 
   // When plan disappears (run ends), reset minimized state so next plan starts expanded
   const effectivePlanMinimized = plan ? isPlanMinimized : false

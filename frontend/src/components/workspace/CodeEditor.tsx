@@ -1,18 +1,17 @@
 import { useRef, useEffect, useState } from 'react'
-import { DiffEditor } from '@monaco-editor/react'
+import { Editor } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
 import { useThemeStore } from '@/stores/themeStore'
 
-interface EditableDiffViewerProps {
-  original: string
-  modified: string
+interface CodeEditorProps {
+  content: string
   language: string
   onChange: (value: string) => void
   onSave: () => void
 }
 
-export function EditableDiffViewer({ original, modified, language, onChange, onSave }: EditableDiffViewerProps) {
-  const editorRef = useRef<editor.IStandaloneDiffEditor | null>(null)
+export function CodeEditor({ content, language, onChange, onSave }: CodeEditorProps) {
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
 
@@ -34,44 +33,40 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
     return () => unsub()
   }, [])
 
-  function handleMount(ed: editor.IStandaloneDiffEditor) {
+  function handleMount(ed: editor.IStandaloneCodeEditor) {
     editorRef.current = ed
 
-    const modifiedEditor = ed.getModifiedEditor()
-    modifiedEditor.onDidChangeModelContent(() => {
-      onChangeRef.current(modifiedEditor.getValue())
+    ed.onDidChangeModelContent(() => {
+      onChangeRef.current(ed.getValue())
     })
 
-    modifiedEditor.addCommand(
+    ed.addCommand(
       2048 | 49,
       () => onSaveRef.current(),
     )
   }
 
   return (
-    <DiffEditor
+    <Editor
       height="100%"
       language={language}
-      original={original}
-      modified={modified}
+      value={content}
       onMount={handleMount}
       theme={monacoTheme}
       options={{
         readOnly: false,
-        renderSideBySide: true,
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         fontSize: 13,
         lineNumbers: 'on',
         automaticLayout: true,
-        enableSplitViewResizing: true,
         wordWrap: 'on',
         tabSize: 2,
         quickSuggestions: true,
         suggestOnTriggerCharacters: true,
         parameterHints: { enabled: true },
         formatOnPaste: true,
-      } as editor.IDiffEditorConstructionOptions}
+      }}
     />
   )
 }
