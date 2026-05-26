@@ -2,6 +2,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
@@ -56,6 +57,10 @@ class ToolCallExecutor:
             tool = self.tool_registry.get(tool_call.name)
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
+
+            missing = self._validate_required_args(tool, tool_call.arguments)
+            if missing:
+                raise ValueError(f"缺少必需参数: {', '.join(missing)}")
 
             result = await tool.execute(tool_call.arguments)
 
@@ -149,3 +154,15 @@ class ToolCallExecutor:
             )
 
         return step
+
+    @staticmethod
+    def _validate_required_args(tool, arguments: dict[str, Any]) -> list[str]:
+        schema = tool.get_schema()
+        required = schema.get("parameters", {}).get("required", [])
+        if not required:
+            return []
+        missing = []
+        for key in required:
+            if key not in arguments or arguments[key] is None:
+                missing.append(key)
+        return missing

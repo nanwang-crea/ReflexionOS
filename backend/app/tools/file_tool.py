@@ -126,6 +126,12 @@ class FileTool(BaseTool):
         """执行文件操作"""
         action = args.get("action")
 
+        if not action:
+            return ToolResult(
+                success=False,
+                error="缺少必需参数: action。支持: read, write, list, delete, search",
+            )
+
         try:
             if action == "read":
                 return await self._read_file(args)
