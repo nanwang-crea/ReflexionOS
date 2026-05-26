@@ -47,11 +47,11 @@ export function TerminalPanel() {
       className="flex flex-col flex-shrink-0 overflow-hidden"
     >
       <div
-        className="h-1 bg-blue-500 cursor-row-resize hover:h-1.5 transition-all flex-shrink-0"
+        className="h-1 bg-accent cursor-row-resize hover:h-1.5 transition-all flex-shrink-0"
         onMouseDown={handleMouseDown}
       />
       <TerminalTabBar onClosePanel={togglePanel} />
-      <div className="flex-1 overflow-hidden bg-[#1a1a2e] relative">
+      <div className="flex-1 overflow-hidden bg-terminal-bg relative">
         {instances.length === 0 ? (
           <div className="flex h-full items-center justify-center text-slate-500 text-sm">
             没有活动的终端
