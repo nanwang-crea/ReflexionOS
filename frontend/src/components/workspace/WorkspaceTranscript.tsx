@@ -123,8 +123,8 @@ export function WorkspaceTranscript({
     >
       <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
         {loaded && !configured && (
-          <div className="mb-4 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-            <p className="text-yellow-800">请先在设置页面配置供应商、模型和默认项</p>
+          <div className="mb-4 rounded-lg border border-status-warning-border bg-status-warning-soft p-4">
+            <p className="text-status-warning">请先在设置页面配置供应商、模型和默认项</p>
           </div>
         )}
 
@@ -181,7 +181,7 @@ export function WorkspaceTranscript({
             if (message.messageType === 'system_notice') {
               return (
                 <SlideIn key={message.id} direction="up">
-                  <div className="mb-6 max-w-[920px] rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <div className="mb-6 max-w-[920px] rounded-2xl border border-status-warning-border bg-status-warning-soft px-4 py-3 text-sm text-status-warning">
                     {message.contentText}
                   </div>
                 </SlideIn>
@@ -209,8 +209,8 @@ export function WorkspaceTranscript({
                     {(isFailed || isCancelled) && (errorMessage || errorCode) && (
                       <div className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
                         isFailed
-                          ? 'border-red-200 bg-red-50 text-red-800'
-                          : 'border-amber-200 bg-amber-50 text-amber-800'
+                          ? 'border-status-error-border bg-status-error-soft text-status-error'
+                          : 'border-status-warning-border bg-status-warning-soft text-status-warning'
                       }`}>
                         <div className="flex items-center gap-2 font-medium">
                           {isFailed ? '执行失败' : '执行已取消'}
@@ -230,8 +230,8 @@ export function WorkspaceTranscript({
         </AnimatePresence>
 
         {showReconnectIndicator && (
-          <div className="mb-8 flex items-center gap-3 text-sm text-amber-600" aria-live="polite">
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-500" />
+          <div className="mb-8 flex items-center gap-3 text-sm text-status-warning" aria-live="polite">
+            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-status-warning" />
             <span>{reconnectLabel} · {reconnectCountdownSeconds} 秒后重试</span>
           </div>
         )}
@@ -264,7 +264,7 @@ export function WorkspaceTranscript({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.96 }}
               transition={{ duration: 0.18 }}
-              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-[0_12px_36px_rgba(15,23,42,0.18)] transition-colors hover:border-edge hover:text-content-primary"
+              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-theme transition-colors hover:border-edge hover:text-content-primary"
             >
               <ArrowDown className="h-5 w-5" />
             </motion.button>

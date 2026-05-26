@@ -3,9 +3,9 @@ import { AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 import { useToastStore, type ToastItem } from '@/stores/toastStore'
 
 const levelConfig: Record<string, { icon: typeof AlertCircle; bg: string; border: string; text: string }> = {
-  error: { icon: AlertCircle, bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-800' },
-  warning: { icon: AlertTriangle, bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-800' },
-  info: { icon: Info, bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-800' },
+  error: { icon: AlertCircle, bg: 'bg-status-error-soft', border: 'border-status-error-border', text: 'text-status-error' },
+  warning: { icon: AlertTriangle, bg: 'bg-status-warning-soft', border: 'border-status-warning-border', text: 'text-status-warning' },
+  info: { icon: Info, bg: 'bg-accent-soft', border: 'border-edge', text: 'text-accent' },
 }
 
 function ToastItem({ item }: { item: ToastItem }) {
@@ -20,7 +20,7 @@ function ToastItem({ item }: { item: ToastItem }) {
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -12, scale: 0.96 }}
       transition={{ duration: 0.18 }}
-      className={`flex items-start gap-2 rounded-lg border ${config.border} ${config.bg} px-4 py-3 shadow-lg ${config.text}`}
+      className={`flex items-start gap-2 rounded-lg border ${config.border} ${config.bg} px-4 py-3 shadow-theme ${config.text}`}
     >
       <Icon className="mt-0.5 h-4 w-4 shrink-0" />
       <span className="flex-1 text-sm leading-5">{item.message}</span>
