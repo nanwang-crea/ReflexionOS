@@ -6,12 +6,15 @@ import {
   ChevronRight,
   Folder,
   FolderPlus,
+  Monitor,
+  Moon,
   Pencil,
   Puzzle,
   Search,
   Settings,
   Sparkles,
   SquarePen,
+  Sun,
   Trash2,
   Workflow
 } from 'lucide-react'
@@ -21,6 +24,7 @@ import { useToastStore } from '@/stores/toastStore'
 import { useConversationStore } from '@/features/conversation/conversationStore'
 import { useProjectStore } from '@/stores/projectStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { useThemeStore } from '@/stores/themeStore'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
 import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
@@ -29,7 +33,7 @@ import { useSidebarFilteredProjects } from './useSidebarFilteredProjects'
 import { useSidebarProjectActions } from './useSidebarProjectActions'
 import { useSidebarSessionActions } from './useSidebarSessionActions'
 
-const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-slate-700 transition hover:bg-slate-200/60'
+const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-content-secondary transition hover:bg-surface-tertiary'
 
 function formatRelativeTime(dateString: string) {
   const timestamp = new Date(dateString).getTime()
@@ -366,7 +370,7 @@ export function WorkspaceSidebar() {
   ]
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-200 bg-slate-100/80 lg:w-[320px]">
+    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-edge bg-surface-secondary lg:w-[320px]">
       <div className="flex-1 overflow-y-auto px-4 pb-4 pt-5">
         <div className="space-y-1">
           {globalEntries.map((entry) => {
@@ -530,16 +534,35 @@ export function WorkspaceSidebar() {
         </div>
       </div>
 
-      <div className="border-t border-slate-200 p-4">
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => `${sidebarEntryClassName} ${
-            isActive ? 'bg-slate-200 text-slate-900' : ''
-          }`}
-        >
-          <Settings className="h-5 w-5" />
-          <span className="font-medium">设置</span>
-        </NavLink>
+      <div className="border-t border-edge p-4">
+        <div className="flex items-center justify-between">
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => `flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] transition hover:bg-surface-tertiary ${
+              isActive ? 'bg-surface-tertiary text-content-primary' : 'text-content-secondary'
+            }`}
+          >
+            <Settings className="h-5 w-5" />
+            <span className="font-medium">设置</span>
+          </NavLink>
+          <button
+            type="button"
+            onClick={() => {
+              const current = useThemeStore.getState().theme
+              const next = current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'
+              useThemeStore.getState().setTheme(next)
+            }}
+            className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
+            title={`切换主题`}
+          >
+            {(() => {
+              const theme = useThemeStore((s) => s.theme)
+              if (theme === 'dark') return <Moon className="h-4 w-4" />
+              if (theme === 'system') return <Monitor className="h-4 w-4" />
+              return <Sun className="h-4 w-4" />
+            })()}
+          </button>
+        </div>
       </div>
 
       {showProjectModal && (
