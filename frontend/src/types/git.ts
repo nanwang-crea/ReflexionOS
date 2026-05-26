@@ -26,3 +26,26 @@ export interface GitSimpleResponse {
   success: boolean
   error: string | null
 }
+
+export interface GitBranchItem {
+  name: string
+  is_current: boolean
+  is_remote: boolean
+}
+
+export interface GitBranchListResponse {
+  branches: GitBranchItem[]
+  current: string
+}
+
+export interface GitLogCommit {
+  hash: string
+  short_hash: string
+  author: string
+  date: string
+  message: string
+}
+
+export interface GitLogResponse {
+  commits: GitLogCommit[]
+}

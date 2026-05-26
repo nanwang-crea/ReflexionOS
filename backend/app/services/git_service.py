@@ -160,11 +160,141 @@ class GitService:
             raise ValidationError(f"git reset 失败: {stderr.strip()}")
         return {"success": True, "error": None}
 
-    async def commit(self, project_id: str, message: str) -> dict:
+    async def commit(self, project_id: str, message: str, amend: bool = False) -> dict:
         project_path = self._get_project_path(project_id)
-        rc, _, stderr = await self._run_git("commit", "-m", message, cwd=project_path)
+        args = ["commit", "-m", message]
+        if amend:
+            args.append("--amend")
+        rc, _, stderr = await self._run_git(*args, cwd=project_path)
         if rc != 0:
             raise ValidationError(f"git commit 失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def fetch(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, stdout, stderr = await self._run_git("fetch", cwd=project_path)
+        if rc != 0:
+            return {"success": False, "error": stderr.strip() or stdout.strip()}
+        return {"success": True, "error": None}
+
+    async def list_branches(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, stdout, stderr = await self._run_git("branch", "--no-color", cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"git branch 失败: {stderr.strip()}")
+
+        rc_head, stdout_head, _ = await self._run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=project_path)
+        current = stdout_head.strip() if rc_head == 0 else ""
+
+        branches = []
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            is_current = line.startswith("*")
+            name = line.lstrip("* ").strip()
+            branches.append({
+                "name": name,
+                "is_current": is_current,
+                "is_remote": False,
+            })
+
+        rc_r, stdout_r, _ = await self._run_git("branch", "-r", "--no-color", cwd=project_path)
+        if rc_r == 0:
+            seen = {b["name"] for b in branches}
+            for line in stdout_r.splitlines():
+                line = line.strip()
+                if not line or " -> " in line:
+                    continue
+                short = line.strip().removeprefix("origin/").strip()
+                if short and short not in seen:
+                    branches.append({
+                        "name": short,
+                        "is_current": short == current,
+                        "is_remote": True,
+                    })
+                    seen.add(short)
+
+        return {"branches": branches, "current": current}
+
+    async def create_branch(self, project_id: str, name: str, checkout: bool = True) -> dict:
+        project_path = self._get_project_path(project_id)
+        if checkout:
+            rc, _, stderr = await self._run_git("checkout", "-b", name, cwd=project_path)
+        else:
+            rc, _, stderr = await self._run_git("branch", name, cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"创建分支失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def delete_branch(self, project_id: str, name: str, force: bool = False) -> dict:
+        project_path = self._get_project_path(project_id)
+        flag = "-D" if force else "-d"
+        rc, _, stderr = await self._run_git("branch", flag, name, cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"删除分支失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def switch_branch(self, project_id: str, name: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, _, stderr = await self._run_git("checkout", name, cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"切换分支失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def log(self, project_id: str, max_count: int = 50) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, stdout, stderr = await self._run_git(
+            "log", f"--max-count={max_count}",
+            "-z",
+            "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%s",
+            cwd=project_path,
+        )
+        if rc != 0:
+            raise ValidationError(f"git log 失败: {stderr.strip()}")
+
+        commits = []
+        raw = stdout.strip("\x00")
+        if not raw:
+            return {"commits": commits}
+
+        entries = raw.split("\x00\x00")
+        for entry in entries:
+            entry = entry.strip("\x00")
+            if not entry:
+                continue
+            parts = entry.split("\x00", 4)
+            if len(parts) < 5:
+                continue
+            commits.append({
+                "hash": parts[0],
+                "short_hash": parts[1],
+                "author": parts[2],
+                "date": parts[3],
+                "message": parts[4],
+            })
+        return {"commits": commits}
+
+    async def stage_all(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, _, stderr = await self._run_git("add", "-A", cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"git add -A 失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def unstage_all(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc, _, stderr = await self._run_git("reset", "HEAD", cwd=project_path)
+        if rc != 0:
+            raise ValidationError(f"git reset HEAD 失败: {stderr.strip()}")
+        return {"success": True, "error": None}
+
+    async def discard_all(self, project_id: str) -> dict:
+        project_path = self._get_project_path(project_id)
+        rc1, _, _ = await self._run_git("checkout", "--", ".", cwd=project_path)
+        rc2, _, _ = await self._run_git("clean", "-fd", cwd=project_path)
+        if rc1 != 0 and rc2 != 0:
+            raise ValidationError("丢弃所有变更失败")
         return {"success": True, "error": None}
 
     async def push(self, project_id: str) -> dict:
