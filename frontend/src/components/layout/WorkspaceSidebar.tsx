@@ -8,6 +8,7 @@ import {
   FolderPlus,
   Monitor,
   Moon,
+  PanelLeftClose,
   Pencil,
   Puzzle,
   Search,
@@ -545,23 +546,33 @@ export function WorkspaceSidebar() {
             <Settings className="h-5 w-5" />
             <span className="font-medium">设置</span>
           </NavLink>
-          <button
-            type="button"
-            onClick={() => {
-              const current = useThemeStore.getState().theme
-              const next = current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'
-              useThemeStore.getState().setTheme(next)
-            }}
-            className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
-            title={`切换主题`}
-          >
-            {(() => {
-              const theme = useThemeStore((s) => s.theme)
-              if (theme === 'dark') return <Moon className="h-4 w-4" />
-              if (theme === 'system') return <Monitor className="h-4 w-4" />
-              return <Sun className="h-4 w-4" />
-            })()}
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => useThemeStore.getState().toggleSidebar()}
+              className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
+              title="收起侧边栏"
+            >
+              <PanelLeftClose className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const current = useThemeStore.getState().theme
+                const next = current === 'light' ? 'dark' : current === 'dark' ? 'system' : 'light'
+                useThemeStore.getState().setTheme(next)
+              }}
+              className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
+              title={`切换主题`}
+            >
+              {(() => {
+                const theme = useThemeStore((s) => s.theme)
+                if (theme === 'dark') return <Moon className="h-4 w-4" />
+                if (theme === 'system') return <Monitor className="h-4 w-4" />
+                return <Sun className="h-4 w-4" />
+              })()}
+            </button>
+          </div>
         </div>
       </div>
 

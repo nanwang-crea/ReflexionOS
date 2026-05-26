@@ -5,7 +5,9 @@ type ThemeMode = 'light' | 'dark' | 'system'
 
 interface ThemeState {
   theme: ThemeMode
+  sidebarCollapsed: boolean
   setTheme: (theme: ThemeMode) => void
+  toggleSidebar: () => void
 }
 
 function getSystemTheme(): 'light' | 'dark' {
@@ -21,11 +23,14 @@ export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       theme: 'light',
+      sidebarCollapsed: false,
       setTheme: (theme) => set({ theme }),
+      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
     }),
     {
       name: 'reflexion-theme',
       storage: createJSONStorage(() => localStorage),
+      partialize: (state) => ({ theme: state.theme, sidebarCollapsed: state.sidebarCollapsed }),
     },
   ),
 )
