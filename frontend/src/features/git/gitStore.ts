@@ -3,14 +3,11 @@ import { gitApi } from '@/features/git/gitApi'
 import { useProjectStore } from '@/stores/projectStore'
 import type { GitFileChange, GitBranchInfo } from '@/types/git'
 
-type SidebarTab = 'files' | 'changes'
-
 interface GitState {
   branchInfo: GitBranchInfo | null
   stagedFiles: GitFileChange[]
   unstagedFiles: GitFileChange[]
   untrackedFiles: GitFileChange[]
-  sidebarTab: SidebarTab
   stagedCollapsed: boolean
   unstagedCollapsed: boolean
   commitMessage: string
@@ -29,7 +26,6 @@ interface GitState {
   pull: () => Promise<void>
   stash: (action: 'push' | 'pop') => Promise<void>
   discardChanges: (paths: string[]) => Promise<void>
-  setSidebarTab: (tab: SidebarTab) => void
   setCommitMessage: (msg: string) => void
   toggleStagedCollapsed: () => void
   toggleUnstagedCollapsed: () => void
@@ -44,7 +40,6 @@ export const useGitStore = create<GitState>()((set, get) => ({
   stagedFiles: [],
   unstagedFiles: [],
   untrackedFiles: [],
-  sidebarTab: 'files',
   stagedCollapsed: false,
   unstagedCollapsed: false,
   commitMessage: '',
@@ -142,13 +137,6 @@ export const useGitStore = create<GitState>()((set, get) => ({
     if (!projectId) return
     await gitApi.discardChanges(projectId, paths)
     await get().fetchStatus()
-  },
-
-  setSidebarTab: (tab) => {
-    set({ sidebarTab: tab })
-    if (tab === 'changes') {
-      get().fetchStatus()
-    }
   },
 
   setCommitMessage: (msg) => set({ commitMessage: msg }),

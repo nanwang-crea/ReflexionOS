@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useGitStore } from '@/features/git/gitStore'
 import { GitBranchBar } from './GitBranchBar'
 import { GitFileGroup } from './GitFileGroup'
@@ -14,6 +15,11 @@ export function GitChangesTab() {
   const toggleStagedCollapsed = useGitStore((s) => s.toggleStagedCollapsed)
   const toggleUnstagedCollapsed = useGitStore((s) => s.toggleUnstagedCollapsed)
   const isLoading = useGitStore((s) => s.isLoading)
+  const fetchStatus = useGitStore((s) => s.fetchStatus)
+
+  useEffect(() => {
+    fetchStatus()
+  }, [fetchStatus])
 
   if (isLoading && !branchInfo) {
     return (
