@@ -2,8 +2,67 @@ import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { useTerminalStore } from '@/features/terminal/terminalStore'
+import { useThemeStore } from '@/stores/themeStore'
 import { terminalIpc } from '@/services/terminalIpc'
 import '@xterm/xterm/css/xterm.css'
+
+const DARK_THEME = {
+  background: '#1e1e2e',
+  foreground: '#cdd6f4',
+  cursor: '#f5e0dc',
+  cursorAccent: '#1e1e2e',
+  selectionBackground: '#585b70',
+  selectionForeground: '#cdd6f4',
+  black: '#45475a',
+  red: '#f38ba8',
+  green: '#a6e3a1',
+  yellow: '#f9e2af',
+  blue: '#89b4fa',
+  magenta: '#f5c2e7',
+  cyan: '#94e2d5',
+  white: '#bac2de',
+  brightBlack: '#585b70',
+  brightRed: '#f38ba8',
+  brightGreen: '#a6e3a1',
+  brightYellow: '#f9e2af',
+  brightBlue: '#89b4fa',
+  brightMagenta: '#f5c2e7',
+  brightCyan: '#94e2d5',
+  brightWhite: '#a6adc8',
+}
+
+const LIGHT_THEME = {
+  background: '#fafafa',
+  foreground: '#383a42',
+  cursor: '#526fff',
+  cursorAccent: '#fafafa',
+  selectionBackground: '#add6ff',
+  selectionForeground: '#383a42',
+  black: '#383a42',
+  red: '#e45649',
+  green: '#50a14f',
+  yellow: '#c18401',
+  blue: '#4078f2',
+  magenta: '#a626a4',
+  cyan: '#0184bc',
+  white: '#a0a1a7',
+  brightBlack: '#4f525e',
+  brightRed: '#e06c75',
+  brightGreen: '#98c379',
+  brightYellow: '#e5c07b',
+  brightBlue: '#61afef',
+  brightMagenta: '#c678dd',
+  brightCyan: '#56b6c2',
+  brightWhite: '#080a0e',
+}
+
+function getResolvedTheme(): 'light' | 'dark' {
+  const mode = useThemeStore.getState().theme
+  if (mode === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  }
+  return mode
+}
 
 interface TerminalInstanceProps {
   terminalId: string
@@ -35,31 +94,9 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
     let active = true
     let ptyReady = false
 
+    const resolved = getResolvedTheme()
     const term = new Terminal({
-      theme: {
-        background: '#1e1e2e',
-        foreground: '#cdd6f4',
-        cursor: '#f5e0dc',
-        cursorAccent: '#1e1e2e',
-        selectionBackground: '#585b70',
-        selectionForeground: '#cdd6f4',
-        black: '#45475a',
-        red: '#f38ba8',
-        green: '#a6e3a1',
-        yellow: '#f9e2af',
-        blue: '#89b4fa',
-        magenta: '#f5c2e7',
-        cyan: '#94e2d5',
-        white: '#bac2de',
-        brightBlack: '#585b70',
-        brightRed: '#f38ba8',
-        brightGreen: '#a6e3a1',
-        brightYellow: '#f9e2af',
-        brightBlue: '#89b4fa',
-        brightMagenta: '#f5c2e7',
-        brightCyan: '#94e2d5',
-        brightWhite: '#a6adc8',
-      },
+      theme: resolved === 'dark' ? DARK_THEME : LIGHT_THEME,
       fontSize: 13,
       fontFamily: 'Menlo, Monaco, "Courier New", monospace',
       cursorBlink: true,
@@ -73,6 +110,15 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
 
     termRef.current = term
     fitAddonRef.current = fitAddon
+
+    const unsubTheme = useThemeStore.subscribe((state) => {
+      const next = state.theme === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : state.theme
+      if (termRef.current) {
+        termRef.current.options.theme = next === 'dark' ? DARK_THEME : LIGHT_THEME
+      }
+    })
 
     const unsubData = terminalIpc.onData((id, data) => {
       if (id === terminalId && active) {
@@ -113,6 +159,7 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
       active = false
       ptyReady = false
       resizeObserver.disconnect()
+      unsubTheme()
       unsubData()
       unsubExit()
       terminalIpc.kill(terminalId)
