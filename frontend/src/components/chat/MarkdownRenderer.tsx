@@ -51,13 +51,13 @@ export function MarkdownRenderer({
             const match = /language-(\w+)/.exec(className || '')
             const isInline = !match
             return !isInline ? (
-              <pre className="bg-gray-900 text-gray-100 rounded-lg p-4 overflow-x-auto my-3">
+              <pre className="bg-surface-code text-content-primary rounded-lg p-4 overflow-x-auto my-3">
                 <code className={className} {...props}>
                   {children}
                 </code>
               </pre>
             ) : (
-              <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm" {...props}>
+              <code className="bg-surface-tertiary text-content-secondary px-1.5 py-0.5 rounded text-sm" {...props}>
                 {children}
               </code>
             )
@@ -85,32 +85,32 @@ export function MarkdownRenderer({
               href={href} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="text-blue-600 hover:underline"
+              className="text-accent hover:underline"
             >
               {children}
             </a>
           ),
           
           blockquote: ({ children }) => (
-            <blockquote className="border-l-4 border-gray-300 pl-4 italic my-3 text-gray-600">
+            <blockquote className="border-l-4 border-edge pl-4 italic my-3 text-content-muted">
               {children}
             </blockquote>
           ),
           
           table: ({ children }) => (
             <div className="overflow-x-auto my-3">
-              <table className="min-w-full border border-gray-200">
+              <table className="min-w-full border border-edge">
                 {children}
               </table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="border border-gray-200 px-3 py-2 bg-gray-50 font-semibold">
+            <th className="border border-edge px-3 py-2 bg-surface-secondary font-semibold">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border border-gray-200 px-3 py-2">
+            <td className="border border-edge px-3 py-2">
               {children}
             </td>
           ),
@@ -120,7 +120,7 @@ export function MarkdownRenderer({
       </ReactMarkdown>
       {isStreaming && (
         <motion.span
-          className="ml-1 inline-block h-5 w-2 bg-slate-300 align-middle"
+          className="ml-1 inline-block h-5 w-2 bg-content-muted align-middle"
           animate={{ opacity: [1, 0] }}
           transition={{ duration: 0.5, repeat: Infinity }}
         />
