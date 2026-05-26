@@ -246,21 +246,20 @@ class GitService:
         project_path = self._get_project_path(project_id)
         rc, stdout, stderr = await self._run_git(
             "log", f"--max-count={max_count}",
-            "-z",
-            "--pretty=format:%H%x00%h%x00%an%x00%ai%x00%s",
+            "--pretty=format:%x01%H%x00%h%x00%an%x00%ai%x00%s",
             cwd=project_path,
         )
         if rc != 0:
             raise ValidationError(f"git log 失败: {stderr.strip()}")
 
         commits = []
-        raw = stdout.strip("\x00")
+        raw = stdout.strip()
         if not raw:
             return {"commits": commits}
 
-        entries = raw.split("\x00\x00")
+        entries = raw.split("\x01")
         for entry in entries:
-            entry = entry.strip("\x00")
+            entry = entry.strip()
             if not entry:
                 continue
             parts = entry.split("\x00", 4)
