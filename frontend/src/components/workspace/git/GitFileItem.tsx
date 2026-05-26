@@ -25,7 +25,7 @@ export function GitFileItem({ path, status, insertions, deletions, section }: Gi
   const stageFiles = useGitStore((s) => s.stageFiles)
   const unstageFiles = useGitStore((s) => s.unstageFiles)
   const discardChanges = useGitStore((s) => s.discardChanges)
-  const addToast = useToast()
+  const toast = useToast()
 
   const filename = path.split('/').pop() ?? path
 
@@ -43,7 +43,7 @@ export function GitFileItem({ path, status, insertions, deletions, section }: Gi
 
   const handleDiscard = async () => {
     discardChanges([path])
-    addToast('已丢弃变更: ' + filename, 'info')
+    toast.showInfo('已丢弃变更: ' + filename)
   }
 
   return (
