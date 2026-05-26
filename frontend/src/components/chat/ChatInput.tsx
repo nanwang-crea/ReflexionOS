@@ -74,7 +74,7 @@ export function ChatInput({
   return (
     <div className="relative">
       <motion.div
-        className="relative overflow-hidden rounded-2xl border-2 border-gray-200 bg-white transition-all duration-200"
+        className="relative overflow-hidden rounded-2xl border-2 border-edge bg-surface-primary transition-all duration-200"
         animate={{ scale: isFocused ? 1.01 : 1 }}
         transition={{ duration: 0.2 }}
       >
@@ -90,21 +90,21 @@ export function ChatInput({
           placeholder={placeholder}
           disabled={disabled || isLoading}
           rows={1}
-          className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-gray-50"
+          className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary"
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-3 py-2">
           <div className="flex flex-wrap items-center gap-3">
             {providerOptions.length > 0 ? (
               <>
-                <label className="flex items-center gap-2 text-xs text-slate-500">
-                  <span>供应商</span>
-                  <select
-                    value={selectedProviderId || ''}
-                    onChange={(e) => onProviderChange?.(e.target.value || null)}
-                    disabled={selectionDisabled}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
-                  >
+                 <label className="flex items-center gap-2 text-xs text-content-muted">
+                   <span>供应商</span>
+                   <select
+                     value={selectedProviderId || ''}
+                     onChange={(e) => onProviderChange?.(e.target.value || null)}
+                     disabled={selectionDisabled}
+                     className="rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary"
+                   >
                     <option value="">请选择供应商</option>
                     {providerOptions.map((option) => (
                       <option key={option.id} value={option.id}>
@@ -113,14 +113,14 @@ export function ChatInput({
                     ))}
                   </select>
                 </label>
-                <label className="flex items-center gap-2 text-xs text-slate-500">
-                  <span>模型</span>
-                  <select
-                    value={selectedModelId || ''}
-                    onChange={(e) => onModelChange?.(e.target.value || null)}
-                    disabled={selectionDisabled || modelOptions.length === 0}
-                    className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
-                  >
+                 <label className="flex items-center gap-2 text-xs text-content-muted">
+                   <span>模型</span>
+                   <select
+                     value={selectedModelId || ''}
+                     onChange={(e) => onModelChange?.(e.target.value || null)}
+                     disabled={selectionDisabled || modelOptions.length === 0}
+                     className="rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary"
+                   >
                     <option value="">请选择模型</option>
                     {modelOptions.map((option) => (
                       <option key={option.id} value={option.id}>
@@ -131,11 +131,11 @@ export function ChatInput({
                 </label>
               </>
             ) : (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-content-muted">
                 请先在设置页配置供应商和模型
               </span>
             )}
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-content-muted">
               `Enter` 发送，`Shift + Enter` 换行
             </span>
           </div>
@@ -146,7 +146,7 @@ export function ChatInput({
                 type="button"
                 onClick={onCancel}
                 disabled={isCancelling}
-                className="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:text-slate-400"
+                className="flex items-center gap-2 rounded-xl bg-surface-tertiary px-3 py-2 text-sm font-medium text-content-secondary transition hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:text-content-muted"
                 whileHover={isCancelling ? undefined : { scale: 1.03 }}
                 whileTap={isCancelling ? undefined : { scale: 0.97 }}
               >
@@ -162,7 +162,7 @@ export function ChatInput({
                 type="button"
                 onClick={handleSend}
                 disabled={!value.trim() || disabled || isLoading}
-                className="rounded-xl bg-blue-600 px-4 py-2 font-medium text-white shadow-lg shadow-blue-500/30 transition disabled:cursor-not-allowed disabled:bg-gray-300"
+                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition disabled:cursor-not-allowed disabled:bg-gray-300"
                 whileHover={{ scale: 1.03, y: -1 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400 }}

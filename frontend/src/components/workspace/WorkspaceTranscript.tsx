@@ -19,7 +19,7 @@ const transcriptClassName = [
   'max-w-[920px]',
   'text-[17px]',
   'leading-[1.8]',
-  'text-slate-900',
+  'text-content-primary',
   '[&_p]:m-0',
   '[&_p+p]:mt-6',
   '[&_ul]:my-4',
@@ -119,7 +119,7 @@ export function WorkspaceTranscript({
     <div
       ref={transcriptScrollRef}
       onScroll={onTranscriptScroll}
-      className="flex-1 overflow-y-auto bg-white"
+      className="flex-1 overflow-y-auto bg-surface-primary"
     >
       <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
         {loaded && !configured && (
@@ -129,13 +129,13 @@ export function WorkspaceTranscript({
         )}
 
         {!currentProject && (
-          <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
+          <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
             先在左侧选择一个项目，再开始新的聊天。
           </div>
         )}
 
         {currentProject && !currentSession && messages.length === 0 && (
-          <div className="max-w-[720px] rounded-3xl border border-slate-200 bg-slate-50 px-6 py-8 text-slate-500">
+          <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
             这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击“新建聊天”。
           </div>
         )}
@@ -162,7 +162,7 @@ export function WorkspaceTranscript({
                 <SlideIn key={message.id} direction="up">
                   <div className="mb-8 flex justify-end">
                     <motion.div
-                      className="max-w-[720px] rounded-2xl bg-slate-100 px-5 py-4 text-[15px] leading-7 text-slate-700"
+                      className="max-w-[720px] rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary"
                       initial={{ opacity: 0, y: 12 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2 }}
@@ -237,8 +237,8 @@ export function WorkspaceTranscript({
         )}
 
         {showThinkingIndicator && (
-          <div className="mb-8 flex items-center gap-3 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+          <div className="mb-8 flex items-center gap-3 text-sm text-content-muted">
+            <Loader2 className="h-4 w-4 animate-spin text-content-muted" />
             <span>思考中</span>
           </div>
         )}
@@ -264,7 +264,7 @@ export function WorkspaceTranscript({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.96 }}
               transition={{ duration: 0.18 }}
-              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-[0_12px_36px_rgba(15,23,42,0.18)] transition-colors hover:border-slate-300 hover:text-slate-900"
+              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-[0_12px_36px_rgba(15,23,42,0.18)] transition-colors hover:border-edge hover:text-content-primary"
             >
               <ArrowDown className="h-5 w-5" />
             </motion.button>
