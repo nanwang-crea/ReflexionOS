@@ -1,16 +1,19 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { CodeTab } from '@/components/workspace/CodeTab'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
 import { WorkspaceTranscript } from '@/components/workspace/WorkspaceTranscript'
+import { TerminalPanel } from '@/components/terminal/TerminalPanel'
 import { useConversationStore } from '@/features/conversation/conversationStore'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
+import { useTerminalStore } from '@/features/terminal/terminalStore'
 import { useConversationData } from '@/hooks/useConversationData'
 import { useConversationRuntime } from '@/hooks/useConversationRuntime'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { useProjectStore } from '@/stores/projectStore'
 import { ToastContainer } from '@/components/common/Toast'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
@@ -34,6 +37,25 @@ export default function AgentWorkspace() {
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
   const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
   const setActiveFile = useCodeTabStore((s) => s.setActiveFile)
+  const togglePanel = useTerminalStore((s) => s.togglePanel)
+  const createTerminal = useTerminalStore((s) => s.createTerminal)
+  const currentProject = useProjectStore((s) => s.currentProject)
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === '`' && e.ctrlKey && !e.shiftKey) {
+        e.preventDefault()
+        togglePanel()
+      }
+      if (e.key === '`' && e.ctrlKey && e.shiftKey) {
+        e.preventDefault()
+        const cwd = currentProject?.path ?? ''
+        createTerminal(cwd)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [togglePanel, createTerminal, currentProject])
 
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const path = detail.arguments?.path as string | undefined
@@ -77,7 +99,12 @@ export default function AgentWorkspace() {
           <WorkspaceHeader {...viewModel.headerProps} />
 
         {workspaceTab === 'code' ? (
-          <CodeTab />
+          <>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <CodeTab />
+            </div>
+            <TerminalPanel />
+          </>
         ) : (
           <>
             <WorkspaceTranscript
