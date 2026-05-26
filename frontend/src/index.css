@@ -26,6 +26,16 @@
 
   --shadow-color: rgba(15, 23, 42, 0.12);
 
+  --status-error: #dc2626;
+  --status-error-soft: #fef2f2;
+  --status-error-border: #fecaca;
+  --status-warning: #d97706;
+  --status-warning-soft: #fffbeb;
+  --status-warning-border: #fde68a;
+  --status-success: #059669;
+  --status-success-soft: #ecfdf5;
+  --status-success-border: #a7f3d0;
+
   color: var(--text-primary);
   background-color: var(--bg-primary);
 }
@@ -49,6 +59,16 @@
   --terminal-tab-active: #313244;
 
   --shadow-color: rgba(0, 0, 0, 0.4);
+
+  --status-error: #f38ba8;
+  --status-error-soft: #302028;
+  --status-error-border: #45475a;
+  --status-warning: #f9e2af;
+  --status-warning-soft: #302820;
+  --status-warning-border: #45475a;
+  --status-success: #a6e3a1;
+  --status-success-soft: #203028;
+  --status-success-border: #45475a;
 }
 
 body {
