@@ -3,6 +3,8 @@ const path = require('path')
 const { pathToFileURL } = require('url')
 const { app, BrowserWindow, dialog, ipcMain } = require('electron')
 const { BackendManager } = require('./backend-manager.cjs')
+const os = require('os')
+const pty = require('node-pty')
 
 const frontendDir = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendDir, '..')
@@ -163,6 +165,66 @@ async function bootstrap() {
   createWindow({ route: '/agent' })
 }
 
+const terminals = new Map()
+
+function getShellCommand() {
+  if (process.platform === 'win32') {
+    return 'cmd.exe'
+  }
+  return process.env.SHELL || '/bin/zsh'
+}
+
+ipcMain.handle('terminal:create', (_event, id, cwd) => {
+  const shell = getShellCommand()
+  const args = process.platform === 'darwin' ? ['--login'] : []
+  const ptyProcess = pty.spawn(shell, args, {
+    name: 'xterm-256color',
+    cols: 80,
+    rows: 24,
+    cwd: cwd || os.homedir(),
+    env: process.env,
+  })
+
+  terminals.set(id, ptyProcess)
+
+  ptyProcess.onData((data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal:data', id, data)
+    }
+  })
+
+  ptyProcess.onExit(({ exitCode }) => {
+    terminals.delete(id)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('terminal:exit', id, exitCode)
+    }
+  })
+
+  return { pid: ptyProcess.pid }
+})
+
+ipcMain.handle('terminal:write', (_event, id, data) => {
+  const ptyProcess = terminals.get(id)
+  if (ptyProcess) {
+    ptyProcess.write(data)
+  }
+})
+
+ipcMain.handle('terminal:resize', (_event, id, cols, rows) => {
+  const ptyProcess = terminals.get(id)
+  if (ptyProcess) {
+    ptyProcess.resize(cols, rows)
+  }
+})
+
+ipcMain.handle('terminal:kill', (_event, id) => {
+  const ptyProcess = terminals.get(id)
+  if (ptyProcess) {
+    ptyProcess.kill()
+    terminals.delete(id)
+  }
+})
+
 app.whenReady().then(bootstrap)
 
 ipcMain.handle('dialog:select-directory', async () => {
@@ -186,6 +248,10 @@ app.on('activate', () => {
 })
 
 app.on('before-quit', () => {
+  for (const [, ptyProcess] of terminals) {
+    try { ptyProcess.kill() } catch {}
+  }
+  terminals.clear()
   void backendManager.stop()
 })
 
