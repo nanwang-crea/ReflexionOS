@@ -2,6 +2,7 @@ import type {
   ConversationEvent,
   ConversationLiveMessage,
   ConversationMessage,
+  ConversationRun,
   ConversationSnapshot,
   ConversationState,
 } from '@/types/conversation'
@@ -153,10 +154,62 @@ export function applyConversationSnapshot(
   }
 }
 
+function applyMessagesTruncated(
+  state: ConversationState,
+  event: ConversationEvent
+): ConversationState {
+  const p = event.payloadJson
+  const deletedTurnIds = (p.deleted_turn_ids as string[]) ?? []
+  const deletedTurnIdSet = new Set(deletedTurnIds)
+
+  const survivingTurnOrder = state.turnOrder.filter((id) => !deletedTurnIdSet.has(id))
+  const survivingTurnsById: Record<string, ConversationState['turnsById'][string]> = {}
+  for (const id of survivingTurnOrder) {
+    const turn = state.turnsById[id]
+    if (turn) survivingTurnsById[id] = turn
+  }
+
+  const survivingMessageOrder = state.messageOrder.filter((id) => {
+    const msg = state.messagesById[id]
+    return msg && !deletedTurnIdSet.has(msg.turnId)
+  })
+  const survivingMessagesById: Record<string, ConversationMessage> = {}
+  for (const id of survivingMessageOrder) {
+    const msg = state.messagesById[id]
+    if (msg) survivingMessagesById[id] = msg
+  }
+
+  const survivingRunsById: Record<string, ConversationRun> = {}
+  for (const [id, run] of Object.entries(state.runsById)) {
+    if (!deletedTurnIdSet.has(run.turnId)) {
+      survivingRunsById[id] = run
+    }
+  }
+
+  const session = state.session
+    ? { ...state.session, activeTurnId: null }
+    : null
+
+  return {
+    ...state,
+    lastEventSeq: event.seq,
+    session,
+    turnOrder: survivingTurnOrder,
+    turnsById: survivingTurnsById,
+    runsById: survivingRunsById,
+    messageOrder: survivingMessageOrder,
+    messagesById: survivingMessagesById,
+  }
+}
+
 export function applyConversationEvent(state: ConversationState, event: ConversationEvent): ConversationState {
   const currentState = state.sessionId ? state : { ...state, sessionId: event.sessionId }
   if (event.seq <= currentState.lastEventSeq) {
     return currentState
+  }
+
+  if (event.eventType === 'messages.truncated') {
+    return applyMessagesTruncated(currentState, event)
   }
 
   if (!event.messageId) {
