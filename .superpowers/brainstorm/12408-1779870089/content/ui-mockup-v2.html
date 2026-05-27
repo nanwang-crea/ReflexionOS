@@ -1,0 +1,75 @@
+<h2>消息操作按钮 — 底部样式（类 GPT）</h2>
+<p class="subtitle">编辑/复制/重新生成按钮放在消息下方</p>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>1. 用户消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">按钮出现在消息气泡下方</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;align-items:flex-end;padding:16px;">
+      <div style="max-width:480px;background:#3a3a4a;border-radius:16px;padding:14px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;">
+        如何用 Python 写一个快速排序？
+      </div>
+      <div style="display:flex;gap:2px;margin-top:6px;opacity:0.5;">
+        <span style="border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#999;display:flex;align-items:center;gap:4px;" title="复制文本">📋 复制</span>
+        <span style="border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#999;display:flex;align-items:center;gap:4px;" title="编辑">✏️ 编辑</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>2. 助手消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">按钮出现在助手消息内容下方</div>
+    <div class="mockup-body" style="padding:16px;">
+      <div style="max-width:600px;color:#e0e0e0;font-size:14px;line-height:1.7;">
+        <p>以下是 Python 快速排序的实现：</p>
+        <pre style="background:#1a1a2a;padding:10px;border-radius:8px;margin:8px 0;font-size:12px;overflow-x:auto;">def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x &lt; pivot]
+    mid = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + mid + quicksort(right)</pre>
+      </div>
+      <div style="display:flex;gap:2px;margin-top:6px;opacity:0.5;">
+        <span style="border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#999;display:flex;align-items:center;gap:4px;" title="复制文本">📋 复制</span>
+        <span style="border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer;color:#999;display:flex;align-items:center;gap:4px;" title="重新生成">🔄 重新生成</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>3. 用户消息 — 编辑模式（不变）</h3>
+  <div class="mockup">
+    <div class="mockup-header">点击编辑后消息区域变为输入框</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;align-items:flex-end;padding:16px;">
+      <div style="max-width:520px;width:100%;">
+        <textarea style="width:100%;background:#2a2a3a;border:1px solid #6366f1;border-radius:12px;padding:12px;color:#e0e0e0;font-size:14px;line-height:1.6;resize:vertical;min-height:60px;">如何用 Python 写一个归并排序？</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button style="background:transparent;border:1px solid #555;border-radius:8px;padding:6px 14px;color:#999;font-size:12px;cursor:pointer;">取消</button>
+          <button style="background:#6366f1;border:none;border-radius:8px;padding:6px 14px;color:#fff;font-size:12px;cursor:pointer;">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>4. 重新生成确认弹窗（不变）</h3>
+  <div class="mockup">
+    <div class="mockup-header">点击重新生成后弹出确认</div>
+    <div class="mockup-body" style="display:flex;align-items:center;justify-content:center;min-height:200px;">
+      <div style="background:#2a2a3a;border:1px solid #333;border-radius:16px;padding:24px;max-width:360px;text-align:center;">
+        <div style="font-size:16px;font-weight:600;color:#e0e0e0;margin-bottom:8px;">重新生成回复？</div>
+        <div style="font-size:13px;color:#999;margin-bottom:20px;">此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。</div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button style="background:transparent;border:1px solid #555;border-radius:8px;padding:8px 18px;color:#999;font-size:13px;cursor:pointer;">取消</button>
+          <button style="background:#6366f1;border:none;border-radius:8px;padding:8px 18px;color:#fff;font-size:13px;cursor:pointer;">确认重新生成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

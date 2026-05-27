@@ -1,0 +1,94 @@
+<h2>消息编辑/重新生成 — UI 交互 Mockup</h2>
+<p class="subtitle">悬停显示操作按钮 + 编辑状态切换</p>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>1. 用户消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">用户消息悬停时显示操作按钮</div>
+    <div class="mockup-body" style="display:flex;justify-content:flex-end;padding:16px;">
+      <div style="position:relative;max-width:480px;background:#3a3a4a;border-radius:16px;padding:14px 40px 14px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;">
+        如何用 Python 写一个快速排序？
+        <div style="position:absolute;top:8px;right:8px;display:flex;gap:4px;">
+          <span style="background:rgba(255,255,255,0.1);border-radius:6px;padding:4px 6px;font-size:11px;cursor:pointer;" title="复制文本">📋</span>
+          <span style="background:rgba(255,255,255,0.1);border-radius:6px;padding:4px 6px;font-size:11px;cursor:pointer;" title="复制到编辑框">✏️</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>2. 用户消息 — 编辑模式</h3>
+  <div class="mockup">
+    <div class="mockup-header">点击编辑按钮后切换为输入框</div>
+    <div class="mockup-body" style="display:flex;justify-content:flex-end;padding:16px;">
+      <div style="max-width:520px;width:100%;">
+        <textarea style="width:100%;background:#2a2a3a;border:1px solid #6366f1;border-radius:12px;padding:12px;color:#e0e0e0;font-size:14px;line-height:1.6;resize:vertical;min-height:60px;">如何用 Python 写一个归并排序？</textarea>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button style="background:transparent;border:1px solid #555;border-radius:8px;padding:6px 14px;color:#999;font-size:12px;cursor:pointer;">取消</button>
+          <button style="background:#6366f1;border:none;border-radius:8px;padding:6px 14px;color:#fff;font-size:12px;cursor:pointer;">发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>3. 助手消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">助手消息悬停时显示重新生成按钮</div>
+    <div class="mockup-body" style="padding:16px;">
+      <div style="position:relative;max-width:600px;color:#e0e0e0;font-size:14px;line-height:1.7;padding-right:40px;">
+        <p>以下是 Python 快速排序的实现：</p>
+        <pre style="background:#1a1a2a;padding:10px;border-radius:8px;margin:8px 0;font-size:12px;overflow-x:auto;">def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x &lt; pivot]
+    mid = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + mid + quicksort(right)</pre>
+        <div style="position:absolute;top:4px;right:0;display:flex;flex-direction:column;gap:4px;">
+          <span style="background:rgba(255,255,255,0.1);border-radius:6px;padding:4px 6px;font-size:11px;cursor:pointer;" title="复制文本">📋</span>
+          <span style="background:rgba(255,255,255,0.1);border-radius:6px;padding:4px 6px;font-size:11px;cursor:pointer;" title="重新生成">🔄</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>4. 重新生成确认弹窗</h3>
+  <div class="mockup">
+    <div class="mockup-header">点击重新生成后弹出确认</div>
+    <div class="mockup-body" style="display:flex;align-items:center;justify-content:center;min-height:200px;">
+      <div style="background:#2a2a3a;border:1px solid #333;border-radius:16px;padding:24px;max-width:360px;text-align:center;">
+        <div style="font-size:16px;font-weight:600;color:#e0e0e0;margin-bottom:8px;">重新生成回复？</div>
+        <div style="font-size:13px;color:#999;margin-bottom:20px;">此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。</div>
+        <div style="display:flex;gap:10px;justify-content:center;">
+          <button style="background:transparent;border:1px solid #555;border-radius:8px;padding:8px 18px;color:#999;font-size:13px;cursor:pointer;">取消</button>
+          <button style="background:#6366f1;border:none;border-radius:8px;padding:8px 18px;color:#fff;font-size:13px;cursor:pointer;">确认重新生成</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>5. 编辑发送后 — 旧消息清除中</h3>
+  <div class="mockup">
+    <div class="mockup-header">编辑用户消息发送后，后续消息消失，AI 重新生成</div>
+    <div class="mockup-body" style="padding:16px;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+        <div style="max-width:480px;background:#3a3a4a;border-radius:16px;padding:14px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;">
+          如何用 Python 写一个归并排序？
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;color:#999;font-size:13px;">
+        <span style="display:inline-block;width:16px;height:16px;border:2px solid #6366f1;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;"></span>
+        正在重新生成回复...
+      </div>
+      <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
+  </div>
+</div>

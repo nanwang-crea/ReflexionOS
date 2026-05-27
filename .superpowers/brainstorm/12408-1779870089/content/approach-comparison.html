@@ -1,0 +1,45 @@
+<h2>对话消息编辑/分支 — 架构方案</h2>
+<p class="subtitle">三种实现方式的对比</p>
+
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>方案 A：截断 + 重新 start_turn</h3>
+      <p>新增 <code>truncate</code> API 删除指定消息之后的所有 turn/run/message，然后用现有 <code>start_turn</code> 发送编辑后的消息</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4><ul><li>复用现有 start_turn 流程，改动最小</li><li>后端只需新增一个 truncate 端点</li><li>事件溯源天然支持（追加删除事件）</li></ul></div>
+        <div class="cons"><h4>劣势</h4><ul><li>两步操作（截断 + 发送），中间态可能被用户看到</li><li>turn_index 会改变，旧 turn 被完全删除</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>方案 B：原子 edit_and_rerun API</h3>
+      <p>新增 <code>edit_and_rerun</code> 端点，一步完成截断+编辑+重新运行。后端原子操作，客户端一次调用</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4><ul><li>原子操作，无中间态</li><li>客户端调用简单，一个 WebSocket 消息搞定</li><li>用户体验流畅</li></ul></div>
+        <div class="cons"><h4>劣势</h4><ul><li>后端新增逻辑较多</li><li>需要处理正在运行时的冲突</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>方案 C：利用 attempt_index 多次尝试</h3>
+      <p>利用 Run 已有的 <code>attempt_index</code> 字段，在同一 turn 内创建新 run，按 active attempt 过滤显示</p>
+      <div class="pros-cons">
+        <div class="pros"><h4>优势</h4><ul><li>保留历史尝试记录</li><li>Schema 改动最小</li></ul></div>
+        <div class="cons"><h4>劣势</h4><ul><li>与"覆盖式"需求矛盾 — 用户要求删除旧分支</li><li>消息过滤逻辑复杂</li><li>over-engineering，不需要</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:2rem">
+  <h3>推荐：方案 B</h3>
+  <p>方案 B 最符合用户体验预期 — 一步完成编辑+重跑，无中间态闪烁。方案 A 的两步操作在快速交互时可能让用户看到短暂的"消息消失又出现"。方案 C 与覆盖式需求矛盾。</p>
+</div>

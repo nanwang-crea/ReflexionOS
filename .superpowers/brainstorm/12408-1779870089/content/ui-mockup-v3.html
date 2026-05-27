@@ -1,0 +1,80 @@
+<h2>消息操作按钮 — GPT 风格图标</h2>
+<p class="subtitle">使用 GPT 风格的极简 SVG 图标替代 emoji</p>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>1. 用户消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">GPT 风格：极简线条图标 + 悬停高亮</div>
+    <div class="mockup-body" style="display:flex;flex-direction:column;align-items:flex-end;padding:16px;">
+      <div style="max-width:480px;background:#3a3a4a;border-radius:16px;padding:14px 16px;color:#e0e0e0;font-size:14px;line-height:1.6;">
+        如何用 Python 写一个快速排序？
+      </div>
+      <div style="display:flex;gap:0;margin-top:4px;">
+        <button style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#777;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#ccc'" onmouseout="this.style.background='transparent';this.style.color='#777'" title="复制">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#777;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#ccc'" onmouseout="this.style.background='transparent';this.style.color='#777'" title="编辑">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>2. 助手消息 — 悬停状态</h3>
+  <div class="mockup">
+    <div class="mockup-header">GPT 风格：复制 + 重新生成图标</div>
+    <div class="mockup-body" style="padding:16px;">
+      <div style="max-width:600px;color:#e0e0e0;font-size:14px;line-height:1.7;">
+        <p>以下是 Python 快速排序的实现：</p>
+        <pre style="background:#1a1a2a;padding:10px;border-radius:8px;margin:8px 0;font-size:12px;overflow-x:auto;">def quicksort(arr):
+    if len(arr) <= 1:
+        return arr
+    pivot = arr[len(arr) // 2]
+    left = [x for x in arr if x &lt; pivot]
+    mid = [x for x in arr if x == pivot]
+    right = [x for x in arr if x > pivot]
+    return quicksort(left) + mid + quicksort(right)</pre>
+      </div>
+      <div style="display:flex;gap:0;margin-top:4px;">
+        <button style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#777;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#ccc'" onmouseout="this.style.background='transparent';this.style.color='#777'" title="复制">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button style="display:flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:6px;border:none;background:transparent;cursor:pointer;color:#777;transition:all 0.15s;" onmouseover="this.style.background='rgba(255,255,255,0.08)';this.style.color='#ccc'" onmouseout="this.style.background='transparent';this.style.color='#777'" title="重新生成">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-bottom:2rem">
+  <h3>图标对照</h3>
+  <div class="mockup">
+    <div class="mockup-header">使用的 SVG 图标（lucide-react 库已有）</div>
+    <div class="mockup-body" style="display:flex;gap:32px;align-items:center;padding:20px;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.06);color:#ccc;margin:0 auto 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </div>
+        <div style="font-size:12px;color:#999;">Copy</div>
+        <div style="font-size:10px;color:#666;margin-top:2px;">lucide: Copy</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.06);color:#ccc;margin:0 auto 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        </div>
+        <div style="font-size:12px;color:#999;">Edit</div>
+        <div style="font-size:10px;color:#666;margin-top:2px;">lucide: Pencil</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;background:rgba(255,255,255,0.06);color:#ccc;margin:0 auto 8px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </div>
+        <div style="font-size:12px;color:#999;">Regenerate</div>
+        <div style="font-size:10px;color:#666;margin-top:2px;">lucide: RefreshCw</div>
+      </div>
+    </div>
+  </div>
+</div>

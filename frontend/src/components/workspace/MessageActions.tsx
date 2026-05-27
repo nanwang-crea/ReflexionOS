@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Copy, Pencil, RefreshCw } from 'lucide-react'
+import { useToastStore } from '@/stores/toastStore'
 
 interface MessageActionsProps {
   messageId: string
@@ -22,9 +23,10 @@ export function MessageActions({
     try {
       await navigator.clipboard.writeText(contentText)
       setCopied(true)
+      useToastStore.getState().addToast('info', '已复制到剪贴板', 2000)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      console.error('复制失败')
+      useToastStore.getState().addToast('error', '复制失败')
     }
   }
 
