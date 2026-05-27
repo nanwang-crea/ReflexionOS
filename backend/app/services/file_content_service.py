@@ -150,36 +150,51 @@ class FileContentService:
         return {"tree": tree}
 
     async def _get_git_status_map(self, project_path: str) -> dict[str, str]:
+        status_map: dict[str, str] = {}
+
+        for args, status in [
+            (["diff", "--name-status"], "M"),
+            (["diff", "--cached", "--name-status"], None),
+        ]:
+            try:
+                result = await asyncio.create_subprocess_exec(
+                    "git", *args,
+                    cwd=project_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await result.communicate()
+                if result.returncode != 0:
+                    continue
+                for line in stdout.decode("utf-8", errors="replace").splitlines():
+                    parts = line.split("\t")
+                    if len(parts) < 2:
+                        continue
+                    code = parts[0][0]
+                    path = parts[-1]
+                    mapped = {"M": "M", "A": "A", "D": "D", "R": "M", "C": "A"}.get(
+                        code, "M"
+                    )
+                    status_map[path] = status or mapped
+            except FileNotFoundError:
+                return {}
+
         try:
             result = await asyncio.create_subprocess_exec(
-                "git", "status", "--porcelain",
+                "git", "ls-files", "--others", "--exclude-standard",
                 cwd=project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, _ = await result.communicate()
-            if result.returncode != 0:
-                return {}
-
-            status_map: dict[str, str] = {}
-            for line in stdout.decode("utf-8", errors="replace").splitlines():
-                if len(line) < 4:
-                    continue
-                code = line[:2].strip()
-                filepath = line[3:].strip()
-                if code in ("M", "R"):
-                    status_map[filepath] = "M"
-                elif code in ("A", "C"):
-                    status_map[filepath] = "A"
-                elif code == "D":
-                    status_map[filepath] = "D"
-                elif code in ("??", "!"):
-                    status_map[filepath] = "U"
-                else:
-                    status_map[filepath] = code[0] if code else "M"
-            return status_map
+            if result.returncode == 0:
+                for line in stdout.decode("utf-8", errors="replace").splitlines():
+                    if line:
+                        status_map[line] = "U"
         except FileNotFoundError:
             return {}
+
+        return status_map
 
     def _build_tree(self, root_path: str, current_path: str, git_status_map: dict[str, str]) -> list[dict]:
         try:

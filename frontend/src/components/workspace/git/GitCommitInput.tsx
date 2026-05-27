@@ -55,7 +55,7 @@ export function GitCommitInput() {
           title="Amend 上一次提交"
           className={`shrink-0 flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
             amend
-              ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+              ? 'border-status-warning-border bg-status-warning-soft text-status-warning'
               : 'border-edge-subtle text-content-muted hover:border-edge hover:text-content-secondary hover:bg-surface-tertiary'
           }`}
         >

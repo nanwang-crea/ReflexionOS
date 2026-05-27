@@ -59,7 +59,7 @@ export default function SkillsPage() {
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-medium ${
                     skill.enabled
-                      ? 'bg-emerald-50 text-emerald-700'
+                      ? 'bg-status-success-soft text-status-success'
                       : 'bg-surface-tertiary text-content-muted'
                   }`}>
                     {skill.enabled ? '已启用' : '已停用'}

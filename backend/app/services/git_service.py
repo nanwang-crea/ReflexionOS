@@ -1,7 +1,7 @@
 import asyncio
+import contextlib
 import logging
 import os
-from pathlib import Path
 
 from app.errors import ValidationError
 from app.security.path_security import PathSecurity
@@ -19,7 +19,7 @@ class GitService:
     def _make_security(self, project_path: str) -> PathSecurity:
         return PathSecurity(allowed_base_paths=[project_path], base_dir=project_path)
 
-    async def _run_git(self, *args: str, cwd: str) -> tuple[int, str, str]:
+    async def _run_git(self, *args: str, cwd: str, timeout: float = 120) -> tuple[int, str, str]:
         try:
             result = await asyncio.create_subprocess_exec(
                 "git", *args,
@@ -27,14 +27,19 @@ class GitService:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, stderr = await result.communicate()
+            stdout, stderr = await asyncio.wait_for(result.communicate(), timeout=timeout)
             return (
                 result.returncode,
                 stdout.decode("utf-8", errors="replace"),
                 stderr.decode("utf-8", errors="replace"),
             )
         except FileNotFoundError:
-            raise ValidationError("git 命令不可用")
+            raise ValidationError("git 命令不可用") from None
+        except TimeoutError:
+            result.kill()
+            raise ValidationError(
+                f"git {' '.join(args)} 超时（{timeout}s）"
+            ) from None
 
     def _validate_paths(self, paths: list[str], project_path: str) -> list[str]:
         security = self._make_security(project_path)
@@ -49,7 +54,9 @@ class GitService:
     async def get_status(self, project_id: str) -> dict:
         project_path = self._get_project_path(project_id)
 
-        rc, stdout, stderr = await self._run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=project_path)
+        rc, stdout, stderr = await self._run_git(
+            "rev-parse", "--abbrev-ref", "HEAD", cwd=project_path
+        )
         if rc != 0:
             raise ValidationError(f"不是 git 仓库: {stderr.strip()}")
         branch = stdout.strip()
@@ -66,34 +73,13 @@ class GitService:
                 behind = int(parts[0])
                 ahead = int(parts[1])
 
-        rc, stdout, _ = await self._run_git("status", "--porcelain", cwd=project_path)
-        staged = []
-        unstaged = []
-        untracked = []
-
-        if rc == 0:
-            for line in stdout.splitlines():
-                if len(line) < 4:
-                    continue
-                x = line[0]
-                y = line[1]
-                filepath = line[3:].strip()
-
-                if "R" in filepath:
-                    arrow_idx = filepath.index(" -> ")
-                    filepath = filepath[arrow_idx + 4:]
-
-                if x in ("M", "A", "D", "R", "C"):
-                    status = self._map_index_status(x)
-                    staged.append({"path": filepath, "status": status})
-
-                if y == "M":
-                    unstaged.append({"path": filepath, "status": "M"})
-                elif y == "D":
-                    unstaged.append({"path": filepath, "status": "D"})
-
-                if x == "?" and y == "?":
-                    untracked.append({"path": filepath, "status": "U"})
+        staged = await self._name_status_list(
+            project_path, ["diff", "--cached", "--name-status"]
+        )
+        unstaged = await self._name_status_list(
+            project_path, ["diff", "--name-status"]
+        )
+        untracked = await self._untracked_list(project_path)
 
         rc_cached, stdout_cached, _ = await self._run_git(
             "diff", "--cached", "--numstat", cwd=project_path
@@ -126,10 +112,6 @@ class GitService:
             "untracked": untracked,
         }
 
-    def _map_index_status(self, code: str) -> str:
-        mapping = {"M": "M", "A": "A", "D": "D", "R": "R", "C": "A"}
-        return mapping.get(code, "M")
-
     def _parse_numstat(self, output: str) -> dict[str, tuple[int, int]]:
         result = {}
         for line in output.splitlines():
@@ -141,6 +123,38 @@ class GitService:
                 if ins is not None and dels is not None:
                     result[filepath] = (ins, dels)
         return result
+
+    async def _name_status_list(
+        self, cwd: str, args: list[str]
+    ) -> list[dict]:
+        rc, stdout, _ = await self._run_git(*args, cwd=cwd)
+        if rc != 0:
+            return []
+        result = []
+        for line in stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 2:
+                continue
+            code = parts[0][0]
+            path = parts[-1]
+            result.append({"path": path, "status": self._map_status(code)})
+        return result
+
+    async def _untracked_list(self, cwd: str) -> list[dict]:
+        rc, stdout, _ = await self._run_git(
+            "ls-files", "--others", "--exclude-standard", cwd=cwd
+        )
+        if rc != 0:
+            return []
+        return [
+            {"path": line, "status": "U"}
+            for line in stdout.splitlines()
+            if line
+        ]
+
+    @staticmethod
+    def _map_status(code: str) -> str:
+        return {"M": "M", "A": "A", "D": "D", "R": "R", "C": "A"}.get(code, "M")
 
     async def stage_files(self, project_id: str, paths: list[str]) -> dict:
         project_path = self._get_project_path(project_id)
@@ -183,7 +197,9 @@ class GitService:
         if rc != 0:
             raise ValidationError(f"git branch 失败: {stderr.strip()}")
 
-        rc_head, stdout_head, _ = await self._run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=project_path)
+        rc_head, stdout_head, _ = await self._run_git(
+            "rev-parse", "--abbrev-ref", "HEAD", cwd=project_path
+        )
         current = stdout_head.strip() if rc_head == 0 else ""
 
         branches = []
@@ -308,7 +324,8 @@ class GitService:
         rc, stdout, stderr = await self._run_git("pull", cwd=project_path)
         if rc != 0:
             return {"success": False, "error": stderr.strip() or stdout.strip()}
-        return {"success": True, "error": None}
+        output = stdout.strip()
+        return {"success": True, "error": None, "output": output if output else None}
 
     async def stash(self, project_id: str, action: str = "push") -> dict:
         project_path = self._get_project_path(project_id)
@@ -343,10 +360,8 @@ class GitService:
 
         for rp in to_delete:
             abs_path = os.path.join(project_path, rp)
-            try:
+            with contextlib.suppress(OSError):
                 os.remove(abs_path)
-            except OSError:
-                pass
 
         return {"success": True, "error": None}
 

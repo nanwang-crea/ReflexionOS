@@ -72,22 +72,34 @@ async def commit(request: GitCommitRequest):
 
 @router.post("/push", response_model=GitSimpleResponse)
 async def push(request: GitProjectRequest):
-    return await git_service.push(request.project_id)
+    try:
+        return await git_service.push(request.project_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.post("/pull", response_model=GitSimpleResponse)
 async def pull(request: GitProjectRequest):
-    return await git_service.pull(request.project_id)
+    try:
+        return await git_service.pull(request.project_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.post("/fetch", response_model=GitSimpleResponse)
 async def fetch(request: GitProjectRequest):
-    return await git_service.fetch(request.project_id)
+    try:
+        return await git_service.fetch(request.project_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.post("/stash", response_model=GitSimpleResponse)
 async def stash(request: GitStashRequest):
-    return await git_service.stash(request.project_id, request.action)
+    try:
+        return await git_service.stash(request.project_id, request.action)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="项目") from exc
 
 
 @router.post("/discard", response_model=GitSimpleResponse)

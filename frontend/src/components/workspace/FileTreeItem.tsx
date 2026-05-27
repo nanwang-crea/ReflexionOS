@@ -7,6 +7,7 @@ const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {
   A: 'text-status-success',
   D: 'text-status-error',
   U: 'text-content-muted',
+  R: 'text-accent',
 }
 
 function GitStatusBadge({ status }: { status: GitStatusCode }) {
@@ -41,9 +42,9 @@ export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: numbe
             <ChevronRight className="h-3.5 w-3.5 shrink-0 text-content-muted" />
           )}
           {isExpanded ? (
-            <FolderOpen className="h-4 w-4 shrink-0 text-amber-500" />
+            <FolderOpen className="h-4 w-4 shrink-0 text-content-secondary" />
           ) : (
-            <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+            <Folder className="h-4 w-4 shrink-0 text-content-secondary" />
           )}
           <span className="truncate">{node.name}</span>
         </button>

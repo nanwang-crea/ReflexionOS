@@ -53,7 +53,7 @@ export function TerminalPanel() {
       <TerminalTabBar onClosePanel={togglePanel} />
       <div className="flex-1 overflow-hidden bg-terminal-bg relative">
         {instances.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-xs text-gray-400">
+          <div className="flex h-full items-center justify-center text-xs text-content-muted">
             没有活动的终端
           </div>
         ) : (

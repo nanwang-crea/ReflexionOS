@@ -183,7 +183,7 @@ export function ChatInput({
         </div>
         
         <motion.div
-          className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-purple-500"
+          className="absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r from-accent to-accent-hover"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: isFocused ? 1 : 0 }}
           transition={{ duration: 0.3 }}

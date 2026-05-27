@@ -37,7 +37,7 @@ export function CodeTabBar({
                   : 'bg-surface-primary text-content-secondary hover:bg-surface-tertiary'
               }`}
             >
-              {file.isDirty && <span className="text-amber-500 text-xs">●</span>}
+              {file.isDirty && <span className="text-status-warning text-xs">●</span>}
               <span className="truncate max-w-[120px]">{filename}</span>
               <span
                 role="button"

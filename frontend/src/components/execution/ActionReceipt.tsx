@@ -95,8 +95,8 @@ function ActionReceiptDetailRow({
         <span className={`h-1.5 w-1.5 rounded-full ${
           detail.status === 'failed' ? 'bg-status-error' :
           detail.status === 'cancelled' ? 'bg-status-warning' :
-          detail.status === 'running' ? 'bg-blue-400' :
-          detail.status === 'waiting_for_approval' ? 'bg-indigo-400' : 'bg-content-muted'
+          detail.status === 'running' ? 'bg-accent' :
+          detail.status === 'waiting_for_approval' ? 'bg-accent' : 'bg-content-muted'
         }`} />
         <span>{detail.summary}</span>
         {detail.duration !== undefined && (
@@ -116,7 +116,7 @@ function ActionReceiptDetailRow({
           <button
             type="button"
             onClick={() => setErrorExpanded(prev => !prev)}
-            className="inline-flex items-center gap-0.5 text-xs text-status-error hover:text-red-400 transition-colors"
+            className="inline-flex items-center gap-0.5 text-xs text-status-error hover:text-status-error transition-colors"
           >
             错误
             {errorExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -183,11 +183,11 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
   }, [details])
 
   const lineClassName = status === 'failed'
-    ? 'text-status-error hover:text-red-400'
+    ? 'text-status-error hover:text-status-error'
     : status === 'partial_failed'
-      ? 'text-status-warning hover:text-amber-400'
+      ? 'text-status-warning hover:text-status-warning'
       : status === 'cancelled'
-        ? 'text-status-warning hover:text-amber-400'
+        ? 'text-status-warning hover:text-status-warning'
         : 'text-content-muted hover:text-content-secondary'
 
   const approvalDetails = onApprovalAction
@@ -249,7 +249,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
               aria-label="批准此操作"
               title="批准此操作"
               onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-success-border text-status-success transition-colors hover:bg-status-success-soft hover:text-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-success-border text-status-success transition-colors hover:bg-status-success-soft hover:text-status-success focus:outline-none focus:ring-2 focus:ring-status-success/30"
             >
               <Check className="h-4 w-4" />
             </button>
@@ -258,7 +258,7 @@ export function ActionReceipt({ status, details, onApprovalAction, onDetailClick
               aria-label="拒绝此操作"
               title="拒绝此操作"
               onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-error-border text-status-error transition-colors hover:bg-status-error-soft hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-status-error-border text-status-error transition-colors hover:bg-status-error-soft hover:text-status-error focus:outline-none focus:ring-2 focus:ring-status-error/30"
             >
               <X className="h-4 w-4" />
             </button>

@@ -28,6 +28,7 @@ interface CodeTabState {
   expandedDirs: Record<string, boolean>
   sidebarTab: 'files' | 'changes'
   activeFile: OpenFile | null
+  fileTreeVersion: number
 }
 
 interface CodeTabActions {
@@ -45,14 +46,10 @@ interface CodeTabActions {
   toggleDir: (path: string) => void
   setDirExpanded: (path: string, expanded: boolean) => void
   setSidebarTab: (tab: 'files' | 'changes') => void
+  refreshFileTree: () => void
 }
 
 export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH }
-
-function _computeActiveFile(state: CodeTabState): OpenFile | null {
-  if (!state.activeFileId) return null
-  return state.openFiles.find((f) => f.id === state.activeFileId) ?? null
-}
 
 export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => ({
   workspaceTab: 'chat',
@@ -63,6 +60,7 @@ export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => 
   expandedDirs: {},
   sidebarTab: 'files' as const,
   activeFile: null,
+  fileTreeVersion: 0,
 
   setWorkspaceTab: (tab) => set({ workspaceTab: tab }),
 
@@ -201,4 +199,5 @@ export const useCodeTabStore = create<CodeTabState & CodeTabActions>()((set) => 
       expandedDirs: { ...state.expandedDirs, [path]: expanded },
     })),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
+  refreshFileTree: () => set((s) => ({ fileTreeVersion: s.fileTreeVersion + 1 })),
 }))

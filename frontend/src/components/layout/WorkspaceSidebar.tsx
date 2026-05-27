@@ -184,7 +184,7 @@ function SessionRow({
         type="button"
         onClick={onDelete}
         disabled={busy}
-         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-status-error group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
         title="删除聊天"
       >
         <Trash2 className="h-4 w-4" />
@@ -485,7 +485,7 @@ export function WorkspaceSidebar() {
                         type="button"
                         onClick={() => handleDeleteProject(project)}
                         disabled={busy}
-                         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-red-500 group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                         className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-status-error group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
                         title="删除项目"
                       >
                         <Trash2 className="h-4 w-4" />

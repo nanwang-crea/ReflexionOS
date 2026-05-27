@@ -80,8 +80,8 @@ export function WorkspaceHeader({
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${
-            connectionStatus === 'connected' ? 'bg-green-500' :
-            connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-gray-300'
+            connectionStatus === 'connected' ? 'bg-status-success' :
+            connectionStatus === 'connecting' ? 'bg-status-warning' : 'bg-content-muted'
           }`} />
           <span className="text-sm text-content-muted">
             {connectionStatus === 'connected' ? '已连接' :

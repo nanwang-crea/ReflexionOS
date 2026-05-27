@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { gitApi } from '@/features/git/gitApi'
 import { useProjectStore } from '@/stores/projectStore'
 import { useToastStore } from '@/stores/toastStore'
+import { useCodeTabStore } from '@/features/code/codeTabStore'
 import type { GitFileChange, GitBranchInfo, GitBranchItem, GitLogCommit } from '@/types/git'
 
 interface GitState {
@@ -56,6 +57,10 @@ function _getProjectId(): string | null {
 
 function _toast(type: 'info' | 'error', msg: string) {
   useToastStore.getState().addToast(type, msg)
+}
+
+function _refreshFileTree() {
+  useCodeTabStore.getState().refreshFileTree()
 }
 
 function _isNotGitRepo(err: unknown): boolean {
@@ -182,10 +187,10 @@ export const useGitStore = create<GitState>()((set, get) => ({
     set({ isPushing: true })
     try {
       const resp = await gitApi.push(projectId)
-      set({ isPushing: false })
-      if (!resp.data.success) { _toast('error', resp.data.error ?? 'Push 失败'); return }
+      if (!resp.data.success) { set({ isPushing: false }); _toast('error', resp.data.error ?? 'Push 失败'); return }
       _toast('info', '推送成功')
       await get().fetchStatus()
+      set({ isPushing: false })
     } catch { set({ isPushing: false }); _toast('error', 'Push 请求失败') }
   },
 
@@ -195,10 +200,12 @@ export const useGitStore = create<GitState>()((set, get) => ({
     set({ isPulling: true })
     try {
       const resp = await gitApi.pull(projectId)
-      set({ isPulling: false })
-      if (!resp.data.success) { _toast('error', resp.data.error ?? 'Pull 失败'); return }
+      if (!resp.data.success) { set({ isPulling: false }); _toast('error', resp.data.error ?? 'Pull 失败'); return }
       _toast('info', '拉取成功')
       await get().fetchStatus()
+      _refreshFileTree()
+      await get().fetchLog()
+      set({ isPulling: false })
     } catch { set({ isPulling: false }); _toast('error', 'Pull 请求失败') }
   },
 
@@ -208,10 +215,11 @@ export const useGitStore = create<GitState>()((set, get) => ({
     set({ isFetching: true })
     try {
       const resp = await gitApi.fetch(projectId)
-      set({ isFetching: false })
-      if (!resp.data.success) { _toast('error', resp.data.error ?? 'Fetch 失败'); return }
+      if (!resp.data.success) { set({ isFetching: false }); _toast('error', resp.data.error ?? 'Fetch 失败'); return }
       _toast('info', 'Fetch 成功')
       await get().fetchStatus()
+      _refreshFileTree()
+      set({ isFetching: false })
     } catch { set({ isFetching: false }); _toast('error', 'Fetch 请求失败') }
   },
 
@@ -297,6 +305,8 @@ export const useGitStore = create<GitState>()((set, get) => ({
       set({ showBranchPicker: false })
       await get().fetchStatus()
       await get().fetchBranches()
+      _refreshFileTree()
+      await get().fetchLog()
     } catch { _toast('error', '切换分支请求失败') }
   },
 

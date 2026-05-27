@@ -50,9 +50,10 @@ export function CodeTab() {
   useEffect(() => {
     if (!activeFile || !projectId) return
 
-    const filePath = activeFile.path
-    const viewMode = activeFile.viewMode
-    const fileId = activeFile.id
+    const file = activeFile
+    const filePath = file.path
+    const viewMode = file.viewMode
+    const fileId = file.id
     let cancelled = false
 
     setLoading(true)
@@ -60,10 +61,10 @@ export function CodeTab() {
     async function load() {
       try {
         if (viewMode === 'edit') {
-          if (activeFile.isDirty && activeFile.modifiedContent !== undefined) {
+          if (file.isDirty && file.modifiedContent !== undefined) {
             if (cancelled) return
-            setEditContent(activeFile.modifiedContent)
-            const lang = activeFile.language || 'plaintext'
+            setEditContent(file.modifiedContent)
+            const lang = file.language || 'plaintext'
             setLanguage(lang)
             setDiffOriginal('')
             setDiffModified('')
@@ -80,8 +81,8 @@ export function CodeTab() {
           const resp = await fileApi.getDiffContent(projectId, filePath)
           if (cancelled) return
           setDiffOriginal(resp.data.original)
-          if (activeFile.isDirty && activeFile.modifiedContent !== undefined) {
-            setDiffModified(activeFile.modifiedContent)
+          if (file.isDirty && file.modifiedContent !== undefined) {
+            setDiffModified(file.modifiedContent)
           } else {
             setDiffModified(resp.data.modified)
           }

@@ -17,6 +17,7 @@ export function FileSidebar() {
   const setSidebarTab = useCodeTabStore((s) => s.setSidebarTab)
   const currentProject = useProjectStore((s) => s.currentProject)
   const totalChanges = useGitStore((s) => s.totalChanges)
+  const fileTreeVersion = useCodeTabStore((s) => s.fileTreeVersion)
 
   const [tree, setTree] = useState<FileTreeNode[]>([])
   const [loading, setLoading] = useState(false)
@@ -44,7 +45,7 @@ export function FileSidebar() {
 
     load()
     return () => { cancelled = true }
-  }, [currentProject, sidebarOpen])
+  }, [currentProject, sidebarOpen, fileTreeVersion])
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -153,7 +154,7 @@ export function FileSidebar() {
         title="拖拽调整宽度"
       >
         <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 rounded-sm bg-transparent p-0.5 opacity-0 group-hover:opacity-100 group-hover:bg-surface-tertiary transition-opacity">
-          <GripVertical className="h-3 w-3 text-slate-400" />
+          <GripVertical className="h-3 w-3 text-content-muted" />
         </div>
       </div>
     </div>

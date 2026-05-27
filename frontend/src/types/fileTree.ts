@@ -1,4 +1,4 @@
-export type GitStatusCode = 'M' | 'A' | 'D' | 'U'
+export type GitStatusCode = 'M' | 'A' | 'D' | 'U' | 'R'
 
 export interface FileTreeNode {
   name: string
