@@ -18,6 +18,12 @@ export function useCurrentSessionViewModel(options: {
   plan: Plan | null
   onReset: () => void
   onApprovalAction?: ToolApprovalActionHandler
+  editAndRerun?: (payload: {
+    messageId: string
+    newContent?: string | null
+    providerId?: string | null
+    modelId?: string | null
+  }) => void
 }) {
   const { configured, loaded } = useSettingsStore()
   const {
@@ -38,6 +44,27 @@ export function useCurrentSessionViewModel(options: {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const shouldAutoScrollRef = useRef(true)
   const [isAtBottom, setIsAtBottom] = useState(true)
+
+  const handleEditMessage = useCallback((messageId: string, newContent: string) => {
+    if (!currentSessionSummary) return
+    options.editAndRerun?.({
+      messageId,
+      newContent,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+    })
+  }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
+
+  const handleRegenerateMessage = useCallback((messageId: string) => {
+    if (!currentSessionSummary) return
+    if (!window.confirm('重新生成回复？此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。')) return
+    options.editAndRerun?.({
+      messageId,
+      newContent: null,
+      providerId: selection.providerId,
+      modelId: selection.modelId,
+    })
+  }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
   const handleTranscriptScroll = useCallback(() => {
     const container = transcriptScrollRef.current
@@ -98,6 +125,8 @@ export function useCurrentSessionViewModel(options: {
       onScrollToBottom: scrollToBottom,
       onApprovalAction: options.onApprovalAction,
       messagesEndRef,
+      onEditMessage: handleEditMessage,
+      onRegenerateMessage: handleRegenerateMessage,
     },
     inputProps: {
       disabled: !loaded || !configured || !currentProject || options.isRunning || options.isCancelling,
