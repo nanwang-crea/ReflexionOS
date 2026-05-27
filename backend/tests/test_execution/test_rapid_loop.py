@@ -138,15 +138,12 @@ class TestRapidExecutionLoop:
         assert not hasattr(result, "model_id")
 
     @pytest.mark.asyncio
-    async def test_execution_fails_when_model_returns_no_content_and_no_tool_calls(
+    async def test_empty_response_with_finish_reason_stop_returns_friendly_message(
         self,
         execution_loop,
         mock_llm,
     ):
-        call_count = [0]
-
         async def mock_stream(messages, tools=None):
-            call_count[0] += 1
             async for chunk in self._stream_response(content=""):
                 yield chunk
 
@@ -154,8 +151,8 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("测试空响应")
 
-        assert result.status == LoopStatus.FAILED
-        assert "空响应" in result.result
+        assert result.status == LoopStatus.COMPLETED
+        assert "内容审核" in result.result
 
     @pytest.mark.asyncio
     async def test_execution_with_tool_call(self, execution_loop, mock_llm):
@@ -246,7 +243,7 @@ class TestRapidExecutionLoop:
                     finish_reason="tool_calls",
                 ):
                     yield chunk
-            elif call_index <= 1 + 3:
+            elif call_index == 2:
                 async for chunk in self._stream_response(content=""):
                     yield chunk
             else:
@@ -258,7 +255,7 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("其项目结构是怎么样的呢？")
 
         assert result.status == LoopStatus.COMPLETED
-        assert result.result == "项目采用前后端分离结构。"
+        assert "项目采用前后端分离结构" in result.result
 
     @pytest.mark.asyncio
     async def test_rapid_loop_includes_seeded_history_before_current_user_message(

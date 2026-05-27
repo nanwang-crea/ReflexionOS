@@ -126,17 +126,16 @@ class RapidExecutionLoop:
                 result.result = rt.response.content
                 return LoopPhase.DONE
             else:
+                if rt.response.finish_reason == "length":
+                    result.status = LoopStatus.COMPLETED
+                    result.result = "模型输出被截断（max_tokens 不足），请尝试增大 max_tokens 配置"
+                    return LoopPhase.DONE
+                if rt.response.finish_reason == "stop":
+                    result.status = LoopStatus.COMPLETED
+                    result.result = "模型未返回有效内容（可能触发了内容审核），请调整输入或更换模型"
+                    return LoopPhase.DONE
                 rt.consecutive_failures += 1
-                logger.warning(
-                    "PLANNING 空响应 (consecutive_failures=%d), finish_reason=%s",
-                    rt.consecutive_failures,
-                    rt.response.finish_reason,
-                )
                 if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                    if rt.response.finish_reason == "length":
-                        result.status = LoopStatus.COMPLETED
-                        result.result = "模型输出被截断（finish_reason=length），请尝试增加 max_tokens 或缩短输入"
-                        return LoopPhase.DONE
                     raise RuntimeError(
                         f"模型连续 {self.MAX_ERROR_RETRIES} 次返回空响应（finish_reason={rt.response.finish_reason}），"
                         "请检查模型配置或更换模型"
@@ -466,7 +465,11 @@ class RapidExecutionLoop:
 
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """
-        调用 LLM（使用原生工具调用），空响应时自动重试
+        调用 LLM（使用原生工具调用），特定条件下重试空响应
+
+        仅在 finish_reason=length 或流式错误时重试（这些是临时问题）。
+        finish_reason=stop 但内容为空时不再重试（国产模型常见的内容审核/拒绝，
+        重试只会浪费 token 和产生幽灵消息）。
 
         Args:
             context: 执行上下文
@@ -474,8 +477,9 @@ class RapidExecutionLoop:
         Returns:
             LLMResponse: LLM 响应
         """
+        await self._compact_context(context)
+
         for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
-            await self._compact_context(context)
             tools = self.tool_definitions.for_context(context)
             messages = self.message_builder.build(context, tools)
 
@@ -486,7 +490,6 @@ class RapidExecutionLoop:
             async for chunk in self.llm.stream_complete(messages, tools):
                 if chunk.type == "content" and chunk.content:
                     content_parts.append(chunk.content)
-                    await self._emit("llm:content", {"content": chunk.content})
                 elif chunk.type == "tool_calls":
                     tool_calls = chunk.tool_calls
                     finish_reason = chunk.finish_reason or "tool_calls"
@@ -495,6 +498,14 @@ class RapidExecutionLoop:
                     finish_reason = chunk.finish_reason or "stop"
                     break
                 elif chunk.type == "error":
+                    if attempt < self.MAX_EMPTY_RESPONSE_RETRIES - 1:
+                        logger.warning(
+                            "LLM 流式错误 (attempt %d/%d): %s, 重试中",
+                            attempt + 1,
+                            self.MAX_EMPTY_RESPONSE_RETRIES,
+                            chunk.error,
+                        )
+                        break
                     raise RuntimeError(chunk.error or "LLM 流式调用失败")
 
             response = LLMResponse(
@@ -505,6 +516,9 @@ class RapidExecutionLoop:
             )
 
             if response.has_content or response.has_tool_calls:
+                for part in content_parts:
+                    await self._emit("llm:content", {"content": part})
+
                 context.add_message(
                     "assistant",
                     content=response.content or None,
@@ -518,6 +532,25 @@ class RapidExecutionLoop:
                 )
                 return response
 
+            if finish_reason == "stop":
+                logger.warning(
+                    "LLM 返回空响应且 finish_reason=stop (attempt %d/%d), model=%s — "
+                    "可能是内容审核过滤或模型拒绝，不再重试",
+                    attempt + 1,
+                    self.MAX_EMPTY_RESPONSE_RETRIES,
+                    self.llm.get_model_name(),
+                )
+                break
+
+            if finish_reason == "length":
+                logger.warning(
+                    "LLM 空响应且 finish_reason=length (attempt %d/%d), model=%s — "
+                    "max_tokens 可能不足",
+                    attempt + 1,
+                    self.MAX_EMPTY_RESPONSE_RETRIES,
+                    self.llm.get_model_name(),
+                )
+
             logger.warning(
                 "LLM 空响应 (attempt %d/%d), finish_reason=%s, model=%s",
                 attempt + 1,
@@ -526,12 +559,10 @@ class RapidExecutionLoop:
                 self.llm.get_model_name(),
             )
 
-            if finish_reason == "length":
-                logger.warning("finish_reason=length, 可能 max_tokens 不足，尝试重试")
-
         logger.error(
-            "LLM 连续 %d 次空响应，放弃重试",
-            self.MAX_EMPTY_RESPONSE_RETRIES,
+            "LLM 空响应, finish_reason=%s, model=%s",
+            finish_reason,
+            self.llm.get_model_name(),
         )
         return response
 
