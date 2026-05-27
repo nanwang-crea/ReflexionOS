@@ -58,6 +58,7 @@ class EventType(str, Enum):
     MESSAGE_COMPLETED = "message.completed"
     MESSAGE_FAILED = "message.failed"
     SYSTEM_NOTICE_EMITTED = "system.notice_emitted"
+    MESSAGES_TRUNCATED = "messages.truncated"
 
 
 class Turn(BaseModel):
