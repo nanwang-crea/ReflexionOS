@@ -37,7 +37,7 @@ from app.storage.repositories.session_repo import SessionRepository
 from app.tools.base import ToolResult
 from app.tools.file_tool import FileTool
 from app.tools.memory_tool import MemoryTool
-from app.tools.patch_tool import PatchTool
+from app.tools.edit_tool import EditTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -107,7 +107,7 @@ class AgentService:
         registry = ToolRegistry()
         registry.register(FileTool(path_security))
         registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox()))
-        registry.register(PatchTool(path_security))
+        registry.register(EditTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
 

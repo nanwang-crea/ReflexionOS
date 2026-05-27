@@ -171,6 +171,76 @@ function buildPatchDetail(id: string, args: Record<string, unknown>): ActionRece
   }
 }
 
+function buildEditDetail(id: string, args: Record<string, unknown>): ActionReceiptDetail {
+  const action = typeof args.action === 'string' ? args.action : ''
+  const path = typeof args.path === 'string' ? args.path : ''
+  const target = shortPath(path)
+
+  if (action === 'str_replace') {
+    const oldString = typeof args.old_string === 'string' ? args.old_string : ''
+    const replaceAll = args.replace_all === true
+    if (!oldString) {
+      return {
+        id,
+        toolName: 'edit',
+        status: 'pending',
+        summary: target ? `创建 ${target}` : '创建文件',
+        category: 'create',
+        arguments: args,
+        target
+      }
+    }
+    const verb = replaceAll ? '批量替换' : '替换'
+    return {
+      id,
+      toolName: 'edit',
+      status: 'pending',
+      summary: target ? `${verb} ${target}` : `${verb}内容`,
+      category: 'edit',
+      arguments: args,
+      target
+    }
+  }
+
+  if (action === 'patch') {
+    const patchText = typeof args.patch === 'string' ? args.patch : ''
+    const category = getPatchCategory(patchText)
+    const patchTarget = shortPath(getPatchTarget(patchText))
+    const verb = { create: '创建', edit: '编辑', delete: '删除' }[category]
+    return {
+      id,
+      toolName: 'edit',
+      status: 'pending',
+      summary: patchTarget ? `${verb} ${patchTarget}` : `${verb}文件`,
+      category,
+      arguments: args,
+      target: patchTarget
+    }
+  }
+
+  if (action === 'write') {
+    return {
+      id,
+      toolName: 'edit',
+      status: 'pending',
+      summary: target ? `写入 ${target}` : '写入文件',
+      category: 'create',
+      arguments: args,
+      target
+    }
+  }
+
+  return {
+    id,
+    toolName: 'edit',
+    status: 'pending',
+    summary: target ? `处理 ${target}` : '编辑操作',
+    category: 'other',
+    arguments: args,
+    target
+  }
+}
+
 function buildShellDetail(id: string, args: Record<string, unknown>): ActionReceiptDetail {
   const command = typeof args.command === 'string' ? args.command.trim() : ''
   const summary = command ? `运行 ${truncate(command.replace(/\s+/g, ' '), 42)}` : '运行命令'
@@ -198,6 +268,10 @@ export function buildReceiptDetail(
 
   if (toolName === 'patch') {
     return buildPatchDetail(id, safeArgs)
+  }
+
+  if (toolName === 'edit') {
+    return buildEditDetail(id, safeArgs)
   }
 
   if (toolName === 'shell') {

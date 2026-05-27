@@ -34,7 +34,7 @@ class TestFileTool:
         assert parameters["type"] == "object"
         assert "oneOf" not in parameters
         assert parameters["required"] == ["action", "path"]
-        assert props["action"]["enum"] == ["read", "search", "write", "list", "delete"]
+        assert props["action"]["enum"] == ["read", "search", "list"]
         assert {
             "action",
             "path",
@@ -43,7 +43,6 @@ class TestFileTool:
             "line",
             "context",
             "query",
-            "content",
         } == set(props)
         assert "end_line" not in props
 
@@ -170,31 +169,7 @@ class TestFileTool:
         assert result.success is False
         assert "不在允许范围内" in result.error
 
-    @pytest.mark.asyncio
-    async def test_write_file_success(self, file_tool, temp_dir):
-        test_file = Path(temp_dir) / "output.txt"
 
-        result = await file_tool.execute(
-            {"action": "write", "path": str(test_file), "content": "Hello World"}
-        )
-
-        assert result.success is True
-        assert test_file.read_text() == "Hello World"
-
-    @pytest.mark.asyncio
-    async def test_write_requires_content_after_flattening_schema(self, file_tool, temp_dir):
-        test_file = Path(temp_dir) / "output.txt"
-
-        result = await file_tool.execute(
-            {
-                "action": "write",
-                "path": str(test_file),
-            }
-        )
-
-        assert result.success is False
-        assert "缺少 content 参数" in result.error
-        assert not test_file.exists()
 
     @pytest.mark.asyncio
     async def test_list_directory(self, file_tool, temp_dir):
@@ -206,12 +181,4 @@ class TestFileTool:
         assert result.success is True
         assert len(result.data["files"]) == 2
 
-    @pytest.mark.asyncio
-    async def test_delete_file(self, file_tool, temp_dir):
-        test_file = Path(temp_dir) / "delete_me.txt"
-        test_file.write_text("delete me")
 
-        result = await file_tool.execute({"action": "delete", "path": str(test_file)})
-
-        assert result.success is True
-        assert not test_file.exists()

@@ -55,7 +55,11 @@ $tool_list
 - Initial plan creation is handled before normal execution starts.
 - If an execution plan is present and the plan tool is available,
   use plan.step_done, plan.block, or plan.adjust to keep it current.
-- Do not create a second plan during normal execution.""",
+- Do not create a second plan during normal execution.
+- For file edits, prefer the edit tool with action=str_replace over patch or write.
+  str_replace supports fuzzy matching (indentation, whitespace differences are tolerated).
+  Use write only when creating a brand-new file.
+  Use patch only for complex multi-hunk changes where diff format is more appropriate.""",
             variables=["tool_list"],
         )
 

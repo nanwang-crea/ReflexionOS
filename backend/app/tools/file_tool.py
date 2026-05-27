@@ -65,8 +65,8 @@ class FileTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["read", "search", "write", "list", "delete"],
-                        "description": "操作类型：read/search/write/list/delete",
+                        "enum": ["read", "search", "list"],
+                        "description": "操作类型：read/search/list",
                     },
                     "path": {
                         "type": "string",
@@ -105,10 +105,7 @@ class FileTool(BaseTool):
                         "minLength": 1,
                         "description": "search 使用：搜索关键词",
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "write 使用：写入的内容",
-                    },
+
                 },
                 "required": ["action", "path"],
             },
@@ -117,7 +114,6 @@ class FileTool(BaseTool):
                 {"action": "read", "path": "main.py", "start_line": 1, "limit": 80},
                 {"action": "read", "path": "main.py", "line": 100, "context": 10},
                 {"action": "search", "path": "main.py", "query": "def login"},
-                {"action": "write", "path": "hello.py", "content": "print('hello')"},
                 {"action": "list", "path": "."},
             ],
         }
@@ -129,24 +125,20 @@ class FileTool(BaseTool):
         if not action:
             return ToolResult(
                 success=False,
-                error="缺少必需参数: action。支持: read, write, list, delete, search",
+                error="缺少必需参数: action。支持: read, list, search",
             )
 
         try:
             if action == "read":
                 return await self._read_file(args)
-            elif action == "write":
-                return await self._write_file(args)
             elif action == "list":
                 return await self._list_directory(args)
-            elif action == "delete":
-                return await self._delete_file(args)
             elif action == "search":
                 return await self._search_in_file(args)
             else:
                 return ToolResult(
                     success=False,
-                    error=f"未知操作: {action}。支持: read, write, list, delete, search",
+                    error=f"未知操作: {action}。支持: read, list, search",
                 )
 
         except KeyError as e:
@@ -370,22 +362,7 @@ class FileTool(BaseTool):
             success=True, output=output, data={"matches": matches, "count": len(matches)}
         )
 
-    async def _write_file(self, args: dict[str, Any]) -> ToolResult:
-        """写入文件内容"""
-        path = self.security.validate_write_path(args["path"])
-        if "content" not in args:
-            return ToolResult(success=False, error="缺少 content 参数")
-        content = args.get("content", "")
 
-        dir_path = os.path.dirname(path)
-        if dir_path:
-            os.makedirs(dir_path, exist_ok=True)
-
-        async with aiofiles.open(path, mode="w", encoding="utf-8") as f:
-            await f.write(content)
-
-        logger.info("写入文件: %s", path)
-        return ToolResult(success=True, output=f"文件已写入: {path}")
 
     async def _list_directory(self, args: dict[str, Any]) -> ToolResult:
         """列出目录内容"""
@@ -418,18 +395,4 @@ class FileTool(BaseTool):
             success=True, output=output, data={"files": files, "path": path, "count": len(files)}
         )
 
-    async def _delete_file(self, args: dict[str, Any]) -> ToolResult:
-        """删除文件"""
-        path = self.security.validate_write_path(args["path"])
 
-        if not os.path.exists(path):
-            return ToolResult(success=False, error=f"文件不存在: {path}")
-
-        if os.path.isdir(path):
-            os.rmdir(path)
-            logger.info("删除目录: %s", path)
-            return ToolResult(success=True, output=f"目录已删除: {path}")
-
-        os.remove(path)
-        logger.info("删除文件: %s", path)
-        return ToolResult(success=True, output=f"文件已删除: {path}")
