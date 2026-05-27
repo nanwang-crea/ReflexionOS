@@ -5,7 +5,7 @@ from threading import Lock, RLock
 from app.errors import NotFoundValueError
 from app.ids import new_event_id, new_message_id, new_run_id, new_turn_id
 from app.llm.base import MessageRole
-from app.models.conversation import ConversationEvent, EventType, Message, Run, RunStatus, Turn, TurnStatus
+from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus, Turn, TurnStatus
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
@@ -285,6 +285,139 @@ class ConversationService:
             if cancelled is None:
                 raise NotFoundValueError("运行不存在")
             return cancelled
+
+    def truncate_after_message(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        keep_turn: bool = False,
+    ) -> tuple[list[str], str | None]:
+        message = self.message_repo.get(message_id)
+        if message is None:
+            raise NotFoundValueError("消息不存在")
+        if message.session_id != session_id:
+            raise ValueError("消息不属于当前会话")
+
+        turn = self.turn_repo.get(message.turn_id)
+        if turn is None:
+            raise NotFoundValueError("轮次不存在")
+
+        surviving_user_content: str | None = None
+        deleted_turn_ids: list[str] = []
+
+        if keep_turn:
+            user_msg = self.message_repo.get_user_message_by_turn(turn.id)
+            surviving_user_content = user_msg.content_text if user_msg else None
+
+            later_turn_ids = [
+                t.id for t in self.turn_repo.list_by_session(session_id)
+                if t.turn_index > turn.turn_index
+            ]
+
+            if later_turn_ids:
+                self.message_search_repo.delete_by_turn_ids(later_turn_ids)
+                self.message_repo.delete_by_turn_ids(later_turn_ids)
+                self.run_repo.delete_by_turn_ids(later_turn_ids)
+                self.event_repo.delete_by_turn_ids(later_turn_ids)
+                self.turn_repo.delete_by_session_after_index(session_id, turn.turn_index + 1)
+                deleted_turn_ids.extend(later_turn_ids)
+
+            self.message_search_repo.delete_by_turn_ids([turn.id])
+            self.message_repo.delete_by_turn_ids([turn.id])
+            self.run_repo.delete_by_turn_ids([turn.id])
+            self.event_repo.delete_by_turn_ids([turn.id])
+            self.turn_repo.delete_by_session_after_index(session_id, turn.turn_index)
+            deleted_turn_ids.append(turn.id)
+        else:
+            later_or_equal_turn_ids = [
+                t.id for t in self.turn_repo.list_by_session(session_id)
+                if t.turn_index >= turn.turn_index
+            ]
+
+            if later_or_equal_turn_ids:
+                self.message_search_repo.delete_by_turn_ids(later_or_equal_turn_ids)
+                self.message_repo.delete_by_turn_ids(later_or_equal_turn_ids)
+                self.run_repo.delete_by_turn_ids(later_or_equal_turn_ids)
+                self.event_repo.delete_by_turn_ids(later_or_equal_turn_ids)
+                self.turn_repo.delete_by_session_after_index(session_id, turn.turn_index)
+                deleted_turn_ids.extend(later_or_equal_turn_ids)
+
+        session = self.session_repo.get(session_id)
+        if session and session.active_turn_id in deleted_turn_ids:
+            self.session_repo.update(
+                session.model_copy(update={"active_turn_id": None})
+            )
+
+        return deleted_turn_ids, surviving_user_content
+
+    def edit_and_rerun(
+        self,
+        *,
+        session_id: str,
+        message_id: str,
+        new_content: str | None,
+        provider_id: str,
+        model_id: str,
+        workspace_ref: str | None,
+    ) -> StartTurnResult:
+        with self.acquire_session_write_lock(session_id):
+            session = self.session_repo.get(session_id)
+            if session is None:
+                raise NotFoundValueError("会话不存在")
+
+            message = self.message_repo.get(message_id)
+            if message is None:
+                raise NotFoundValueError("消息不存在")
+            if message.session_id != session_id:
+                raise ValueError("消息不属于当前会话")
+
+            is_user_message = message.message_type == MessageType.USER_MESSAGE
+
+            if is_user_message:
+                keep_turn = False
+                content = new_content if new_content else message.content_text
+            else:
+                keep_turn = True
+                content = new_content
+
+            deleted_turn_ids, surviving_user_content = self.truncate_after_message(
+                session_id=session_id,
+                message_id=message_id,
+                keep_turn=keep_turn,
+            )
+
+            if not content and surviving_user_content:
+                content = surviving_user_content
+
+            if not content:
+                raise ValueError("无法确定重新运行的内容")
+
+            truncated_event = ConversationEvent(
+                id=new_event_id(),
+                session_id=session_id,
+                event_type=EventType.MESSAGES_TRUNCATED,
+                payload_json={
+                    "message_id": message_id,
+                    "deleted_turn_ids": deleted_turn_ids,
+                    "is_edit": is_user_message,
+                    "is_regenerate": not is_user_message,
+                },
+            )
+            self.event_repo.append_many([truncated_event], session_id=session_id, start_seq=session.last_event_seq + 1)
+            latest_session = self.session_repo.get(session_id)
+            if latest_session:
+                self.session_repo.update(
+                    latest_session.model_copy(update={"last_event_seq": truncated_event.seq})
+                )
+
+            return self.start_turn(
+                session_id=session_id,
+                content=content,
+                provider_id=provider_id,
+                model_id=model_id,
+                workspace_ref=workspace_ref,
+            )
 
     def get_run(self, run_id: str) -> "Run | None":
         """Get a run by ID."""
