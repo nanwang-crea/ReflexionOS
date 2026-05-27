@@ -490,6 +490,13 @@ class AgentService:
         compacted_summary: str | None = None,
     ) -> None:
         turn_messages = self.conversation_service.list_turn_messages(turn_id)
+        if not turn_messages:
+            logger.warning(
+                "Continuation artifact skipped: no messages for turn %s (可能被编辑/截断删除), run_id=%s",
+                turn_id,
+                run_id,
+            )
+            return
         prompt_input = self.continuation_builder.build_prompt_input(
             task=task,
             messages=turn_messages,
@@ -512,6 +519,15 @@ class AgentService:
         )
         content = (getattr(response, "content", None) or "").strip()
         if not content:
+            return
+
+        turn = self.conversation_service.get_turn(turn_id)
+        if turn is None:
+            logger.warning(
+                "Continuation artifact skipped: turn %s no longer exists (可能被编辑/截断删除), run_id=%s",
+                turn_id,
+                run_id,
+            )
             return
 
         next_index = self.conversation_service.next_message_index(turn_id)
