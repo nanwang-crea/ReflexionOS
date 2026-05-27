@@ -349,6 +349,13 @@ class ConversationService:
                 session.model_copy(update={"active_turn_id": None})
             )
 
+        remaining_max_seq = self.event_repo.max_seq(session_id) or 0
+        latest_session = self.session_repo.get(session_id)
+        if latest_session:
+            self.session_repo.update(
+                latest_session.model_copy(update={"last_event_seq": remaining_max_seq})
+            )
+
         return deleted_turn_ids, surviving_user_content
 
     def edit_and_rerun(
@@ -404,12 +411,7 @@ class ConversationService:
                     "is_regenerate": not is_user_message,
                 },
             )
-            self.event_repo.append_many([truncated_event], session_id=session_id, start_seq=session.last_event_seq + 1)
-            latest_session = self.session_repo.get(session_id)
-            if latest_session:
-                self.session_repo.update(
-                    latest_session.model_copy(update={"last_event_seq": truncated_event.seq})
-                )
+            self.append_events_locked(session_id, [truncated_event])
 
             return self.start_turn(
                 session_id=session_id,

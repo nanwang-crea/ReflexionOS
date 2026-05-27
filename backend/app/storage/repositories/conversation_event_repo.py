@@ -65,6 +65,19 @@ class ConversationEventRepository(BaseRepository[ConversationEvent]):
             )
             return self._to_domain_list(models)
 
+    def max_seq(self, session_id: str, *, db_session=None) -> int | None:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.max_seq(session_id, db_session=managed_session)
+
+        return (
+            db_session.query(ConversationEventModel.seq)
+            .filter_by(session_id=session_id)
+            .order_by(ConversationEventModel.seq.desc())
+            .limit(1)
+            .scalar()
+        )
+
     def first_seq(self, session_id: str, *, db_session=None) -> int | None:
         if db_session is None:
             with self.db.get_session() as managed_session:
