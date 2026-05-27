@@ -133,6 +133,23 @@ function buildToolApprovalMessage(
   }
 }
 
+function buildEditAndRerunMessage(payload: {
+  messageId: string
+  newContent?: string | null
+  providerId?: string | null
+  modelId?: string | null
+}) {
+  return {
+    type: 'conversation:edit_and_rerun',
+    data: {
+      message_id: payload.messageId,
+      new_content: payload.newContent ?? null,
+      provider_id: payload.providerId ?? null,
+      model_id: payload.modelId ?? null,
+    },
+  }
+}
+
 class SessionConversationWebSocket {
   private ws: WebSocket | null = null
   private handlers: Map<keyof SessionConversationEvents, Set<EventHandler>> = new Map()
@@ -279,6 +296,12 @@ class SessionConversationWebSocket {
   denyTool(payload: { runId: string; approvalId: string }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:deny_tool', payload)))
+    }
+  }
+
+  editAndRerun(payload: { messageId: string; newContent?: string | null; providerId?: string | null; modelId?: string | null }): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(buildEditAndRerunMessage(payload)))
     }
   }
 
