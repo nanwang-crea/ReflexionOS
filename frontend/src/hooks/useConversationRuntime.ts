@@ -280,6 +280,19 @@ export function useConversationRuntime(
     wsRef.current.denyTool({ runId, approvalId })
   }, [])
 
+  const editAndRerun = useCallback((payload: {
+    messageId: string
+    newContent?: string | null
+    providerId?: string | null
+    modelId?: string | null
+  }) => {
+    if (!wsRef.current?.isConnected()) {
+      return
+    }
+
+    wsRef.current.editAndRerun(payload)
+  }, [])
+
   const resetConversationRuntime = useCallback(() => {
     const sessionId = currentSessionId ?? connectedSessionIdRef.current
     closeWebSocket()
@@ -319,6 +332,7 @@ export function useConversationRuntime(
     cancelRun,
     approveTool,
     denyTool,
+    editAndRerun,
     resetConversationRuntime,
   }
 }
