@@ -1,18 +1,34 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import importlib.machinery
+import os
 from pathlib import Path
 
 block_cipher = None
 repo_root = Path(SPECPATH).parents[1]
 backend_root = repo_root / "backend"
 
+import tiktoken
+import tiktoken_ext
+
+tiktoken_ext_path = list(tiktoken_ext.__path__)[0]
+tiktoken_path = os.path.dirname(tiktoken.__file__)
+ext_suffix = importlib.machinery.EXTENSION_SUFFIXES[0]
+tiktoken_so = os.path.join(tiktoken_path, "_tiktoken" + ext_suffix)
+
 
 a = Analysis(
     [str(backend_root / "app" / "packaged_launcher.py")],
     pathex=[str(backend_root)],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=[
+        (tiktoken_ext_path, "tiktoken_ext"),
+        (tiktoken_so, "tiktoken"),
+    ],
+    hiddenimports=[
+        "tiktoken_ext",
+        "tiktoken_ext.openai_public",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
