@@ -25,7 +25,7 @@ from app.models.conversation import (
     Run,
     RunStatus,
 )
-from app.models.conversation_snapshot import StartTurnResult
+from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
@@ -56,6 +56,18 @@ logger = logging.getLogger(__name__)
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
 _EVENT_CLEANUP_INTERVAL_SECONDS = 300
+
+
+def resolve_active_run_id_from_conversation(snapshot: ConversationSnapshot) -> str | None:
+    if not snapshot.session.active_turn_id:
+        return None
+    active_turn = next((t for t in snapshot.turns if t.id == snapshot.session.active_turn_id), None)
+    if not active_turn or not active_turn.active_run_id:
+        return None
+    active_run = next((r for r in snapshot.runs if r.id == active_turn.active_run_id), None)
+    if not active_run or active_run.status in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}:
+        return None
+    return active_run.id
 
 
 class AgentService:
@@ -601,7 +613,59 @@ class AgentService:
 
         return cancelled
 
-    async def approve_tool_call(
+    async def edit_and_rerun(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        message_id: str,
+        new_content: str | None = None,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+    ) -> StartTurnResult:
+        project = self.project_repo.get(project_id)
+        if not project:
+            raise NotFoundValueError("项目不存在")
+
+        session = self.session_repo.get(session_id)
+        if not session:
+            raise NotFoundValueError("会话不存在")
+
+        conversation = self.conversation_service.get_snapshot(session_id)
+        active_run_id = resolve_active_run_id_from_conversation(conversation)
+        if active_run_id:
+            try:
+                await self.cancel_run(active_run_id)
+            except Exception:
+                logger.warning("取消活跃运行失败: run_id=%s", active_run_id)
+
+        resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
+
+        before_seq = self.session_repo.get(session_id).last_event_seq
+
+        started = self.conversation_service.edit_and_rerun(
+            session_id=session_id,
+            message_id=message_id,
+            new_content=new_content,
+            provider_id=resolved_llm.provider_id,
+            model_id=resolved_llm.model_id,
+            workspace_ref=project.path,
+        )
+
+        events = self.conversation_service.list_events_after(session_id, before_seq)
+        await self._broadcast_conversation_events(session_id=session_id, events=events)
+
+        self.schedule_turn(
+            run_id=started.run.id,
+            session_id=session_id,
+            turn_id=started.turn.id,
+            task=started.user_message.content_text,
+            project_id=project.id,
+            project_path=project.path,
+            provider_id=resolved_llm.provider_id,
+            model_id=resolved_llm.model_id,
+        )
+        return started
         self, *, session_id: str, run_id: str, approval_id: str
     ) -> None:
         await self._decide_tool_call_approval(
