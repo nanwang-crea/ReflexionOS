@@ -12,6 +12,7 @@ import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import { ArrowDown, Loader2 } from 'lucide-react'
+import { MessageActions } from './MessageActions'
 import { PlanProgress } from './PlanProgress'
 import { buildTranscriptItems } from './transcriptItems'
 
@@ -57,6 +58,8 @@ interface WorkspaceTranscriptProps {
   onDetailClick?: (detail: ActionReceiptDetail) => void
   messagesEndRef: RefObject<HTMLDivElement>
   runsById?: Record<string, ConversationRun>
+  onEditMessage?: (messageId: string, contentText: string) => void
+  onRegenerateMessage?: (messageId: string) => void
 }
 
 export function WorkspaceTranscript({
@@ -78,7 +81,11 @@ export function WorkspaceTranscript({
   onDetailClick,
   messagesEndRef,
   runsById,
+  onEditMessage,
+  onRegenerateMessage,
 }: WorkspaceTranscriptProps) {
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState('')
   const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
   const hasVisibleStreamingMessage = messages.some((message) => {
     if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
@@ -158,17 +165,62 @@ export function WorkspaceTranscript({
             const { message } = item
 
             if (message.messageType === 'user_message') {
+              const isEditing = editingMessageId === message.id
               return (
                 <SlideIn key={message.id} direction="up">
-                  <div className="mb-8 flex justify-end">
-                    <motion.div
-                      className="max-w-[720px] rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary"
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      {message.contentText}
-                    </motion.div>
+                  <div className="mb-8 flex flex-col items-end group">
+                    {isEditing ? (
+                      <div className="max-w-[720px] w-full">
+                        <textarea
+                          className="w-full rounded-2xl bg-surface-tertiary border border-edge px-5 py-4 text-[15px] leading-7 text-content-secondary resize-y min-h-[60px] focus:outline-none focus:border-edge-active"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="mt-2 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-edge px-3 py-1.5 text-xs text-content-muted hover:text-content-secondary hover:border-edge-active transition-colors"
+                            onClick={() => setEditingMessageId(null)}
+                          >
+                            取消
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-lg bg-surface-tertiary px-3 py-1.5 text-xs text-content-secondary hover:bg-surface-active transition-colors"
+                            onClick={() => {
+                              if (editContent.trim()) {
+                                onEditMessage?.(message.id, editContent.trim())
+                                setEditingMessageId(null)
+                              }
+                            }}
+                          >
+                            发送
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <motion.div
+                        className="max-w-[720px] rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary"
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        {message.contentText}
+                      </motion.div>
+                    )}
+                    {!isEditing && onEditMessage && (
+                      <MessageActions
+                        messageId={message.id}
+                        contentText={message.contentText}
+                        messageType="user_message"
+                        onEdit={(msgId, content) => {
+                          setEditingMessageId(msgId)
+                          setEditContent(content)
+                        }}
+                        onRegenerate={onRegenerateMessage ?? (() => {})}
+                      />
+                    )}
                   </div>
                 </SlideIn>
               )
@@ -197,7 +249,7 @@ export function WorkspaceTranscript({
 
               return (
                 <SlideIn key={message.id} direction="up">
-                  <div className="mb-10">
+                  <div className="mb-10 group">
                     {message.contentText && (
                       <MarkdownRenderer
                         content={message.contentText}
@@ -219,6 +271,15 @@ export function WorkspaceTranscript({
                           <div className="mt-1 text-xs opacity-80">{errorMessage}</div>
                         )}
                       </div>
+                    )}
+                    {message.streamState === 'completed' && onRegenerateMessage && (
+                      <MessageActions
+                        messageId={message.id}
+                        contentText={message.contentText}
+                        messageType="assistant_message"
+                        onEdit={onEditMessage ?? (() => {})}
+                        onRegenerate={onRegenerateMessage}
+                      />
                     )}
                   </div>
                 </SlideIn>
