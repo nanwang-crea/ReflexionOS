@@ -84,3 +84,19 @@ class MessageSearchDocumentRepository(BaseRepository[MessageSearchDocument]):
         db_session.flush()
         db_session.refresh(model)
         return self._to_domain(model)
+
+    def delete_by_turn_ids(self, turn_ids: list[str], *, db_session=None) -> int:
+        if not turn_ids:
+            return 0
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.delete_by_turn_ids(turn_ids, db_session=managed_session)
+
+        deleted = (
+            db_session.query(MessageSearchDocumentModel)
+            .filter(MessageSearchDocumentModel.turn_id.in_(turn_ids))
+            .delete(synchronize_session=False)
+        )
+        db_session.flush()
+        return int(deleted or 0)

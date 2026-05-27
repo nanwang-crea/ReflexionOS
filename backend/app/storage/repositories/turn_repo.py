@@ -38,7 +38,24 @@ class TurnRepository(BaseRepository[Turn]):
                 .order_by(TurnModel.turn_index.asc())
                 .all()
             )
-            return self._to_domain_list(models)
+        return self._to_domain_list(models)
+
+    def delete_by_session_after_index(self, session_id: str, min_turn_index: int, *, db_session=None) -> list[str]:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.delete_by_session_after_index(session_id, min_turn_index, db_session=managed_session)
+
+        turn_ids = (
+            db_session.query(TurnModel.id)
+            .filter(TurnModel.session_id == session_id, TurnModel.turn_index >= min_turn_index)
+            .all()
+        )
+        turn_id_list = [tid[0] for tid in turn_ids]
+        db_session.query(TurnModel).filter(
+            TurnModel.session_id == session_id, TurnModel.turn_index >= min_turn_index
+        ).delete(synchronize_session=False)
+        db_session.flush()
+        return turn_id_list
 
     def update(self, turn: Turn, *, db_session=None) -> Turn:
         if db_session is None:

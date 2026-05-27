@@ -160,6 +160,35 @@ class MessageRepository(BaseRepository[Message]):
 
         return _query(db_session)
 
+    def delete_by_turn_ids(self, turn_ids: list[str], *, db_session=None) -> int:
+        if not turn_ids:
+            return 0
+
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.delete_by_turn_ids(turn_ids, db_session=managed_session)
+
+        deleted = (
+            db_session.query(MessageModel)
+            .filter(MessageModel.turn_id.in_(turn_ids))
+            .delete(synchronize_session=False)
+        )
+        db_session.flush()
+        return int(deleted or 0)
+
+    def get_user_message_by_turn(self, turn_id: str, *, db_session=None) -> Message | None:
+        if db_session is None:
+            with self.db.get_session() as managed_session:
+                return self.get_user_message_by_turn(turn_id, db_session=managed_session)
+
+        model = (
+            db_session.query(MessageModel)
+            .filter_by(turn_id=turn_id, message_type=MessageType.USER_MESSAGE.value)
+            .order_by(MessageModel.turn_message_index.asc())
+            .first()
+        )
+        return self._to_domain(model)
+
     def from_payload(self, *, session_id: str, payload: dict) -> Message:
         def _coerce_payload_json(value: object) -> dict:
             if isinstance(value, dict):
