@@ -161,6 +161,42 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue
 
+            if msg_type == "conversation:edit_and_rerun":
+                message_id = msg_data.get("message_id")
+                if not isinstance(message_id, str) or not message_id:
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="message_id 不能为空",
+                    )
+                    continue
+
+                new_content = msg_data.get("new_content")
+                if new_content is not None and not isinstance(new_content, str):
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="new_content 必须是字符串",
+                    )
+                    continue
+
+                provider_id = msg_data.get("provider_id")
+                model_id = msg_data.get("model_id")
+
+                try:
+                    snapshot = conversation_service.get_snapshot(session_id)
+                    await agent_service.edit_and_rerun(
+                        project_id=snapshot.session.project_id,
+                        session_id=session_id,
+                        message_id=message_id,
+                        new_content=new_content if new_content else None,
+                        provider_id=provider_id,
+                        model_id=model_id,
+                    )
+                except ValueError as exc:
+                    await _send_error(websocket, code="invalid_request", message=str(exc))
+                continue
+
             if msg_type in {"conversation:approve_tool", "conversation:deny_tool"}:
                 approval_id = msg_data.get("approval_id")
                 if not isinstance(approval_id, str) or not approval_id:

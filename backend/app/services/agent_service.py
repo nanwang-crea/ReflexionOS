@@ -666,6 +666,8 @@ class AgentService:
             model_id=resolved_llm.model_id,
         )
         return started
+
+    async def approve_tool_call(
         self, *, session_id: str, run_id: str, approval_id: str
     ) -> None:
         await self._decide_tool_call_approval(
