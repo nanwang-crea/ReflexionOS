@@ -315,10 +315,17 @@ class OpenAIAdapter(UniversalLLMInterface):
 
         if not content and not tool_calls:
             logger.warning(
-                "OpenAI 返回空响应, model=%s, finish_reason=%s",
+                "OpenAI 返回空响应, model=%s, finish_reason=%s, message_role=%s, "
+                "可能是: 1) 模型不支持工具调用但被强制使用 2) max_tokens 不足 3) 代理服务异常",
                 response.model,
                 choice.finish_reason,
+                message.role,
             )
+            if choice.finish_reason == "length":
+                logger.warning(
+                    "finish_reason=length: 模型输出被截断，建议增大 max_tokens (当前: %s)",
+                    self.config.max_tokens,
+                )
 
         return LLMResponse(
             content=content,

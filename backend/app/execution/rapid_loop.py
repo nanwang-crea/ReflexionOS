@@ -43,6 +43,7 @@ class RapidExecutionLoop:
     MAX_SUMMARY_RETRIES = 2  # 总结最大重试
     MAX_ERROR_RETRIES = 2  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
+    MAX_EMPTY_RESPONSE_RETRIES = 3  # 空响应最大重试
 
     def __init__(
         self,
@@ -125,7 +126,22 @@ class RapidExecutionLoop:
                 result.result = rt.response.content
                 return LoopPhase.DONE
             else:
-                raise RuntimeError("模型未返回任何内容，也未发起工具调用")
+                rt.consecutive_failures += 1
+                logger.warning(
+                    "PLANNING 空响应 (consecutive_failures=%d), finish_reason=%s",
+                    rt.consecutive_failures,
+                    rt.response.finish_reason,
+                )
+                if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
+                    if rt.response.finish_reason == "length":
+                        result.status = LoopStatus.COMPLETED
+                        result.result = "模型输出被截断（finish_reason=length），请尝试增加 max_tokens 或缩短输入"
+                        return LoopPhase.DONE
+                    raise RuntimeError(
+                        f"模型连续 {self.MAX_ERROR_RETRIES} 次返回空响应（finish_reason={rt.response.finish_reason}），"
+                        "请检查模型配置或更换模型"
+                    )
+                return LoopPhase.PLANNING
 
     async def _handle_tool_execution(
         self,
@@ -450,7 +466,7 @@ class RapidExecutionLoop:
 
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """
-        调用 LLM（使用原生工具调用）
+        调用 LLM（使用原生工具调用），空响应时自动重试
 
         Args:
             context: 执行上下文
@@ -458,49 +474,65 @@ class RapidExecutionLoop:
         Returns:
             LLMResponse: LLM 响应
         """
-        # 每次 LLM 调用前检测上下文压力，超阈值触发 Tier 2/3 压缩
-        await self._compact_context(context)
-        tools = self.tool_definitions.for_context(context)
-        messages = self.message_builder.build(context, tools)
+        for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
+            await self._compact_context(context)
+            tools = self.tool_definitions.for_context(context)
+            messages = self.message_builder.build(context, tools)
 
-        content_parts = []
-        tool_calls = []
-        finish_reason = "stop"
+            content_parts = []
+            tool_calls = []
+            finish_reason = "stop"
 
-        async for chunk in self.llm.stream_complete(messages, tools):
-            if chunk.type == "content" and chunk.content:
-                content_parts.append(chunk.content)
-                await self._emit("llm:content", {"content": chunk.content})
-            elif chunk.type == "tool_calls":
-                tool_calls = chunk.tool_calls
-                finish_reason = chunk.finish_reason or "tool_calls"
-                break
-            elif chunk.type == "done":
-                finish_reason = chunk.finish_reason or "stop"
-                break
-            elif chunk.type == "error":
-                raise RuntimeError(chunk.error or "LLM 流式调用失败")
+            async for chunk in self.llm.stream_complete(messages, tools):
+                if chunk.type == "content" and chunk.content:
+                    content_parts.append(chunk.content)
+                    await self._emit("llm:content", {"content": chunk.content})
+                elif chunk.type == "tool_calls":
+                    tool_calls = chunk.tool_calls
+                    finish_reason = chunk.finish_reason or "tool_calls"
+                    break
+                elif chunk.type == "done":
+                    finish_reason = chunk.finish_reason or "stop"
+                    break
+                elif chunk.type == "error":
+                    raise RuntimeError(chunk.error or "LLM 流式调用失败")
 
-        response = LLMResponse(
-            content="".join(content_parts),
-            tool_calls=tool_calls,
-            finish_reason=finish_reason,
-            model=self.llm.get_model_name(),
-        )
-
-        if response.has_content or response.has_tool_calls:
-            context.add_message(
-                "assistant",
-                content=response.content or None,
-                tool_calls=[tool_call.model_dump() for tool_call in response.tool_calls],
+            response = LLMResponse(
+                content="".join(content_parts),
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                model=self.llm.get_model_name(),
             )
 
-        logger.info(
-            "LLM 响应: %s | tool_calls: %s",
-            response.content[:50] if response.content else "(无内容)",
-            [tc.name for tc in response.tool_calls],
-        )
+            if response.has_content or response.has_tool_calls:
+                context.add_message(
+                    "assistant",
+                    content=response.content or None,
+                    tool_calls=[tool_call.model_dump() for tool_call in response.tool_calls],
+                )
 
+                logger.info(
+                    "LLM 响应: %s | tool_calls: %s",
+                    response.content[:50] if response.content else "(无内容)",
+                    [tc.name for tc in response.tool_calls],
+                )
+                return response
+
+            logger.warning(
+                "LLM 空响应 (attempt %d/%d), finish_reason=%s, model=%s",
+                attempt + 1,
+                self.MAX_EMPTY_RESPONSE_RETRIES,
+                finish_reason,
+                self.llm.get_model_name(),
+            )
+
+            if finish_reason == "length":
+                logger.warning("finish_reason=length, 可能 max_tokens 不足，尝试重试")
+
+        logger.error(
+            "LLM 连续 %d 次空响应，放弃重试",
+            self.MAX_EMPTY_RESPONSE_RETRIES,
+        )
         return response
 
     async def _compact_context(self, context: LoopContext) -> None:

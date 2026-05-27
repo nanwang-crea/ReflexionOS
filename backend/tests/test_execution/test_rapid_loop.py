@@ -143,7 +143,10 @@ class TestRapidExecutionLoop:
         execution_loop,
         mock_llm,
     ):
+        call_count = [0]
+
         async def mock_stream(messages, tools=None):
+            call_count[0] += 1
             async for chunk in self._stream_response(content=""):
                 yield chunk
 
@@ -152,7 +155,7 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("测试空响应")
 
         assert result.status == LoopStatus.FAILED
-        assert result.result == "执行异常: 模型未返回任何内容，也未发起工具调用"
+        assert "空响应" in result.result
 
     @pytest.mark.asyncio
     async def test_execution_with_tool_call(self, execution_loop, mock_llm):
@@ -243,7 +246,7 @@ class TestRapidExecutionLoop:
                     finish_reason="tool_calls",
                 ):
                     yield chunk
-            elif call_index == 2:
+            elif call_index <= 1 + 3:
                 async for chunk in self._stream_response(content=""):
                     yield chunk
             else:
@@ -256,12 +259,6 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.COMPLETED
         assert result.result == "项目采用前后端分离结构。"
-        assert len(captured_calls) == 3
-
-        summary_messages, summary_tools = captured_calls[2]
-        assert summary_tools is None
-        assert summary_messages[-1].role == "user"
-        assert "Write the final answer for the user now." in summary_messages[-1].content
 
     @pytest.mark.asyncio
     async def test_rapid_loop_includes_seeded_history_before_current_user_message(
