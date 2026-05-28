@@ -67,7 +67,7 @@ def test_continuation_builder_compresses_tool_output_with_head_and_tail():
     assert "tool_name=shell" in prompt_input.transcript
     assert "BEGIN-" in prompt_input.transcript
     assert "-TAIL-END" in prompt_input.transcript
-    assert "省略" in prompt_input.transcript
+    assert "truncated" in prompt_input.transcript
     assert "omitted-middle-omitted-middle-omitted-middle" not in prompt_input.transcript
 
 
@@ -125,7 +125,7 @@ def test_continuation_builder_applies_global_budget_recent_first():
 
     assert len(prompt_input.transcript) <= 500
     assert "最新用户需求必须保留" in prompt_input.transcript
-    assert "已按 continuation 预算省略" in prompt_input.transcript
+    assert "omitted to fit the continuation budget" in prompt_input.transcript
 
 
 def test_build_prompt_input_with_existing_summary():
@@ -145,7 +145,7 @@ def test_build_prompt_input_with_existing_summary():
     result = builder.build_prompt_input(
         task="Fix bug",
         messages=messages,
-        existing_summary="用户原始意图: Fix bug\n已执行的操作: read foo.py",
+        existing_summary="User's original intent: Fix bug\nOperations performed: read foo.py",
     )
-    assert "已有摘要" in result.transcript
+    assert "Existing summary" in result.transcript
     assert "Fix bug" in result.transcript

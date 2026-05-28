@@ -124,5 +124,5 @@ class TestToolRegistry:
 
         [definition] = registry.get_tool_definitions()
 
-        assert "当前平台: macOS" in definition.description
-        assert "低风险命令直接执行" in definition.parameters["properties"]["command"]["description"]
+        assert "current platform: macOS" in definition.description
+        assert "Low-risk commands execute directly" in definition.parameters["properties"]["command"]["description"]

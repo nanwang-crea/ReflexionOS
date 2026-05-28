@@ -20,7 +20,7 @@ class PlanTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "管理执行计划：创建、完成步骤、阻塞、调整（仅复杂任务使用）"
+        return "Manage execution plans: create, step_done, block, adjust (only for complex tasks)"
 
     def get_schema(self) -> dict[str, Any]:
         return self._build_schema(
@@ -29,19 +29,19 @@ class PlanTool(BaseTool):
             properties={
                 "goal": {
                     "type": "string",
-                    "description": "create 使用：总目标描述",
+                    "description": "For create: overall goal description",
                 },
-                "steps": self._steps_property("create 使用：高层步骤描述列表"),
+                "steps": self._steps_property("For create: list of high-level step descriptions"),
                 "findings": {
                     "type": "string",
-                    "description": "step_done 使用：本步骤获取到的关键信息",
+                    "description": "For step_done: key information obtained in this step",
                 },
                 "reason": {
                     "type": "string",
-                    "description": "block 使用：阻塞原因",
+                    "description": "For block: reason for being blocked",
                 },
                 "remaining_steps": self._steps_property(
-                    "adjust 使用：替换当前步骤之后的所有待做步骤"
+                    "For adjust: replace all remaining steps after the current one"
                 ),
             },
             required=["action"],
@@ -49,33 +49,33 @@ class PlanTool(BaseTool):
 
     def get_create_schema(self) -> dict[str, Any]:
         return self._build_schema(
-            description="创建执行计划（仅任务开始前使用）",
+            description="Create an execution plan (only before task starts)",
             actions=["create"],
             properties={
                 "goal": {
                     "type": "string",
-                    "description": "总目标描述",
+                    "description": "Overall goal description",
                 },
-                "steps": self._steps_property("高层步骤描述列表"),
+                "steps": self._steps_property("List of high-level step descriptions"),
             },
             required=["action", "goal", "steps"],
         )
 
     def get_progress_schema(self) -> dict[str, Any]:
         return self._build_schema(
-            description="更新已有执行计划的步骤状态、阻塞原因或剩余步骤",
+            description="Update step status, block reason, or remaining steps of an existing plan",
             actions=["step_done", "block", "adjust"],
             properties={
                 "findings": {
                     "type": "string",
-                    "description": "step_done 使用：本步骤获取到的关键信息",
+                    "description": "For step_done: key information obtained in this step",
                 },
                 "reason": {
                     "type": "string",
-                    "description": "block 使用：阻塞原因",
+                    "description": "For block: reason for being blocked",
                 },
                 "remaining_steps": self._steps_property(
-                    "adjust 使用：替换当前步骤之后的所有待做步骤"
+                    "For adjust: replace all remaining steps after the current one"
                 ),
             },
             required=["action"],
@@ -99,7 +99,7 @@ class PlanTool(BaseTool):
                     "action": {
                         "type": "string",
                         "enum": actions,
-                        "description": "计划操作类型",
+                        "description": "Plan action type",
                     },
                     **properties,
                 },

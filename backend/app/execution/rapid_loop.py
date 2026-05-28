@@ -587,10 +587,10 @@ class RapidExecutionLoop:
         """
         try:
             grouped = self.message_builder._group_messages(context.messages)
-            if len(grouped) <= self.max_context_groups:
+            if len(grouped) <= self.MAX_CONTEXT_GROUPS:
                 return
 
-            older_groups = grouped[: -self.max_context_groups]
+            older_groups = grouped[: -self.MAX_CONTEXT_GROUPS]
             older_messages = [msg for group in older_groups for msg in group]
 
             transcript_parts = []

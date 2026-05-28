@@ -1274,7 +1274,7 @@ async def test_continuation_generation_sends_budgeted_transcript_to_llm(monkeypa
     assert "Transcript (oldest to newest, may include tool traces):" in captured_input
     assert "BEGIN-" in captured_input
     assert "-TAIL-END" in captured_input
-    assert "省略" in captured_input
+    assert "truncated" in captured_input
     assert "huge-middle-huge-middle-huge-middle" not in captured_input
 
 

@@ -67,9 +67,9 @@ def test_loop_context_group_count_with_tool_group():
 def test_midrun_compress_system_prompt():
     pm = PromptManager()
     prompt = pm.get_midrun_compression_system_prompt()
-    assert "用户原始意图" in prompt
-    assert "已执行的操作" in prompt
-    assert "可 session_recall" in prompt
+    assert "User's original intent" in prompt
+    assert "Operations performed" in prompt
+    assert "session_recall can retrieve" in prompt
 
 
 def test_midrun_compress_input_prompt():
@@ -119,7 +119,7 @@ def test_task_anchor_not_duplicated_in_recent():
 def test_compacted_summary_injected():
     builder = _make_builder()
     ctx = LoopContext(task="Fix bug")
-    ctx.compacted_summary = "用户原始意图: Fix bug\n已执行的操作: read foo.py"
+    ctx.compacted_summary = "User's original intent: Fix bug\nOperations performed: read foo.py"
     ctx.add_message("user", "Fix bug")
     ctx.add_message("assistant", "Working on it")
     messages = builder.build(ctx, tools=[])
@@ -127,7 +127,7 @@ def test_compacted_summary_injected():
         m.content for m in messages
         if m.role == MessageRole.SYSTEM and m.content
     ]
-    assert any("已压缩的历史上下文" in c for c in system_contents if c)
+    assert any("Compacted historical context" in c for c in system_contents if c)
 
 
 def test_tier2_messages_with_tool_output_truncation():
@@ -144,7 +144,7 @@ def test_tier2_messages_with_tool_output_truncation():
     messages = builder.build(ctx, tools=[])
     tool_messages = [
         m for m in messages
-        if m.role == MessageRole.SYSTEM and m.content and "省略" in m.content
+        if m.role == MessageRole.SYSTEM and m.content and "truncated" in m.content
     ]
     assert len(tool_messages) > 0
 
@@ -173,7 +173,7 @@ def test_full_three_tier_flow():
     assert has_task_anchor
 
     has_tier2_truncated = any(
-        m.role == MessageRole.SYSTEM and m.content and "省略" in m.content
+        m.role == MessageRole.SYSTEM and m.content and "truncated" in m.content
         for m in messages
     )
     assert has_tier2_truncated

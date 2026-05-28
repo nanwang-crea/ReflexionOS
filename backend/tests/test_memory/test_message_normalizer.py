@@ -86,7 +86,7 @@ def test_normalize_message_text_compacts_large_tool_output():
     assert len(normalized) < 5_000
     assert "BEGIN-" in normalized
     assert "-TAIL-END" in normalized
-    assert "省略" in normalized
+    assert "truncated" in normalized
     assert "DROP_ME_SEARCH_INDEX_MIDDLE" not in normalized
 
 

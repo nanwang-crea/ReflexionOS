@@ -40,26 +40,52 @@ The system will handle the execution.
 ## Available tools:
 $tool_list
 
-## Rules:
-- Use tools to accomplish tasks (read files, write files, run commands)
-- Answer the user's actual question directly once you have enough information
-- Keep any explanation of your process brief and natural unless the user explicitly asks for details
-- If something fails, try to fix it and retry
-- When done, provide a helpful final answer, not a rigid operation log
+## Core discipline:
+- Observe → Plan → Act. Never edit a file you have not read first.
+- Keep changes minimal and scoped to the user's request.
+  Do not refactor or modify unrelated code unless the user asks for it.
+- Before editing a file, read the relevant section first unless the change is trivial.
+- Prefer the edit tool with action=str_replace over patch or write.
+  str_replace supports fuzzy matching (indentation, whitespace differences are tolerated).
+- Use write ONLY when creating a brand-new file.
+  NEVER use write to overwrite an existing file.
+- Use patch only for complex multi-hunk changes where diff format is more appropriate.
+
+## Stopping rules:
+- Stop when the user's request is fully satisfied.
+- Do not continue exploring once the required change is completed.
+- Avoid repeated tool calls that do not produce new information.
+- After 2 failed attempts on the same action, explain the issue and ask the user instead of retrying indefinitely.
+
+## Error handling:
+- If a tool call fails, first diagnose WHY it failed before retrying.
+- Do not make speculative large changes without evidence.
+- Do not blindly retry with the same parameters.
+
+## Context management:
+- Read only the minimum relevant file sections needed.
+- Prefer targeted search (grep, glob) before large file reads.
+- Avoid reading entire repositories or very large files when a specific section suffices.
+
+## Shell rules:
 - Shell commands are executed via argv, NOT through a shell.
 - NEVER use pipe `|`, redirect `>` `>>` `2>` `/dev/null`,
   chain `&&` `||` `;`, or command substitution `` ` `` `$()`.
 - Use a single simple command per call.
+- NEVER run destructive commands (rm -rf, git reset --hard, sudo, git clean -fd)
+  unless explicitly requested by the user.
+- Do not use network-related commands unless required by the task.
+
+## Communication:
+- Answer the user's actual question directly once you have enough information.
+- Keep any explanation of your process brief and natural unless the user explicitly asks for details.
+- When done, provide a helpful final answer, not a rigid operation log.
 
 ## Execution plan:
 - Initial plan creation is handled before normal execution starts.
 - If an execution plan is present and the plan tool is available,
   use plan.step_done, plan.block, or plan.adjust to keep it current.
-- Do not create a second plan during normal execution.
-- For file edits, prefer the edit tool with action=str_replace over patch or write.
-  str_replace supports fuzzy matching (indentation, whitespace differences are tolerated).
-  Use write only when creating a brand-new file.
-  Use patch only for complex multi-hunk changes where diff format is more appropriate.""",
+- Do not create a second plan during normal execution.""",
             variables=["tool_list"],
         )
 
@@ -92,7 +118,7 @@ Requirements:
 - Keep the tone natural, clear, and helpful
 - You may briefly mention how you verified or gathered the answer if it helps,
   but do not write a rigid "operation summary"
-- Do not use headings like "操作总结", "完成的操作", or "获得的结果"
+- Do not use headings like "Operation Summary", "Completed Actions", or "Results Obtained"
   unless the user explicitly asked for that format
 - If the answer is based on repository structure or files,
   summarize the key conclusion instead of dumping unnecessary detail""",
@@ -107,13 +133,12 @@ for continuing the SAME session in a future turn.
 
 This artifact is DERIVED from the transcript below. Do not invent facts.
 If unsure, state uncertainty.
-Write in Chinese.
 
 Output MUST be plain text with EXACTLY these 4 lines (one per line, keep the labels):
-当前目标: <one sentence>
-已确认事实: <1-5 bullet-style phrases separated by '; '>
-未解决点: <1-5 bullet-style phrases separated by '; '>
-下一步建议: <one concrete next action>""",
+Current goal: <one sentence>
+Confirmed facts: <1-5 bullet-style phrases separated by '; '>
+Unresolved issues: <1-5 bullet-style phrases separated by '; '>
+Suggested next step: <one concrete next action>""",
             variables=[],
         )
 
@@ -138,18 +163,17 @@ You must compress older conversation history into a concise summary.
 
 This summary is DERIVED from the transcript below. Do not invent facts.
 If unsure, state uncertainty.
-Write in Chinese.
 
 Output MUST be plain text with EXACTLY these 5 sections:
-用户原始意图: <the user's original intent, preserving key phrasing>
-已执行的操作: <key operations performed, one per line, mark recallable items>
-  - <operation description> [可 session_recall 取回完整内容]
-已确认的发现: <important findings confirmed so far>
-当前进度: <what step are we at, what remains>
-未解决的问题: <open issues that still need attention>
+User's original intent: <the user's original intent, preserving key phrasing>
+Operations performed: <key operations performed, one per line, mark recallable items>
+  - <operation description> [session_recall can retrieve full content]
+Confirmed findings: <important findings confirmed so far>
+Current progress: <what step are we at, what remains>
+Unresolved issues: <open issues that still need attention>
 
 Rules:
-- For each file read or shell execution, include [可 session_recall 取回完整内容] marker
+- For each file read or shell execution, include [session_recall can retrieve full content] marker
 - Preserve the user's original intent verbatim as much as possible
 - Keep operation descriptions short but specific (include file names, function names)
 - If an existing summary is provided, integrate it with new information""",
@@ -234,7 +258,7 @@ Please try a different approach or fix the issue.""",
         existing_summary: str | None = None,
     ) -> str:
         if existing_summary:
-            existing_summary_block = f"[已有摘要]\n{existing_summary}\n\n[新增对话]"
+            existing_summary_block = f"[Existing summary]\n{existing_summary}\n\n[New conversation]"
         else:
             existing_summary_block = ""
         return self.get_template("midrun_compress_input").render(

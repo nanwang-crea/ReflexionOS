@@ -40,8 +40,8 @@ class ShellTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            f"执行安全的命令（当前平台: {self.security.platform_label}）。"
-            "低风险命令直接执行；高风险命令和含 shell 元语法的命令需要用户审批。"
+            f"Execute safe commands (current platform: {self.security.platform_label}). "
+            "Low-risk commands execute directly; high-risk commands and commands containing shell metacharacters require user approval. "
             f"{self.security.command_hint}"
         )
 
@@ -55,10 +55,10 @@ class ShellTool(BaseTool):
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": f"要执行的命令。{self.security.command_hint}",
+                        "description": f"Command to execute. {self.security.command_hint}",
                     },
-                    "cwd": {"type": "string", "description": "命令执行目录，可选"},
-                    "timeout": {"type": "integer", "description": "命令超时时间，单位秒，可选"},
+                    "cwd": {"type": "string", "description": "Working directory for command execution, optional"},
+                    "timeout": {"type": "integer", "description": "Command timeout in seconds, optional"},
                 },
                 "required": ["command"],
             },

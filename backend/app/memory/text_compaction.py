@@ -15,7 +15,7 @@ def truncate_head_tail(
     if len(value) <= max_chars:
         return value
 
-    marker = f"\n...[省略 {len(value) - max_chars} chars for {reason}]...\n"
+    marker = f"\n...[truncated {len(value) - max_chars} chars, {reason}]...\n"
     if max_chars <= len(marker) + 2:
         return value[:max_chars]
 

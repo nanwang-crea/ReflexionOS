@@ -38,7 +38,7 @@ class TurnRepository(BaseRepository[Turn]):
                 .order_by(TurnModel.turn_index.asc())
                 .all()
             )
-        return self._to_domain_list(models)
+            return self._to_domain_list(models)
 
     def delete_by_session_after_index(self, session_id: str, min_turn_index: int, *, db_session=None) -> list[str]:
         if db_session is None:

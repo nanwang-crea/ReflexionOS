@@ -50,13 +50,13 @@ class ShellSecurity:
     def command_hint(self) -> str:
         if self._is_windows():
             return (
-                "当前平台是 Windows。使用 Windows 可执行命令，例如 `where python`、"
-                "`python --version`；不要使用 cmd /c、PowerShell。"
+                "Current platform is Windows. Use Windows executable commands, e.g. `where python`, "
+                "`python --version`; do not use cmd /c or PowerShell."
             )
         return (
-            f"当前平台是 {self.platform_label}。"
-            "低风险命令直接执行；含管道 `|` 或重定向 `>` 的命令可能需要审批，"
-            "具体取决于命令的效果分类（只读管道如 `git log | head` 可直接执行）。"
+            f"Current platform is {self.platform_label}. "
+            "Low-risk commands execute directly; commands with pipes `|` or redirects `>` may require approval, "
+            "depending on the command's effect classification (read-only pipes like `git log | head` execute directly)."
         )
 
     def validate_command(

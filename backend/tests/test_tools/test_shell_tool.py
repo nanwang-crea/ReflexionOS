@@ -170,9 +170,9 @@ class TestShellTool:
 
             schema = tool.get_schema()
 
-            assert "当前平台: macOS" in schema["description"]
-            assert "低风险命令直接执行" in schema["description"]
-            assert "高风险命令" in schema["description"]
+            assert "current platform: macOS" in schema["description"]
+            assert "Low-risk commands execute directly" in schema["description"]
+            assert "high-risk commands" in schema["description"]
 
     def test_schema_describes_windows_platform_for_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -186,8 +186,8 @@ class TestShellTool:
 
             schema = tool.get_schema()
 
-            assert "当前平台: Windows" in schema["description"]
-            assert "低风险命令直接执行" in schema["description"]
+            assert "current platform: Windows" in schema["description"]
+            assert "Low-risk commands execute directly" in schema["description"]
 
     def test_validate_relative_cwd_within_project_root(self):
         with tempfile.TemporaryDirectory() as tmpdir:

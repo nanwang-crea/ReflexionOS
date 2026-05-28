@@ -29,8 +29,8 @@ class SessionRecallTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "在当前会话历史中搜索之前的对话、文件读取、工具输出等完整内容。"
-            "当压缩摘要中标记 [可 session_recall 取回] 时可使用此工具取回完整内容。"
+            "Search the current session history for previous conversations, file reads, tool outputs, etc. "
+            "When a compressed summary is marked with [session_recall can retrieve], use this tool to retrieve the full content."
         )
 
     def get_schema(self) -> dict[str, Any]:
@@ -42,16 +42,16 @@ class SessionRecallTool(BaseTool):
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "要查找的内容关键词",
+                        "description": "Content keyword to search for",
                     },
                     "message_type": {
                         "type": "string",
                         "enum": ["tool_trace", "user_message", "assistant_message", "all"],
-                        "description": "筛选消息类型（默认 all）",
+                        "description": "Filter by message type (default: all)",
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "返回结果数量（默认 3）",
+                        "description": "Number of results to return (default: 3)",
                     },
                 },
                 "required": ["query"],
@@ -61,7 +61,7 @@ class SessionRecallTool(BaseTool):
     async def execute(self, args: dict[str, Any]) -> ToolResult:
         query = args.get("query", "").strip()
         if not query:
-            return ToolResult(success=True, data={"results": [], "message": "空查询，无结果"})
+            return ToolResult(success=True, data={"results": [], "message": "Empty query, no results"})
 
         limit = args.get("limit", 3)
         results = self._recall_service.search(
@@ -77,7 +77,7 @@ class SessionRecallTool(BaseTool):
         if not results:
             return ToolResult(
                 success=True,
-                data={"results": [], "message": f"未找到与 '{query}' 相关的内容"},
+                data={"results": [], "message": f"No results found for '{query}'"},
             )
 
         formatted = []

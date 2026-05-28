@@ -62,7 +62,7 @@ class ContinuationArtifactBuilder:
         transcript = self._fit_global_budget(items)
 
         if existing_summary:
-            transcript = f"[已有摘要]\n{existing_summary}\n\n[新增对话]\n{transcript}"
+            transcript = f"[Existing summary]\n{existing_summary}\n\n[New conversation]\n{transcript}"
 
         return ContinuationPromptInput(
             task=self._truncate_text(task or "", self.max_task_chars),
@@ -137,7 +137,7 @@ class ContinuationArtifactBuilder:
         if len(full_transcript) <= self.max_transcript_chars:
             return full_transcript
 
-        notice = "[system/notice] 已按 continuation 预算省略部分较早或低优先级上下文。"
+        notice = "[system/notice] Some earlier or lower-priority context was omitted to fit the continuation budget."
         budget = max(0, self.max_transcript_chars - len(notice) - 2)
         selected: list[_TranscriptItem] = []
         used = 0

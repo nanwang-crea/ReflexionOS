@@ -24,7 +24,7 @@ class MemoryTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "项目级 curated memory 管理工具：add / replace / remove (渲染 USER.md / MEMORY.md)"
+        return "Project-level curated memory management tool: add / replace / remove (renders USER.md / MEMORY.md)"
 
     def get_schema(self) -> dict[str, Any]:
         return {
@@ -36,28 +36,28 @@ class MemoryTool(BaseTool):
                     "action": {
                         "type": "string",
                         "enum": ["add", "replace", "remove"],
-                        "description": "操作类型",
+                        "description": "Action type",
                     },
                     "project_id": {
                         "type": "string",
-                        "description": "项目 ID",
+                        "description": "Project ID",
                     },
                     "target": {
                         "type": "string",
                         "enum": ["user", "memory"],
-                        "description": "目标视图（replace/remove 需要）",
+                        "description": "Target view (required for replace/remove)",
                     },
                     "entry": {
                         "type": "object",
-                        "description": "CuratedEntry 对象（add/replace 需要）",
+                        "description": "CuratedEntry object (required for add/replace)",
                     },
                     "old_summary": {
                         "type": "string",
-                        "description": "被替换条目的 summary（replace 需要）",
+                        "description": "Summary of the entry to replace (required for replace)",
                     },
                     "summary": {
                         "type": "string",
-                        "description": "要移除条目的 summary（remove 需要）",
+                        "description": "Summary of the entry to remove (required for remove)",
                     },
                 },
                 "required": ["action", "project_id"],

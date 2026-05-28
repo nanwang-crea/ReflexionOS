@@ -59,8 +59,8 @@ class EditTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "文件编辑工具。推荐使用 str_replace 进行精确或模糊替换；"
-            "patch 用于复杂多行 diff 修改；write 仅用于创建新文件。"
+            "File edit tool. Prefer str_replace for precise or fuzzy replacement; "
+            "patch for complex multi-line diff edits; write ONLY for creating new files."
         )
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
@@ -390,34 +390,34 @@ class EditTool(BaseTool):
                         "type": "string",
                         "enum": ["str_replace", "patch", "write"],
                         "description": (
-                            "编辑模式：str_replace=字符串替换（推荐，支持模糊匹配）、"
-                            "patch=应用diff补丁、write=全量写入（仅创建新文件）"
+                            "Edit mode: str_replace=string replacement (recommended, supports fuzzy matching), "
+                            "patch=apply diff patch, write=full write (only for creating new files)"
                         ),
                     },
                     "path": {
                         "type": "string",
-                        "description": "文件路径（相对或绝对）",
+                        "description": "File path (relative or absolute)",
                     },
                     "old_string": {
                         "type": "string",
-                        "description": "str_replace 使用：要替换的文本；空字符串表示追加到文件末尾或创建新文件",
+                        "description": "For str_replace: text to replace; empty string means append to file end or create new file",
                     },
                     "new_string": {
                         "type": "string",
-                        "description": "str_replace 使用：替换后的文本，必须与 old_string 不同",
+                        "description": "For str_replace: replacement text, must differ from old_string",
                     },
                     "replace_all": {
                         "type": "boolean",
                         "default": False,
-                        "description": "str_replace 使用：替换所有出现位置（默认只替换第一个唯一匹配）",
+                        "description": "For str_replace: replace all occurrences (default: only first unique match)",
                     },
                     "patch": {
                         "type": "string",
-                        "description": "patch 使用：补丁内容，支持 Unified Diff 和 Codex-style patch",
+                        "description": "For patch: patch content, supports Unified Diff and Codex-style patch",
                     },
                     "content": {
                         "type": "string",
-                        "description": "write 使用：文件完整内容",
+                        "description": "For write: full file content",
                     },
                 },
                 "required": ["action", "path"],

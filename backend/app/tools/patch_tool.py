@@ -24,7 +24,7 @@ class PatchTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "应用单文件代码补丁，支持 Unified Diff 和 Codex-style patch"
+        return "Apply single-file code patches, supports Unified Diff and Codex-style patch"
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
         """
@@ -322,11 +322,11 @@ class PatchTool(BaseTool):
                     "patch": {
                         "type": "string",
                         "description": (
-                            "补丁内容。支持两种单文件格式："
-                            "1) Unified Diff，必须包含 ---、+++ 和 @@ -old,count +new,count @@；"
-                            "2) Codex-style patch，必须包含 *** Begin Patch、"
-                            "*** Add/Update/Delete File、@@、*** End Patch。"
-                            "不要一次传入多文件 diff。"
+                            "Patch content. Supports two single-file formats: "
+                            "1) Unified Diff, must include ---, +++, and @@ -old,count +new,count @@; "
+                            "2) Codex-style patch, must include *** Begin Patch, "
+                            "*** Add/Update/Delete File, @@, *** End Patch. "
+                            "Do not pass multi-file diffs at once."
                         ),
                     }
                 },

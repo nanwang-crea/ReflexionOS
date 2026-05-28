@@ -52,7 +52,7 @@ class FileTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "文件读写和目录操作工具，支持分块读取大文件"
+        return "File read/write and directory operations tool, supports chunked reading of large files"
 
     def get_schema(self) -> dict[str, Any]:
         """返回工具的 JSON Schema"""
@@ -66,16 +66,16 @@ class FileTool(BaseTool):
                     "action": {
                         "type": "string",
                         "enum": ["read", "search", "list"],
-                        "description": "操作类型：read/search/list",
+                        "description": "Action type: read/search/list",
                     },
                     "path": {
                         "type": "string",
-                        "description": "文件或目录路径（相对或绝对）",
+                        "description": "File or directory path (relative or absolute)",
                     },
                     "start_line": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "read 使用：起始行号（从1开始），推荐与 limit 一起使用",
+                        "description": "For read: start line number (1-based), recommended with limit",
                     },
                     "limit": {
                         "type": "integer",
@@ -83,27 +83,27 @@ class FileTool(BaseTool):
                         "maximum": 100,
                         "default": 80,
                         "description": (
-                            "read 使用：读取行数，推荐与 start_line 一起使用；"
-                            "最小 30，最大 100，默认 80"
+                            "For read: number of lines to read, recommended with start_line; "
+                            "min 30, max 100, default 80"
                         ),
                     },
                     "line": {
                         "type": "integer",
                         "minimum": 1,
                         "description": (
-                            "read 使用：目标行号，配合 context 使用读取周围行；"
-                            "使用 start_line/limit 时请省略"
+                            "For read: target line number, use with context to read surrounding lines; "
+                            "omit when using start_line/limit"
                         ),
                     },
                     "context": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "read 使用：上下文行数，配合 line 使用；省略时默认 10",
+                        "description": "For read: number of context lines, use with line; default 10 if omitted",
                     },
                     "query": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "search 使用：搜索关键词",
+                        "description": "For search: search keyword",
                     },
 
                 },

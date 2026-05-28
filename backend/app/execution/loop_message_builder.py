@@ -55,18 +55,18 @@ class LoopMessageBuilder:
             if completed_findings:
                 findings_text = "\n".join(f"- {f}" for f in completed_findings)
                 messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=f"前序步骤发现:\n{findings_text}")
+                    LLMMessage(role=MessageRole.SYSTEM, content=f"Findings from completed steps:\n{findings_text}")
                 )
 
         # Task Anchor: 原始用户输入作为不可截断的 user 消息始终注入
         messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
 
-        # Tier 3: LLM 压缩摘要（如有），包含 [可 session_recall 取回] 标记
+        # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:
             messages.append(
                 LLMMessage(
                     role=MessageRole.SYSTEM,
-                    content=f"[已压缩的历史上下文]\n{context.compacted_summary}",
+                    content=f"[Compacted historical context]\n{context.compacted_summary}",
                 )
             )
 
@@ -112,7 +112,7 @@ class LoopMessageBuilder:
     def _build_tier2_messages(self, context: LoopContext) -> list[LLMMessage]:
         """
         构建 Tier 2 消息：超出窗口的旧消息逐条截断但始终可见。
-        tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [可 session_recall 取回]，
+        tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [session_recall can retrieve]，
         assistant/user 消息保留原文（user 消息中与 task 重复的跳过，避免与 Task Anchor 重复）。
         """
         grouped = self._group_messages(context.messages)
@@ -133,7 +133,7 @@ class LoopMessageBuilder:
                         self.tool_output_max_chars,
                         head_chars=1_600,
                         tail_chars=600,
-                        reason="session_recall 取回",
+                        reason="session_recall retrieve",
                     )
                     tier2.append(
                         LLMMessage(role=MessageRole.SYSTEM, content=f"[tool output] {truncated}")
