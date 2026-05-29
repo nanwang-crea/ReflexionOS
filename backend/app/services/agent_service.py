@@ -37,6 +37,8 @@ from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.tools.base import ToolResult
 from app.tools.file_tool import FileTool
+from app.tools.glob_tool import GlobTool
+from app.tools.grep_tool import GrepTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.edit_tool import EditTool
 from app.tools.plan_tool import PlanTool
@@ -119,6 +121,8 @@ class AgentService:
 
         registry = ToolRegistry()
         registry.register(FileTool(path_security))
+        registry.register(GlobTool(path_security))
+        registry.register(GrepTool(path_security))
         registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox()))
         registry.register(EditTool(path_security))
         registry.register(MemoryTool())
