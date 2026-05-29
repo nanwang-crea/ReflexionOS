@@ -11,6 +11,9 @@ from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+READ_ONLY_TOOL_NAMES = frozenset({"grep", "glob", "session_recall"})
+READ_ONLY_FILE_ACTIONS = frozenset({"read", "search", "list"})
+
 
 class ToolCallExecutor:
     """Execute model tool calls and project the result back into loop context."""
@@ -23,6 +26,17 @@ class ToolCallExecutor:
     ):
         self.tool_registry = tool_registry
         self.emit = emit
+
+    def _is_read_only_call(self, tool_call: LLMToolCall) -> bool:
+        if tool_call.name in READ_ONLY_TOOL_NAMES:
+            return True
+        if tool_call.name == "file":
+            action = tool_call.arguments.get("action", "")
+            return action in READ_ONLY_FILE_ACTIONS
+        if tool_call.name == "memory":
+            action = tool_call.arguments.get("action", "")
+            return action in ("get", "list", "search")
+        return False
 
     async def execute(
         self,

@@ -148,11 +148,59 @@ class RapidExecutionLoop:
         result: LoopResult,
         rt: RuntimeState,
     ) -> LoopPhase:
-        """TOOL_EXECUTION 阶段：执行工具调用，处理审批与失败。"""
-        rt.step_num += 1
+        """TOOL_EXECUTION 阶段：执行工具调用，只读工具并行，写操作串行。"""
         error_recovery_needed = False
 
+        read_only_calls = []
+        write_calls = []
+
         for tool_call in rt.response.tool_calls:
+            if self.tool_executor._is_read_only_call(tool_call):
+                read_only_calls.append(tool_call)
+            else:
+                write_calls.append(tool_call)
+
+        # Execute read-only tools in parallel
+        if read_only_calls:
+            start_step = rt.step_num + 1
+            parallel_steps = await asyncio.gather(
+                *[
+                    self.tool_executor.execute(tc, context, start_step + i)
+                    for i, tc in enumerate(read_only_calls)
+                ]
+            )
+            rt.step_num = start_step + len(read_only_calls) - 1
+            for step in parallel_steps:
+                result.steps.append(step)
+                context.add_step(step)
+
+                if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                    return await self._handle_approval(step, context, result, rt)
+
+                if step.status == StepStatus.FAILED:
+                    rt.consecutive_failures += 1
+                    await self._emit(
+                        "tool:error",
+                        {
+                            "tool_name": step.tool,
+                            "step_number": step.step_number,
+                            "tool_call_id": step.tool_call_id,
+                            "success": False,
+                            "output": step.output,
+                            "error": step.error,
+                            "duration": step.duration,
+                            "arguments": step.args,
+                        },
+                    )
+                    if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
+                        error_recovery_needed = True
+                else:
+                    rt.consecutive_failures = 0
+                    rt.has_executed_tools = True
+
+        # Execute write tools serially
+        for tool_call in write_calls:
+            rt.step_num += 1
             step = await self.tool_executor.execute(tool_call, context, rt.step_num)
             result.steps.append(step)
             context.add_step(step)
@@ -162,8 +210,6 @@ class RapidExecutionLoop:
 
             if step.status == StepStatus.FAILED:
                 rt.consecutive_failures += 1
-
-                # 发送工具失败事件
                 await self._emit(
                     "tool:error",
                     {
@@ -177,8 +223,6 @@ class RapidExecutionLoop:
                         "arguments": step.args,
                     },
                 )
-
-                # 检查是否需要进入错误恢复
                 if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
                     error_recovery_needed = True
             else:
