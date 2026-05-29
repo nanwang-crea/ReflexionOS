@@ -101,6 +101,7 @@ class MessageRepository(BaseRepository[Message]):
         current_turn_id: str | None = None,
         limit: int = 8,
         scan_limit: int = 200,
+        max_tool_traces: int = 4,
     ) -> list[Message]:
         resolved_limit = max(0, int(limit)) if limit else 0
         resolved_scan = max(50, int(scan_limit)) if scan_limit else 200
@@ -128,8 +129,28 @@ class MessageRepository(BaseRepository[Message]):
 
             models = query.order_by(MessageModel.created_at.desc()).limit(resolved_scan).all()
 
-            selected = self._to_domain_list(list(reversed(models)))[-resolved_limit:]
-            return selected
+            text_candidates = self._to_domain_list(list(reversed(models)))[-resolved_limit:]
+
+            tool_trace_models = (
+                db_session.query(MessageModel)
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.message_type == MessageType.TOOL_TRACE.value,
+                    MessageModel.stream_state == StreamState.COMPLETED.value,
+                )
+            )
+            if current_turn_id:
+                tool_trace_models = tool_trace_models.filter(
+                    MessageModel.turn_id != current_turn_id
+                )
+            tool_trace_models = (
+                tool_trace_models.order_by(MessageModel.created_at.desc())
+                .limit(max_tool_traces)
+                .all()
+            )
+            tool_traces = list(reversed(self._to_domain_list(tool_trace_models)))
+
+            return text_candidates + tool_traces
 
     def get_latest_continuation_artifact(
         self,

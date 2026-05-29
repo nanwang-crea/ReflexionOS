@@ -1,4 +1,4 @@
-from app.memory.message_normalizer import normalize_message_text
+from app.memory.message_normalizer import normalize_message_text, normalize_message_text_for_seed
 from app.models.conversation import Message, MessageType, StreamState
 
 
@@ -99,3 +99,44 @@ def test_normalize_message_text_handles_non_dict_payload_shape():
 
     normalized = normalize_message_text(message)
     assert normalized == "tool_name="
+
+
+def test_normalize_message_text_for_seed_expands_tool_trace_payload():
+    message = build_message(
+        message_type=MessageType.TOOL_TRACE,
+        content_text="",
+        payload_json={
+            "tool_name": "shell",
+            "arguments": {"cmd": "ls"},
+            "success": True,
+            "output": "file1.py\nfile2.py",
+        },
+    )
+    result = normalize_message_text_for_seed(message)
+    assert "tool_name=shell" in result
+    assert "success=True" in result
+    assert "file1.py" in result
+
+
+def test_normalize_message_text_for_seed_uses_shorter_truncation():
+    output = "A-" * 2000 + "-Z"
+    message = build_message(
+        message_type=MessageType.TOOL_TRACE,
+        content_text="",
+        payload_json={
+            "tool_name": "shell",
+            "arguments": {"cmd": "cat large_file.txt"},
+            "success": True,
+            "output": output,
+        },
+    )
+    result = normalize_message_text_for_seed(message)
+    assert len(result) < 1200
+    assert "A-" in result
+    assert "-Z" in result
+    assert "truncated" in result
+
+
+def test_normalize_message_text_for_seed_returns_content_text_for_non_tool_trace():
+    message = build_message(content_text="用户消息")
+    assert normalize_message_text_for_seed(message) == "用户消息"

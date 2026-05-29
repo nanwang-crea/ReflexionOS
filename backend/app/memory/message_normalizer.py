@@ -10,6 +10,39 @@ MAX_SEARCH_TOOL_OUTPUT_CHARS = 4_000
 SEARCH_TOOL_OUTPUT_HEAD_CHARS = 2_600
 SEARCH_TOOL_OUTPUT_TAIL_CHARS = 900
 
+SEED_TOOL_OUTPUT_MAX_CHARS = 800
+SEED_TOOL_OUTPUT_HEAD_CHARS = 500
+SEED_TOOL_OUTPUT_TAIL_CHARS = 200
+
+
+def normalize_message_text_for_seed(message: Message) -> str:
+    if message.message_type != MessageType.TOOL_TRACE:
+        return message.content_text.strip()
+
+    payload = as_payload_dict(message.payload_json)
+    lines = [f"tool_name={payload.get('tool_name', '')}"]
+    if payload.get("arguments") is not None:
+        lines.append(
+            f"arguments={json.dumps(payload['arguments'], ensure_ascii=False, sort_keys=True)}"
+        )
+    if payload.get("success") is not None:
+        lines.append(f"success={payload['success']}")
+    if payload.get("output") is not None:
+        lines.append(f"output={_compact_seed_text(payload['output'])}")
+    if payload.get("error") is not None:
+        lines.append(f"error={_compact_seed_text(payload['error'])}")
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _compact_seed_text(value: object) -> str:
+    return truncate_head_tail(
+        str(value),
+        SEED_TOOL_OUTPUT_MAX_CHARS,
+        head_chars=SEED_TOOL_OUTPUT_HEAD_CHARS,
+        tail_chars=SEED_TOOL_OUTPUT_TAIL_CHARS,
+        reason="seed context",
+    )
+
 
 def normalize_message_text(message: Message) -> str:
     if message.message_type in {MessageType.USER_MESSAGE, MessageType.ASSISTANT_MESSAGE}:

@@ -27,6 +27,193 @@ def test_context_assembly_builds_static_recent_and_supplemental_layers():
     assert result.supplemental_block == "当前目标: 继续实现 recall"
 
 
+def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
+    tmp_path,
+):
+    db = Database(str(tmp_path / "context-assembly-tool-trace.db"))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    message_repo = MessageRepository(db)
+    conversation_service = ConversationService(
+        db=db,
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        message_repo=message_repo,
+    )
+
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+    turn_repo.create(
+        Turn(
+            id="turn-1",
+            session_id="session-1",
+            turn_index=1,
+            root_message_id="msg-root-1",
+            status=TurnStatus.COMPLETED,
+        )
+    )
+    turn_repo.create(
+        Turn(
+            id="turn-2",
+            session_id="session-1",
+            turn_index=2,
+            root_message_id="msg-root-2",
+            status=TurnStatus.CREATED,
+        )
+    )
+
+    message_repo.create(
+        Message(
+            id="msg-user-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="帮我修 bug",
+            payload_json={},
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-tool-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id="run-1",
+            turn_message_index=2,
+            role="assistant",
+            message_type=MessageType.TOOL_TRACE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="",
+            payload_json={
+                "tool_name": "shell",
+                "arguments": {"cmd": "pytest"},
+                "success": True,
+                "output": "2 passed",
+            },
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-assistant-1",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id="run-1",
+            turn_message_index=3,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text="测试通过了",
+            payload_json={},
+        )
+    )
+
+    assembler = ContextAssembler(conversation_service=conversation_service)
+    result = assembler.build_for_session(
+        session_id="session-1",
+        project_id="project-1",
+        project_path=str(tmp_path),
+        current_turn_id="turn-2",
+    )
+
+    seeded_contents = [msg["content"] for msg in result.recent_messages]
+    assert any("tool_name=shell" in c for c in seeded_contents)
+    assert any("2 passed" in c for c in seeded_contents)
+    assert "帮我修 bug" in seeded_contents
+    assert "测试通过了" in seeded_contents
+
+    tool_seed = next(msg for msg in result.recent_messages if "[tool_trace]" in msg["content"])
+    assert tool_seed["role"] == "assistant"
+
+
+def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
+    db = Database(str(tmp_path / "context-assembly-tool-trace-exclude.db"))
+    session_repo = SessionRepository(db)
+    turn_repo = TurnRepository(db)
+    message_repo = MessageRepository(db)
+    conversation_service = ConversationService(
+        db=db,
+        session_repo=session_repo,
+        turn_repo=turn_repo,
+        message_repo=message_repo,
+    )
+
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+    turn_repo.create(
+        Turn(
+            id="turn-1",
+            session_id="session-1",
+            turn_index=1,
+            root_message_id="msg-root-1",
+            status=TurnStatus.COMPLETED,
+        )
+    )
+    turn_repo.create(
+        Turn(
+            id="turn-2",
+            session_id="session-1",
+            turn_index=2,
+            root_message_id="msg-root-2",
+            status=TurnStatus.CREATED,
+        )
+    )
+
+    message_repo.create(
+        Message(
+            id="msg-tool-running",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id="run-1",
+            turn_message_index=1,
+            role="assistant",
+            message_type=MessageType.TOOL_TRACE,
+            stream_state=StreamState.STREAMING,
+            display_mode="default",
+            content_text="",
+            payload_json={
+                "tool_name": "shell",
+                "arguments": {"cmd": "ls"},
+                "status": "running",
+            },
+        )
+    )
+    message_repo.create(
+        Message(
+            id="msg-tool-failed",
+            session_id="session-1",
+            turn_id="turn-1",
+            run_id="run-1",
+            turn_message_index=2,
+            role="assistant",
+            message_type=MessageType.TOOL_TRACE,
+            stream_state=StreamState.FAILED,
+            display_mode="default",
+            content_text="",
+            payload_json={
+                "tool_name": "shell",
+                "arguments": {"cmd": "bad_cmd"},
+                "success": False,
+                "error": "command not found",
+            },
+        )
+    )
+
+    assembler = ContextAssembler(conversation_service=conversation_service)
+    result = assembler.build_for_session(
+        session_id="session-1",
+        project_id="project-1",
+        project_path=str(tmp_path),
+        current_turn_id="turn-2",
+    )
+
+    seeded_contents = [msg["content"] for msg in result.recent_messages]
+    assert not any("tool_name=shell" in c for c in seeded_contents)
+
+
 def test_context_assembler_picks_latest_persisted_continuation_artifact_as_supplemental_block(
     tmp_path,
 ):

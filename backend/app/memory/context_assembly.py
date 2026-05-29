@@ -6,6 +6,8 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.memory.curated_store import CuratedMemoryStore
+from app.memory.message_normalizer import normalize_message_text_for_seed
+from app.models.conversation import MessageType
 from app.services.conversation_service import ConversationService
 
 
@@ -13,6 +15,13 @@ class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
     recent_messages: list[dict[str, str]]
     supplemental_block: str | None = None
+
+
+def _message_to_seed_dict(message: Any) -> dict[str, str]:
+    if message.message_type == MessageType.TOOL_TRACE:
+        content = normalize_message_text_for_seed(message)
+        return {"role": "assistant", "content": f"[tool_trace] {content}"}
+    return {"role": str(message.role), "content": str(message.content_text)}
 
 
 def build_context_assembly(
@@ -61,6 +70,7 @@ class ContextAssembler:
         current_turn_id: str | None = None,
         current_user_input: str | None = None,
         max_seed_messages: int = 8,
+        max_tool_traces: int = 4,
         scan_limit: int = 200,
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []
@@ -95,8 +105,11 @@ class ContextAssembler:
             current_turn_id=current_turn_id,
             limit=max_seed_messages,
             scan_limit=scan_limit,
+            max_tool_traces=max_tool_traces,
         )
-        recent_messages = [{"role": msg.role, "content": msg.content_text} for msg in candidates]
+        recent_messages = [
+            _message_to_seed_dict(msg) for msg in candidates
+        ]
 
         return build_context_assembly(
             static_blocks=static_blocks,
