@@ -45,6 +45,8 @@ class FileTool(BaseTool):
         self.min_read_limit = 30
         self.default_read_limit = 80
         self.max_read_limit = 100
+        self._read_cache: dict[str, tuple[float, list[str]]] = {}
+        self._read_cache_max = 128
 
     @property
     def name(self) -> str:
@@ -147,6 +149,26 @@ class FileTool(BaseTool):
             logger.error("文件操作失败: %s", e)
             return ToolResult(success=False, error=str(e))
 
+    def _get_cached_lines(self, path: str) -> list[str] | None:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        cached = self._read_cache.get(path)
+        if cached is not None and cached[0] == mtime:
+            return cached[1]
+        return None
+
+    def _set_cached_lines(self, path: str, lines: list[str]) -> None:
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return
+        if len(self._read_cache) >= self._read_cache_max:
+            oldest_key = next(iter(self._read_cache))
+            del self._read_cache[oldest_key]
+        self._read_cache[path] = (mtime, lines)
+
     async def _read_file(self, args: dict[str, Any]) -> ToolResult:
         """读取文件内容 - 支持分块读取"""
         path = self.security.validate_path(args["path"])
@@ -157,9 +179,11 @@ class FileTool(BaseTool):
         if os.path.isdir(path):
             return ToolResult(success=False, error=f"路径是目录: {path}，请使用 list 操作")
 
-        # 读取文件所有行
-        async with aiofiles.open(path, encoding="utf-8") as f:
-            all_lines = await f.readlines()
+        all_lines = self._get_cached_lines(path)
+        if all_lines is None:
+            async with aiofiles.open(path, encoding="utf-8") as f:
+                all_lines = await f.readlines()
+            self._set_cached_lines(path, all_lines)
 
         total_lines = len(all_lines)
 

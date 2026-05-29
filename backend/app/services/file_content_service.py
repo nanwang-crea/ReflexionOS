@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import time
 from pathlib import Path
 
 from app.errors import NotFoundValueError, SecurityError, ValidationError
@@ -51,8 +52,10 @@ def _infer_language(path: str) -> str:
 class FileContentService:
     """文件内容读取与写入服务"""
 
+    TREE_CACHE_TTL = 5.0
+
     def __init__(self) -> None:
-        pass
+        self._tree_cache: dict[str, tuple[float, dict]] = {}
 
     EXCLUDED_DIRS = frozenset({
         "node_modules", ".git", "__pycache__", ".venv", "venv",
@@ -144,54 +147,49 @@ class FileContentService:
 
     async def get_file_tree(self, project_id: str) -> dict:
         project_path = self._get_project_path(project_id)
+        now = time.monotonic()
+        cached = self._tree_cache.get(project_id)
+        if cached and (now - cached[0]) < self.TREE_CACHE_TTL:
+            return cached[1]
+
         git_status_map = await self._get_git_status_map(project_path)
         tree = self._build_tree(project_path, project_path, git_status_map)
-        return {"tree": tree}
+        result = {"tree": tree}
+        self._tree_cache[project_id] = (now, result)
+        return result
 
     async def _get_git_status_map(self, project_path: str) -> dict[str, str]:
         status_map: dict[str, str] = {}
 
-        for args, status in [
-            (["diff", "--name-status"], "M"),
-            (["diff", "--cached", "--name-status"], None),
-        ]:
-            try:
-                result = await asyncio.create_subprocess_exec(
-                    "git", *args,
-                    cwd=project_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await result.communicate()
-                if result.returncode != 0:
-                    continue
-                for line in stdout.decode("utf-8", errors="replace").splitlines():
-                    parts = line.split("\t")
-                    if len(parts) < 2:
-                        continue
-                    code = parts[0][0]
-                    path = parts[-1]
-                    mapped = {"M": "M", "A": "A", "D": "D", "R": "M", "C": "A"}.get(
-                        code, "M"
-                    )
-                    status_map[path] = status or mapped
-            except FileNotFoundError:
-                return {}
-
         try:
             result = await asyncio.create_subprocess_exec(
-                "git", "ls-files", "--others", "--exclude-standard",
+                "git", "status", "--porcelain",
                 cwd=project_path,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout, _ = await result.communicate()
-            if result.returncode == 0:
-                for line in stdout.decode("utf-8", errors="replace").splitlines():
-                    if line:
-                        status_map[line] = "U"
-        except FileNotFoundError:
+            stdout, _ = await asyncio.wait_for(result.communicate(), timeout=10)
+            if result.returncode != 0:
+                return {}
+        except (FileNotFoundError, TimeoutError):
             return {}
+
+        for line in stdout.decode("utf-8", errors="replace").splitlines():
+            if len(line) < 4:
+                continue
+            xy = line[:2]
+            path = line[3:].strip()
+            if not path:
+                continue
+            x, y = xy[0], xy[1]
+            if x in ("M", "A", "D", "R", "C"):
+                status_map[path] = {"M": "M", "A": "A", "D": "D", "R": "M", "C": "A"}.get(x, "M")
+            elif y in ("M", "A", "D"):
+                status_map[path] = {"M": "M", "A": "A", "D": "D"}.get(y, "M")
+            elif xy == "??":
+                status_map[path] = "U"
+            elif xy == "!!":
+                pass
 
         return status_map
 
