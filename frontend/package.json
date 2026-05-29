@@ -1,6 +1,6 @@
 {
   "name": "reflexion-os-frontend",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "ReflexionOS Desktop Application",
   "packageManager": "pnpm@10.30.3",
   "main": "electron/main.cjs",

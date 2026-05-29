@@ -2,7 +2,9 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import MetaData, create_engine, event, inspect
+from alembic import command
+from alembic.config import Config as AlembicConfig
+from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -44,9 +46,9 @@ class Database:
                 self.db_path = str(candidate)
                 self.engine = engine
                 self._configure_sqlite()
-                self._reset_incompatible_schema_if_needed()
+                self._handle_legacy_schema_if_needed()
+                self._run_alembic_migrations()
                 self._migrate_session_cascade_schema_if_needed()
-                Base.metadata.create_all(self.engine)
 
                 self.SessionLocal = sessionmaker(
                     autocommit=False, autoflush=False, bind=self.engine
@@ -68,26 +70,71 @@ class Database:
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.close()
 
-    def _reset_incompatible_schema_if_needed(self) -> None:
+    def _handle_legacy_schema_if_needed(self) -> None:
+        """检测并处理旧版不兼容 schema：备份后重建，避免静默丢数据"""
         inspector = inspect(self.engine)
         table_names = set(inspector.get_table_names())
 
         reset_reason: str | None = None
         if "executions" in table_names or "conversations" in table_names:
-            reset_reason = "检测到旧版 conversation schema，重建数据库以切换到新会话模型"
+            reset_reason = "检测到旧版 conversation schema，需要重建数据库以切换到新会话模型"
         elif "messages" in table_names and not self._has_turn_message_index_schema():
-            reset_reason = "检测到不兼容的 messages schema，重建数据库以切换到 turn_message_index"
+            reset_reason = "检测到不兼容的 messages schema，需要重建数据库以切换到 turn_message_index"
 
         if reset_reason is None:
             return
 
         logger.warning(reset_reason)
+
+        # 备份旧数据库文件，防止数据静默丢失
+        db_path = Path(self.db_path)
+        backup_path = db_path.with_suffix(".db.legacy_backup")
+        if not backup_path.exists():
+            import shutil
+
+            shutil.copy2(db_path, backup_path)
+            logger.info("旧版数据库已备份至: %s", backup_path)
+        else:
+            logger.info("备份文件已存在，跳过备份: %s", backup_path)
+
+        # 重建 schema
         try:
+            from sqlalchemy import MetaData
+
             metadata = MetaData()
             metadata.reflect(bind=self.engine)
             metadata.drop_all(bind=self.engine)
         except OperationalError:
             logger.warning("旧版数据库当前不可写，跳过自动重建，等待显式清理后再初始化")
+
+    def _run_alembic_migrations(self) -> None:
+        """运行 Alembic 增量迁移，替代 Base.metadata.create_all 的粗暴方式"""
+        alembic_cfg_path = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
+        if not alembic_cfg_path.exists():
+            # 没有 alembic.ini 时回退到 create_all（兼容无 Alembic 的部署）
+            logger.info("未找到 alembic.ini，使用 create_all 初始化表结构")
+            Base.metadata.create_all(self.engine)
+            return
+
+        alembic_cfg = AlembicConfig(str(alembic_cfg_path))
+        alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+
+        try:
+            inspector = inspect(self.engine)
+            table_names = inspector.get_table_names()
+            has_alembic_version = "alembic_version" in table_names
+
+            if table_names and not has_alembic_version:
+                # 旧数据库已有表但从未用 Alembic 管理，标记为 head 避免重复建表
+                command.stamp(alembic_cfg, "head")
+                logger.info("旧数据库已标记为 Alembic head 版本")
+
+            # upgrade head：空数据库会执行全部迁移建表；已有版本则增量迁移
+            command.upgrade(alembic_cfg, "head")
+            logger.info("Alembic 迁移完成")
+        except Exception as exc:
+            logger.warning("Alembic 迁移失败，回退到 create_all: %s", exc)
+            Base.metadata.create_all(self.engine)
 
     def _has_turn_message_index_schema(self) -> bool:
         with self.engine.connect() as connection:
@@ -189,5 +236,15 @@ class Database:
             session.close()
 
 
-# 全局数据库实例
-db = Database()
+# 全局数据库实例（延迟初始化）
+# 使用 PEP 562 __getattr__ 实现懒加载，测试时可通过 _db 注入 mock
+_db = None
+
+
+def __getattr__(name):
+    global _db
+    if name == "db":
+        if _db is None:
+            _db = Database()
+        return _db
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

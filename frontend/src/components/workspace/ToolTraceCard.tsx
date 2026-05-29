@@ -1,5 +1,5 @@
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import type { ApprovalActionPayload, ApprovalActionType } from '@/components/execution/ActionReceipt'
+import type { ApprovalActionPayload, ApprovalActionType } from '@/components/execution/approvalActions'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
 
 export type ReceiptDetailClickHandler = (detail: ActionReceiptDetail) => void

@@ -24,6 +24,10 @@ const INCREMENTAL_EVENT_TYPES = new Set([
   'message.payload_updated',
 ])
 
+const RECONNECT_BASE_DELAY_MS = 1000
+const RECONNECT_MAX_DELAY_MS = 30000
+const RECONNECT_MAX_ATTEMPTS = 10
+
 export function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
@@ -101,12 +105,20 @@ export function useConversationRuntime(
   const wsRef = useRef<SessionConversationWebSocket | null>(null)
   const connectedSessionIdRef = useRef<string | null>(null)
   const connectVersionRef = useRef(0)
+  const reconnectAttemptRef = useRef(0)
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleReconnectRef = useRef<(sessionId: string) => void>(() => {})
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialConnectionStatus)
   const [isCancelling, setIsCancelling] = useState(false)
   const [retryInfo, setRetryInfo] = useState<LlmRetryDto | null>(null)
 
   const closeWebSocket = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+    reconnectAttemptRef.current = 0
     wsRef.current?.close()
     wsRef.current = null
     connectedSessionIdRef.current = null
@@ -152,10 +164,19 @@ export function useConversationRuntime(
     const ws = new SessionConversationWebSocket()
     ws.on('connection:open', () => {
       setConnectionStatus('connected')
+      reconnectAttemptRef.current = 0
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
     })
     ws.on('connection:closed', () => {
       setConnectionStatus('disconnected')
       setIsCancelling(false)
+      const sessionId = connectedSessionIdRef.current
+      if (sessionId) {
+        scheduleReconnectRef.current(sessionId)
+      }
     })
     ws.on('conversation:error', (data) => {
       console.error('Conversation websocket error:', data)
@@ -219,7 +240,32 @@ export function useConversationRuntime(
     ws.sendSync(response.data.session.lastEventSeq)
     wsRef.current = ws
     connectedSessionIdRef.current = sessionId
+    reconnectAttemptRef.current = 0
   }, [closeWebSocket, queueSnapshotRefresh])
+
+  const scheduleReconnect = useCallback((sessionId: string) => {
+    const attempt = reconnectAttemptRef.current + 1
+    if (attempt > RECONNECT_MAX_ATTEMPTS) {
+      useToastStore.getState().addToast('error', 'WebSocket 连接断开，请刷新页面重连')
+      return
+    }
+    reconnectAttemptRef.current = attempt
+    const delay = Math.min(
+      RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+      RECONNECT_MAX_DELAY_MS
+    )
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null
+      connectSession(sessionId).catch((error) => {
+        console.error('Reconnect failed:', error)
+        scheduleReconnectRef.current(sessionId)
+      })
+    }, delay)
+  }, [connectSession])
+
+  useEffect(() => {
+    scheduleReconnectRef.current = scheduleReconnect
+  }, [scheduleReconnect])
 
   const startTurn = useCallback(async (payload: StartTurnPayload) => {
     const content = payload.message.trim()
@@ -320,6 +366,10 @@ export function useConversationRuntime(
 
   useEffect(() => {
     return () => {
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current)
+        reconnectTimerRef.current = null
+      }
       closeWebSocket()
     }
   }, [closeWebSocket])

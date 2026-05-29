@@ -2,7 +2,7 @@ import { createRef } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import { sendApprovalAction } from '@/components/execution/ActionReceipt'
+import { sendApprovalAction } from '@/components/execution/approvalActions'
 import type { ConversationMessage } from '@/types/conversation'
 import { ToolTraceCard, ToolTraceGroup } from './ToolTraceCard'
 import { WorkspaceTranscript } from './WorkspaceTranscript'
@@ -111,8 +111,12 @@ describe('ToolTraceCard', () => {
       />
     )
 
-    expect(html).toContain('aria-label="批准此操作"')
-    expect(html).toContain('aria-label="拒绝此操作"')
+    expect(html).toContain('需要批准执行命令')
+    expect(html).toContain('允许执行')
+    expect(html).toContain('拒绝')
+    expect(html).toContain('flex-col')
+    expect(html).not.toContain('border-l-4')
+    expect(html).not.toContain('bg-amber')
   })
 
   it('does not render approval controls without a run id and approval id', () => {

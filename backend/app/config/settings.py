@@ -1,9 +1,12 @@
 import json
+import logging
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from app.models.llm_config import LLMSettings
+
+logger = logging.getLogger(__name__)
 
 
 class ExecutionSettings(BaseModel):
@@ -59,8 +62,12 @@ class ConfigManager:
                 with open(self.config_path, encoding="utf-8") as f:
                     data = json.load(f)
                     return AppSettings(**data)
+            except json.JSONDecodeError:
+                logger.warning("配置文件 JSON 格式损坏，使用默认值: %s", self.config_path)
+            except ValidationError:
+                logger.warning("配置文件内容校验失败，使用默认值: %s", self.config_path)
             except Exception:
-                pass
+                logger.warning("配置文件加载异常，使用默认值: %s", self.config_path, exc_info=True)
 
         return AppSettings()
 
@@ -84,5 +91,15 @@ class ConfigManager:
         return self.settings.ui.show_continuation_notices
 
 
-# 全局配置管理器
-config_manager = ConfigManager()
+# 全局配置管理器（延迟初始化）
+# 使用 PEP 562 __getattr__ 实现懒加载，测试时可通过 _config_manager 注入 mock
+_config_manager = None
+
+
+def __getattr__(name):
+    global _config_manager
+    if name == "config_manager":
+        if _config_manager is None:
+            _config_manager = ConfigManager()
+        return _config_manager
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
