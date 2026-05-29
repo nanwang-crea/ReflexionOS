@@ -4,7 +4,7 @@ import logging
 import os
 
 from app.errors import ValidationError
-from app.security.path_security import PathSecurity
+from app.security.path_security import PathSecurity, create_project_security
 from app.services.project_service import project_service
 
 logger = logging.getLogger(__name__)
@@ -13,11 +13,10 @@ logger = logging.getLogger(__name__)
 class GitService:
 
     def _get_project_path(self, project_id: str) -> str:
-        project = project_service.get_project_or_raise(project_id)
-        return project.path
+        return project_service.get_project_path(project_id)
 
     def _make_security(self, project_path: str) -> PathSecurity:
-        return PathSecurity(allowed_base_paths=[project_path], base_dir=project_path)
+        return create_project_security(project_path)
 
     async def _run_git(self, *args: str, cwd: str, timeout: float = 120) -> tuple[int, str, str]:
         try:

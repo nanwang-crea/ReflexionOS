@@ -27,7 +27,7 @@ const deleteProviderMock = vi.fn()
 const testProviderMock = vi.fn()
 const setDefaultSelectionMock = vi.fn()
 
-vi.mock('@/services/apiClient', () => ({
+vi.mock('./llmApi', () => ({
   llmApi: {
     getProviders: getProvidersMock,
     getDefaultSelection: getDefaultSelectionMock,
@@ -132,7 +132,7 @@ describe('resetLLMSettingsStore', () => {
 })
 
 describe('providerDraft helpers', () => {
-  it('normalizes provider draft with fallback default model id', async () => {
+  it('normalizes provider draft by trimming fields', async () => {
     const { normalizeProviderDraft } = await import('./providerDraft')
 
     const normalized = normalizeProviderDraft({
@@ -160,7 +160,7 @@ describe('providerDraft helpers', () => {
       display_name: 'GPT-4.1',
       model_name: 'gpt-4.1',
     })
-    expect(normalized.default_model_id).toBe('model-1')
+    expect(normalized.default_model_id).toBe('')
   })
 
   it('rejects provider drafts with empty model fields', async () => {
@@ -247,7 +247,6 @@ describe('providerActions', () => {
 
     expect(updateProvider).toHaveBeenCalledWith('provider-a', expect.objectContaining({
       name: 'OpenAI',
-      default_model_id: 'model-1',
     }))
     expect(createProvider).not.toHaveBeenCalled()
     expect(loadSettings).toHaveBeenCalledWith('provider-a')

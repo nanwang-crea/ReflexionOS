@@ -21,6 +21,10 @@ export function resolveActiveRunId(conversation: ActiveRunState | undefined): st
     }
   }
 
+  // Fallback: when WebSocket events arrive out of order, session.activeTurnId
+  // may not yet reflect the server state. Scan all runs for an active one.
+  // The backend (resolve_active_run_id_from_conversation) does NOT need this
+  // fallback because it reads from the authoritative snapshot directly.
   const activeRunEntry = Object.entries(conversation.runsById).find(([, run]) => ACTIVE_RUN_STATUSES.has(run.status))
   return activeRunEntry?.[0] ?? null
 }

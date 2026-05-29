@@ -42,9 +42,6 @@ export function normalizeProviderDraft(provider: ProviderInstance): ProviderInst
     display_name: model.display_name.trim(),
     model_name: model.model_name.trim(),
   }))
-  const defaultModelId = models.some((model) => model.id === provider.default_model_id)
-    ? provider.default_model_id
-    : models[0]?.id
 
   return {
     ...provider,
@@ -52,7 +49,6 @@ export function normalizeProviderDraft(provider: ProviderInstance): ProviderInst
     api_key: provider.api_key?.trim() || undefined,
     base_url: provider.base_url?.trim() || undefined,
     models,
-    default_model_id: defaultModelId,
   }
 }
 

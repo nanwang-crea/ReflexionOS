@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from app.errors import NotFoundValueError, SecurityError, ValidationError
-from app.security.path_security import PathSecurity
+from app.security.path_security import PathSecurity, create_project_security
 from app.services.project_service import project_service
 
 logger = logging.getLogger(__name__)
@@ -61,11 +61,10 @@ class FileContentService:
     })
 
     def _get_project_path(self, project_id: str) -> str:
-        project = project_service.get_project_or_raise(project_id)
-        return project.path
+        return project_service.get_project_path(project_id)
 
     def _make_security(self, project_path: str) -> PathSecurity:
-        return PathSecurity(allowed_base_paths=[project_path], base_dir=project_path)
+        return create_project_security(project_path)
 
     async def get_file_content(self, project_id: str, path: str) -> dict:
         project_path = self._get_project_path(project_id)

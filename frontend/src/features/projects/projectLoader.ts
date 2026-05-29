@@ -1,5 +1,5 @@
 import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionActions'
-import { projectApi } from '@/services/apiClient'
+import { projectApi } from './projectApi'
 import { useProjectStore } from '@/stores/projectStore'
 import type { Project } from '@/types/project'
 

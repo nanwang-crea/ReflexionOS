@@ -77,3 +77,7 @@ class PathSecurity:
             raise SecurityError("禁止修改敏感文件")
 
         return abs_path
+
+
+def create_project_security(project_path: str) -> PathSecurity:
+    return PathSecurity(allowed_base_paths=[project_path], base_dir=project_path)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Sparkles, Wrench } from 'lucide-react'
-import { skillApi } from '@/services/apiClient'
+import { skillApi } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
 import type { Skill } from '@/types/skill'
 

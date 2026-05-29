@@ -19,9 +19,8 @@ def test_project_service_reads_projects_from_repository(db):
     created = first_service.create_project(ProjectCreate(name="ReflexionOS", path="/tmp/reflexion"))
 
     second_service = ProjectService(repo=repo)
-    loaded = second_service.get_project(created.id)
+    loaded = second_service.get_project_or_raise(created.id)
 
-    assert loaded is not None
     assert loaded.path == "/tmp/reflexion"
     assert [project.id for project in second_service.list_projects()] == [created.id]
 
