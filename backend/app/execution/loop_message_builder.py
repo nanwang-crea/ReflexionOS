@@ -11,9 +11,9 @@ class LoopMessageBuilder:
     - Tier 2: 截断但可见 —— 超出窗口的旧消息逐条截断，每条仍在 context 中
     - Tier 3: LLM 摘要 —— 极端压力时旧消息压缩为摘要，细节可 session_recall 回溯
 
-    最终消息顺序：system prompt → context sections → plan → Task Anchor(user)
-                   → Tier 3 compacted summary(system) → Tier 2 截断消息(system)
-                   → Tier 1 recent context messages(user/assistant/tool)
+    最终消息顺序：system prompt → context sections → plan → Tier 3 compacted summary(system)
+                   → Tier 2 截断消息(system) → Tier 1 recent context messages(user/assistant/tool)
+                   → Task Anchor(user)
     """
 
     def __init__(
@@ -58,9 +58,6 @@ class LoopMessageBuilder:
                     LLMMessage(role=MessageRole.SYSTEM, content=f"Findings from completed steps:\n{findings_text}")
                 )
 
-        # Task Anchor: 原始用户输入作为不可截断的 user 消息始终注入
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
-
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:
             messages.append(
@@ -87,6 +84,9 @@ class LoopMessageBuilder:
                 )
             )
 
+        # Task Anchor: 原始用户输入作为不可截断的最新 user 消息始终放在最后
+        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+
         return messages
 
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
@@ -98,14 +98,73 @@ class LoopMessageBuilder:
 
         self._inject_context_sections(context, messages)
 
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
-
         for msg in self.recent_context_messages(context):
             if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:
                 continue
             if not msg.get("content"):
                 continue
             messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
+
+        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+
+        return messages
+
+    def build_final_summary(self, context: LoopContext) -> list[LLMMessage]:
+        """构建不暴露工具列表的最终总结消息。"""
+        messages = [
+            LLMMessage(
+                role=MessageRole.SYSTEM,
+                content=(
+                    "You are an autonomous coding agent. Write the final answer directly "
+                    "from the provided context. Do not call tools."
+                ),
+            )
+        ]
+
+        self._inject_context_sections(context, messages)
+
+        if context.plan:
+            messages.append(
+                LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
+            )
+            completed_findings = context.plan.completed_findings()
+            if completed_findings:
+                findings_text = "\n".join(f"- {f}" for f in completed_findings)
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.SYSTEM,
+                        content=f"Findings from completed steps:\n{findings_text}",
+                    )
+                )
+
+        if context.compacted_summary:
+            messages.append(
+                LLMMessage(
+                    role=MessageRole.SYSTEM,
+                    content=f"[Compacted historical context]\n{context.compacted_summary}",
+                )
+            )
+
+        for msg in self._build_tier2_messages(context):
+            messages.append(msg)
+
+        for msg in self.recent_context_messages(context):
+            content = msg.get("content")
+            if msg["role"] == MessageRole.TOOL:
+                if isinstance(content, str) and content.strip():
+                    messages.append(
+                        LLMMessage(role=MessageRole.SYSTEM, content=f"[tool output] {content}")
+                    )
+                continue
+
+            if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
+                tool_names = [tc.get("name", "") for tc in msg["tool_calls"]]
+                prefix = f"[assistant called: {', '.join(tool_names)}]"
+                text = f"{prefix} {content}" if content else prefix
+                messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=text))
+                continue
+
+            messages.append(LLMMessage(role=msg["role"], content=content))
 
         return messages
 

@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
-from app.llm.base import LLMMessage
+from app.llm.base import LLMMessage, LLMToolCall
 from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 
@@ -32,6 +32,39 @@ class TestOpenAIAdapter:
 
     def test_get_model_name(self, openai_adapter):
         assert openai_adapter.get_model_name() == "gpt-4-turbo-preview"
+
+    def test_convert_messages_preserves_empty_tool_content(self, openai_adapter):
+        messages = [
+            LLMMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[LLMToolCall(id="call_empty", name="mock", arguments={})],
+            ),
+            LLMMessage(role="tool", content="", tool_call_id="call_empty"),
+        ]
+
+        converted = openai_adapter._convert_messages(messages)
+
+        assert converted[0]["tool_calls"][0]["id"] == "call_empty"
+        assert converted[1] == {
+            "role": "tool",
+            "content": "",
+            "tool_call_id": "call_empty",
+        }
+
+    def test_convert_messages_adds_content_to_tool_message_without_content(
+        self,
+        openai_adapter,
+    ):
+        messages = [LLMMessage(role="tool", content=None, tool_call_id="call_missing")]
+
+        converted = openai_adapter._convert_messages(messages)
+
+        assert converted[0] == {
+            "role": "tool",
+            "content": "",
+            "tool_call_id": "call_missing",
+        }
 
     @pytest.mark.asyncio
     async def test_complete_success(self, openai_adapter):

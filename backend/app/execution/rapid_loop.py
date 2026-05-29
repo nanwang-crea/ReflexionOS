@@ -648,8 +648,7 @@ class RapidExecutionLoop:
         """
         context.add_message("user", self.prompt_manager.get_final_response_prompt(context.task))
 
-        tools = self.tool_definitions.for_context(context)
-        messages = self.message_builder.build(context, tools)
+        messages = self.message_builder.build_final_summary(context)
 
         try:
             summary_parts = []

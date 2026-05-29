@@ -227,8 +227,10 @@ class OpenAIAdapter(UniversalLLMInterface):
         for msg in messages:
             openai_msg: dict[str, Any] = {"role": msg.role}
 
-            if msg.content:
+            if msg.content is not None:
                 openai_msg["content"] = msg.content
+            elif msg.role == "tool":
+                openai_msg["content"] = ""
 
             if msg.tool_calls:
                 openai_msg["tool_calls"] = [

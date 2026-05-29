@@ -48,6 +48,23 @@ def test_build_messages_does_not_duplicate_initial_user_task():
     assert user_contents.count("检查重复 user 消息") == 1
 
 
+def test_build_messages_places_current_task_after_history():
+    builder = build_message_builder()
+    context = LoopContext(task="继续当前任务")
+    context.supplemental_context = "当前目标: 修复消息上下文"
+    context.add_message("user", "上一轮需求")
+    context.add_message("assistant", "上一轮结论")
+    context.add_message("user", "继续当前任务")
+
+    messages = builder.build(context, tools=[])
+
+    assert messages[-1].role == "user"
+    assert messages[-1].content == "继续当前任务"
+    assert [message.content for message in messages if message.role == "user"].count(
+        "继续当前任务"
+    ) == 1
+
+
 def test_initial_plan_messages_include_only_text_conversation_context():
     builder = build_message_builder()
     context = LoopContext(task="继续处理")
@@ -87,3 +104,25 @@ def test_system_prompt_uses_runtime_tool_definitions():
     assert messages[0].role == "system"
     assert "mock" in messages[0].content
     assert "Mock tool" in messages[0].content
+
+
+def test_final_summary_messages_flatten_tool_protocol_history():
+    builder = build_message_builder()
+    context = LoopContext(task="总结工具结果")
+    tool_call = LLMToolCall(id="call_alpha", name="mock", arguments={"path": "README.md"})
+    context.add_message(
+        "assistant",
+        content="我先读取 README",
+        tool_calls=[tool_call.model_dump()],
+    )
+    context.add_message("tool", content="README output", tool_call_id=tool_call.id)
+    context.add_message("user", "请总结")
+
+    messages = builder.build_final_summary(context)
+
+    assert all(message.role != "tool" for message in messages)
+    assert all(not message.tool_calls for message in messages)
+    assert any(
+        message.role == "system" and "[tool output] README output" in message.content
+        for message in messages
+    )

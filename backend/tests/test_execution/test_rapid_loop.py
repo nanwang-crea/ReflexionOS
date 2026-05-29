@@ -256,6 +256,10 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.COMPLETED
         assert "项目采用前后端分离结构" in result.result
+        summary_messages, summary_tools = captured_calls[2]
+        assert summary_tools is None
+        assert "Mock tool for testing" not in summary_messages[0].content
+        assert "Available tools" not in summary_messages[0].content
 
     @pytest.mark.asyncio
     async def test_rapid_loop_includes_seeded_history_before_current_user_message(
@@ -286,6 +290,8 @@ class TestRapidExecutionLoop:
         assert "上一轮需求" in contents
         assert "上一轮结论" in contents
         assert any("当前目标: 修 memory" in content for content in contents)
+        assert captured["messages"][-1].role == "user"
+        assert captured["messages"][-1].content == "继续处理"
 
     @pytest.mark.asyncio
     async def test_execution_max_steps(self, execution_loop, mock_llm):
