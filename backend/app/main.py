@@ -4,7 +4,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import files, git, llm, projects, sessions, skills, websocket
+from app.api.routes import files, git, llm, projects, sessions, skills, ui_settings, websocket
 from app.app_services import agent_service
 from app.errors import AppError
 
@@ -48,6 +48,7 @@ app.include_router(projects.router)
 app.include_router(sessions.router)
 app.include_router(llm.router)
 app.include_router(skills.router)
+app.include_router(ui_settings.router)
 app.include_router(websocket.router)
 app.include_router(files.router)
 app.include_router(git.router)

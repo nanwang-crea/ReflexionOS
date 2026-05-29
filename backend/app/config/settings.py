@@ -25,12 +25,19 @@ class MemorySettings(BaseModel):
     base_dir: str = Field(default_factory=lambda: str(Path.home() / ".reflexion" / "memory"))
 
 
+class UISettings(BaseModel):
+    """UI 偏好配置"""
+
+    show_continuation_notices: bool = False
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
 
     llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
     memory: MemorySettings = MemorySettings()
+    ui: UISettings = UISettings()
 
 
 class ConfigManager:
@@ -66,6 +73,15 @@ class ConfigManager:
         """更新 LLM 配置"""
         self.settings.llm = llm_settings
         self.save()
+
+    def update_ui(self, ui_settings: UISettings):
+        """更新 UI 偏好配置"""
+        self.settings.ui = ui_settings
+        self.save()
+
+    def should_show_continuation_notices(self) -> bool:
+        """查询是否显示延续摘要通知"""
+        return self.settings.ui.show_continuation_notices
 
 
 # 全局配置管理器

@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
+from app.config.settings import config_manager
 from app.errors import NotFoundValueError
 from app.execution.approval_store import PendingApprovalStore
 from app.execution.models import LoopStatus
@@ -578,7 +579,8 @@ class AgentService:
             ],
         )
 
-        await self._broadcast_conversation_events(session_id=session_id, events=events)
+        if config_manager.should_show_continuation_notices():
+            await self._broadcast_conversation_events(session_id=session_id, events=events)
 
     async def cancel_run(self, run_id: str) -> Run:
         cancel_event = self._cancel_events.get(run_id)

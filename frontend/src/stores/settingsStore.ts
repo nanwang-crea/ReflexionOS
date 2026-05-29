@@ -9,10 +9,13 @@ interface SettingsState {
   defaultModelId: string | null
   configured: boolean
   loaded: boolean
+  showContinuationNotices: boolean
+  uiSettingsLoaded: boolean
   setLLMState: (payload: {
     providers: ProviderInstance[]
     selection: DefaultLLMSelection
   }) => void
+  setUISetting: (payload: { showContinuationNotices: boolean }) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -22,6 +25,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   defaultModelId: null,
   configured: false,
   loaded: false,
+  showContinuationNotices: false,
+  uiSettingsLoaded: false,
 
   setLLMState: ({ providers, selection }) => set({
     providers,
@@ -30,5 +35,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     defaultModelId: selection.model_id,
     configured: selection.configured,
     loaded: true,
+  }),
+
+  setUISetting: ({ showContinuationNotices }) => set({
+    showContinuationNotices,
+    uiSettingsLoaded: true,
   }),
 }))

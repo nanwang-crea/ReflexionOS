@@ -53,3 +53,12 @@ export const llmApi = {
 export const skillApi = {
   list: () => apiClient.get('/api/skills'),
 }
+
+interface UISettingsResponse {
+  show_continuation_notices: boolean
+}
+
+export const uiSettingsApi = {
+  get: () => apiClient.get<UISettingsResponse>('/api/ui-settings'),
+  update: (data: UISettingsResponse) => apiClient.put<UISettingsResponse>('/api/ui-settings', data),
+}

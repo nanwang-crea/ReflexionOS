@@ -5,6 +5,7 @@ import { SlideIn } from '@/components/animations/SlideIn'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
+import { useSettingsStore } from '@/stores/settingsStore'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { Project } from '@/types/project'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
@@ -86,8 +87,19 @@ export function WorkspaceTranscript({
 }: WorkspaceTranscriptProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
-  const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
-  const hasVisibleStreamingMessage = messages.some((message) => {
+  const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
+  const filteredMessages = useMemo(() => {
+    if (showContinuationNotices) return messages
+    return messages.filter((message) => {
+      if (message.messageType === 'system_notice') {
+        const kind = message.payloadJson?.kind
+        if (kind === 'continuation_artifact') return false
+      }
+      return true
+    })
+  }, [messages, showContinuationNotices])
+  const transcriptItems = useMemo(() => buildTranscriptItems(filteredMessages), [filteredMessages])
+  const hasVisibleStreamingMessage = filteredMessages.some((message) => {
     if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
       return true
     }
