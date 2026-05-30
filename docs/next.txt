@@ -8,4 +8,33 @@
 
 
 判断当前前后端是否存在双路径的地方，以及除了必要构建之外有没有什么脏代码，冗余的地方，为未来预留的不算
+
 现在开始需要改一下审批了，我觉得当前的审批很呆板，难道不能像codex的一样
+
+
+
+1. 并行工具执行 — 最大收益
+# rapid_loop.py _handle_tool_execution
+# 改为 asyncio.gather 并行执行多个 tool_call
+tasks = [self.tool_executor.execute(tc, context, rt.step_num + i) 
+         for i, tc in enumerate(rt.response.tool_calls)]
+steps = await asyncio.gather(*tasks)
+但需要注意：写入类工具之间可能有依赖，需要按 effect_category 分组——只读工具并行，写/执行工具串行。
+2. 用 ripgrep 替代 os.walk — 搜索提速 10-50x
+file_tool._search_in_directory 当前是 Python 层面遍历 + 逐文件读。替换为：
+result = await asyncio.create_subprocess_exec(
+    "rg", "--json", "-n", query, dir_path,
+    stdout=asyncio.subprocess.PIPE,
+)
+同理，file_tool._list_directory 可加一个 glob action 支持模式匹配。
+3. 文件树缓存 + 增量更新
+_build_tree + _get_git_status_map 每次全量重建。可：
+- 首次构建后缓存结果
+- 用 watchdog 监听文件变更，增量更新
+- git status 合并为一条命令：git status --porcelain
+4. 文件内容缓存
+FileTool._read_file 和 FileContentService.get_file_content 每次走磁盘。加 LRU 缓存 + mtime 校验：
+@lru_cache(maxsize=128)
+def _cached_read(self, path: str, mtime: float) -> str: ...
+5. Grep / Glob 独立工具
+让 LLM 有 grep 和 glob 两个快速搜索工具，不需要先 list 再 read 再 search。这是 opencode 的做法——Grep/Glob 比 FileTool.search 快得多。
