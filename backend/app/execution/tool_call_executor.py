@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 READ_ONLY_TOOL_NAMES = frozenset({"grep", "glob", "session_recall"})
 READ_ONLY_FILE_ACTIONS = frozenset({"read", "search", "list"})
+MAX_READ_ONLY_CALLS_PER_BATCH = 4
 
 
 class ToolCallExecutor:
@@ -37,6 +38,27 @@ class ToolCallExecutor:
             action = tool_call.arguments.get("action", "")
             return action in ("get", "list", "search")
         return False
+
+    def prepare_read_only_batch(self, tool_calls: list[LLMToolCall]) -> list[LLMToolCall]:
+        deduped: list[LLMToolCall] = []
+        seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
+
+        for tool_call in tool_calls:
+            signature = self._read_only_signature(tool_call)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            deduped.append(tool_call)
+            if len(deduped) >= MAX_READ_ONLY_CALLS_PER_BATCH:
+                break
+
+        return deduped
+
+    def _read_only_signature(self, tool_call: LLMToolCall) -> tuple[str, tuple[tuple[str, str], ...]]:
+        normalized_args = tuple(
+            sorted((str(key), repr(value)) for key, value in tool_call.arguments.items())
+        )
+        return tool_call.name, normalized_args
 
     async def execute(
         self,

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 
 const {
@@ -171,6 +171,10 @@ describe('useConversationRuntime', () => {
     wsDenyToolMock.mockImplementation(() => {})
   })
 
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('loads snapshot, connects websocket, sends sync, and routes durable/live conversation updates into the store', async () => {
     const snapshot = buildSnapshot()
     getConversationMock.mockResolvedValue({ data: snapshot })
@@ -220,6 +224,8 @@ describe('useConversationRuntime', () => {
       stream_state: 'streaming',
     })
 
+    await new Promise((resolve) => setTimeout(resolve, 60))
+
     expect(applyLiveEventMock).toHaveBeenCalledWith('session-1', {
       sessionId: 'session-1',
       turnId: 'turn-1',
@@ -248,6 +254,56 @@ describe('useConversationRuntime', () => {
       messageId: 'msg-2',
       messageType: 'assistant_message',
       contentText: '继续输出中',
+      streamState: 'streaming',
+    })
+  })
+
+  it('throttles rapid live conversation updates and flushes the latest message', async () => {
+    vi.useFakeTimers()
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+
+    const { useConversationRuntime } = await import('./useConversationRuntime')
+    useConversationRuntime('session-1')
+
+    await vi.waitFor(() => {
+      expect(wsHandlers.has('conversation:live_event')).toBe(true)
+    })
+    applyLiveEventMock.mockClear()
+
+    wsHandlers.get('conversation:live_event')?.({
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      run_id: 'run-1',
+      message_id: 'msg-2',
+      message_type: 'assistant_message',
+      delta: 'A',
+      content_text: 'A',
+      stream_state: 'streaming',
+    })
+    wsHandlers.get('conversation:live_event')?.({
+      session_id: 'session-1',
+      turn_id: 'turn-1',
+      run_id: 'run-1',
+      message_id: 'msg-2',
+      message_type: 'assistant_message',
+      delta: 'B',
+      content_text: 'AB',
+      stream_state: 'streaming',
+    })
+
+    expect(applyLiveEventMock).not.toHaveBeenCalled()
+
+    vi.advanceTimersByTime(50)
+
+    expect(applyLiveEventMock).toHaveBeenCalledTimes(1)
+    expect(applyLiveEventMock).toHaveBeenCalledWith('session-1', {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      messageType: 'assistant_message',
+      delta: 'B',
+      contentText: 'AB',
       streamState: 'streaming',
     })
   })

@@ -223,6 +223,24 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
       const run = currentState.runsById[event.runId]
       if (run) {
         if (event.eventType === 'run.completed') {
+          const finishedAt = (event.payloadJson.finished_at as string) ?? null
+          const messagesById = Object.fromEntries(
+            Object.entries(currentState.messagesById).map(([messageId, message]) => {
+              if (
+                message.runId === event.runId &&
+                (message.streamState === 'idle' || message.streamState === 'streaming')
+              ) {
+                return [messageId, {
+                  ...message,
+                  streamState: 'completed',
+                  completedAt: finishedAt ?? message.completedAt,
+                  updatedAt: event.createdAt,
+                }]
+              }
+              return [messageId, message]
+            })
+          )
+
           return {
             ...currentState,
             lastEventSeq: event.seq,
@@ -231,9 +249,10 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
               [event.runId]: {
                 ...run,
                 status: 'completed',
-                finishedAt: (event.payloadJson.finished_at as string) ?? null,
+                finishedAt,
               },
             },
+            messagesById,
           }
         }
         if (event.eventType === 'run.failed' || event.eventType === 'run.cancelled') {

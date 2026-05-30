@@ -350,6 +350,8 @@ class AgentService:
         async def event_callback(event_type: str, data: dict):
             if event_type == "plan:updated":
                 await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
+            elif event_type.startswith("metrics:"):
+                await self.conversation_broadcaster.send_event(session_id, event_type, data)
             else:
                 await persist_and_broadcast(event_type, data)
 

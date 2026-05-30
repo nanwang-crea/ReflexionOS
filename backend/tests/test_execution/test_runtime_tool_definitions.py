@@ -19,6 +19,42 @@ class MockTool(BaseTool):
         return ToolResult(success=True, output="ok")
 
 
+class GrepLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "grep"
+
+
+class GlobLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "glob"
+
+
+class FileLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "file"
+
+
+class EditLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "edit"
+
+
+class ShellLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "shell"
+
+
+class MemoryLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "memory"
+
+
 def build_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(MockTool())
@@ -59,3 +95,39 @@ def test_normal_definitions_expose_plan_progress_without_create_when_plan_exists
     assert "block" in parameters_text
     assert "adjust" in parameters_text
     assert "create" not in parameters_text
+
+
+def test_context_definitions_start_with_exploration_tools_only():
+    registry = ToolRegistry()
+    registry.register(FileLikeTool())
+    registry.register(GrepLikeTool())
+    registry.register(GlobLikeTool())
+    registry.register(EditLikeTool())
+    registry.register(ShellLikeTool())
+    registry.register(MemoryLikeTool())
+    context = LoopContext(task="先看看项目")
+
+    definitions = RuntimeToolDefinitions(registry).for_context(context)
+
+    assert [definition.name for definition in definitions] == ["file", "grep", "glob", "memory"]
+
+
+def test_context_definitions_expose_mutating_tools_after_exploration_started():
+    registry = ToolRegistry()
+    registry.register(FileLikeTool())
+    registry.register(GrepLikeTool())
+    registry.register(GlobLikeTool())
+    registry.register(EditLikeTool())
+    registry.register(ShellLikeTool())
+    context = LoopContext(task="修复问题")
+    context.add_step(type("Step", (), {"step_number": 1, "tool": "grep"})())
+
+    definitions = RuntimeToolDefinitions(registry).for_context(context)
+
+    assert [definition.name for definition in definitions] == [
+        "file",
+        "grep",
+        "glob",
+        "edit",
+        "shell",
+    ]

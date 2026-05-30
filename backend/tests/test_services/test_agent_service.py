@@ -695,6 +695,10 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
         async def run(self, **kwargs):
             await self.event_callback("llm:content", {"content": "hello"})
+            await self.event_callback(
+                "metrics:llm_call",
+                {"run_id": "run-1", "duration": 0.12, "prompt_tokens": 123},
+            )
             await self.event_callback("run:complete", {})
             return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
 
@@ -718,8 +722,9 @@ async def test_run_turn_broadcasts_live_chunks_and_only_persists_terminal_events
 
     assert call_order[0] == ("persist", "llm:content")
     assert call_order[1] == ("broadcast", "conversation:live_event", "msg-1")
-    assert call_order[2] == ("persist", "run:complete")
-    assert call_order[3] == ("broadcast", "conversation:event", "evt-1")
+    assert call_order[2] == ("broadcast", "metrics:llm_call", None)
+    assert call_order[3] == ("persist", "run:complete")
+    assert call_order[4] == ("broadcast", "conversation:event", "evt-1")
     assert service.get_live_state("session-1") is None
 
 

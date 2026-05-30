@@ -23,6 +23,7 @@ from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
 from app.llm.base import LLMResponse, UniversalLLMInterface
 from app.llm.retry import LLMRetryExhaustedError
+from app.llm.token_counter import count_messages_tokens
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class RapidExecutionLoop:
     MAX_ERROR_RETRIES = 2  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 3  # 空响应最大重试
+    MAX_READ_ONLY_PASSES = 2  # 1 次广泛探索 + 1 次定向复核
 
     def __init__(
         self,
@@ -160,6 +162,10 @@ class RapidExecutionLoop:
             else:
                 write_calls.append(tool_call)
 
+        read_only_calls = self.tool_executor.prepare_read_only_batch(read_only_calls)
+        if read_only_calls:
+            rt.read_only_passes_used += 1
+
         # Execute read-only tools in parallel
         if read_only_calls:
             start_step = rt.step_num + 1
@@ -194,9 +200,17 @@ class RapidExecutionLoop:
                     )
                     if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
                         error_recovery_needed = True
-                else:
-                    rt.consecutive_failures = 0
-                    rt.has_executed_tools = True
+            else:
+                rt.consecutive_failures = 0
+                rt.has_executed_tools = True
+
+        if (
+            read_only_calls
+            and not write_calls
+            and rt.read_only_passes_used >= self.MAX_READ_ONLY_PASSES
+        ):
+            context.metadata["investigation_budget_exhausted"] = True
+            return LoopPhase.FINAL_SUMMARY
 
         # Execute write tools serially
         for tool_call in write_calls:
@@ -526,6 +540,8 @@ class RapidExecutionLoop:
         for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
             tools = self.tool_definitions.for_context(context)
             messages = self.message_builder.build(context, tools)
+            call_started_at = time.perf_counter()
+            first_chunk_latency: float | None = None
 
             content_parts = []
             reasoning_parts = []
@@ -533,6 +549,8 @@ class RapidExecutionLoop:
             finish_reason = "stop"
 
             async for chunk in self.llm.stream_complete(messages, tools):
+                if first_chunk_latency is None:
+                    first_chunk_latency = time.perf_counter() - call_started_at
                 if chunk.type == "content" and chunk.content:
                     content_parts.append(chunk.content)
                 elif chunk.type == "reasoning" and chunk.reasoning_content:
@@ -545,6 +563,19 @@ class RapidExecutionLoop:
                     finish_reason = chunk.finish_reason or "stop"
                     break
                 elif chunk.type == "error":
+                    await self._emit_llm_metrics(
+                        context=context,
+                        messages=messages,
+                        tools=tools,
+                        attempt=attempt + 1,
+                        call_started_at=call_started_at,
+                        first_chunk_latency=first_chunk_latency,
+                        finish_reason="error",
+                        content_chars=sum(len(part) for part in content_parts),
+                        reasoning_chars=sum(len(part) for part in reasoning_parts),
+                        tool_call_count=len(tool_calls),
+                        error=chunk.error or "LLM 流式调用失败",
+                    )
                     if attempt < self.MAX_EMPTY_RESPONSE_RETRIES - 1:
                         logger.warning(
                             "LLM 流式错误 (attempt %d/%d): %s, 重试中",
@@ -561,6 +592,18 @@ class RapidExecutionLoop:
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
                 model=self.llm.get_model_name(),
+            )
+            await self._emit_llm_metrics(
+                context=context,
+                messages=messages,
+                tools=tools,
+                attempt=attempt + 1,
+                call_started_at=call_started_at,
+                first_chunk_latency=first_chunk_latency,
+                finish_reason=finish_reason,
+                content_chars=len(response.content or ""),
+                reasoning_chars=len(response.reasoning_content or ""),
+                tool_call_count=len(response.tool_calls),
             )
 
             if response.has_content or response.has_tool_calls:
@@ -615,6 +658,45 @@ class RapidExecutionLoop:
             self.llm.get_model_name(),
         )
         return response
+
+    async def _emit_llm_metrics(
+        self,
+        *,
+        context: LoopContext,
+        messages: list,
+        tools: list,
+        attempt: int,
+        call_started_at: float,
+        first_chunk_latency: float | None,
+        finish_reason: str,
+        content_chars: int,
+        reasoning_chars: int,
+        tool_call_count: int,
+        error: str | None = None,
+    ) -> None:
+        message_dicts = [
+            message.model_dump(exclude_none=True)
+            if hasattr(message, "model_dump")
+            else dict(message)
+            for message in messages
+        ]
+        payload = {
+            "run_id": context.run_id,
+            "model": self.llm.get_model_name(),
+            "attempt": attempt,
+            "duration": time.perf_counter() - call_started_at,
+            "first_chunk_latency": first_chunk_latency,
+            "prompt_tokens": count_messages_tokens(message_dicts, self.llm.get_model_name()),
+            "message_count": len(messages),
+            "tool_count": len(tools or []),
+            "finish_reason": finish_reason,
+            "content_chars": content_chars,
+            "reasoning_chars": reasoning_chars,
+            "tool_call_count": tool_call_count,
+        }
+        if error:
+            payload["error"] = error
+        await self._emit("metrics:llm_call", payload)
 
     async def _compact_context(self, context: LoopContext) -> None:
         """

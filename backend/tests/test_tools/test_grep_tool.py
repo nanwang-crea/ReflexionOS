@@ -77,3 +77,19 @@ class TestGrepTool:
 
         assert result.success is False
         assert "不在允许范围内" in result.error
+
+    @pytest.mark.asyncio
+    async def test_grep_limits_results_globally_to_100_matches(self, grep_tool, temp_dir):
+        for index in range(120):
+            (Path(temp_dir) / f"file_{index}.py").write_text(f"target_{index} = True\n")
+
+        result = await grep_tool.execute({"pattern": "target_", "path": temp_dir})
+
+        assert result.success is True
+        assert result.data["count"] == 100
+        assert len(result.data["matches"]) == 100
+        output_matches = [
+            line for line in result.output.splitlines()
+            if ":1:" in line and "target_" in line
+        ]
+        assert len(output_matches) == 100

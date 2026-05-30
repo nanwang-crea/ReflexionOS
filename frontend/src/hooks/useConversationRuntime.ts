@@ -27,6 +27,7 @@ const INCREMENTAL_EVENT_TYPES = new Set([
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
 const RECONNECT_MAX_ATTEMPTS = 10
+const LIVE_EVENT_FLUSH_INTERVAL_MS = 50
 
 export function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
@@ -109,12 +110,47 @@ export function useConversationRuntime(
   const reconnectAttemptRef = useRef(0)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scheduleReconnectRef = useRef<(sessionId: string) => void>(() => {})
+  const pendingLiveEventRef = useRef<{
+    sessionId: string
+    liveMessage: ConversationLiveMessage
+  } | null>(null)
+  const liveEventFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialConnectionStatus)
   const [isCancelling, setIsCancelling] = useState(false)
   const [retryInfo, setRetryInfo] = useState<LlmRetryDto | null>(null)
 
+  const flushPendingLiveEvent = useCallback(() => {
+    if (liveEventFlushTimerRef.current) {
+      clearTimeout(liveEventFlushTimerRef.current)
+      liveEventFlushTimerRef.current = null
+    }
+
+    const pending = pendingLiveEventRef.current
+    if (!pending) {
+      return
+    }
+
+    pendingLiveEventRef.current = null
+    useConversationStore.getState().applyLiveEvent(pending.sessionId, pending.liveMessage)
+  }, [])
+
+  const scheduleLiveEventFlush = useCallback((
+    sessionId: string,
+    liveMessage: ConversationLiveMessage
+  ) => {
+    pendingLiveEventRef.current = { sessionId, liveMessage }
+    if (liveEventFlushTimerRef.current) {
+      return
+    }
+
+    liveEventFlushTimerRef.current = setTimeout(() => {
+      flushPendingLiveEvent()
+    }, LIVE_EVENT_FLUSH_INTERVAL_MS)
+  }, [flushPendingLiveEvent])
+
   const closeWebSocket = useCallback(() => {
+    flushPendingLiveEvent()
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current)
       reconnectTimerRef.current = null
@@ -200,10 +236,11 @@ export function useConversationRuntime(
       }
     })
     ws.on('conversation:live_event', (rawLiveEvent) => {
-      useConversationStore.getState().applyLiveEvent(sessionId, toConversationLiveMessage(rawLiveEvent))
+      scheduleLiveEventFlush(sessionId, toConversationLiveMessage(rawLiveEvent))
       setRetryInfo(null)
     })
     ws.on('conversation:live_state', (rawLiveState) => {
+      flushPendingLiveEvent()
       useConversationStore.getState().setLiveState(sessionId, toConversationLiveMessage(rawLiveState))
       setRetryInfo(null)
     })
@@ -242,7 +279,7 @@ export function useConversationRuntime(
     wsRef.current = ws
     connectedSessionIdRef.current = sessionId
     reconnectAttemptRef.current = 0
-  }, [closeWebSocket, queueSnapshotRefresh])
+  }, [closeWebSocket, flushPendingLiveEvent, queueSnapshotRefresh, scheduleLiveEventFlush])
 
   const scheduleReconnect = useCallback((sessionId: string) => {
     const attempt = reconnectAttemptRef.current + 1
@@ -367,13 +404,14 @@ export function useConversationRuntime(
 
   useEffect(() => {
     return () => {
+      flushPendingLiveEvent()
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
       closeWebSocket()
     }
-  }, [closeWebSocket])
+  }, [closeWebSocket, flushPendingLiveEvent])
 
   return {
     connectionStatus,

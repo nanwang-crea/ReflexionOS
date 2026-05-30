@@ -38,6 +38,32 @@ class MockTool(BaseTool):
         return ToolResult(success=True, output="mock output")
 
 
+class ReadOnlyFileTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "file"
+
+    @property
+    def description(self) -> str:
+        return "Read-only file tool for testing"
+
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {"type": "string"},
+                    "path": {"type": "string"},
+                },
+            },
+        }
+
+    async def execute(self, args):
+        return ToolResult(success=True, output=f"read {args.get('path', '')}".strip())
+
+
 class ApprovalTool(BaseTool):
     @property
     def name(self) -> str:
@@ -333,6 +359,74 @@ class TestRapidExecutionLoop:
         assert len(result.steps) == 5
 
     @pytest.mark.asyncio
+    async def test_read_only_batch_is_deduplicated_and_capped(self, mock_llm):
+        registry = ToolRegistry()
+        registry.register(ReadOnlyFileTool())
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    tool_calls=[
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "a.ts"}),
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "a.ts"}),
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "b.ts"}),
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "c.ts"}),
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "d.ts"}),
+                        LLMToolCall(name="file", arguments={"action": "read", "path": "e.ts"}),
+                    ],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="检查完成"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("检查多个文件")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 4
+        assert [step.args["path"] for step in result.steps] == ["a.ts", "b.ts", "c.ts", "d.ts"]
+
+    @pytest.mark.asyncio
+    async def test_investigation_budget_forces_final_summary_after_two_read_only_passes(
+        self,
+        mock_llm,
+    ):
+        registry = ToolRegistry()
+        registry.register(ReadOnlyFileTool())
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if tools is not None:
+                async for chunk in self._stream_response(
+                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": f"{call_count[0]}.ts"})],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="基于现有证据给出结论。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("重新检查并给出结论")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 2
+        assert result.result == "基于现有证据给出结论。"
+
+    @pytest.mark.asyncio
     async def test_event_callback_emits_tool_start_and_result(self, mock_llm, tool_registry):
         events = []
 
@@ -366,6 +460,38 @@ class TestRapidExecutionLoop:
         assert "tool:start" in event_types
         assert "tool:result" in event_types
         assert "run:complete" in event_types
+
+    @pytest.mark.asyncio
+    async def test_llm_call_emits_performance_metrics(self, mock_llm, tool_registry):
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback,
+        )
+
+        async def mock_stream(messages, tools=None):
+            async for chunk in self._stream_response(content="完成"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        await execution_loop.run("检查性能指标")
+
+        metrics_event = next(event for event in events if event["type"] == "metrics:llm_call")
+        assert metrics_event["data"]["model"] == "gpt-4"
+        assert metrics_event["data"]["attempt"] == 1
+        assert metrics_event["data"]["prompt_tokens"] > 0
+        assert metrics_event["data"]["message_count"] > 0
+        assert metrics_event["data"]["tool_count"] == 1
+        assert metrics_event["data"]["duration"] >= 0
+        assert metrics_event["data"]["first_chunk_latency"] >= 0
+        assert metrics_event["data"]["content_chars"] == 2
 
     @pytest.mark.asyncio
     async def test_tool_approval_required_pauses_run_without_error_recovery(self, mock_llm):

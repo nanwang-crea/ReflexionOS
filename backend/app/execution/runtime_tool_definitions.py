@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 class RuntimeToolDefinitions:
     """Select the tool schemas exposed to the model for each execution phase."""
 
+    EXPLORATION_TOOL_NAMES = {"file", "grep", "glob", "memory", "session_recall"}
+    TOOL_ORDER = ["file", "grep", "glob", "session_recall", "memory", "edit", "shell"]
+
     def __init__(self, tool_registry: ToolRegistry):
         self.tool_registry = tool_registry
 
@@ -26,7 +29,10 @@ class RuntimeToolDefinitions:
         from app.tools.plan_tool import PlanTool
 
         definitions: list[LLMToolDefinition] = []
-        for name in self.tool_registry.list_tools():
+        allowed_tool_names = self._allowed_tool_names(context)
+        for name in self._ordered_tool_names():
+            if name not in allowed_tool_names:
+                continue
             tool = self.tool_registry.get(name)
             if tool is None:
                 continue
@@ -38,6 +44,19 @@ class RuntimeToolDefinitions:
                 continue
             definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
         return definitions
+
+    def _allowed_tool_names(self, context: LoopContext) -> set[str]:
+        if context.steps:
+            return set(self.tool_registry.list_tools())
+        available = set(self.tool_registry.list_tools())
+        exploration_tools = available.intersection(self.EXPLORATION_TOOL_NAMES)
+        return exploration_tools or available
+
+    def _ordered_tool_names(self) -> list[str]:
+        names = self.tool_registry.list_tools()
+        known = [name for name in self.TOOL_ORDER if name in names]
+        unknown = [name for name in names if name not in self.TOOL_ORDER]
+        return known + unknown
 
     def get_plan_tool(self) -> PlanTool | None:
         from app.tools.plan_tool import PlanTool

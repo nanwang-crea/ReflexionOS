@@ -56,6 +56,10 @@ $tool_list
 - Do not continue exploring once the required change is completed.
 - Avoid repeated tool calls that do not produce new information.
 - After 2 failed attempts on the same action, explain the issue and ask the user instead of retrying indefinitely.
+- Never restart investigation from scratch unless a concrete prior finding was disproven.
+- At most one broad exploration pass and one targeted follow-up pass per task.
+- If the last tool batch produced no new facts, stop exploring and answer or ask for clarification.
+- Before any re-check, state which exact prior claim is being verified.
 
 ## Error handling:
 - If a tool call fails, first diagnose WHY it failed before retrying.

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 _HAS_RG = shutil.which("rg") is not None
 _HAS_GREP = shutil.which("grep") is not None
 
-MAX_MATCHES = 50
+MAX_MATCHES = 100
 CONTEXT_LINES = 2
 
 
@@ -123,11 +123,12 @@ class GrepTool(BaseTool):
             )
 
         matches = self._parse_rg_output(output, path)
+        matches = matches[:MAX_MATCHES]
         display = self._format_matches(matches)
         return ToolResult(
             success=True,
             output=display,
-            data={"matches": matches[:MAX_MATCHES], "count": len(matches)},
+            data={"matches": matches, "count": len(matches)},
         )
 
     async def _search_grep(self, path: str, pattern: str, include: str | None) -> ToolResult:
@@ -159,11 +160,12 @@ class GrepTool(BaseTool):
             )
 
         matches = self._parse_grep_output(output, path)
+        matches = matches[:MAX_MATCHES]
         display = self._format_matches(matches)
         return ToolResult(
             success=True,
             output=display,
-            data={"matches": matches[:MAX_MATCHES], "count": len(matches)},
+            data={"matches": matches, "count": len(matches)},
         )
 
     async def _search_python(self, path: str, pattern: str, include: str | None) -> ToolResult:
@@ -212,7 +214,7 @@ class GrepTool(BaseTool):
         return ToolResult(
             success=True,
             output=display,
-            data={"matches": matches[:MAX_MATCHES], "count": len(matches)},
+            data={"matches": matches[:MAX_MATCHES], "count": min(len(matches), MAX_MATCHES)},
         )
 
     def _parse_rg_output(self, output: str, base_path: str) -> list[dict]:
@@ -221,9 +223,14 @@ class GrepTool(BaseTool):
             if ":" not in line:
                 continue
             parts = line.split(":", 2)
-            if len(parts) < 3:
+            if os.path.isfile(base_path):
+                file_path = base_path
+                line_num = parts[0]
+                content = line.split(":", 1)[1]
+            elif len(parts) >= 3:
+                file_path, line_num, content = parts[0], parts[1], parts[2]
+            else:
                 continue
-            file_path, line_num, content = parts[0], parts[1], parts[2]
             try:
                 line_num = int(line_num)
             except ValueError:

@@ -203,6 +203,50 @@ describe('conversationReducer', () => {
     expect(next.lastEventSeq).toBe(5)
   })
 
+  it('completes any non-terminal messages for a run when run.completed arrives', () => {
+    const base = applyConversationSnapshot(undefined, {
+      ...buildSnapshot(),
+      messages: [
+        ...buildSnapshot().messages,
+        {
+          id: 'msg-tool-1',
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          runId: 'run-1',
+          turnMessageIndex: 3,
+          role: 'tool',
+          messageType: 'tool_trace',
+          streamState: 'idle',
+          displayMode: 'default',
+          contentText: '',
+          payloadJson: {
+            tool_name: 'file',
+            arguments: { action: 'read', path: '/tmp/reflexion/src/app.ts' },
+          },
+          createdAt: '2026-04-24T10:00:02Z',
+          updatedAt: '2026-04-24T10:00:02Z',
+          completedAt: null,
+        },
+      ],
+    })
+
+    const next = applyConversationEvent(base, {
+      id: 'evt-6',
+      sessionId: 'session-1',
+      seq: 6,
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: null,
+      eventType: 'run.completed',
+      payloadJson: { finished_at: '2026-04-24T10:00:05Z' },
+      createdAt: '2026-04-24T10:00:05Z',
+    })
+
+    expect(next.runsById['run-1'].status).toBe('completed')
+    expect(next.messagesById['msg-tool-1'].streamState).toBe('completed')
+    expect(next.messagesById['msg-tool-1'].completedAt).toBe('2026-04-24T10:00:05Z')
+  })
+
   it('preserves a live streaming assistant message across snapshot refresh while the run is still active', () => {
     const base = applyConversationSnapshot(undefined, buildSnapshot())
     const liveState = applyConversationLiveState(base, {

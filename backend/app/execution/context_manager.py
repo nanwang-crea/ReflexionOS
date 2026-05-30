@@ -33,6 +33,7 @@ class LoopContext:
         self.compacted_summary: str | None = None
         # 消息分组计数，assistant+tool_calls 开启一组，用于判断窗口溢出
         self.group_count: int = 0
+        self.metadata: dict[str, Any] = {}
 
     @classmethod
     def from_run_input(
