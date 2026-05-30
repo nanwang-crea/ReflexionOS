@@ -669,7 +669,7 @@ class RapidExecutionLoop:
 
             context.compacted_summary = content
 
-            recent_groups = grouped[-self.max_context_groups :]
+            recent_groups = grouped[-self.MAX_CONTEXT_GROUPS :]
             context.messages = [msg for group in recent_groups for msg in group]
             context.recalculate_tokens()
 

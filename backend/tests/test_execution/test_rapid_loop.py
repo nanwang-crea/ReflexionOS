@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.execution.models import LoopResult, LoopStatus, StepStatus
+from app.execution.context_manager import LoopContext
 from app.execution.rapid_loop import RapidExecutionLoop
-from app.llm.base import LLMToolCall, StreamChunk
+from app.llm.base import LLMResponse, LLMToolCall, StreamChunk
 from app.llm.retry import LLMRetryExhaustedError
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.plan_tool import PlanTool
@@ -222,6 +223,24 @@ class TestRapidExecutionLoop:
         tool_message = next(msg for msg in second_messages if msg.role == "tool")
         assert tool_message.content == "mock output"
         assert tool_message.tool_call_id == tool_call.id
+
+    @pytest.mark.asyncio
+    async def test_tier3_compaction_keeps_recent_context_groups(self, execution_loop, mock_llm):
+        context = LoopContext(task="summarize old context")
+        for i in range(12):
+            context.add_message("user", f"message {i}")
+
+        async def mock_complete(messages, tools=None):
+            return LLMResponse(content="summary [session_recall can retrieve]")
+
+        mock_llm.complete = mock_complete
+
+        await execution_loop._compact_tier3(context)
+
+        assert context.compacted_summary == "summary [session_recall can retrieve]"
+        assert [msg["content"] for msg in context.messages] == [
+            f"message {i}" for i in range(2, 12)
+        ]
 
     @pytest.mark.asyncio
     async def test_final_response_fallback_when_no_content_after_tools(
