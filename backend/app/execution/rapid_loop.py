@@ -528,12 +528,15 @@ class RapidExecutionLoop:
             messages = self.message_builder.build(context, tools)
 
             content_parts = []
+            reasoning_parts = []
             tool_calls = []
             finish_reason = "stop"
 
             async for chunk in self.llm.stream_complete(messages, tools):
                 if chunk.type == "content" and chunk.content:
                     content_parts.append(chunk.content)
+                elif chunk.type == "reasoning" and chunk.reasoning_content:
+                    reasoning_parts.append(chunk.reasoning_content)
                 elif chunk.type == "tool_calls":
                     tool_calls = chunk.tool_calls
                     finish_reason = chunk.finish_reason or "tool_calls"
@@ -554,12 +557,15 @@ class RapidExecutionLoop:
 
             response = LLMResponse(
                 content="".join(content_parts),
+                reasoning_content="".join(reasoning_parts) or None,
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
                 model=self.llm.get_model_name(),
             )
 
             if response.has_content or response.has_tool_calls:
+                for part in reasoning_parts:
+                    await self._emit("llm:reasoning", {"reasoning_content": part})
                 for part in content_parts:
                     await self._emit("llm:content", {"content": part})
 

@@ -53,6 +53,7 @@ class LLMResponse(BaseModel):
     """统一的 LLM 响应结构"""
 
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     finish_reason: str = "stop"  # stop, tool_calls, length
     model: str = ""
@@ -70,8 +71,9 @@ class LLMResponse(BaseModel):
 class StreamChunk(BaseModel):
     """流式输出块"""
 
-    type: str  # content, tool_calls, done, error
+    type: str  # content, reasoning, tool_calls, done, error
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     finish_reason: str | None = None
     error: str | None = None

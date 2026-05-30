@@ -1,0 +1,65 @@
+<h2>模型处理态与思考内容呈现</h2>
+<p class="subtitle">两种方向都能做，但信息密度和打扰程度不同。点选你更接近想要的方向。</p>
+
+<div class="split">
+  <div class="mockup" data-choice="a" onclick="toggleSelect(this)">
+    <div class="mockup-header">A. 输入框内处理态为主</div>
+    <div class="mockup-body">
+      <div style="display:grid;gap:18px;background:#f8fafc;padding:20px;border-radius:14px">
+        <div style="justify-self:end;max-width:70%;background:#eef2f7;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.6">
+          帮我检查一下执行循环的上下文压缩问题
+        </div>
+        <div style="height:76px"></div>
+        <div style="border:1px solid #d8dee8;border-radius:16px;background:white;overflow:hidden">
+          <div style="padding:12px 14px;font-size:13px;color:#6b7280;display:flex;align-items:center;gap:8px">
+            <span style="width:8px;height:8px;border-radius:999px;background:#2563eb;box-shadow:16px 0 0 #93c5fd,32px 0 0 #dbeafe"></span>
+            <span style="margin-left:36px">正在读取上下文并规划下一步...</span>
+          </div>
+          <div style="border-top:1px solid #edf0f5;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;color:#8a94a6;font-size:12px">
+            <span>gpt-5-codex</span>
+            <button class="mock-button" style="padding:6px 10px;background:#f1f5f9;color:#475569">停止</button>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:16px">
+        <div class="pros"><h4>优点</h4><ul><li>界面更安静</li><li>处理状态靠近输入区，类似 opencode</li></ul></div>
+        <div class="cons"><h4>代价</h4><ul><li>历史中不保留阶段信息</li><li>长任务可追踪性弱一些</li></ul></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mockup" data-choice="b" onclick="toggleSelect(this)">
+    <div class="mockup-header">B. 输入框处理态 + Transcript 轻量思考轨迹</div>
+    <div class="mockup-body">
+      <div style="display:grid;gap:14px;background:#f8fafc;padding:20px;border-radius:14px">
+        <div style="justify-self:end;max-width:70%;background:#eef2f7;border-radius:14px;padding:12px 14px;font-size:13px;line-height:1.6">
+          帮我检查一下执行循环的上下文压缩问题
+        </div>
+        <div style="max-width:78%;border-left:2px solid #cbd5e1;padding-left:12px;color:#64748b;font-size:12px;line-height:1.8">
+          <div>思考中 · 定位压缩触发路径</div>
+          <div>计划 · 先复现，再做最小修复</div>
+          <div>执行 · 运行相关测试</div>
+        </div>
+        <div style="border:1px solid #d8dee8;border-radius:16px;background:white;overflow:hidden">
+          <div style="padding:12px 14px;font-size:13px;color:#6b7280;display:flex;align-items:center;gap:8px">
+            <span style="width:8px;height:8px;border-radius:999px;background:#2563eb;box-shadow:16px 0 0 #93c5fd,32px 0 0 #dbeafe"></span>
+            <span style="margin-left:36px">正在执行测试...</span>
+          </div>
+          <div style="border-top:1px solid #edf0f5;padding:9px 12px;display:flex;justify-content:space-between;align-items:center;color:#8a94a6;font-size:12px">
+            <span>gpt-5-codex</span>
+            <button class="mock-button" style="padding:6px 10px;background:#f1f5f9;color:#475569">停止</button>
+          </div>
+        </div>
+      </div>
+      <div class="pros-cons" style="margin-top:16px">
+        <div class="pros"><h4>优点</h4><ul><li>用户知道模型卡在哪一步</li><li>工具调用前的空窗期更少</li></ul></div>
+        <div class="cons"><h4>代价</h4><ul><li>需要后端补充阶段事件</li><li>要避免展示敏感内部推理</li></ul></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>我的初步建议</h3>
+  <p>做 B 的克制版：输入框内显示当前运行状态，Transcript 只显示安全的“阶段摘要/行动状态”，不展示模型原始 chain-of-thought。这样既有 opencode 的即时反馈，也不会把内部推理原文暴露给用户。</p>
+</div>

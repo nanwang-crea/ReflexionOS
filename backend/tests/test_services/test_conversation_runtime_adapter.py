@@ -63,6 +63,32 @@ def test_buffers_llm_content_until_run_completes(tmp_path):
     assert run.status == RunStatus.COMPLETED
 
 
+def test_streams_reasoning_into_live_state_and_persists_on_completion(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:reasoning", {"reasoning_content": "先查看项目结构"})
+    live_event = adapter.build_live_event("llm:reasoning", {"reasoning_content": "，再决定下一步"})
+    completion_events = adapter.handle_event("run:complete", {})
+
+    snapshot = service.get_snapshot("session-1")
+    assistant = next(
+        message
+        for message in snapshot.messages
+        if message.message_type == MessageType.ASSISTANT_MESSAGE
+    )
+
+    assert live_event is not None
+    assert live_event["payload_json"]["reasoning_text"] == "先查看项目结构"
+    assert EventType.MESSAGE_PAYLOAD_UPDATED in [event.event_type for event in completion_events]
+    assert assistant.payload_json["reasoning_text"] == "先查看项目结构"
+
+
 def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(

@@ -111,6 +111,7 @@ export interface ConversationLiveMessage {
   contentText: string
   streamState: ConversationStreamState
   delta?: string
+  payloadJson?: Record<string, unknown>
 }
 
 export interface ConversationSnapshot {

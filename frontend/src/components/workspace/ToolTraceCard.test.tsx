@@ -364,7 +364,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('思考中')
+    expect(html).toContain('等待模型响应')
   })
 
   it('shows reconnect status instead of thinking while an LLM retry is pending', () => {
@@ -405,6 +405,136 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).toContain('2 秒后重试')
     expect(html).not.toContain('思考中')
     expect(html).not.toContain('请求失败')
+  })
+
+  it('renders a lightweight thinking block near assistant content when reasoning text exists', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-assistant',
+            messageType: 'assistant_message',
+            contentText: '最终回答',
+            streamState: 'completed',
+            payloadJson: {
+              reasoning_text: '先检查项目结构',
+            },
+          }),
+        ]}
+        isRunning={false}
+        messagesEndRef={createRef<HTMLDivElement>()}
+      />
+    )
+
+    expect(html).toContain('Thinking')
+    expect(html).toContain('先检查项目结构')
+    expect(html).toContain('aria-expanded="false"')
+  })
+
+  it('keeps the thinking block expanded while reasoning is still streaming', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-assistant',
+            messageType: 'assistant_message',
+            contentText: '',
+            streamState: 'streaming',
+            payloadJson: {
+              reasoning_text: '先检查项目结构\n再看错误点',
+            },
+          }),
+        ]}
+        isRunning
+        messagesEndRef={createRef<HTMLDivElement>()}
+      />
+    )
+
+    expect(html).toContain('Thinking')
+    expect(html).toContain('先检查项目结构')
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).not.toContain('animate-spin')
+  })
+
+  it('shows executing-tool fallback status when tool traces are active without reasoning text', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-tool',
+            messageType: 'tool_trace',
+            streamState: 'idle',
+            payloadJson: {
+              tool_name: 'shell',
+              status: 'running',
+            },
+          }),
+        ]}
+        isRunning
+        runtimeStatus={{ kind: 'executing_tool', label: '正在执行工具' }}
+        messagesEndRef={createRef<HTMLDivElement>()}
+      />
+    )
+
+    expect(html).toContain('正在执行工具')
+    expect(html).toContain('data-running-bars="true"')
+    expect(html).toContain('data-running-bar="1"')
+    expect(html).toContain('data-running-bar="2"')
+    expect(html).toContain('data-running-bar="3"')
   })
 
   it('shows reconnect status while assistant output is already streaming', () => {

@@ -19,4 +19,21 @@ describe('ChatInput', () => {
     expect(html).toContain('请选择供应商')
     expect(html).toContain('请选择模型')
   })
+
+  it('renders a prominent running header with animated bars when runtime status is present', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatInput, {
+        onSend: () => undefined,
+        runtimeStatusLabel: '正在执行工具',
+        isLoading: true,
+        canCancel: true,
+      })
+    )
+
+    expect(html).toContain('data-chat-running="true"')
+    expect(html).toContain('data-chat-running-bar="1"')
+    expect(html).toContain('data-chat-running-bar="2"')
+    expect(html).toContain('data-chat-running-bar="3"')
+    expect(html).toContain('正在执行工具')
+  })
 })

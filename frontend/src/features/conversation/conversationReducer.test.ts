@@ -112,6 +112,25 @@ describe('conversationReducer', () => {
     expect(next.lastEventSeq).toBe(2)
   })
 
+  it('merges live payload updates such as reasoning text into assistant messages', () => {
+    const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+    const next = applyConversationLiveEvent(base, {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      messageType: 'assistant_message',
+      contentText: '正在分析项目结构',
+      streamState: 'streaming',
+      payloadJson: {
+        reasoning_text: '先查看项目结构',
+      },
+    })
+
+    expect(next.messagesById['msg-2'].payloadJson.reasoning_text).toBe('先查看项目结构')
+  })
+
   it('creates an ephemeral assistant message from live state when durable snapshot has none yet', () => {
     const base = applyConversationSnapshot(undefined, buildSnapshot())
     const withoutAssistant = {

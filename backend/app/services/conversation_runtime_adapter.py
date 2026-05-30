@@ -31,6 +31,7 @@ class ConversationRuntimeAdapter:
         self.run_id = run_id
         self.assistant_message_id: str | None = None
         self._assistant_content = ""
+        self._assistant_reasoning = ""
         self.tool_message_ids: dict[str, str] = {}
         self._latest_tool_key: str | None = None
         self._reserved_turn_message_index: int | None = None
@@ -54,6 +55,13 @@ class ConversationRuntimeAdapter:
             if not delta:
                 return []
             self._buffer_assistant_delta(str(delta))
+            return []
+
+        if event_type == "llm:reasoning":
+            delta = data.get("reasoning_content")
+            if not delta:
+                return []
+            self._buffer_assistant_reasoning(str(delta))
             return []
 
         if event_type == "tool:start":
@@ -104,12 +112,15 @@ class ConversationRuntimeAdapter:
         return []
 
     def build_live_event(self, event_type: str, data: dict) -> dict | None:
-        if event_type not in {"llm:content", "summary:token"}:
+        if event_type not in {"llm:content", "summary:token", "llm:reasoning"}:
             return None
-        delta = data.get("content") if event_type == "llm:content" else data.get("token")
+        if event_type == "llm:reasoning":
+            delta = data.get("reasoning_content")
+        else:
+            delta = data.get("content") if event_type == "llm:content" else data.get("token")
         if not delta:
             return None
-        if self.assistant_message_id is None or not self._assistant_content or self._run_terminal:
+        if self.assistant_message_id is None or self._run_terminal:
             return None
         return {
             "session_id": self.session_id,
@@ -119,11 +130,12 @@ class ConversationRuntimeAdapter:
             "message_type": "assistant_message",
             "delta": str(delta),
             "content_text": self._assistant_content,
+            "payload_json": {"reasoning_text": self._assistant_reasoning},
             "stream_state": "streaming",
         }
 
     def get_live_state(self) -> dict | None:
-        if self.assistant_message_id is None or not self._assistant_content or self._run_terminal:
+        if self.assistant_message_id is None or self._run_terminal:
             return None
         return {
             "session_id": self.session_id,
@@ -132,6 +144,7 @@ class ConversationRuntimeAdapter:
             "message_id": self.assistant_message_id,
             "message_type": "assistant_message",
             "content_text": self._assistant_content,
+            "payload_json": {"reasoning_text": self._assistant_reasoning},
             "stream_state": "streaming",
         }
 
@@ -139,6 +152,11 @@ class ConversationRuntimeAdapter:
         if self.assistant_message_id is None:
             self.assistant_message_id = new_message_id()
         self._assistant_content = f"{self._assistant_content}{delta}"
+
+    def _buffer_assistant_reasoning(self, delta: str) -> None:
+        if self.assistant_message_id is None:
+            self.assistant_message_id = new_message_id()
+        self._assistant_reasoning = f"{self._assistant_reasoning}{delta}"
 
     def _tool_start_events(self, data: dict) -> list[ConversationEvent]:
         tool_key = self._tool_key(data)
@@ -429,7 +447,11 @@ class ConversationRuntimeAdapter:
                 "turn_message_index": turn_message_index,
                 "display_mode": "default",
                 "content_text": "",
-                "payload_json": {},
+                "payload_json": (
+                    {"reasoning_text": self._assistant_reasoning}
+                    if self._assistant_reasoning
+                    else {}
+                ),
             },
         )
 
@@ -461,6 +483,16 @@ class ConversationRuntimeAdapter:
                 )
             )
 
+        if self._assistant_reasoning:
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                    message_id=self.assistant_message_id,
+                    run_id=self.run_id,
+                    payload_json={"payload_json": {"reasoning_text": self._assistant_reasoning}},
+                )
+            )
+
         events.append(
             self._new_event(
                 event_type=terminal_event_type,
@@ -482,21 +514,35 @@ class ConversationRuntimeAdapter:
                 message_id=message_id,
                 turn_message_index=self._reserve_turn_message_index(),
             ),
-            self._new_event(
-                event_type=EventType.MESSAGE_CONTENT_COMMITTED,
-                message_id=message_id,
-                run_id=self.run_id,
-                payload_json={"content_text": content_text},
-            ),
-            self._new_event(
-                event_type=EventType.MESSAGE_COMPLETED,
-                message_id=message_id,
-                run_id=self.run_id,
-                payload_json={"completed_at": datetime.now().isoformat()},
-            ),
         ]
+        if self._assistant_reasoning:
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                    message_id=message_id,
+                    run_id=self.run_id,
+                    payload_json={"payload_json": {"reasoning_text": self._assistant_reasoning}},
+                )
+            )
+        events.extend(
+            [
+                self._new_event(
+                    event_type=EventType.MESSAGE_CONTENT_COMMITTED,
+                    message_id=message_id,
+                    run_id=self.run_id,
+                    payload_json={"content_text": content_text},
+                ),
+                self._new_event(
+                    event_type=EventType.MESSAGE_COMPLETED,
+                    message_id=message_id,
+                    run_id=self.run_id,
+                    payload_json={"completed_at": datetime.now().isoformat()},
+                ),
+            ]
+        )
         self.assistant_message_id = None
         self._assistant_content = ""
+        self._assistant_reasoning = ""
         return events
 
     def _cancel_notice_event(self, error_message: str | None = None) -> ConversationEvent:

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Loader2, Send, Square } from 'lucide-react'
+import { RunningIndicator } from '@/components/workspace/RunningIndicator'
 
 interface ChatSelectOption {
   id: string
@@ -22,6 +23,7 @@ interface ChatInputProps {
   onProviderChange?: (providerId: string | null) => void
   onModelChange?: (modelId: string | null) => void
   selectionDisabled?: boolean
+  runtimeStatusLabel?: string | null
 }
 
 export function ChatInput({ 
@@ -38,7 +40,8 @@ export function ChatInput({
   selectedModelId = null,
   onProviderChange,
   onModelChange,
-  selectionDisabled = false
+  selectionDisabled = false,
+  runtimeStatusLabel = null,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -78,6 +81,14 @@ export function ChatInput({
         animate={{ scale: isFocused ? 1.01 : 1 }}
         transition={{ duration: 0.2 }}
       >
+        {runtimeStatusLabel && (
+          <RunningIndicator
+            label={runtimeStatusLabel}
+            layout="header"
+            rootDataAttr="data-chat-running"
+            barDataAttr="data-chat-running-bar"
+          />
+        )}
         <textarea
           ref={textareaRef}
           value={value}

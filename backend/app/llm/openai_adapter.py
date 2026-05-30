@@ -136,6 +136,10 @@ class OpenAIAdapter(UniversalLLMInterface):
                 delta = chunk.choices[0].delta
                 finish_reason = chunk.choices[0].finish_reason
 
+                reasoning_delta = self._extract_reasoning_delta(delta)
+                if reasoning_delta:
+                    yield StreamChunk(type="reasoning", reasoning_content=reasoning_delta)
+
                 # 流式输出 content（含 DSML 检测）
                 if delta.content:
                     _content_buf += delta.content
@@ -302,6 +306,7 @@ class OpenAIAdapter(UniversalLLMInterface):
                 tool_calls.append(LLMToolCall(id=tc.id, name=tc.function.name, arguments=args))
 
         content = message.content or ""
+        reasoning_content = self._extract_reasoning_message(message)
 
         # 无结构化 tool_calls 时，检查文本中的 DSML 工具调用
         if not tool_calls and content and contains_dsml(content):
@@ -331,6 +336,7 @@ class OpenAIAdapter(UniversalLLMInterface):
 
         return LLMResponse(
             content=content,
+            reasoning_content=reasoning_content,
             tool_calls=tool_calls,
             finish_reason=finish_reason,
             model=response.model,
@@ -342,3 +348,41 @@ class OpenAIAdapter(UniversalLLMInterface):
             if response.usage
             else {},
         )
+
+    @staticmethod
+    def _extract_reasoning_delta(delta: Any) -> str:
+        for attr in ("reasoning_content", "reason_content", "reasoning"):
+            value = getattr(delta, attr, None)
+            text = OpenAIAdapter._coerce_reasoning_text(value)
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _extract_reasoning_message(message: Any) -> str:
+        for attr in ("reasoning_content", "reason_content", "reasoning"):
+            value = getattr(message, attr, None)
+            text = OpenAIAdapter._coerce_reasoning_text(value)
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _coerce_reasoning_text(value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            parts: list[str] = []
+            for item in value:
+                if isinstance(item, str):
+                    parts.append(item)
+                    continue
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append(text)
+                    continue
+                content = getattr(item, "content", None)
+                if isinstance(content, str):
+                    parts.append(content)
+            return "".join(parts)
+        return ""

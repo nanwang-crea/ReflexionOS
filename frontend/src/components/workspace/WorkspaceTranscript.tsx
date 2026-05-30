@@ -12,9 +12,15 @@ import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
-import { ArrowDown, Loader2 } from 'lucide-react'
+import { ArrowDown, Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
 import { MessageActions } from './MessageActions'
 import { PlanProgress } from './PlanProgress'
+import { RunningIndicator } from './RunningIndicator'
+import {
+  getAssistantReasoningText,
+  getLatestAssistantMessage,
+  type RuntimeStatusDescriptor,
+} from './runtimeStatus'
 import { buildTranscriptItems } from './transcriptItems'
 
 const transcriptClassName = [
@@ -40,6 +46,49 @@ export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   return Math.max(0, delaySeconds - elapsedSeconds)
 }
 
+function ThinkingBlock({
+  text,
+  isStreaming,
+}: {
+  text: string
+  isStreaming: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(isStreaming)
+
+  useEffect(() => {
+    if (isStreaming) {
+      setIsExpanded(true)
+      return
+    }
+    setIsExpanded(false)
+  }, [isStreaming])
+
+  return (
+    <div className="mb-3 max-w-[920px] rounded-lg border border-edge bg-surface-secondary/60 px-3 py-2 text-xs leading-6 text-content-muted">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((value) => !value)}
+        aria-expanded={isExpanded}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        {isExpanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <Brain className="h-3.5 w-3.5 shrink-0" />
+        <span>Thinking</span>
+      </button>
+      <div
+        className={`mt-2 whitespace-pre-wrap pl-9 ${isExpanded ? 'block' : 'hidden'}`}
+        aria-hidden={!isExpanded}
+      >
+        {text}
+      </div>
+    </div>
+  )
+}
+
 interface WorkspaceTranscriptProps {
   loaded: boolean
   configured: boolean
@@ -49,6 +98,7 @@ interface WorkspaceTranscriptProps {
   isRunning?: boolean
   retryInfo?: LlmRetryDto | null
   plan?: Plan | null
+  runtimeStatus?: RuntimeStatusDescriptor
   isPlanMinimized?: boolean
   onTogglePlanMinimize?: () => void
   transcriptScrollRef?: RefObject<HTMLDivElement>
@@ -72,6 +122,7 @@ export function WorkspaceTranscript({
   isRunning = false,
   retryInfo = null,
   plan = null,
+  runtimeStatus = { kind: 'idle', label: '' },
   isPlanMinimized = false,
   onTogglePlanMinimize,
   transcriptScrollRef,
@@ -118,7 +169,18 @@ export function WorkspaceTranscript({
   const retryMaxRetries = retryInfo?.max_retries ?? null
   const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
   const showReconnectIndicator = isRunning && reconnectLabel !== null
-  const showThinkingIndicator = isRunning && !showReconnectIndicator && !hasVisibleStreamingMessage && !plan
+  const latestAssistantMessage = useMemo(
+    () => getLatestAssistantMessage(filteredMessages),
+    [filteredMessages]
+  )
+  const liveThinkingText = latestAssistantMessage ? getAssistantReasoningText(latestAssistantMessage) : ''
+  const showThinkingIndicator = (
+    isRunning &&
+    !showReconnectIndicator &&
+    !plan &&
+    !liveThinkingText &&
+    !hasVisibleStreamingMessage
+  )
 
   useEffect(() => {
     if (!hasRetryInfo || !isRunning) {
@@ -258,10 +320,18 @@ export function WorkspaceTranscript({
               const run = message.runId != null ? runsById?.[message.runId] : undefined
               const errorCode = (message.payloadJson?.error_code as string | undefined) ?? run?.errorCode ?? undefined
               const errorMessage = (message.payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
+              const reasoningText = getAssistantReasoningText(message)
+              const shouldCollapseThinking = message.streamState !== 'streaming'
 
               return (
                 <SlideIn key={message.id} direction="up">
                   <div className="mb-10 group">
+                    {reasoningText && (
+                      <ThinkingBlock
+                        text={reasoningText}
+                        isStreaming={!shouldCollapseThinking}
+                      />
+                    )}
                     {message.contentText && (
                       <MarkdownRenderer
                         content={message.contentText}
@@ -310,10 +380,19 @@ export function WorkspaceTranscript({
         )}
 
         {showThinkingIndicator && (
-          <div className="mb-8 flex items-center gap-3 text-sm text-content-muted">
-            <Loader2 className="h-4 w-4 animate-spin text-content-muted" />
-            <span>思考中</span>
-          </div>
+          <RunningIndicator
+            label={runtimeStatus.label || '等待模型响应'}
+            rootDataAttr="data-running-bars"
+            barDataAttr="data-running-bar"
+          />
+        )}
+
+        {!showReconnectIndicator && !showThinkingIndicator && isRunning && !plan && runtimeStatus.kind !== 'idle' && !liveThinkingText && (
+          <RunningIndicator
+            label={runtimeStatus.label}
+            rootDataAttr="data-running-bars"
+            barDataAttr="data-running-bar"
+          />
         )}
 
         <AnimatePresence>

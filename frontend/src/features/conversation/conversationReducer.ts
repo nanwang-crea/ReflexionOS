@@ -92,6 +92,12 @@ function upsertLiveAssistantMessage(
         ...currentMessage,
         contentText: liveMessage.contentText,
         streamState: liveMessage.streamState,
+        payloadJson: liveMessage.payloadJson
+          ? {
+              ...currentMessage.payloadJson,
+              ...liveMessage.payloadJson,
+            }
+          : currentMessage.payloadJson,
         updatedAt: timestamp,
       }
     : {
@@ -105,7 +111,7 @@ function upsertLiveAssistantMessage(
         streamState: liveMessage.streamState,
         displayMode: 'default',
         contentText: liveMessage.contentText,
-        payloadJson: {},
+        payloadJson: liveMessage.payloadJson ?? {},
         createdAt: timestamp,
         updatedAt: timestamp,
         completedAt: null,

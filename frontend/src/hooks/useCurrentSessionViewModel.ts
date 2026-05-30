@@ -5,6 +5,7 @@ import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
+import { getRuntimeStatusDescriptor } from '@/components/workspace/runtimeStatus'
 import { shouldFollowTranscript } from '@/features/workspace/autoScroll'
 import { useSessionData } from './useSessionData'
 import { useSessionSelection } from './useSessionSelection'
@@ -95,6 +96,12 @@ export function useCurrentSessionViewModel(options: {
     setIsAtBottom(true)
   }, [options.messages])
 
+  const runtimeStatus = getRuntimeStatusDescriptor({
+    isRunning: options.isRunning,
+    retryInfo: options.retryInfo,
+    messages: options.messages,
+  })
+
   return {
     currentProject,
     currentSession: currentSessionSummary as SessionSummary | null,
@@ -119,6 +126,7 @@ export function useCurrentSessionViewModel(options: {
       isRunning: options.isRunning,
       retryInfo: options.retryInfo,
       plan: options.plan,
+      runtimeStatus,
       transcriptScrollRef,
       onTranscriptScroll: handleTranscriptScroll,
       isAtBottom,
@@ -141,6 +149,7 @@ export function useCurrentSessionViewModel(options: {
       onProviderChange: handleProviderChange,
       onModelChange: handleModelChange,
       selectionDisabled: !loaded || options.isRunning || options.isCancelling || availableProviders.length === 0,
+      runtimeStatusLabel: runtimeStatus.kind === 'idle' ? null : runtimeStatus.label,
     },
   }
 }

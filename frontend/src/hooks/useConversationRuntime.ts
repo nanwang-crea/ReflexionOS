@@ -95,6 +95,7 @@ function toConversationLiveMessage(message: SessionConversationLiveMessageDto): 
     contentText: message.content_text,
     streamState: message.stream_state as ConversationLiveMessage['streamState'],
     delta: message.delta,
+    payloadJson: message.payload_json,
   }
 }
 

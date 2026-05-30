@@ -29,6 +29,7 @@ export interface SessionConversationLiveMessageDto {
   content_text: string
   stream_state: string
   delta?: string
+  payload_json?: Record<string, unknown>
 }
 
 interface ConversationSyncedDto {
