@@ -229,6 +229,43 @@ def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_
     ]
 
 
+def test_run_complete_closes_open_tool_traces(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {
+            "tool_name": "file",
+            "arguments": {
+                "action": "read",
+                "path": "frontend/src/types/conversation.ts",
+            },
+            "step_number": 1,
+        },
+    )
+
+    completion_events = adapter.handle_event("run:complete", {})
+
+    snapshot = service.get_snapshot("session-1")
+    trace = next(
+        message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE
+    )
+
+    assert [event.event_type for event in completion_events] == [
+        EventType.MESSAGE_PAYLOAD_UPDATED,
+        EventType.MESSAGE_COMPLETED,
+        EventType.RUN_COMPLETED,
+    ]
+    assert trace.stream_state == StreamState.COMPLETED
+    assert trace.payload_json["status"] == "completed"
+
+
 def test_marks_run_failed_when_run_error_arrives(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(

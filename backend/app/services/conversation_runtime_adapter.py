@@ -340,6 +340,7 @@ class ConversationRuntimeAdapter:
             terminal_event_type=EventType.MESSAGE_COMPLETED,
             payload_json={"completed_at": datetime.now().isoformat()},
         )
+        events.extend(self._complete_open_tool_trace_events())
 
         terminal_event = self._run_terminal_event(
             EventType.RUN_COMPLETED,
@@ -347,6 +348,39 @@ class ConversationRuntimeAdapter:
         )
         if terminal_event is not None:
             events.append(terminal_event)
+        return events
+
+    def _complete_open_tool_trace_events(self) -> list[ConversationEvent]:
+        events: list[ConversationEvent] = []
+        for message in self.conversation_service.list_turn_messages(self.turn_id):
+            if (
+                message.run_id != self.run_id
+                or message.message_type != MessageType.TOOL_TRACE
+                or message.stream_state not in {StreamState.IDLE, StreamState.STREAMING}
+            ):
+                continue
+
+            status = message.payload_json.get("status")
+            if status not in {None, "running"}:
+                continue
+
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                    message_id=message.id,
+                    run_id=self.run_id,
+                    payload_json={"payload_json": {"status": "completed"}},
+                )
+            )
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_COMPLETED,
+                    message_id=message.id,
+                    run_id=self.run_id,
+                    payload_json={"completed_at": datetime.now().isoformat()},
+                )
+            )
+
         return events
 
     def _execution_cancelled_events(self, data: dict) -> list[ConversationEvent]:
