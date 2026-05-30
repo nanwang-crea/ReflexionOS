@@ -5,6 +5,7 @@ import pytest
 
 from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.context_manager import LoopContext
+from app.execution.plan_engine import Plan, PlanStep
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMResponse, LLMToolCall, StreamChunk
 from app.llm.retry import LLMRetryExhaustedError
@@ -249,6 +250,122 @@ class TestRapidExecutionLoop:
         tool_message = next(msg for msg in second_messages if msg.role == "tool")
         assert tool_message.content == "mock output"
         assert tool_message.tool_call_id == tool_call.id
+
+    @pytest.mark.asyncio
+    async def test_runtime_auto_advances_plan_after_successful_non_plan_work(
+        self,
+        mock_llm,
+    ):
+        registry = ToolRegistry()
+        registry.register(MockTool())
+        registry.register(PlanTool())
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=5)
+
+        seeded_plan = Plan(
+            goal="修复循环执行",
+            steps=[
+                PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(id=2, description="修改执行循环", status="in_progress"),
+                PlanStep(id=3, description="验证结果", status="pending"),
+            ],
+            current_step_index=1,
+        )
+        plan_tool = registry.get("plan")
+
+        async def bootstrap_with_plan(context):
+            context.plan = seeded_plan
+            plan_tool.set_plan(seeded_plan)
+
+        execution_loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+
+        call_count = [0]
+        captured_messages = []
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            captured_messages.append(messages)
+            if tools is not None and call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="自动推进到了下一步。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("继续修复")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 1
+        assert result.result == "自动推进到了下一步。"
+        assert seeded_plan.steps[1].status == "completed"
+        assert seeded_plan.steps[1].findings == "mock: mock output"
+        second_system_contents = [
+            message.content
+            for message in captured_messages[1]
+            if message.role == "system" and message.content
+        ]
+        assert any("Current plan step: 验证结果" in content for content in second_system_contents)
+
+    @pytest.mark.asyncio
+    async def test_explicit_plan_adjust_still_overrides_automatic_progression(
+        self,
+        mock_llm,
+    ):
+        registry = ToolRegistry()
+        registry.register(MockTool())
+        registry.register(PlanTool())
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=6)
+
+        seeded_plan = Plan(
+            goal="修复循环执行",
+            steps=[
+                PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(id=2, description="修改执行循环", status="in_progress"),
+                PlanStep(id=3, description="验证结果", status="pending"),
+            ],
+            current_step_index=1,
+        )
+        plan_tool = registry.get("plan")
+
+        async def bootstrap_with_plan(context):
+            context.plan = seeded_plan
+            plan_tool.set_plan(seeded_plan)
+
+        execution_loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if tools is not None and call_count[0] == 1:
+                async for chunk in self._stream_response(
+                    tool_calls=[
+                        LLMToolCall(
+                            name="plan",
+                            arguments={"action": "adjust", "remaining_steps": ["补充验证", "整理结论"]}
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+            async for chunk in self._stream_response(content="计划已调整。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("继续修复")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 1
+        assert result.steps[0].tool == "plan"
+        assert result.result == "计划已调整。"
+        assert [step.description for step in seeded_plan.steps] == ["定位根因", "修改执行循环", "补充验证", "整理结论"]
 
     @pytest.mark.asyncio
     async def test_tier3_compaction_keeps_recent_context_groups(self, execution_loop, mock_llm):

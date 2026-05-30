@@ -1,5 +1,6 @@
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
+from app.execution.plan_engine import Plan, PlanStep
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMToolCall, LLMToolDefinition
 
@@ -101,9 +102,33 @@ def test_system_prompt_uses_runtime_tool_definitions():
 
     messages = builder.build(context, tools=tools)
 
-    assert messages[0].role == "system"
-    assert "mock" in messages[0].content
-    assert "Mock tool" in messages[0].content
+    system_messages = [message for message in messages if message.role == "system"]
+    assert len(system_messages) >= 3
+    assert "autonomous coding agent" in system_messages[0].content
+    assert any("mock" in message.content and "Mock tool" in message.content for message in system_messages)
+    assert any("Never restart investigation from scratch" in message.content for message in system_messages)
+
+
+def test_build_messages_injects_current_plan_step_and_update_requirement():
+    builder = build_message_builder()
+    context = LoopContext(task="继续当前修复")
+    context.plan = Plan(
+        goal="修复循环执行",
+        steps=[
+            PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
+            PlanStep(id=2, description="修改执行循环", status="in_progress"),
+            PlanStep(id=3, description="验证行为", status="pending"),
+        ],
+        current_step_index=1,
+    )
+    context.metadata["plan_update_required"] = True
+
+    messages = builder.build(context, tools=[])
+    system_contents = [message.content for message in messages if message.role == "system" and message.content]
+
+    assert any("Current plan step: 修改执行循环" in content for content in system_contents)
+    assert any("Only do work that directly advances this step." in content for content in system_contents)
+    assert any("call plan.block or plan.adjust" in content for content in system_contents)
 
 
 def test_final_summary_messages_flatten_tool_protocol_history():

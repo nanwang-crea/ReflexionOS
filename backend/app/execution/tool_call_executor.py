@@ -168,7 +168,10 @@ class ToolCallExecutor:
 
             if isinstance(tool, PlanTool) and tool.get_plan() is not None:
                 context.plan = tool.get_plan()
+                context.metadata["plan_update_required"] = False
                 await self.emit("plan:updated", context.plan.to_dict())
+            elif context.plan is not None and tool_call.name != "plan":
+                context.metadata["plan_update_required"] = True
 
             logger.info(
                 "工具 %s 执行%s",

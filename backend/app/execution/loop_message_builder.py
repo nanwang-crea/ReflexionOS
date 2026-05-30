@@ -40,9 +40,8 @@ class LoopMessageBuilder:
     def build(self, context: LoopContext, tools: list[LLMToolDefinition]) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""
         messages = [
-            LLMMessage(
-                role=MessageRole.SYSTEM, content=self.prompt_manager.get_system_prompt(tools)
-            )
+            LLMMessage(role=MessageRole.SYSTEM, content=section)
+            for section in self.prompt_manager.get_system_prompt_sections(tools)
         ]
 
         self._inject_context_sections(context, messages)
@@ -51,6 +50,27 @@ class LoopMessageBuilder:
             messages.append(
                 LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
             )
+            current_step = context.plan.current_step
+            if current_step is not None:
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            f"Current plan step: {current_step.description}\n"
+                            "Only do work that directly advances this step."
+                        ),
+                    )
+                )
+            if context.metadata.get("plan_update_required"):
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            "Plan intervention required: if the current step is blocked or the plan must change, "
+                            "call plan.block or plan.adjust with concrete findings."
+                        ),
+                    )
+                )
             completed_findings = context.plan.completed_findings()
             if completed_findings:
                 findings_text = "\n".join(f"- {f}" for f in completed_findings)
