@@ -395,7 +395,39 @@ class TestRapidExecutionLoop:
         assert [step.args["path"] for step in result.steps] == ["a.ts", "b.ts", "c.ts", "d.ts"]
 
     @pytest.mark.asyncio
-    async def test_investigation_budget_forces_final_summary_after_two_read_only_passes(
+    async def test_investigation_budget_allows_additional_read_only_passes_when_each_adds_new_facts(
+        self,
+        mock_llm,
+    ):
+        registry = ToolRegistry()
+        registry.register(ReadOnlyFileTool())
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+
+        call_count = [0]
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if tools is not None and call_count[0] <= 3:
+                async for chunk in self._stream_response(
+                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": f"{call_count[0]}.ts"})],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+
+            async for chunk in self._stream_response(content="继续基于新证据推进。"):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        result = await execution_loop.run("重新检查并给出结论")
+
+        assert result.status == LoopStatus.COMPLETED
+        assert len(result.steps) == 3
+        assert result.result == "继续基于新证据推进。"
+
+    @pytest.mark.asyncio
+    async def test_investigation_budget_forces_final_summary_after_read_only_pass_yields_no_new_facts(
         self,
         mock_llm,
     ):
@@ -409,7 +441,7 @@ class TestRapidExecutionLoop:
             call_count[0] += 1
             if tools is not None:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": f"{call_count[0]}.ts"})],
+                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": "same.ts"})],
                     finish_reason="tool_calls",
                 ):
                     yield chunk

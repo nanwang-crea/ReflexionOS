@@ -45,7 +45,8 @@ class RapidExecutionLoop:
     MAX_ERROR_RETRIES = 2  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 3  # 空响应最大重试
-    MAX_READ_ONLY_PASSES = 2  # 1 次广泛探索 + 1 次定向复核
+    MAX_READ_ONLY_PASSES = 10  # 允许更复杂任务继续探索，但保留绝对上限
+    MAX_STAGNANT_READ_ONLY_PASSES = 2  # 连续 1 次没有新事实就收束
 
     def __init__(
         self,
@@ -165,6 +166,17 @@ class RapidExecutionLoop:
         read_only_calls = self.tool_executor.prepare_read_only_batch(read_only_calls)
         if read_only_calls:
             rt.read_only_passes_used += 1
+            read_only_signatures = {
+                self.tool_executor._read_only_signature(tool_call)
+                for tool_call in read_only_calls
+            }
+            seen_signatures = context.metadata.setdefault("seen_read_only_signatures", set())
+            new_signatures = read_only_signatures - seen_signatures
+            if new_signatures:
+                rt.stagnant_read_only_passes = 0
+                seen_signatures.update(new_signatures)
+            else:
+                rt.stagnant_read_only_passes += 1
 
         # Execute read-only tools in parallel
         if read_only_calls:
@@ -207,7 +219,10 @@ class RapidExecutionLoop:
         if (
             read_only_calls
             and not write_calls
-            and rt.read_only_passes_used >= self.MAX_READ_ONLY_PASSES
+            and (
+                rt.stagnant_read_only_passes >= self.MAX_STAGNANT_READ_ONLY_PASSES
+                or rt.read_only_passes_used >= self.MAX_READ_ONLY_PASSES
+            )
         ):
             context.metadata["investigation_budget_exhausted"] = True
             return LoopPhase.FINAL_SUMMARY
