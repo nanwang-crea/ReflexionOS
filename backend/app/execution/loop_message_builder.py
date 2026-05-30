@@ -66,8 +66,10 @@ class LoopMessageBuilder:
                     LLMMessage(
                         role=MessageRole.SYSTEM,
                         content=(
-                            "Plan intervention required: if the current step is blocked or the plan must change, "
-                            "call plan.block or plan.adjust with concrete findings."
+                            "Plan update reminder: a single plan step may require multiple tool calls. "
+                            "Continue using tools while the current step is still in progress. "
+                            "When the current step is complete, blocked, or needs replanning, "
+                            "call plan.step_done, plan.block, or plan.adjust with concrete findings."
                         ),
                     )
                 )

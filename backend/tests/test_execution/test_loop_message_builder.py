@@ -128,7 +128,7 @@ def test_build_messages_injects_current_plan_step_and_update_requirement():
 
     assert any("Current plan step: 修改执行循环" in content for content in system_contents)
     assert any("Only do work that directly advances this step." in content for content in system_contents)
-    assert any("call plan.block or plan.adjust" in content for content in system_contents)
+    assert any("call plan.step_done, plan.block, or plan.adjust" in content for content in system_contents)
 
 
 def test_final_summary_messages_flatten_tool_protocol_history():

@@ -153,7 +153,6 @@ class RapidExecutionLoop:
     ) -> LoopPhase:
         """TOOL_EXECUTION 阶段：执行工具调用，只读工具并行，写操作串行。"""
         error_recovery_needed = False
-        successful_non_plan_steps: list[LoopStep] = []
 
         read_only_calls = []
         write_calls = []
@@ -215,8 +214,6 @@ class RapidExecutionLoop:
                     )
                     if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
                         error_recovery_needed = True
-                elif step.tool != "plan":
-                    successful_non_plan_steps.append(step)
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
@@ -265,19 +262,6 @@ class RapidExecutionLoop:
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
-                if step.tool != "plan":
-                    successful_non_plan_steps.append(step)
-
-        if (
-            context.plan is not None
-            and context.plan.current_step is not None
-            and successful_non_plan_steps
-            and not any(tool_call.name == "plan" for tool_call in rt.response.tool_calls)
-        ):
-            findings = self._build_auto_plan_findings(successful_non_plan_steps)
-            context.plan.advance(findings)
-            context.metadata["plan_update_required"] = False
-            await self._emit("plan:updated", context.plan.to_dict())
 
         if error_recovery_needed:
             return LoopPhase.ERROR_RECOVERY
@@ -733,15 +717,6 @@ class RapidExecutionLoop:
         if error:
             payload["error"] = error
         await self._emit("metrics:llm_call", payload)
-
-    @staticmethod
-    def _build_auto_plan_findings(steps: list[LoopStep]) -> str:
-        findings: list[str] = []
-        for step in steps:
-            detail = step.output or step.error or ""
-            detail = detail.strip()
-            findings.append(f"{step.tool}: {detail}" if detail else step.tool)
-        return "; ".join(findings)
 
     async def _compact_context(self, context: LoopContext) -> None:
         """

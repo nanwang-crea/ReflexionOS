@@ -252,7 +252,7 @@ class TestRapidExecutionLoop:
         assert tool_message.tool_call_id == tool_call.id
 
     @pytest.mark.asyncio
-    async def test_runtime_auto_advances_plan_after_successful_non_plan_work(
+    async def test_plan_step_can_span_multiple_non_plan_tool_batches_before_update(
         self,
         mock_llm,
     ):
@@ -279,11 +279,8 @@ class TestRapidExecutionLoop:
         execution_loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
 
         call_count = [0]
-        captured_messages = []
-
         async def mock_stream(messages, tools=None):
             call_count[0] += 1
-            captured_messages.append(messages)
             if tools is not None and call_count[0] == 1:
                 async for chunk in self._stream_response(
                     tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
@@ -291,8 +288,27 @@ class TestRapidExecutionLoop:
                 ):
                     yield chunk
                 return
+            if tools is not None and call_count[0] == 2:
+                async for chunk in self._stream_response(
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "src/app.ts"})],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+            if tools is not None and call_count[0] == 3:
+                async for chunk in self._stream_response(
+                    tool_calls=[
+                        LLMToolCall(
+                            name="plan",
+                            arguments={"action": "step_done", "findings": "已完成修改并验证关键文件"}
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
 
-            async for chunk in self._stream_response(content="自动推进到了下一步。"):
+            async for chunk in self._stream_response(content="计划已更新，继续执行。"):
                 yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -300,19 +316,12 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("继续修复")
 
         assert result.status == LoopStatus.COMPLETED
-        assert len(result.steps) == 1
-        assert result.result == "自动推进到了下一步。"
-        assert seeded_plan.steps[1].status == "completed"
-        assert seeded_plan.steps[1].findings == "mock: mock output"
-        second_system_contents = [
-            message.content
-            for message in captured_messages[1]
-            if message.role == "system" and message.content
-        ]
-        assert any("Current plan step: 验证结果" in content for content in second_system_contents)
+        assert len(result.steps) == 3
+        assert [step.tool for step in result.steps] == ["mock", "mock", "plan"]
+        assert result.result == "计划已更新，继续执行。"
 
     @pytest.mark.asyncio
-    async def test_explicit_plan_adjust_still_overrides_automatic_progression(
+    async def test_plan_gate_allows_progress_after_plan_step_done(
         self,
         mock_llm,
     ):
@@ -344,17 +353,24 @@ class TestRapidExecutionLoop:
             call_count[0] += 1
             if tools is not None and call_count[0] == 1:
                 async for chunk in self._stream_response(
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+                return
+            if tools is not None and call_count[0] == 2:
+                async for chunk in self._stream_response(
                     tool_calls=[
                         LLMToolCall(
                             name="plan",
-                            arguments={"action": "adjust", "remaining_steps": ["补充验证", "整理结论"]}
+                            arguments={"action": "step_done", "findings": "修改已完成"}
                         )
                     ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
                 return
-            async for chunk in self._stream_response(content="计划已调整。"):
+            async for chunk in self._stream_response(content="计划已更新，继续下一步。"):
                 yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -362,10 +378,9 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("继续修复")
 
         assert result.status == LoopStatus.COMPLETED
-        assert len(result.steps) == 1
-        assert result.steps[0].tool == "plan"
-        assert result.result == "计划已调整。"
-        assert [step.description for step in seeded_plan.steps] == ["定位根因", "修改执行循环", "补充验证", "整理结论"]
+        assert len(result.steps) == 2
+        assert result.steps[1].tool == "plan"
+        assert result.result == "计划已更新，继续下一步。"
 
     @pytest.mark.asyncio
     async def test_tier3_compaction_keeps_recent_context_groups(self, execution_loop, mock_llm):
