@@ -20,7 +20,7 @@ class ToolSetConfig:
         "file", "grep", "glob", "memory", "session_recall",
     }))
     plan_mode_tools: frozenset[str] = field(default_factory=lambda: frozenset({
-        "file", "grep", "glob", "session_recall", "memory", "explore",
+        "file", "grep", "glob", "session_recall", "memory", "explore", "plan",
     }))
 
 
@@ -41,6 +41,9 @@ class RuntimeToolDefinitions:
         return [self.tool_registry.definition_from_schema(plan_tool.get_create_schema())]
 
     def for_plan_mode(self) -> list[LLMToolDefinition]:
+        from app.tools.plan_exit_tool import PlanExitTool
+        from app.tools.plan_tool import PlanTool
+
         definitions: list[LLMToolDefinition] = []
         for name in self._ordered_tool_names():
             if name not in self.config.plan_mode_tools:
@@ -48,7 +51,19 @@ class RuntimeToolDefinitions:
             tool = self.tool_registry.get(name)
             if tool is None:
                 continue
+            if isinstance(tool, PlanTool):
+                definitions.append(
+                    self.tool_registry.definition_from_schema(tool.get_create_schema())
+                )
+                continue
             definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
+
+        plan_exit = self.tool_registry.get("plan_exit")
+        if isinstance(plan_exit, PlanExitTool):
+            definitions.append(
+                self.tool_registry.definition_from_schema(plan_exit.get_schema())
+            )
+
         return definitions
 
     def for_context(self, context: LoopContext) -> list[LLMToolDefinition]:
