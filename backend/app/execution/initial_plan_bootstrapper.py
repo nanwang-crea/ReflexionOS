@@ -1,3 +1,4 @@
+import re
 from collections.abc import Awaitable, Callable
 
 from app.execution.context_manager import LoopContext
@@ -72,7 +73,7 @@ class InitialPlanBootstrapper:
                 context.metadata["plan_update_required"] = False
                 context.metadata["steps_since_last_plan_update"] = 0
                 # Write plan file for persistence
-                slug = context.task[:40].replace(" ", "-").lower()
+                slug = re.sub(r'[^\w-]', '', context.task[:40].replace(" ", "-").lower())
                 plan_file_sync = PlanFileSync()
                 plan_path = plan_file_sync.write(context.plan, slug=slug, project_path=context.project_path)
                 context.plan_file_path = plan_path

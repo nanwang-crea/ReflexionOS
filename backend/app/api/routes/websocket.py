@@ -275,6 +275,8 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     if plan_path and isinstance(plan_path, str):
                         from app.execution.plan_file_sync import PlanFileSync
                         PlanFileSync().delete(plan_path)
+                    else:
+                        raise ValueError("缺少有效的 path 参数")
                     await websocket.send_json({
                         "type": "plan:cleared",
                         "data": {"path": plan_path},

@@ -1,6 +1,8 @@
 import os
 import tempfile
 
+import pytest
+
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.plan_file_sync import PlanFileSync
 
@@ -75,3 +77,35 @@ def test_sync_updates_file():
         assert recovered is not None
         assert recovered.steps[0].status == "completed"
         assert recovered.steps[1].status == "in_progress"
+
+
+def test_delete_rejects_path_traversal():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sync = PlanFileSync(base_dir=tmpdir)
+        with pytest.raises(ValueError, match="路径超出计划目录"):
+            sync.delete("/etc/passwd")
+
+
+def test_delete_rejects_relative_traversal():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sync = PlanFileSync(base_dir=tmpdir)
+        with pytest.raises(ValueError, match="路径超出计划目录"):
+            sync.delete(os.path.join(tmpdir, "..", "..", "etc", "passwd"))
+
+
+def test_sync_rejects_path_traversal():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sync = PlanFileSync(base_dir=tmpdir)
+        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
+        with pytest.raises(ValueError, match="路径超出计划目录"):
+            sync.sync(plan, "/tmp/evil.md")
+
+
+def test_slug_sanitized_on_write():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sync = PlanFileSync(base_dir=tmpdir)
+        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
+        path = sync.write(plan, slug="../../etc/cron.d-evil")
+        assert os.path.exists(path)
+        assert ".." not in os.path.basename(path)
+        assert os.path.dirname(path) == tmpdir
