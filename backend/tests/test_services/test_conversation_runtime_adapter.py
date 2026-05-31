@@ -348,3 +348,96 @@ def test_tool_error_marks_tool_trace_failed_instead_of_completed(tmp_path):
     assert trace.stream_state == StreamState.FAILED
     assert trace.payload_json["status"] == "failed"
     assert trace.payload_json["error_message"] == "permission denied"
+
+
+def test_run_cancelled_without_assistant_content_creates_no_empty_assistant_message(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("run:cancelled", {})
+
+    snapshot = service.get_snapshot("session-1")
+    assistant_messages = [
+        m for m in snapshot.messages if m.message_type == MessageType.ASSISTANT_MESSAGE
+    ]
+
+    assert len(assistant_messages) == 0
+
+
+def test_run_error_without_assistant_content_creates_no_empty_assistant_message(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("run:error", {"error": "unexpected failure"})
+
+    snapshot = service.get_snapshot("session-1")
+    assistant_messages = [
+        m for m in snapshot.messages if m.message_type == MessageType.ASSISTANT_MESSAGE
+    ]
+
+    assert len(assistant_messages) == 0
+
+
+def test_run_cancelled_does_not_emit_duplicate_message_failed_for_completed_tool_trace(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "file", "arguments": {"action": "read", "path": "a.py"}, "step_number": 1},
+    )
+    adapter.handle_event(
+        "tool:result",
+        {"tool_name": "file", "step_number": 1, "success": True, "output": "ok", "error": None, "duration": 0.01},
+    )
+    cancel_events = adapter.handle_event("run:cancelled", {})
+
+    message_failed_count = sum(
+        1 for e in cancel_events if e.event_type == EventType.MESSAGE_FAILED
+    )
+    assert message_failed_count == 0
+
+    snapshot = service.get_snapshot("session-1")
+    traces = [m for m in snapshot.messages if m.message_type == MessageType.TOOL_TRACE]
+    assert len(traces) == 1
+    assert traces[0].stream_state == StreamState.COMPLETED
+
+
+def test_tool_start_skips_if_tool_key_already_registered(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:result",
+        {"tool_name": "file", "step_number": 1, "success": True, "output": "ok", "error": None, "duration": 0.01},
+    )
+    start_events = adapter.handle_event(
+        "tool:start",
+        {"tool_name": "file", "arguments": {"action": "read", "path": "a.py"}, "step_number": 1},
+    )
+
+    assert start_events == []
+
+    snapshot = service.get_snapshot("session-1")
+    traces = [m for m in snapshot.messages if m.message_type == MessageType.TOOL_TRACE]
+    assert len(traces) == 1

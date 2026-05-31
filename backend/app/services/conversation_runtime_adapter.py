@@ -33,6 +33,7 @@ class ConversationRuntimeAdapter:
         self._assistant_content = ""
         self._assistant_reasoning = ""
         self.tool_message_ids: dict[str, str] = {}
+        self._terminal_tool_message_ids: set[str] = set()
         self._latest_tool_key: str | None = None
         self._reserved_turn_message_index: int | None = None
         self._run_terminal = False
@@ -160,6 +161,9 @@ class ConversationRuntimeAdapter:
 
     def _tool_start_events(self, data: dict) -> list[ConversationEvent]:
         tool_key = self._tool_key(data)
+        existing_id = self.tool_message_ids.get(tool_key)
+        if existing_id is not None:
+            return []
         message_id = new_message_id()
         self.tool_message_ids[tool_key] = message_id
         self._latest_tool_key = tool_key
@@ -243,6 +247,7 @@ class ConversationRuntimeAdapter:
                     },
                 )
             )
+        self._terminal_tool_message_ids.add(message_id)
         return events
 
     def _approval_required_events(self, data: dict) -> list[ConversationEvent]:
@@ -313,7 +318,7 @@ class ConversationRuntimeAdapter:
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
-        if self.assistant_message_id is None:
+        if self.assistant_message_id is None and self._assistant_content:
             self.assistant_message_id = new_message_id()
         events = self._assistant_terminal_events(
             terminal_event_type=EventType.MESSAGE_FAILED,
@@ -440,7 +445,7 @@ class ConversationRuntimeAdapter:
             error_code = "run_cancelled"
             error_message = data.get("result") or "本次执行已取消"
 
-        if self.assistant_message_id is None:
+        if self.assistant_message_id is None and self._assistant_content:
             self.assistant_message_id = new_message_id()
         events = self._close_open_messages_for_cancel(error_code, error_message)
 
@@ -479,10 +484,13 @@ class ConversationRuntimeAdapter:
 
         if self.assistant_message_id:
             open_ids.discard(self.assistant_message_id)
-        open_ids.update(self.tool_message_ids.values())
+
+        for message_id in self.tool_message_ids.values():
+            if not self._message_is_terminal(message_id):
+                open_ids.add(message_id)
 
         for message_id in sorted(open_ids):
-            if self._message_is_terminal(message_id):
+            if self._message_is_terminal(message_id) or message_id in self._terminal_tool_message_ids:
                 continue
             events.append(
                 self._new_event(

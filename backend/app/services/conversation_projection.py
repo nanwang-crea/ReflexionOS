@@ -21,6 +21,8 @@ from app.models.conversation import (
 
 
 class ConversationProjection:
+    TERMINAL_RUN_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+
     def __init__(
         self,
         *,
@@ -96,6 +98,7 @@ class ConversationProjection:
 
             case EventType.RUN_STARTED:
                 run = self._get_run_or_raise(event.run_id, db_session=db_session)
+                self._validate_run_transition(run.status, RunStatus.RUNNING)
                 self.run_repo.update(
                     run.model_copy(
                         update={
@@ -199,6 +202,7 @@ class ConversationProjection:
             EventType.RUN_WAITING_FOR_APPROVAL: RunStatus.WAITING_FOR_APPROVAL,
             EventType.RUN_RESUMING: RunStatus.RESUMING,
         }[event.event_type]
+        self._validate_run_transition(run.status, next_status)
         self.run_repo.update(
             run.model_copy(update={"status": next_status}),
             db_session=db_session,
@@ -214,6 +218,7 @@ class ConversationProjection:
             EventType.RUN_FAILED: RunStatus.FAILED,
             EventType.RUN_CANCELLED: RunStatus.CANCELLED,
         }[event.event_type]
+        self._validate_run_transition(run.status, next_status)
         finished_at = self._parse_datetime(payload.get("finished_at")) or datetime.now()
 
         self.run_repo.update(
@@ -295,6 +300,12 @@ class ConversationProjection:
         if message is None:
             raise ValueError("消息不存在")
         return message
+
+    def _validate_run_transition(self, current: RunStatus, next_status: RunStatus) -> None:
+        if current == next_status:
+            return
+        if current in self.TERMINAL_RUN_STATUSES:
+            raise ValueError(f"非法 Run 状态转换: 终态 {current.value} → {next_status.value}")
 
     def _upsert_search_document(self, message: Message, turn: Turn, *, db_session=None) -> None:
         if self.message_search_repo is None:

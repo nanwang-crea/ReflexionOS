@@ -267,6 +267,113 @@ describe('conversationReducer', () => {
     expect(refreshed.messagesById['msg-live'].streamState).toBe('streaming')
   })
 
+  describe('run intermediate status events', () => {
+    it('updates run status to running when run.started arrives', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-10',
+        sessionId: 'session-1',
+        seq: 10,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: null,
+        eventType: 'run.started',
+        payloadJson: { started_at: '2026-04-24T10:00:03Z' },
+        createdAt: '2026-04-24T10:00:03Z',
+      })
+
+      expect(next.runsById['run-1'].status).toBe('running')
+    })
+
+    it('updates run status to waiting_for_approval when run.waiting_for_approval arrives', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-11',
+        sessionId: 'session-1',
+        seq: 11,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: null,
+        eventType: 'run.waiting_for_approval',
+        payloadJson: {},
+        createdAt: '2026-04-24T10:00:04Z',
+      })
+
+      expect(next.runsById['run-1'].status).toBe('waiting_for_approval')
+    })
+
+    it('updates run status to resuming when run.resuming arrives', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-12',
+        sessionId: 'session-1',
+        seq: 12,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: null,
+        eventType: 'run.resuming',
+        payloadJson: {},
+        createdAt: '2026-04-24T10:00:05Z',
+      })
+
+      expect(next.runsById['run-1'].status).toBe('resuming')
+    })
+
+    it('creates a new run entry when run.created arrives', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-13',
+        sessionId: 'session-1',
+        seq: 13,
+        turnId: 'turn-1',
+        runId: 'run-new',
+        messageId: null,
+        eventType: 'run.created',
+        payloadJson: {
+          run_id: 'run-new',
+          turn_id: 'turn-1',
+          attempt_index: 2,
+          provider_id: 'provider-b',
+          model_id: 'model-b',
+          workspace_ref: '/tmp/reflexion',
+        },
+        createdAt: '2026-04-24T10:00:06Z',
+      })
+
+      expect(next.runsById['run-new']).toBeDefined()
+      expect(next.runsById['run-new'].status).toBe('created')
+      expect(next.runsById['run-new'].providerId).toBe('provider-b')
+    })
+
+    it('creates a new turn entry when turn.created arrives', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-14',
+        sessionId: 'session-1',
+        seq: 14,
+        turnId: 'turn-new',
+        runId: null,
+        messageId: null,
+        eventType: 'turn.created',
+        payloadJson: {
+          turn_id: 'turn-new',
+          turn_index: 2,
+          root_message_id: 'msg-new-root',
+        },
+        createdAt: '2026-04-24T10:00:07Z',
+      })
+
+      expect(next.turnsById['turn-new']).toBeDefined()
+      expect(next.turnsById['turn-new'].turnIndex).toBe(2)
+      expect(next.turnOrder).toContain('turn-new')
+    })
+  })
+
   describe('messages.truncated', () => {
     function buildTwoTurnSnapshot(): ConversationSnapshot {
       return {

@@ -6,6 +6,7 @@ import type {
   ConversationSnapshot,
   ConversationState,
   ConversationStreamState,
+  ConversationTurn,
 } from '@/types/conversation'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -242,8 +243,55 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
   }
 
   if (!event.messageId) {
+    if (event.eventType === 'turn.created') {
+      const p = event.payloadJson
+      const turnId = (p.turn_id as string) ?? event.turnId ?? ''
+      if (currentState.turnsById[turnId]) {
+        return { ...currentState, lastEventSeq: event.seq }
+      }
+      const newTurn: ConversationTurn = {
+        id: turnId,
+        sessionId: event.sessionId,
+        turnIndex: (p.turn_index as number) ?? 0,
+        rootMessageId: (p.root_message_id as string) ?? '',
+        status: 'running',
+        activeRunId: null,
+        createdAt: event.createdAt,
+        updatedAt: event.createdAt,
+        completedAt: null,
+      }
+      return {
+        ...currentState,
+        lastEventSeq: event.seq,
+        turnOrder: [...currentState.turnOrder, turnId],
+        turnsById: { ...currentState.turnsById, [turnId]: newTurn },
+      }
+    }
+
     if (event.runId) {
       const run = currentState.runsById[event.runId]
+      if (event.eventType === 'run.created') {
+        const p = event.payloadJson
+        const newRun: ConversationRun = {
+          id: event.runId,
+          sessionId: event.sessionId,
+          turnId: event.turnId ?? '',
+          attemptIndex: (p.attempt_index as number) ?? 1,
+          status: 'created',
+          providerId: (p.provider_id as string | null) ?? null,
+          modelId: (p.model_id as string | null) ?? null,
+          workspaceRef: (p.workspace_ref as string | null) ?? null,
+          startedAt: null,
+          finishedAt: null,
+          errorCode: null,
+          errorMessage: null,
+        }
+        return {
+          ...currentState,
+          lastEventSeq: event.seq,
+          runsById: { ...currentState.runsById, [event.runId]: newRun },
+        }
+      }
       if (run) {
         if (event.eventType === 'run.completed') {
           const finishedAt = (event.payloadJson.finished_at as string) ?? null
@@ -308,6 +356,23 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
               },
             },
             messagesById,
+          }
+        }
+        if (
+          event.eventType === 'run.started' ||
+          event.eventType === 'run.waiting_for_approval' ||
+          event.eventType === 'run.resuming'
+        ) {
+          const newStatus = event.eventType === 'run.started' ? 'running'
+            : event.eventType === 'run.waiting_for_approval' ? 'waiting_for_approval'
+            : 'resuming'
+          return {
+            ...currentState,
+            lastEventSeq: event.seq,
+            runsById: {
+              ...currentState.runsById,
+              [event.runId]: { ...run, status: newStatus },
+            },
           }
         }
       }

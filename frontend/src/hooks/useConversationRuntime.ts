@@ -244,8 +244,10 @@ export function useConversationRuntime(
       useConversationStore.getState().setLiveState(sessionId, toConversationLiveMessage(rawLiveState))
       setRetryInfo(null)
     })
-    ws.on('conversation:resync_required', () => {
+    ws.on('conversation:resync_required', (data) => {
       queueSnapshotRefresh(sessionId)
+      const afterSeq = typeof data.after_seq === 'number' ? data.after_seq : 0
+      ws.sendSync(afterSeq)
     })
     ws.on('llm:retry', (data) => {
       setRetryInfo(data)
