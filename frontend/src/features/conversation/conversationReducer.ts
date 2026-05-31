@@ -5,6 +5,7 @@ import type {
   ConversationRun,
   ConversationSnapshot,
   ConversationState,
+  ConversationStreamState,
 } from '@/types/conversation'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -144,7 +145,29 @@ export function applyConversationSnapshot(
   previous: ConversationState | undefined,
   snapshot: ConversationSnapshot
 ): ConversationState {
-  const { messageOrder, messagesById } = mergeStreamingMessages(previous, snapshot)
+  const { messageOrder, messagesById: mergedMessagesById } = mergeStreamingMessages(previous, snapshot)
+  const runsById = Object.fromEntries(snapshot.runs.map((run) => [run.id, run]))
+  const terminalRunIds = new Set(
+    snapshot.runs
+      .filter((run) => run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled')
+      .map((run) => run.id)
+  )
+  const messagesById = Object.fromEntries(
+    Object.entries(mergedMessagesById).map(([messageId, message]) => {
+      if (
+        message.runId &&
+        terminalRunIds.has(message.runId) &&
+        (message.streamState === 'idle' || message.streamState === 'streaming')
+      ) {
+        const run = runsById[message.runId]
+        const terminalState: ConversationStreamState = run?.status === 'failed' ? 'failed'
+          : run?.status === 'cancelled' ? 'cancelled'
+          : 'completed'
+        return [messageId, { ...message, streamState: terminalState }]
+      }
+      return [messageId, message]
+    })
+  )
   return {
     sessionId: snapshot.session.id,
     lastEventSeq: snapshot.session.lastEventSeq,
@@ -154,7 +177,7 @@ export function applyConversationSnapshot(
       .sort((left, right) => left.turnIndex - right.turnIndex)
       .map((turn) => turn.id),
     turnsById: Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn])),
-    runsById: Object.fromEntries(snapshot.runs.map((run) => [run.id, run])),
+    runsById,
     messageOrder,
     messagesById,
   }
@@ -256,6 +279,22 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
           }
         }
         if (event.eventType === 'run.failed' || event.eventType === 'run.cancelled') {
+          const terminalState: ConversationStreamState = event.eventType === 'run.failed' ? 'failed' : 'cancelled'
+          const messagesById = Object.fromEntries(
+            Object.entries(currentState.messagesById).map(([messageId, message]) => {
+              if (
+                message.runId === event.runId &&
+                (message.streamState === 'idle' || message.streamState === 'streaming')
+              ) {
+                return [messageId, {
+                  ...message,
+                  streamState: terminalState,
+                  updatedAt: event.createdAt,
+                }]
+              }
+              return [messageId, message]
+            })
+          )
           return {
             ...currentState,
             lastEventSeq: event.seq,
@@ -263,11 +302,12 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
               ...currentState.runsById,
               [event.runId]: {
                 ...run,
-                status: event.eventType === 'run.failed' ? 'failed' : 'cancelled',
+                status: terminalState,
                 errorCode: (event.payloadJson.error_code as string | null) ?? null,
                 errorMessage: (event.payloadJson.error_message as string | null) ?? null,
               },
             },
+            messagesById,
           }
         }
       }

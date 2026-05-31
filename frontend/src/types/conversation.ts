@@ -6,7 +6,7 @@ type ConversationMessageRole = 'user' | 'assistant' | 'tool' | 'system'
 
 type ConversationMessageType = 'user_message' | 'assistant_message' | 'tool_trace' | 'system_notice'
 
-type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
+export type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
 export interface ConversationSessionDto {
   id: string

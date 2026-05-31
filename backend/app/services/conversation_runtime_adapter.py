@@ -322,6 +322,7 @@ class ConversationRuntimeAdapter:
                 "error_message": error_message,
             },
         )
+        events.extend(self._fail_open_tool_trace_events("execution_error", error_message))
 
         terminal_event = self._run_terminal_event(
             EventType.RUN_FAILED,
@@ -378,6 +379,46 @@ class ConversationRuntimeAdapter:
                     message_id=message.id,
                     run_id=self.run_id,
                     payload_json={"completed_at": datetime.now().isoformat()},
+                )
+            )
+
+        return events
+
+    def _fail_open_tool_trace_events(
+        self,
+        error_code: str = "execution_error",
+        error_message: str = "execution failed",
+    ) -> list[ConversationEvent]:
+        events: list[ConversationEvent] = []
+        for message in self.conversation_service.list_turn_messages(self.turn_id):
+            if (
+                message.run_id != self.run_id
+                or message.message_type != MessageType.TOOL_TRACE
+                or message.stream_state not in {StreamState.IDLE, StreamState.STREAMING}
+            ):
+                continue
+
+            status = message.payload_json.get("status")
+            if status not in {None, "running"}:
+                continue
+
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
+                    message_id=message.id,
+                    run_id=self.run_id,
+                    payload_json={"payload_json": {"status": "failed"}},
+                )
+            )
+            events.append(
+                self._new_event(
+                    event_type=EventType.MESSAGE_FAILED,
+                    message_id=message.id,
+                    run_id=self.run_id,
+                    payload_json={
+                        "error_code": error_code,
+                        "error_message": error_message,
+                    },
                 )
             )
 
