@@ -42,6 +42,7 @@ from app.tools.grep_tool import GrepTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.edit_tool import EditTool
 from app.tools.explore_tool import ExploreTool
+from app.tools.plan_exit_tool import PlanExitTool
 from app.tools.plan_tool import PlanTool
 from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
@@ -134,6 +135,7 @@ class AgentService:
         registry.register(EditTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
+        registry.register(PlanExitTool())
         registry.register(ExploreTool(path_security))
         from app.config.settings import config_manager as _cfg_mgr
         _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
