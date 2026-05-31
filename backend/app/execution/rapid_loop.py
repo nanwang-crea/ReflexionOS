@@ -194,9 +194,6 @@ class RapidExecutionLoop:
                 result.steps.append(step)
                 context.add_step(step)
 
-                if step.status == StepStatus.WAITING_FOR_APPROVAL:
-                    return await self._handle_approval(step, context, result, rt)
-
                 if step.status == StepStatus.FAILED:
                     rt.consecutive_failures += 1
                     await self._emit(
@@ -214,9 +211,13 @@ class RapidExecutionLoop:
                     )
                     if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
                         error_recovery_needed = True
-            else:
-                rt.consecutive_failures = 0
-                rt.has_executed_tools = True
+                else:
+                    rt.consecutive_failures = 0
+                    rt.has_executed_tools = True
+
+            for step in parallel_steps:
+                if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                    return await self._handle_approval(step, context, result, rt)
 
         if (
             read_only_calls
