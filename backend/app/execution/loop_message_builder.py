@@ -216,10 +216,11 @@ class LoopMessageBuilder:
                         LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
                     )
                 elif msg["role"] == MessageRole.ASSISTANT:
-                    tool_calls = [LLMToolCall(**tc) for tc in msg.get("tool_calls", [])] if msg.get("tool_calls") else None
-                    tier2.append(
-                        LLMMessage(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls)
-                    )
+                    tool_calls_list = msg.get("tool_calls")
+                    kwargs: dict = {"role": MessageRole.ASSISTANT, "content": content}
+                    if tool_calls_list:
+                        kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
+                    tier2.append(LLMMessage(**kwargs))
                 elif msg["role"] == MessageRole.USER:
                     if content == context.task:
                         continue
