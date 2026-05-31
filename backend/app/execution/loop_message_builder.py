@@ -1,3 +1,6 @@
+import os
+import sys
+
 from app.execution.context_manager import LoopContext
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMToolCall, MessageRole
@@ -39,10 +42,14 @@ class LoopMessageBuilder:
 
     def build(self, context: LoopContext) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""
-        messages = [
-            LLMMessage(role=MessageRole.SYSTEM, content=section)
-            for section in self.prompt_manager.get_system_prompt_sections()
-        ]
+        system_prompt = self.prompt_manager.get_system_prompt(
+            working_directory=context.project_path or os.getcwd(),
+            platform=sys.platform,
+            is_git_repo=os.path.isdir(
+                os.path.join(context.project_path or os.getcwd(), ".git")
+            ),
+        )
+        messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
         self._inject_context_sections(context, messages)
 

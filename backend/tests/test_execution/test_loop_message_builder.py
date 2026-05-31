@@ -99,10 +99,10 @@ def test_system_prompt_uses_runtime_tool_definitions():
     messages = builder.build(context)
 
     system_messages = [message for message in messages if message.role == "system"]
-    assert len(system_messages) >= 3
+    assert len(system_messages) >= 1
     assert "autonomous coding agent" in system_messages[0].content
-    assert any("Tool and shell rules" in message.content for message in system_messages)
-    assert any("Never restart investigation from scratch" in message.content for message in system_messages)
+    assert "Tool and shell rules" in system_messages[0].content
+    assert "Never restart investigation from scratch" in system_messages[0].content
 
 
 def test_build_messages_injects_current_plan_step_and_update_requirement():
