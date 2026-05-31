@@ -8,9 +8,11 @@ from app.orchestration.skill_registry import SkillMetadata, skill_registry
 def _reset_registry():
     skill_registry.skills.clear()
     skill_registry._content_cache.clear()
+    skill_registry._installer = None
     yield
     skill_registry.skills.clear()
     skill_registry._content_cache.clear()
+    skill_registry._installer = None
 
 
 client = TestClient(app)

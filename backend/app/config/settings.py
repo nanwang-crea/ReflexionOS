@@ -33,6 +33,9 @@ class SkillSettings(BaseModel):
 
     scan_dirs: list[str] = Field(default_factory=list)
     auto_scan: bool = True
+    install_dir: str = Field(
+        default_factory=lambda: str(Path.home() / ".reflexion" / "skills")
+    )
 
 
 class UISettings(BaseModel):

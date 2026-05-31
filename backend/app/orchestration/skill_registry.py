@@ -25,6 +25,7 @@ class SkillRegistry:
     def __init__(self):
         self.skills: dict[str, SkillMetadata] = {}
         self._content_cache: dict[str, str] = {}
+        self._installer = None
         logger.info("SkillRegistry initialized")
 
     def scan_directory(self, dir_path: Path | str) -> int:
@@ -123,6 +124,56 @@ class SkillRegistry:
             logger.info("Disabled skill: %s", name)
             return True
         return False
+
+    def get_installer(self):
+        from app.orchestration.skill_installer import SkillInstaller
+
+        if self._installer is None:
+            from app.config.settings import config_manager
+
+            install_dir = config_manager.settings.skill.install_dir
+            self._installer = SkillInstaller(install_dir)
+        return self._installer
+
+    def install_skill(
+        self, url: str, skill_name: str, subdir: str = "", branch: str = "main"
+    ):
+        from app.orchestration.skill_installer import InstallResult
+
+        result = self.get_installer().install(url, skill_name, subdir, branch)
+        if result.success:
+            self.scan_directory(result.install_path)
+        return result
+
+    def uninstall_skill(self, name: str):
+        from app.orchestration.skill_installer import InstallResult
+
+        skill = self.get_skill(name)
+        if skill is None:
+            return InstallResult(success=False, error=f"Skill '{name}' not registered")
+        result = self.get_installer().uninstall(name)
+        if result.success:
+            self.unregister_skill(name)
+        return result
+
+    def refresh(self) -> int:
+        self.skills.clear()
+        self._content_cache.clear()
+        from app.config.settings import config_manager
+
+        skill_settings = config_manager.settings.skill
+        total = 0
+        project_skills = Path.cwd() / "skills"
+        if project_skills.exists():
+            total += self.scan_directory(project_skills)
+        global_skills = Path(skill_settings.install_dir)
+        if global_skills.exists():
+            total += self.scan_directory(global_skills)
+        for extra_dir in skill_settings.scan_dirs:
+            p = Path(extra_dir)
+            if p.exists():
+                total += self.scan_directory(p)
+        return total
 
 
 skill_registry = SkillRegistry()
