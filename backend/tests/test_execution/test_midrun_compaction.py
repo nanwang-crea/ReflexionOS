@@ -144,7 +144,7 @@ def test_tier2_messages_with_tool_output_truncation():
     messages = builder.build(ctx)
     tool_messages = [
         m for m in messages
-        if m.role == MessageRole.SYSTEM and m.content and "truncated" in m.content
+        if m.role == MessageRole.TOOL and m.content and "truncated" in m.content
     ]
     assert len(tool_messages) > 0
 
@@ -173,7 +173,7 @@ def test_full_three_tier_flow():
     assert has_task_anchor
 
     has_tier2_truncated = any(
-        m.role == MessageRole.SYSTEM and m.content and "truncated" in m.content
+        m.role == MessageRole.TOOL and m.content and "truncated" in m.content
         for m in messages
     )
     assert has_tier2_truncated

@@ -182,15 +182,13 @@ class LoopMessageBuilder:
             if msg["role"] == MessageRole.TOOL:
                 if isinstance(content, str) and content.strip():
                     messages.append(
-                        LLMMessage(role=MessageRole.SYSTEM, content=f"[tool output] {content}")
+                        LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
                     )
                 continue
 
             if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
-                tool_names = [tc.get("name", "") for tc in msg["tool_calls"]]
-                prefix = f"[assistant called: {', '.join(tool_names)}]"
-                text = f"{prefix} {content}" if content else prefix
-                messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=text))
+                tool_calls = [LLMToolCall(**tc) for tc in msg["tool_calls"]]
+                messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls))
                 continue
 
             messages.append(LLMMessage(role=msg["role"], content=content))
@@ -200,8 +198,8 @@ class LoopMessageBuilder:
     def _build_tier2_messages(self, context: LoopContext) -> list[LLMMessage]:
         """
         构建 Tier 2 消息：超出窗口的旧消息逐条截断但始终可见。
-        tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [session_recall can retrieve]，
-        assistant/user 消息保留原文（user 消息中与 task 重复的跳过，避免与 Task Anchor 重复）。
+        tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [session_recall can retrieve]。
+        保持原始消息角色，只截断内容。
         """
         grouped = self._group_messages(context.messages)
         if len(grouped) <= self.max_context_groups:
@@ -215,31 +213,28 @@ class LoopMessageBuilder:
                 content = msg.get("content")
                 if not isinstance(content, str) or not content.strip():
                     continue
-                if msg["role"] == MessageRole.TOOL and len(content) > self.tool_output_max_chars:
-                    truncated = truncate_head_tail(
-                        content,
-                        self.tool_output_max_chars,
-                        head_chars=1_600,
-                        tail_chars=600,
-                        reason="session_recall retrieve",
-                    )
+
+                if msg["role"] == MessageRole.TOOL:
+                    if len(content) > self.tool_output_max_chars:
+                        content = truncate_head_tail(
+                            content,
+                            self.tool_output_max_chars,
+                            head_chars=1_600,
+                            tail_chars=600,
+                            reason="session_recall retrieve",
+                        )
                     tier2.append(
-                        LLMMessage(role=MessageRole.SYSTEM, content=f"[tool output] {truncated}")
-                    )
-                elif msg["role"] == MessageRole.TOOL:
-                    tier2.append(
-                        LLMMessage(role=MessageRole.SYSTEM, content=f"[tool output] {content}")
+                        LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
                     )
                 elif msg["role"] == MessageRole.ASSISTANT:
-                    text = content
-                    if msg.get("tool_calls"):
-                        tool_names = [tc.get("name", "") for tc in msg["tool_calls"]]
-                        text = f"[assistant called: {', '.join(tool_names)}] {text}"
-                    tier2.append(LLMMessage(role=MessageRole.SYSTEM, content=text))
+                    tool_calls = [LLMToolCall(**tc) for tc in msg.get("tool_calls", [])] if msg.get("tool_calls") else None
+                    tier2.append(
+                        LLMMessage(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls)
+                    )
                 elif msg["role"] == MessageRole.USER:
                     if content == context.task:
                         continue
-                    tier2.append(LLMMessage(role=MessageRole.SYSTEM, content=f"[user] {content}"))
+                    tier2.append(LLMMessage(role=MessageRole.USER, content=content))
 
         return tier2
 

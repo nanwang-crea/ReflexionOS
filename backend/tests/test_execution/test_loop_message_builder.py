@@ -2,7 +2,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import LLMToolCall
+from app.llm.base import LLMToolCall, MessageRole
 
 
 def build_message_builder() -> LoopMessageBuilder:
@@ -141,9 +141,8 @@ def test_final_summary_messages_flatten_tool_protocol_history():
 
     messages = builder.build_final_summary(context)
 
-    assert all(message.role != "tool" for message in messages)
-    assert all(not message.tool_calls for message in messages)
-    assert any(
-        message.role == "system" and "[tool output] README output" in message.content
-        for message in messages
-    )
+    tool_contents = [
+        m.content for m in messages
+        if m.role == MessageRole.TOOL and m.content
+    ]
+    assert any("README output" in c for c in tool_contents)
