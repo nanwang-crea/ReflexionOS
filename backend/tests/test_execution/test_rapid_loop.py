@@ -1294,3 +1294,40 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("测试失败任务")
 
         assert result.steps[0].status.value == "failed"
+
+
+@pytest.mark.asyncio
+async def test_stagnation_counter_increments_on_non_plan_tools():
+    """Verify that steps_since_last_plan_update increments when non-plan tools execute."""
+    from app.execution.tool_call_executor import ToolCallExecutor
+
+    mock_registry = ToolRegistry()
+    mock_registry.register(PlanTool())
+
+    class FakeGrepTool(BaseTool):
+        @property
+        def name(self): return "grep"
+        @property
+        def description(self): return "search"
+        async def execute(self, args): return ToolResult(success=True, output="found")
+        def get_schema(self): return {"name": "grep", "description": "search", "parameters": {"type": "object", "properties": {}, "required": []}}
+
+    mock_registry.register(FakeGrepTool())
+
+    context = LoopContext(task="test task", project_path="/tmp")
+    context.plan = Plan(
+        goal="test goal",
+        steps=[PlanStep(id=1, description="Step 1", status="in_progress")],
+        current_step_index=0,
+    )
+    context.metadata["steps_since_last_plan_update"] = 0
+
+    executor = ToolCallExecutor(tool_registry=mock_registry, emit=AsyncMock())
+
+    tool_call = LLMToolCall(id="tc-1", name="grep", arguments={"pattern": "test"})
+    await executor.execute(tool_call, context, 1)
+    assert context.metadata["steps_since_last_plan_update"] == 1
+
+    tool_call2 = LLMToolCall(id="tc-2", name="grep", arguments={"pattern": "*.py"})
+    await executor.execute(tool_call2, context, 2)
+    assert context.metadata["steps_since_last_plan_update"] == 2
