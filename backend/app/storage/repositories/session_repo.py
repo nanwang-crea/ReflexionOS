@@ -50,6 +50,7 @@ class SessionRepository(BaseRepository[Session]):
         model.title = session.title
         model.preferred_provider_id = session.preferred_provider_id
         model.preferred_model_id = session.preferred_model_id
+        model.agent_mode = session.agent_mode
         model.last_event_seq = session.last_event_seq
         model.active_turn_id = session.active_turn_id
         db_session.flush()
