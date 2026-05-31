@@ -54,38 +54,27 @@ class LoopMessageBuilder:
         self._inject_context_sections(context, messages)
 
         if context.plan:
-            messages.append(
-                LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
-            )
+            plan_parts = [context.plan.render_for_context()]
             current_step = context.plan.current_step
             if current_step is not None:
-                messages.append(
-                    LLMMessage(
-                        role=MessageRole.SYSTEM,
-                        content=(
-                            f"Current plan step: {current_step.description}\n"
-                            "Only do work that directly advances this step."
-                        ),
-                    )
+                plan_parts.append(
+                    f"Current step: {current_step.description}\n"
+                    "Only do work that directly advances this step."
                 )
             if context.metadata.get("plan_update_required"):
-                messages.append(
-                    LLMMessage(
-                        role=MessageRole.SYSTEM,
-                        content=(
-                            "Plan update reminder: a single plan step may require multiple tool calls. "
-                            "Continue using tools while the current step is still in progress. "
-                            "When the current step is complete, blocked, or needs replanning, "
-                            "call plan.step_done, plan.block, or plan.adjust."
-                        ),
-                    )
+                plan_parts.append(
+                    "Plan update reminder: a single plan step may require multiple tool calls. "
+                    "Continue using tools while the current step is still in progress. "
+                    "When the current step is complete, blocked, or needs replanning, "
+                    "call plan.step_done, plan.block, or plan.adjust."
                 )
             completed_findings = context.plan.completed_findings()
             if completed_findings:
                 findings_text = "\n".join(f"- {f}" for f in completed_findings)
-                messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=f"Findings from completed steps:\n{findings_text}")
-                )
+                plan_parts.append(f"Findings from completed steps:\n{findings_text}")
+            messages.append(
+                LLMMessage(role=MessageRole.SYSTEM, content="\n\n".join(plan_parts))
+            )
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:

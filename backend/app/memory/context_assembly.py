@@ -79,7 +79,10 @@ class ContextAssembler:
         if project_path:
             agents_path = Path(project_path) / "AGENTS.md"
             if agents_path.exists() and agents_path.is_file():
-                static_blocks.append(agents_path.read_text(encoding="utf-8"))
+                agents_content = agents_path.read_text(encoding="utf-8")
+                static_blocks.append(
+                    f"Project rules (from {agents_path}):\n{agents_content}"
+                )
 
         # 2) Curated USER/MEMORY (project-level) if any active entries exist.
         for target in ("user", "memory"):

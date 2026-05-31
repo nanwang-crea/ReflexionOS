@@ -122,7 +122,7 @@ def test_build_messages_injects_current_plan_step_and_update_requirement():
     messages = builder.build(context)
     system_contents = [message.content for message in messages if message.role == "system" and message.content]
 
-    assert any("Current plan step: 修改执行循环" in content for content in system_contents)
+    assert any("Current step: 修改执行循环" in content for content in system_contents)
     assert any("Only do work that directly advances this step." in content for content in system_contents)
     assert any("call plan.step_done, plan.block, or plan.adjust" in content for content in system_contents)
 
