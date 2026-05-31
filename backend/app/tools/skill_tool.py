@@ -1,7 +1,6 @@
 import logging
 from typing import Any
 
-from app.orchestration.skill_installer import InstallResult
 from app.orchestration.skill_registry import SkillRegistry
 from app.tools.base import BaseTool, ToolResult
 

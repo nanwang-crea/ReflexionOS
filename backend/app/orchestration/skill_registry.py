@@ -138,7 +138,6 @@ class SkillRegistry:
     def install_skill(
         self, url: str, skill_name: str, subdir: str = "", branch: str = "main"
     ):
-        from app.orchestration.skill_installer import InstallResult
 
         result = self.get_installer().install(url, skill_name, subdir, branch)
         if result.success:
