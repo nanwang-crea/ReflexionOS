@@ -93,11 +93,13 @@ class ContextAssembler:
             if enabled_skills:
                 skill_section_parts = ["## Available Skills\n"]
                 skill_section_parts.append(
-                    "You have access to the following skills. Use the 'skill' tool with action='load' "
-                    "to read a skill's full content before following its guidance.\n"
+                    "You have access to the following skills. "
+                    "Use the 'skill' tool with action='load' "
+                    "to read a skill's full content.\n"
                 )
                 for s in enabled_skills:
-                    req = f" (requires: {', '.join(s.required_skills)})" if s.required_skills else ""
+                    req_str = ", ".join(s.required_skills)
+                    req = f" (requires: {req_str})" if s.required_skills else ""
                     skill_section_parts.append(f"- **{s.name}**: {s.description}{req}")
                 static_blocks.append("\n".join(skill_section_parts))
 

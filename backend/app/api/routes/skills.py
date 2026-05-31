@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+
 from app.orchestration.skill_registry import skill_registry
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])

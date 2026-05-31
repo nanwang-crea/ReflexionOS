@@ -17,7 +17,8 @@ class SkillTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Discover and load skill guides. Use 'list' to see available skills, 'load' to read a skill's full content, 'search' to find skills by keyword."
+        return ("Discover and load skill guides. Use 'list' to see available "
+                "skills, 'load' to read full content, 'search' to find by keyword.")
 
     def get_schema(self) -> dict[str, Any]:
         return {
@@ -29,7 +30,8 @@ class SkillTool(BaseTool):
                     "action": {
                         "type": "string",
                         "enum": ["list", "load", "search"],
-                        "description": "Action: 'list' all skills, 'load' a skill's content, 'search' by keyword",
+                        "description": ("Action: 'list' all skills, 'load' a "
+                                        "skill's content, 'search' by keyword"),
                     },
                     "name": {
                         "type": "string",
@@ -51,7 +53,8 @@ class SkillTool(BaseTool):
             skills = self._registry.list_enabled_skills()
             lines = []
             for s in skills:
-                req = f" (requires: {', '.join(s.required_skills)})" if s.required_skills else ""
+                req_str = ", ".join(s.required_skills)
+                req = f" (requires: {req_str})" if s.required_skills else ""
                 lines.append(f"- {s.name}: {s.description}{req}")
             output = "Available skills:\n" + "\n".join(lines) if lines else "No skills available."
             return ToolResult(success=True, output=output)
@@ -74,7 +77,10 @@ class SkillTool(BaseTool):
                 searchable = f"{s.name} {s.description} {s.category}".lower()
                 if query in searchable:
                     matches.append(f"- {s.name}: {s.description}")
-            output = "Matching skills:\n" + "\n".join(matches) if matches else "No skills match the query."
+            if matches:
+                output = "Matching skills:\n" + "\n".join(matches)
+            else:
+                output = "No skills match the query."
             return ToolResult(success=True, output=output)
 
         return ToolResult(success=False, error=f"Unknown action: {action}")
