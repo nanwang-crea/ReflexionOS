@@ -258,6 +258,31 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
+            if msg_type == "plan:exit_confirmed":
+                run_id = msg_data.get("run_id")
+                if not isinstance(run_id, str) or not run_id:
+                    await _send_error(websocket, code="invalid_request", message="run_id 不能为空")
+                    continue
+                try:
+                    await agent_service.confirm_plan_exit(run_id)
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
+                continue
+
+            if msg_type == "plan:clear":
+                try:
+                    plan_path = msg_data.get("path")
+                    if plan_path and isinstance(plan_path, str):
+                        from app.execution.plan_file_sync import PlanFileSync
+                        PlanFileSync().delete(plan_path)
+                    await websocket.send_json({
+                        "type": "plan:cleared",
+                        "data": {"path": plan_path},
+                    })
+                except Exception as exc:
+                    await _send_error(websocket, code="internal_error", message=str(exc))
+                continue
+
             await _send_error(
                 websocket,
                 code="invalid_request",

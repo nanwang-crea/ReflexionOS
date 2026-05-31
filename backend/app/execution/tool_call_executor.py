@@ -169,9 +169,12 @@ class ToolCallExecutor:
             if isinstance(tool, PlanTool) and tool.get_plan() is not None:
                 context.plan = tool.get_plan()
                 context.metadata["plan_update_required"] = False
+                context.metadata["steps_since_last_plan_update"] = 0
                 await self.emit("plan:updated", context.plan.to_dict())
-            elif context.plan is not None and tool_call.name != "plan":
+            elif context.plan is not None and tool_call.name not in ("plan", "plan_exit"):
                 context.metadata["plan_update_required"] = True
+                prev = context.metadata.get("steps_since_last_plan_update", 0)
+                context.metadata["steps_since_last_plan_update"] = prev + 1
 
             logger.info(
                 "工具 %s 执行%s",

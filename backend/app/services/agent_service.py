@@ -721,6 +721,13 @@ class AgentService:
             approval_event_type=EventType.APPROVAL_APPROVED,
         )
 
+    async def confirm_plan_exit(self, run_id: str) -> None:
+        """Handle user confirmation of plan_exit — switch from plan to build agent."""
+        execution_loop = self._execution_loops.get(run_id)
+        if execution_loop is None:
+            raise ValueError(f"运行不存在: {run_id}")
+        await execution_loop.confirm_plan_exit_from_external(run_id)
+
     async def deny_tool_call(self, *, session_id: str, run_id: str, approval_id: str) -> None:
         await self._decide_tool_call_approval(
             session_id=session_id,
