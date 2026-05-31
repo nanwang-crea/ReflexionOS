@@ -28,6 +28,7 @@ class LoopContext:
         self.supplemental_context: str | None = None
         # Plan engine
         self.plan: Plan | None = None
+        self.plan_file_path: str | None = None
         # 三级上下文模型：实时 token 计数，超阈值触发 Tier 2 截断 / Tier 3 LLM 摘要
         self.total_tokens: int = 0
         # Tier 3 压缩后的摘要缓存，滚动更新；摘要中包含 [可 session_recall 取回] 标记
