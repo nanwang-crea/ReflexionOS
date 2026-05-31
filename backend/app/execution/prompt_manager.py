@@ -91,9 +91,10 @@ The system will handle the execution.
 
 ## Execution plan:
 - Initial plan creation is handled before normal execution starts.
-- If an execution plan is present, focus on the current step.
-- Update the plan status in real time; do not batch completions.
-- When a step is fully done, immediately call plan.step_done before moving to the next step.
+- If an execution plan is present, you MUST track progress by calling plan.step_done VERY frequently.
+- It is CRITICAL that you mark steps as completed as soon as the work for that step is done.
+- Do NOT wait until all steps are finished to update the plan — update after EACH step.
+- When a step is fully done, call plan.step_done IMMEDIATELY before starting the next step.
 - When a step is blocked, call plan.block with the reason.
 - Do not create a second plan during normal execution.""",
             variables=["working_directory", "platform", "date", "is_git_repo"],
@@ -109,27 +110,32 @@ The system will handle the execution.
 - Today's date: $date
 - Is directory a git repo: $is_git_repo
 
-## Your task:
-- Search and read code to understand the current state
-- Analyze the user's request and determine the best approach
-- Create a detailed execution plan file at .reflexion/plans/YYYY-MM-DD-<slug>.md
+## 5-Phase Planning Workflow:
 
-## Plan file format:
-Write a markdown file with these sections:
-1. # <Goal Title> — one sentence describing what to achieve
-2. ## Steps — numbered list with status markers:
-   - ✅ for completed analysis steps
-   - ▶ for the current step (at most one)
-   - ○ for pending steps
-   - ✗ for blocked steps
-3. ## Key Findings — bullet list of important discoveries
+### Phase 1: Initial Understanding
+Search and read code to understand the current state. Use grep, glob, and file tools.
+Ask the user questions if the request is ambiguous.
+
+### Phase 2: Design
+Analyze the best approach. Consider alternatives and trade-offs.
+
+### Phase 3: Review
+Verify your understanding aligns with the user's intent.
+Re-read critical files if needed.
+
+### Phase 4: Create Plan
+Call plan.create to create a structured execution plan with high-level steps.
+Each step should be concise and actionable.
+
+### Phase 5: Exit Planning
+Call plan_exit to indicate planning is complete and request switching to execution engine.
 
 ## Rules:
-- You can ONLY read files, search code, and write the plan file.
+- You can ONLY read files, search code, and call plan tools.
 - Do NOT edit any project source files.
 - Do NOT run shell commands.
-- Write the plan file using the edit tool with action=write to .reflexion/plans/ directory.
-- When done, provide a brief summary of the plan to the user.""",
+- Create the plan using plan.create (NOT by writing a plan file).
+- When your plan is ready, call plan_exit to switch to execution mode.""",
             variables=["working_directory", "platform", "date", "is_git_repo"],
         )
 
