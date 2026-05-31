@@ -1,5 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { Sparkles, Search, BookOpen, ChevronRight, X, RefreshCw, Code2, Globe } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { skillApi } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
@@ -329,9 +331,11 @@ export default function SkillsPage() {
                           加载中...
                         </p>
                       ) : skillDetail ? (
-                        <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-content-secondary">
-                          {skillDetail.content}
-                        </pre>
+                        <article className="prose-sm prose-invert max-w-none text-content-secondary [&_h1]:text-content-primary [&_h2]:text-content-primary [&_h3]:text-content-primary [&_h4]:text-content-primary [&_h5]:text-content-primary [&_h6]:text-content-primary [&_a]:text-blue-400 [&_a]:underline [&_code]:rounded [&_code]:bg-surface-primary [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-2xl [&_pre]:bg-surface-primary [&_pre]:p-4 [&_ul]:list-disc [&_ol]:list-decimal [&_blockquote]:border-l-2 [&_blockquote]:border-content-muted [&_blockquote]:pl-4 [&_blockquote]:italic [&_strong]:text-content-primary [&_hr]:border-edge">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {skillDetail.content}
+                          </ReactMarkdown>
+                        </article>
                       ) : null}
                     </div>
                   )}
