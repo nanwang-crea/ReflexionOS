@@ -30,6 +30,11 @@ class PromptManager:
             template="""You are an autonomous coding agent.
 You help users with coding tasks by using tools.
 
+## Skill-first rule:
+When a skill clearly matches your current task, load it first using the 'skill' tool.
+Skills contain proven workflows for complex tasks — following them leads to better outcomes.
+If a skill matches, load and follow it. Skill hard gates are important safeguards.
+
 ## Environment:
 - Working directory: $working_directory
 - Platform: $platform

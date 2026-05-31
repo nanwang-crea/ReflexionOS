@@ -91,12 +91,19 @@ class ContextAssembler:
         if self.skill_registry:
             enabled_skills = self.skill_registry.list_enabled_skills()
             if enabled_skills:
-                skill_section_parts = ["## Available Skills\n"]
-                skill_section_parts.append(
-                    "You have access to the following skills. "
-                    "Use the 'skill' tool with action='load' "
-                    "to read a skill's full content.\n"
-                )
+                skill_section_parts = ["""## Available Skills
+
+When a skill clearly matches your current task, load it first using the 'skill' tool with action='load'.
+
+### Skill usage guidelines:
+1. Before starting a task, briefly consider whether an available skill matches.
+2. If a skill matches, use the 'skill' tool with action='load' to read its full content.
+3. Follow the loaded skill's instructions — skills provide proven workflows for complex tasks.
+4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly — check them when relevant.
+5. Implementation skills guide execution — use them after process skills when applicable.
+6. A skill's hard gates and checklists are important safeguards — respect them.
+
+### Available skills:"""]
                 for s in enabled_skills:
                     req_str = ", ".join(s.required_skills)
                     req = f" (requires: {req_str})" if s.required_skills else ""

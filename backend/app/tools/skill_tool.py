@@ -6,9 +6,6 @@ from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
-_MAX_DESC_SKILLS = 30
-_MAX_DESC_LENGTH = 200
-
 
 class SkillTool(BaseTool):
     def __init__(self, registry: SkillRegistry, resolver=None):
@@ -21,28 +18,9 @@ class SkillTool(BaseTool):
 
     @property
     def description(self) -> str:
-        base = ("Discover and load skill guides. "
+        return ("Discover and load skill guides. "
                 "Use 'list' to see skills, 'load' to read content, "
                 "'search' by keyword, 'update' to check for plugin updates.")
-
-        enabled = self._registry.list_enabled_skills()
-        if enabled:
-            shown = enabled[:_MAX_DESC_SKILLS]
-            lines = []
-            for s in shown:
-                desc = s.description[:_MAX_DESC_LENGTH]
-                req = f" (requires: {', '.join(s.required_skills)})" if s.required_skills else ""
-                lines.append(
-                    f"  <skill>\n"
-                    f"    <name>{s.name}</name>\n"
-                    f"    <description>{desc}{req}</description>\n"
-                    f"    <location>{s.file_path}</location>\n"
-                    f"  </skill>"
-                )
-            base += "\n\n<available_skills>\n" + "\n".join(lines) + "\n</available_skills>"
-            if len(enabled) > _MAX_DESC_SKILLS:
-                base += f"\n\n({len(enabled) - _MAX_DESC_SKILLS} more skills available. Use 'list' action to see all.)"
-        return base
 
     def get_schema(self) -> dict[str, Any]:
         return {
