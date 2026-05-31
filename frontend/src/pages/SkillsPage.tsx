@@ -1,19 +1,38 @@
-import { useEffect, useState } from 'react'
-import { Sparkles, Wrench } from 'lucide-react'
+import { useEffect, useState, useMemo } from 'react'
+import { Sparkles, Search, BookOpen, ChevronRight, X } from 'lucide-react'
 import { skillApi } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
-import type { Skill } from '@/types/skill'
+import type { Skill, SkillDetail, SkillCategories } from '@/types/skill'
+
+const CATEGORY_LABELS: Record<string, string> = {
+  discipline: '规范',
+  technique: '技法',
+  pattern: '模式',
+  reference: '参考',
+  uncategorized: '未分类',
+}
 
 export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([])
+  const [categories, setCategories] = useState<SkillCategories>({})
   const [loading, setLoading] = useState(true)
+  const [activeCategory, setActiveCategory] = useState<string>('全部')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null)
+  const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [toggling, setToggling] = useState<string | null>(null)
 
   useEffect(() => {
-    const loadSkills = async () => {
+    const load = async () => {
       setLoading(true)
       try {
-        const response = await skillApi.list()
-        setSkills(response.data)
+        const [skillsRes, categoriesRes] = await Promise.all([
+          skillApi.list(),
+          skillApi.categories(),
+        ])
+        setSkills(skillsRes.data)
+        setCategories(categoriesRes.data)
       } catch (error) {
         console.error('Failed to load skills:', error)
         useToastStore.getState().addToast('warning', '加载技能列表失败')
@@ -21,9 +40,79 @@ export default function SkillsPage() {
         setLoading(false)
       }
     }
-
-    loadSkills()
+    load()
   }, [])
+
+  const filteredSkills = useMemo(() => {
+    let result = skills
+    if (activeCategory !== '全部') {
+      result = result.filter((s) => s.category === activeCategory)
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.description.toLowerCase().includes(q)
+      )
+    }
+    return result
+  }, [skills, activeCategory, searchQuery])
+
+  const categoryTabs = useMemo(() => {
+    const tabs = ['全部']
+    const keys = Object.keys(categories)
+    if (keys.length > 0) {
+      tabs.push(...keys)
+    } else {
+      const uniqueCats = [...new Set(skills.map((s) => s.category))]
+      tabs.push(...uniqueCats)
+    }
+    return tabs
+  }, [categories, skills])
+
+  const handleSelectSkill = async (name: string) => {
+    if (selectedSkill === name) {
+      setSelectedSkill(null)
+      setSkillDetail(null)
+      return
+    }
+    setSelectedSkill(name)
+    setDetailLoading(true)
+    try {
+      const res = await skillApi.detail(name)
+      setSkillDetail(res.data)
+    } catch (error) {
+      console.error('Failed to load skill detail:', error)
+      useToastStore.getState().addToast('warning', '加载技能详情失败')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  const handleToggle = async (name: string, enabled: boolean) => {
+    setToggling(name)
+    try {
+      if (enabled) {
+        await skillApi.disable(name)
+      } else {
+        await skillApi.enable(name)
+      }
+      setSkills((prev) =>
+        prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))
+      )
+      if (skillDetail?.name === name) {
+        setSkillDetail((prev) =>
+          prev ? { ...prev, enabled: !enabled } : prev
+        )
+      }
+    } catch (error) {
+      console.error('Failed to toggle skill:', error)
+      useToastStore.getState().addToast('warning', '切换技能状态失败')
+    } finally {
+      setToggling(null)
+    }
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">
@@ -33,59 +122,155 @@ export default function SkillsPage() {
             <Sparkles className="h-4 w-4" />
             <span>技能</span>
           </div>
-          <h1 className="text-3xl font-semibold text-content-primary">当前可用技能</h1>
+          <h1 className="text-3xl font-semibold text-content-primary">
+            技能配置
+          </h1>
           <p className="mt-3 max-w-2xl text-[16px] leading-7 text-content-muted">
-            技能决定了 Agent 在特定任务下优先采用的工具组合和执行偏好。
+            技能决定了 Agent 在特定任务下优先采用的工具组合和执行偏好，你可以按类别浏览并管理技能的启用状态。
           </p>
+        </div>
+
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {categoryTabs.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  activeCategory === cat
+                    ? 'bg-content-primary text-surface-primary'
+                    : 'bg-surface-tertiary text-content-secondary hover:bg-surface-secondary'
+                }`}
+              >
+                {cat === '全部' ? '全部' : CATEGORY_LABELS[cat] || cat}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-muted" />
+            <input
+              type="text"
+              placeholder="搜索技能..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-2xl border border-edge bg-surface-tertiary py-2 pl-9 pr-4 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary sm:w-64"
+            />
+          </div>
         </div>
 
         {loading ? (
           <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
             正在加载技能列表...
           </div>
+        ) : filteredSkills.length === 0 ? (
+          <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
+            未找到匹配的技能
+          </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {skills.map((skill) => (
-              <div
-                key={skill.name}
-                className="rounded-3xl border border-edge bg-surface-primary p-6"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-semibold text-content-primary">{skill.name}</h2>
-                    <p className="mt-2 text-[15px] leading-7 text-content-muted">
-                      {skill.description}
-                    </p>
-                  </div>
-                  <span className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    skill.enabled
-                      ? 'bg-status-success-soft text-status-success'
-                      : 'bg-surface-tertiary text-content-muted'
-                  }`}>
-                    {skill.enabled ? '已启用' : '已停用'}
-                  </span>
-                </div>
+            {filteredSkills.map((skill) => (
+              <div key={skill.name}>
+                <div
+                  onClick={() => handleSelectSkill(skill.name)}
+                  className={`cursor-pointer rounded-3xl border bg-surface-primary p-6 transition-colors hover:bg-surface-secondary ${
+                    selectedSkill === skill.name
+                      ? 'border-content-primary'
+                      : 'border-edge'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-semibold text-content-primary">
+                          {skill.name}
+                        </h2>
+                        <span className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-muted">
+                          {CATEGORY_LABELS[skill.category] || skill.category}
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-[15px] leading-7 text-content-muted">
+                        {skill.description}
+                      </p>
+                    </div>
 
-                <div className="mt-5">
-                  <div className="mb-2 flex items-center gap-2 text-sm text-content-muted">
-                    <Wrench className="h-4 w-4" />
-                    <span>工具</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {skill.tools.map((tool) => (
-                      <span
-                        key={tool}
-                        className="rounded-full bg-surface-tertiary px-3 py-1 text-sm text-content-secondary"
+                    <div className="flex shrink-0 items-center gap-3">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleToggle(skill.name, skill.enabled)
+                        }}
+                        disabled={toggling === skill.name}
+                        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                          skill.enabled
+                            ? 'bg-status-success'
+                            : 'bg-surface-tertiary'
+                        } ${toggling === skill.name ? 'opacity-50' : ''}`}
                       >
-                        {tool}
-                      </span>
-                    ))}
+                        <span
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                            skill.enabled
+                              ? 'translate-x-6'
+                              : 'translate-x-1'
+                          }`}
+                        />
+                      </button>
+                      <ChevronRight
+                        className={`h-4 w-4 text-content-muted transition-transform ${
+                          selectedSkill === skill.name ? 'rotate-90' : ''
+                        }`}
+                      />
+                    </div>
                   </div>
+
+                  {skill.required_skills.length > 0 && (
+                    <div className="mt-4">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-xs text-content-muted">
+                        <BookOpen className="h-3.5 w-3.5" />
+                        <span>前置技能</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {skill.required_skills.map((req) => (
+                          <span
+                            key={req}
+                            className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-secondary"
+                          >
+                            {req}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="mt-5 rounded-2xl bg-surface-tertiary px-4 py-3 text-sm leading-6 text-content-muted">
-                  {skill.prompt_template}
-                </div>
+                {selectedSkill === skill.name && (
+                  <div className="rounded-b-3xl border border-t-0 border-edge bg-surface-tertiary px-6 py-5">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
+                        <BookOpen className="h-4 w-4" />
+                        <span>技能详情</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setSelectedSkill(null)
+                          setSkillDetail(null)
+                        }}
+                        className="rounded-full p-1 text-content-muted hover:bg-surface-primary"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    {detailLoading ? (
+                      <p className="text-sm text-content-muted">
+                        加载中...
+                      </p>
+                    ) : skillDetail ? (
+                      <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-content-secondary">
+                        {skillDetail.content}
+                      </pre>
+                    ) : null}
+                  </div>
+                )}
               </div>
             ))}
           </div>
