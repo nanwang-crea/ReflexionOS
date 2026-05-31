@@ -12,6 +12,8 @@ class TestSkillMetadata:
         assert meta.category == ""
         assert meta.required_skills == []
         assert meta.file_path == ""
+        assert meta.source == ""
+        assert meta.install_path == ""
         assert meta.enabled is True
         assert meta.content_loaded is False
 
@@ -169,6 +171,21 @@ class TestSkillRegistryBasicOps:
         dev_skills = registry.list_skills_by_category("dev")
         assert len(dev_skills) == 2
         assert all(s.category == "dev" for s in dev_skills)
+
+    def test_scan_sets_source_and_install_path(self, tmp_path: Path):
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: my-skill\ndescription: Test\nsource: https://github.com/x\n---\n\n# Test\n",
+        )
+
+        registry = SkillRegistry()
+        registry.scan_directory(tmp_path)
+
+        skill = registry.get_skill("my-skill")
+        assert skill is not None
+        assert skill.source == "https://github.com/x"
+        assert skill.install_path == str(skill_dir)
 
     def test_scan_nonexistent_directory(self):
         registry = SkillRegistry()

@@ -15,6 +15,7 @@ class SkillFrontmatter(BaseModel):
     description: str
     category: str = ""
     required_skills: list[str] = []
+    source: str = ""
 
 
 class ParsedSkill(BaseModel):
@@ -45,6 +46,7 @@ def parse_skill_md(path: Path | str) -> ParsedSkill:
                 description=data.get("description", ""),
                 category=data.get("category", ""),
                 required_skills=data.get("required_skills", []),
+                source=data.get("source", ""),
             )
         else:
             frontmatter = SkillFrontmatter(

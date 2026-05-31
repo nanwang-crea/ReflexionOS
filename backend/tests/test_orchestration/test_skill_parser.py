@@ -85,6 +85,22 @@ class TestParseSkillMd:
 
         assert result.frontmatter.required_skills == ["code_edit", "debug", "refactor"]
 
+    def test_skill_with_source_field(self, tmp_path: Path):
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        skill_file = skill_dir / "SKILL.md"
+        skill_file.write_text(
+            "---\n"
+            'name: my-skill\n'
+            'description: "Test skill"\n'
+            'source: "https://github.com/example/skills"\n'
+            "---\n\n# My Skill\n",
+        )
+
+        result = parse_skill_md(skill_file)
+
+        assert result.frontmatter.source == "https://github.com/example/skills"
+
     def test_nonexistent_file_raises_file_not_found(self):
         with pytest.raises(FileNotFoundError):
             parse_skill_md("/nonexistent/path/SKILL.md")

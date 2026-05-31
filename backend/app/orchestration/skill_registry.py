@@ -14,6 +14,8 @@ class SkillMetadata(BaseModel):
     category: str = ""
     required_skills: list[str] = []
     file_path: str = ""
+    source: str = ""
+    install_path: str = ""
     enabled: bool = True
     content_loaded: bool = False
 
@@ -48,6 +50,8 @@ class SkillRegistry:
                     category=fm.category,
                     required_skills=fm.required_skills,
                     file_path=parsed.file_path,
+                    source=fm.source,
+                    install_path=str(child),
                     enabled=True,
                     content_loaded=True,
                 )
