@@ -57,9 +57,15 @@ class LoopMessageBuilder:
             plan_parts = [context.plan.render_for_context()]
             current_step = context.plan.current_step
             if current_step is not None:
+                completed = sum(1 for s in context.plan.steps if s.status == "completed")
+                total = len(context.plan.steps)
                 plan_parts.append(
-                    f"Current step: {current_step.description}\n"
-                    "Only do work that directly advances this step."
+                    f"### Current focus (step {current_step.id}/{total}, {completed} completed):\n"
+                    f"Goal: {context.plan.goal}\n"
+                    f"Task: {current_step.description}\n"
+                    "You MUST focus on completing this step. "
+                    "When done, immediately call plan.step_done with findings. "
+                    "If blocked, call plan.block with the reason."
                 )
             if context.metadata.get("plan_update_required"):
                 plan_parts.append(
