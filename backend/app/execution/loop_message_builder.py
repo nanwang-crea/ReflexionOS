@@ -77,12 +77,30 @@ class LoopMessageBuilder:
                     "If blocked, call plan.block with the reason."
                 )
             if context.metadata.get("plan_update_required"):
-                plan_parts.append(
-                    "Plan update reminder: a single plan step may require multiple tool calls. "
-                    "Continue using tools while the current step is still in progress. "
-                    "When the current step is complete, blocked, or needs replanning, "
-                    "call plan.step_done, plan.block, or plan.adjust."
-                )
+                stagnant = context.metadata.get("steps_since_last_plan_update", 0)
+                if stagnant >= 15:
+                    plan_parts.append(
+                        "🔴 CRITICAL: 当前步骤已执行 15+ 轮工具调用但未更新计划状态。"
+                        "必须立即调用 plan.step_done 或 plan.block。"
+                        "忽略计划更新会导致执行效率严重下降。"
+                    )
+                elif stagnant >= 10:
+                    plan_parts.append(
+                        "🚨 Plan WARNING: 当前步骤已执行 10+ 轮工具调用但未更新计划状态。"
+                        "请立即评估当前步骤是否已完成，如果是，调用 plan.step_done。"
+                    )
+                elif stagnant >= 5:
+                    plan_parts.append(
+                        "⚠️ Plan reminder: 当前步骤已执行 5 轮工具调用但未更新计划状态。"
+                        "一个步骤可以需要多次工具调用，但如果步骤已完成，请调用 plan.step_done。"
+                    )
+                else:
+                    plan_parts.append(
+                        "Plan update reminder: a single plan step may require multiple tool calls. "
+                        "Continue using tools while the current step is still in progress. "
+                        "When the current step is complete, blocked, or needs replanning, "
+                        "call plan.step_done, plan.block, or plan.adjust."
+                    )
             completed_findings = context.plan.completed_findings()
             if completed_findings:
                 findings_text = "\n".join(f"- {f}" for f in completed_findings)
