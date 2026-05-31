@@ -16,6 +16,7 @@ class PlanStep:
             "id": self.id,
             "description": self.description,
             "status": self.status,
+            "findings": self.findings,
         }
 
 
@@ -106,6 +107,45 @@ class Plan:
             if s.status == "completed" and s.findings:
                 lines.append(f"  → {s.findings}")
         return "\n".join(lines)
+
+    def render_to_markdown(self) -> str:
+        lines = [f"# 执行计划", f"goal: {self.goal}", ""]
+        lines.append("## 步骤")
+        for s in self.steps:
+            findings_part = f"  findings: {s.findings}" if s.findings else ""
+            lines.append(f"{s.id}. [{s.status}] {s.description}")
+            if findings_part:
+                lines.append(findings_part)
+        return "\n".join(lines)
+
+    @classmethod
+    def parse_from_markdown(cls, text: str) -> "Plan":
+        import re
+        goal = ""
+        steps: list[PlanStep] = []
+        current_step_index = -1
+
+        for line in text.splitlines():
+            line = line.rstrip()
+            if line.startswith("goal:"):
+                goal = line[len("goal:"):].strip()
+                continue
+
+            step_match = re.match(r"^(\d+)\.\s*\[(\w+)\]\s*(.+)$", line)
+            if step_match:
+                step_id = int(step_match.group(1))
+                status = step_match.group(2)
+                description = step_match.group(3).strip()
+                steps.append(PlanStep(id=step_id, description=description, status=status))
+                if status == "in_progress":
+                    current_step_index = len(steps) - 1
+                continue
+
+            findings_match = re.match(r"^\s+findings:\s*(.+)$", line)
+            if findings_match and steps:
+                steps[-1].findings = findings_match.group(1).strip()
+
+        return cls(goal=goal, steps=steps, current_step_index=current_step_index)
 
     def to_dict(self) -> dict:
         return {
