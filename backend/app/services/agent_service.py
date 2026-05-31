@@ -43,9 +43,11 @@ from app.tools.memory_tool import MemoryTool
 from app.tools.edit_tool import EditTool
 from app.tools.explore_tool import ExploreTool
 from app.tools.plan_tool import PlanTool
+from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
+from app.tools.skill_tool import SkillTool
 
 from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
@@ -129,6 +131,7 @@ class AgentService:
         registry.register(MemoryTool())
         registry.register(PlanTool())
         registry.register(ExploreTool(path_security))
+        registry.register(SkillTool(global_skill_registry))
 
         logger.info(
             "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
