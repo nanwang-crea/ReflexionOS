@@ -618,9 +618,9 @@ describe('WorkspaceTranscript conversation rendering', () => {
           goal: '修复计划显示',
           currentStepIndex: 1,
           steps: [
-            { id: 1, description: '定位问题', status: 'completed', findings: '' },
-            { id: 2, description: '修改实现', status: 'in_progress', findings: '' },
-            { id: 3, description: '验证结果', status: 'pending', findings: '' },
+            { id: 1, description: '定位问题', status: 'completed' },
+            { id: 2, description: '修改实现', status: 'in_progress' },
+            { id: 3, description: '验证结果', status: 'pending' },
           ],
         }}
         messagesEndRef={createRef<HTMLDivElement>()}

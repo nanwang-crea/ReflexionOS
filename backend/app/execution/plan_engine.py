@@ -16,7 +16,6 @@ class PlanStep:
             "id": self.id,
             "description": self.description,
             "status": self.status,
-            "findings": self.findings,
         }
 
 

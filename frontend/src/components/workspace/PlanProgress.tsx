@@ -75,11 +75,6 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
               <span className={step.status === 'completed' ? 'line-through' : ''}>
                 {step.id}. {step.description}
               </span>
-              {step.findings && (
-                <p className="mt-0.5 text-sm text-content-muted no-underline">
-                  {step.findings}
-                </p>
-              )}
             </div>
           </li>
         ))}
