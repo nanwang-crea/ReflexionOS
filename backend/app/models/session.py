@@ -16,6 +16,7 @@ class SessionUpdate(BaseModel):
     title: str | None = None
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
+    agent_mode: str | None = None
 
 
 class Session(BaseModel):
@@ -26,6 +27,7 @@ class Session(BaseModel):
     title: str = DEFAULT_SESSION_TITLE
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
+    agent_mode: str = "build"
     last_event_seq: int = 0
     active_turn_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)

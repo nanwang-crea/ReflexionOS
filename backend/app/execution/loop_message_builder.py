@@ -42,13 +42,22 @@ class LoopMessageBuilder:
 
     def build(self, context: LoopContext) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""
-        system_prompt = self.prompt_manager.get_system_prompt(
-            working_directory=context.project_path or os.getcwd(),
-            platform=sys.platform,
-            is_git_repo=os.path.isdir(
-                os.path.join(context.project_path or os.getcwd(), ".git")
-            ),
-        )
+        if context.agent_mode == "plan":
+            system_prompt = self.prompt_manager.get_plan_mode_prompt(
+                working_directory=context.project_path or os.getcwd(),
+                platform=sys.platform,
+                is_git_repo=os.path.isdir(
+                    os.path.join(context.project_path or os.getcwd(), ".git")
+                ),
+            )
+        else:
+            system_prompt = self.prompt_manager.get_system_prompt(
+                working_directory=context.project_path or os.getcwd(),
+                platform=sys.platform,
+                is_git_repo=os.path.isdir(
+                    os.path.join(context.project_path or os.getcwd(), ".git")
+                ),
+            )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
         self._inject_context_sections(context, messages)

@@ -14,6 +14,7 @@ export interface ConversationSessionDto {
   title: string
   preferred_provider_id?: string | null
   preferred_model_id?: string | null
+  agent_mode?: string
   last_event_seq: number
   active_turn_id: string | null
   created_at: string
@@ -27,6 +28,7 @@ export function toConversationSession(dto: ConversationSessionDto): Conversation
     title: dto.title,
     preferredProviderId: dto.preferred_provider_id ?? undefined,
     preferredModelId: dto.preferred_model_id ?? undefined,
+    agentMode: (dto.agent_mode as AgentMode) ?? 'build',
     lastEventSeq: dto.last_event_seq,
     activeTurnId: dto.active_turn_id,
     createdAt: dto.created_at,
@@ -34,12 +36,15 @@ export function toConversationSession(dto: ConversationSessionDto): Conversation
   }
 }
 
+export type AgentMode = 'build' | 'plan'
+
 export interface ConversationSession {
   id: string
   projectId: string
   title: string
   preferredProviderId?: string
   preferredModelId?: string
+  agentMode?: AgentMode
   lastEventSeq: number
   activeTurnId: string | null
   createdAt: string

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config as AlembicConfig
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -123,11 +123,15 @@ class Database:
             inspector = inspect(self.engine)
             table_names = inspector.get_table_names()
             has_alembic_version = "alembic_version" in table_names
+            has_version_record = False
+            if has_alembic_version:
+                with self.engine.connect() as conn:
+                    result = conn.execute(text("SELECT version_num FROM alembic_version"))
+                    has_version_record = result.fetchone() is not None
 
-            if table_names and not has_alembic_version:
-                # 旧数据库已有表但从未用 Alembic 管理，标记为 head 避免重复建表
-                command.stamp(alembic_cfg, "head")
-                logger.info("旧数据库已标记为 Alembic head 版本")
+            if table_names and not has_version_record:
+                command.stamp(alembic_cfg, "d3185a24f1c8")
+                logger.info("旧数据库已标记为 Alembic initial_schema 版本")
 
             # upgrade head：空数据库会执行全部迁移建表；已有版本则增量迁移
             command.upgrade(alembic_cfg, "head")

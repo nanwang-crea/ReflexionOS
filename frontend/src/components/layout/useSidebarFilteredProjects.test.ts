@@ -19,6 +19,7 @@ function createSession(overrides: Partial<SessionSummary> = {}): SessionSummary 
     id: 'session-1',
     projectId: 'project-a',
     title: 'Session',
+    agentMode: 'build',
     lastEventSeq: 0,
     activeTurnId: null,
     createdAt: '2026-04-20T00:00:00Z',

@@ -24,6 +24,8 @@ interface ChatInputProps {
   onModelChange?: (modelId: string | null) => void
   selectionDisabled?: boolean
   runtimeStatusLabel?: string | null
+  agentMode?: 'build' | 'plan'
+  onModeChange?: (mode: 'build' | 'plan') => void
 }
 
 export function ChatInput({ 
@@ -42,6 +44,8 @@ export function ChatInput({
   onModelChange,
   selectionDisabled = false,
   runtimeStatusLabel = null,
+  agentMode = 'build',
+  onModeChange,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -106,6 +110,18 @@ export function ChatInput({
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-3 py-2">
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onModeChange?.(agentMode === 'build' ? 'plan' : 'build')}
+              disabled={selectionDisabled}
+              className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors disabled:cursor-not-allowed ${
+                agentMode === 'plan'
+                  ? 'bg-blue-500/15 text-blue-500'
+                  : 'bg-surface-tertiary text-content-secondary'
+              }`}
+            >
+              {agentMode === 'plan' ? 'PLAN' : 'BUILD'}
+            </button>
             {providerOptions.length > 0 ? (
               <>
                  <label className="flex items-center gap-2 text-xs text-content-muted">

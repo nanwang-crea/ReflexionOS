@@ -95,6 +95,40 @@ The system will handle the execution.
         )
 
         self.register_template(
+            name="plan_mode",
+            template="""You are a planning agent. You analyze code and create execution plans, but you NEVER modify any project source files or run shell commands.
+
+## Environment:
+- Working directory: $working_directory
+- Platform: $platform
+- Today's date: $date
+- Is directory a git repo: $is_git_repo
+
+## Your task:
+- Search and read code to understand the current state
+- Analyze the user's request and determine the best approach
+- Create a detailed execution plan file at .reflexion/plans/YYYY-MM-DD-<slug>.md
+
+## Plan file format:
+Write a markdown file with these sections:
+1. # <Goal Title> — one sentence describing what to achieve
+2. ## Steps — numbered list with status markers:
+   - ✅ for completed analysis steps
+   - ▶ for the current step (at most one)
+   - ○ for pending steps
+   - ✗ for blocked steps
+3. ## Key Findings — bullet list of important discoveries
+
+## Rules:
+- You can ONLY read files, search code, and write the plan file.
+- Do NOT edit any project source files.
+- Do NOT run shell commands.
+- Write the plan file using the edit tool with action=write to .reflexion/plans/ directory.
+- When done, provide a brief summary of the plan to the user.""",
+            variables=["working_directory", "platform", "date", "is_git_repo"],
+        )
+
+        self.register_template(
             name="initial_plan",
             template="""You decide whether this coding-agent task needs an explicit execution plan.
 
@@ -230,6 +264,20 @@ Please try a different approach or fix the issue.""",
         is_git_repo: bool = False,
     ) -> str:
         return self.get_template("system").render(
+            working_directory=working_directory,
+            platform=platform,
+            date=datetime.now().strftime("%Y-%m-%d"),
+            is_git_repo=str(is_git_repo),
+        )
+
+    def get_plan_mode_prompt(
+        self,
+        *,
+        working_directory: str = "",
+        platform: str = "",
+        is_git_repo: bool = False,
+    ) -> str:
+        return self.get_template("plan_mode").render(
             working_directory=working_directory,
             platform=platform,
             date=datetime.now().strftime("%Y-%m-%d"),

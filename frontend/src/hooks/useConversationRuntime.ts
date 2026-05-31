@@ -257,6 +257,9 @@ export function useConversationRuntime(
         currentStepIndex: data.current_step_index,
       })
     })
+    ws.on('session:mode_changed', (data: { session_id: string; mode: string }) => {
+      useConversationStore.getState().setAgentMode(sessionId, data.mode as import('@/types/conversation').AgentMode)
+    })
     ws.on('session:title_updated', (data) => {
       const store = useSessionStore.getState()
       const sessionsByProjectId = store.sessionsByProjectId
@@ -377,6 +380,16 @@ export function useConversationRuntime(
     wsRef.current.editAndRerun(payload)
   }, [])
 
+  const setMode = useCallback((mode: 'build' | 'plan') => {
+    if (!wsRef.current?.isConnected()) {
+      return
+    }
+    wsRef.current.send({
+      type: 'session:set_mode',
+      data: { mode },
+    })
+  }, [])
+
   const resetConversationRuntime = useCallback(() => {
     const sessionId = currentSessionId ?? connectedSessionIdRef.current
     closeWebSocket()
@@ -422,6 +435,7 @@ export function useConversationRuntime(
     approveTool,
     denyTool,
     editAndRerun,
+    setMode,
     resetConversationRuntime,
   }
 }

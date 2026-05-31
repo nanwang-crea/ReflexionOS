@@ -67,6 +67,11 @@ export interface SessionTitleUpdatedDto {
   title: string
 }
 
+export interface SessionModeChangedDto {
+  session_id: string
+  mode: string
+}
+
 interface SessionConversationEvents {
   'connection:open': { sessionId: string }
   'connection:error': { sessionId: string; error: unknown }
@@ -86,6 +91,7 @@ interface SessionConversationEvents {
   'llm:retry': LlmRetryDto
   'plan:updated': PlanDto
   'session:title_updated': SessionTitleUpdatedDto
+  'session:mode_changed': SessionModeChangedDto
 }
 
 function buildSyncMessage(afterSeq: number) {
@@ -256,6 +262,10 @@ class SessionConversationWebSocket {
     if (message.type === 'session:title_updated') {
       this.emit('session:title_updated', message.data as SessionTitleUpdatedDto)
     }
+
+    if (message.type === 'session:mode_changed') {
+      this.emit('session:mode_changed', message.data as SessionModeChangedDto)
+    }
   }
 
   on<K extends keyof SessionConversationEvents>(event: K, handler: (data: SessionConversationEvents[K]) => void): void {
@@ -303,6 +313,12 @@ class SessionConversationWebSocket {
   editAndRerun(payload: { messageId: string; newContent?: string | null; providerId?: string | null; modelId?: string | null }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildEditAndRerunMessage(payload)))
+    }
+  }
+
+  send(message: { type: string; data: unknown }): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(message))
     }
   }
 

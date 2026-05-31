@@ -18,6 +18,11 @@ class StepStatus(str, Enum):
     FAILED = "failed"
 
 
+class AgentMode(str, Enum):
+    BUILD = "build"
+    PLAN = "plan"
+
+
 class LoopStep(BaseModel):
     id: str = Field(default_factory=lambda: f"step-{uuid.uuid4().hex[:8]}")
     step_number: int

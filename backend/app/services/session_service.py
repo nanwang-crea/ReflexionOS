@@ -65,6 +65,10 @@ class SessionService:
                     "preferred_model_id",
                     session.preferred_model_id,
                 ),
+                "agent_mode": payload_data.get(
+                    "agent_mode",
+                    session.agent_mode,
+                ),
             }
         )
         return self.session_repo.update(updated_session)

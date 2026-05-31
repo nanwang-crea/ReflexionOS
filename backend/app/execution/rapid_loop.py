@@ -419,6 +419,7 @@ class RapidExecutionLoop:
         seed_messages: list[dict[str, str]] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
+        agent_mode: str = "build",
     ) -> LoopResult:
         """
         执行任务
@@ -443,6 +444,7 @@ class RapidExecutionLoop:
             task=task,
             project_path=project_path,
             run_id=loop_result.id,
+            agent_mode=agent_mode,
             seed_messages=seed_messages,
             supplemental_context=supplemental_context,
             system_sections=system_sections,
@@ -457,7 +459,8 @@ class RapidExecutionLoop:
         logger.info("开始执行任务: %s", task)
 
         try:
-            await self.initial_plan_bootstrapper.bootstrap(context)
+            if context.agent_mode != "plan":
+                await self.initial_plan_bootstrapper.bootstrap(context)
 
             handlers: dict[LoopPhase, Callable] = {
                 LoopPhase.PLANNING: self._handle_planning,
@@ -568,7 +571,11 @@ class RapidExecutionLoop:
         await self._compact_context(context)
 
         for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
-            tools = self.tool_definitions.for_context(context)
+            tools = (
+                self.tool_definitions.for_plan_mode()
+                if context.agent_mode == "plan"
+                else self.tool_definitions.for_context(context)
+            )
             messages = self.message_builder.build(context)
             call_started_at = time.perf_counter()
             first_chunk_latency: float | None = None

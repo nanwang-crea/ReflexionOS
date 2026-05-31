@@ -15,6 +15,7 @@ function buildSnapshot(): ConversationSnapshot {
       title: '会话',
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
+      agentMode: 'build',
       lastEventSeq: 2,
       activeTurnId: 'turn-1',
       createdAt: '2026-04-24T10:00:00Z',

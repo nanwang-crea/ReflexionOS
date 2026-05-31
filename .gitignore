@@ -51,3 +51,4 @@ log/
 */node_modules/
 .pnpm-store/
 backend/.reflexion/
+.reflexion/

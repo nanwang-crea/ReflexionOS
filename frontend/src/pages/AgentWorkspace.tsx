@@ -17,6 +17,7 @@ import { useProjectStore } from '@/stores/projectStore'
 import { ToastContainer } from '@/components/common/Toast'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
+import type { AgentMode } from '@/types/conversation'
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
@@ -29,9 +30,13 @@ export default function AgentWorkspace() {
     approveTool,
     denyTool,
     editAndRerun,
+    setMode,
     resetConversationRuntime,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan } = useConversationData(currentSessionId)
+  const agentMode = useConversationStore(
+    (s) => (currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build') as AgentMode
+  )
   const runsById = useConversationStore((s) =>
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
   )
@@ -42,6 +47,12 @@ export default function AgentWorkspace() {
   const togglePanel = useTerminalStore((s) => s.togglePanel)
   const createTerminal = useTerminalStore((s) => s.createTerminal)
   const currentProject = useProjectStore((s) => s.currentProject)
+
+  const toggleMode = useCallback(() => {
+    if (!currentSessionId || isRunning) return
+    const newMode: AgentMode = agentMode === 'build' ? 'plan' : 'build'
+    setMode(newMode)
+  }, [currentSessionId, agentMode, isRunning, setMode])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -54,10 +65,16 @@ export default function AgentWorkspace() {
         const cwd = currentProject?.path ?? ''
         createTerminal(cwd)
       }
+      if (e.key === 'Tab' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        const target = e.target as HTMLElement
+        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') return
+        e.preventDefault()
+        toggleMode()
+      }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [togglePanel, createTerminal, currentProject])
+  }, [togglePanel, createTerminal, currentProject, toggleMode])
 
   useEffect(() => {
     if (workspaceTab === 'code') {
@@ -137,6 +154,8 @@ export default function AgentWorkspace() {
                 <ChatInput
                   onSend={sendMessage}
                   onCancel={cancelRun}
+                  agentMode={agentMode}
+                  onModeChange={(mode) => setMode(mode)}
                   {...viewModel.inputProps}
                 />
                 {!viewModel.currentProject && (

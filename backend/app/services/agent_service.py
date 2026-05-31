@@ -41,6 +41,7 @@ from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
 from app.tools.memory_tool import MemoryTool
 from app.tools.edit_tool import EditTool
+from app.tools.explore_tool import ExploreTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -127,6 +128,7 @@ class AgentService:
         registry.register(EditTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
+        registry.register(ExploreTool(path_security))
 
         logger.info(
             "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
@@ -151,6 +153,8 @@ class AgentService:
             raise NotFoundValueError("会话不存在")
         if session.project_id != project.id:
             raise ValueError("会话不属于当前项目")
+
+        agent_mode = getattr(session, 'agent_mode', 'build') or 'build'
 
         before_seq = session.last_event_seq
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
@@ -177,6 +181,7 @@ class AgentService:
             project_path=project.path,
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
+            agent_mode=agent_mode,
         )
         return started
 
@@ -191,6 +196,7 @@ class AgentService:
         project_path: str,
         provider_id: str | None,
         model_id: str | None,
+        agent_mode: str = "build",
     ) -> asyncio.Task:
         running = self.running_tasks.get(run_id)
         if running is not None:
@@ -206,6 +212,7 @@ class AgentService:
                 project_path=project_path,
                 provider_id=provider_id,
                 model_id=model_id,
+                agent_mode=agent_mode,
             )
         )
         self.running_tasks[run_id] = execution_task
@@ -292,6 +299,7 @@ class AgentService:
         project_path: str,
         provider_id: str | None,
         model_id: str | None,
+        agent_mode: str = "build",
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
         cancel_event = asyncio.Event()
@@ -391,6 +399,7 @@ class AgentService:
                 seed_messages=assembly.recent_messages,
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
+                agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:
                 return

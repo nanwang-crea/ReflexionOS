@@ -5,7 +5,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.api.websocket_manager import ws_manager
 from app.app_services import agent_service
+from app.models.session import SessionUpdate
 from app.services.conversation_service import conversation_service
+from app.services.session_service import session_service
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,29 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                         )
                 except ValueError as exc:
                     await _send_error(websocket, code="invalid_request", message=str(exc))
+                continue
+
+            if msg_type == "session:set_mode":
+                mode = msg_data.get("mode", "build")
+                if mode not in ("build", "plan"):
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="mode must be 'build' or 'plan'",
+                    )
+                    continue
+
+                try:
+                    session_service.update_session(
+                        session_id,
+                        SessionUpdate(agent_mode=mode),
+                    )
+                    await websocket.send_json({
+                        "type": "session:mode_changed",
+                        "data": {"session_id": session_id, "mode": mode},
+                    })
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
             await _send_error(
