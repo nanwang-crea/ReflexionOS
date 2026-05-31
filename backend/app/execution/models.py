@@ -76,3 +76,5 @@ class RuntimeState:
     approval_result: dict | None = None
     read_only_passes_used: int = 0
     stagnant_read_only_passes: int = 0
+    steps_since_last_plan_update: int = 0
+    _plan_exit_confirmed: bool = False
