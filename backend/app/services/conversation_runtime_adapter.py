@@ -515,7 +515,7 @@ class ConversationRuntimeAdapter:
         return events
 
     def _create_assistant_message_event(
-        self, *, message_id: str, turn_message_index: int
+        self, *, message_id: str, turn_message_index: int, display_mode: str = "default"
     ) -> ConversationEvent:
         return self._new_event(
             event_type=EventType.MESSAGE_CREATED,
@@ -528,7 +528,7 @@ class ConversationRuntimeAdapter:
                 "role": MessageRole.ASSISTANT,
                 "message_type": "assistant_message",
                 "turn_message_index": turn_message_index,
-                "display_mode": "default",
+                "display_mode": display_mode,
                 "content_text": "",
                 "payload_json": (
                     {"reasoning_text": self._assistant_reasoning}
@@ -596,6 +596,7 @@ class ConversationRuntimeAdapter:
             self._create_assistant_message_event(
                 message_id=message_id,
                 turn_message_index=self._reserve_turn_message_index(),
+                display_mode="working_note",
             ),
         ]
         if self._assistant_reasoning:

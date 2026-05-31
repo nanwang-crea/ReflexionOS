@@ -89,6 +89,33 @@ function ThinkingBlock({
   )
 }
 
+function WorkingNoteBlock({ text }: { text: string }) {
+  const [isExpanded, setIsExpanded] = useState(false)
+
+  return (
+    <div className="mb-4 max-w-[920px] rounded-lg border border-edge bg-surface-secondary/50 px-3 py-2 text-sm leading-6 text-content-muted">
+      <button
+        type="button"
+        onClick={() => setIsExpanded((value) => !value)}
+        aria-expanded={isExpanded}
+        className="flex w-full items-center gap-2 text-left"
+      >
+        {isExpanded ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+        )}
+        <span>过程说明</span>
+      </button>
+      {isExpanded && (
+        <div className="mt-2 whitespace-pre-wrap pl-5 text-content-secondary">
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface WorkspaceTranscriptProps {
   loaded: boolean
   configured: boolean
@@ -322,6 +349,7 @@ export function WorkspaceTranscript({
               const errorMessage = (message.payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
               const reasoningText = getAssistantReasoningText(message)
               const shouldCollapseThinking = message.streamState !== 'streaming'
+              const isWorkingNote = message.displayMode === 'working_note'
 
               return (
                 <SlideIn key={message.id} direction="up">
@@ -332,7 +360,10 @@ export function WorkspaceTranscript({
                         isStreaming={!shouldCollapseThinking}
                       />
                     )}
-                    {message.contentText && (
+                    {isWorkingNote && message.contentText && (
+                      <WorkingNoteBlock text={message.contentText} />
+                    )}
+                    {!isWorkingNote && message.contentText && (
                       <MarkdownRenderer
                         content={message.contentText}
                         variant="plain"

@@ -17,12 +17,24 @@ class InstallPluginRequest(BaseModel):
     specifier: str
 
 
+_module_loader: PluginLoader | None = None
+
+
 def _get_resolver_and_loader():
+    global _module_loader
     from app.config.settings import config_manager
     plugin_settings = config_manager.settings.plugin
     resolver = PackageResolver(Path(plugin_settings.package_cache_dir))
-    loader = PluginLoader(resolver)
-    return resolver, loader
+    if _module_loader is None:
+        _module_loader = PluginLoader(resolver)
+        try:
+            installed = resolver.list_installed()
+            if installed:
+                _module_loader.load_all(installed)
+                logger.info("Auto-loaded %d installed plugins into singleton loader", len(installed))
+        except Exception:
+            logger.exception("Failed to auto-load installed plugins")
+    return resolver, _module_loader
 
 
 @router.get("/")

@@ -26,31 +26,24 @@ async def lifespan(_app: FastAPI):
     from pathlib import Path
 
     from app.config.settings import config_manager
-    from app.orchestration.package_resolver import PackageResolver
-    from app.orchestration.plugin_loader import PluginLoader
     from app.orchestration.skill_registry import skill_registry
 
     plugin_settings = config_manager.settings.plugin
     skill_settings = config_manager.settings.skill
 
-    packages = []
     plugin_skill_dirs = []
 
     if plugin_settings.plugins:
-        resolver = PackageResolver(Path(plugin_settings.package_cache_dir))
+        from app.api.routes.plugins import _get_resolver_and_loader
+
+        resolver, loader = _get_resolver_and_loader()
         try:
             packages = resolver.resolve_all(plugin_settings.plugins)
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
-
-        loader = PluginLoader(resolver)
-        try:
             loader.load_all(packages)
             plugin_skill_dirs = loader.get_all_skill_dirs()
         except Exception as e:
             import logging
-            logging.getLogger(__name__).exception("Failed to load plugins: %s", e)
+            logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
 
     if skill_settings.auto_scan:
         skill_registry.scan_all(plugin_skill_dirs=plugin_skill_dirs)

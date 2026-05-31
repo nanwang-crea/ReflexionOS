@@ -9,6 +9,14 @@ export const apiClient = axios.create({
   },
 })
 
+apiClient.interceptors.request.use((config) => {
+  const url = config.url
+  if (url && !url.endsWith('/')) {
+    config.url = url + '/'
+  }
+  return config
+})
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {

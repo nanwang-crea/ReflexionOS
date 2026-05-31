@@ -183,7 +183,7 @@ def test_maps_approval_required_to_waiting_tool_trace_and_run_event(tmp_path):
     assert run.status == RunStatus.WAITING_FOR_APPROVAL
 
 
-def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_path):
+def test_marks_assistant_segments_before_tool_traces_as_working_notes(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(
         conversation_service=service,
@@ -218,14 +218,18 @@ def test_flushes_assistant_segments_before_tool_traces_to_preserve_timeline(tmp_
     messages = service.list_turn_messages(started.turn.id)
 
     assert [
-        (message.message_type, message.content_text or message.payload_json.get("tool_name"))
+        (
+            message.message_type,
+            message.content_text or message.payload_json.get("tool_name"),
+            message.display_mode,
+        )
         for message in messages
     ] == [
-        (MessageType.USER_MESSAGE, "请检查项目"),
-        (MessageType.ASSISTANT_MESSAGE, "我先检查配置。"),
-        (MessageType.TOOL_TRACE, "file"),
-        (MessageType.ASSISTANT_MESSAGE, "配置没问题，我再跑测试。"),
-        (MessageType.TOOL_TRACE, "shell"),
+        (MessageType.USER_MESSAGE, "请检查项目", "default"),
+        (MessageType.ASSISTANT_MESSAGE, "我先检查配置。", "working_note"),
+        (MessageType.TOOL_TRACE, "file", "default"),
+        (MessageType.ASSISTANT_MESSAGE, "配置没问题，我再跑测试。", "working_note"),
+        (MessageType.TOOL_TRACE, "shell", "default"),
     ]
 
 

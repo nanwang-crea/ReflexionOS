@@ -11,9 +11,12 @@ from app.orchestration.skill_registry import SkillMetadata, SkillSource, skill_r
 
 @pytest.fixture(autouse=True)
 def _reset():
+    import app.api.routes.plugins as plugins_module
+    plugins_module._module_loader = None
     skill_registry.skills.clear()
     skill_registry._content_cache.clear()
     yield
+    plugins_module._module_loader = None
     skill_registry.skills.clear()
     skill_registry._content_cache.clear()
 
