@@ -1,6 +1,12 @@
 ---
 name: code-implementation-discipline
 description: Use when implementation requests contain scope pressure, ambiguous success criteria, quick-patch language, cleanup-without-band-aids language, or future-proofing pressure that can cause premature coding or under-verification.
+category: discipline
+required_skills:
+  - brainstorming
+  - systematic-debugging
+  - test-driven-development
+  - verification-before-completion
 ---
 
 # Code Implementation Discipline
