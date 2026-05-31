@@ -11,6 +11,8 @@ interface PlanProgressProps {
 
 export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onToggleMinimize }: PlanProgressProps) {
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
+  const failedCount = plan.steps.filter((s) => s.status === 'failed' || s.status === 'blocked').length
+  const cancelledCount = plan.steps.filter((s) => s.status === 'cancelled').length
   const totalCount = plan.steps.length
 
   // When minimized, the plan is shown as a compact bar above the input
@@ -31,7 +33,9 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
         <div className="flex min-w-0 items-center gap-2 text-content-muted">
           <ListChecks className="h-4 w-4 shrink-0 text-content-secondary" />
           <span className="truncate text-[15px]">
-            共 {totalCount} 个任务，已经完成 {completedCount} 个
+            共 {totalCount} 个任务，已完成 {completedCount} 个
+            {failedCount > 0 && `，失败 ${failedCount} 个`}
+            {cancelledCount > 0 && `，取消 ${cancelledCount} 个`}
           </span>
         </div>
         <button
@@ -53,6 +57,8 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
                step.status === 'in_progress' && 'font-medium text-content-primary',
                step.status === 'pending' && 'text-content-muted',
               step.status === 'blocked' && 'text-status-error',
+              step.status === 'failed' && 'text-status-error',
+              step.status === 'cancelled' && 'text-content-muted',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -70,9 +76,15 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
               {step.status === 'blocked' && (
                 <XCircle className="h-4 w-4 text-status-error" />
               )}
+              {step.status === 'failed' && (
+                <XCircle className="h-4 w-4 text-status-error" />
+              )}
+              {step.status === 'cancelled' && (
+                <Circle className="h-4 w-4 text-content-muted" />
+              )}
             </span>
             <div className="min-w-0">
-              <span className={step.status === 'completed' ? 'line-through' : ''}>
+              <span className={step.status === 'completed' || step.status === 'cancelled' ? 'line-through' : ''}>
                 {step.id}. {step.description}
               </span>
             </div>

@@ -101,7 +101,9 @@ $tool_list
 ## Execution plan:
 - Initial plan creation is handled before normal execution starts.
 - If an execution plan is present, focus on the current step.
-- Use plan.step_done, plan.block, or plan.adjust to keep it current.
+- Update the plan status in real time; do not batch completions.
+- When a step is fully done, immediately call plan.step_done before moving to the next step.
+- When a step is blocked, call plan.block with the reason.
 - Do not create a second plan during normal execution.""",
             variables=[],
         )

@@ -69,7 +69,7 @@ class LoopMessageBuilder:
                             "Plan update reminder: a single plan step may require multiple tool calls. "
                             "Continue using tools while the current step is still in progress. "
                             "When the current step is complete, blocked, or needs replanning, "
-                            "call plan.step_done, plan.block, or plan.adjust with concrete findings."
+                            "call plan.step_done, plan.block, or plan.adjust."
                         ),
                     )
                 )

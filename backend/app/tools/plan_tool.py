@@ -20,7 +20,14 @@ class PlanTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "Manage execution plans: create, step_done, block, adjust (only for complex tasks)"
+        return (
+            "Manage execution plans for complex multi-step tasks. "
+            "Rules: (1) Update plan status in real time, do not batch completions. "
+            "(2) When a step is fully done, call step_done BEFORE doing work for the next step. "
+            "(3) When a step is blocked, call block with the reason. "
+            "(4) Keep exactly one step in_progress at a time. "
+            "(5) Only use for tasks that need 3+ distinct steps."
+        )
 
     def get_schema(self) -> dict[str, Any]:
         return self._build_schema(
@@ -34,7 +41,7 @@ class PlanTool(BaseTool):
                 "steps": self._steps_property("For create: list of high-level step descriptions"),
                 "findings": {
                     "type": "string",
-                    "description": "For step_done: key information obtained in this step",
+                    "description": "For step_done: key information obtained in this step (required, cannot be empty)",
                 },
                 "reason": {
                     "type": "string",
@@ -63,12 +70,17 @@ class PlanTool(BaseTool):
 
     def get_progress_schema(self) -> dict[str, Any]:
         return self._build_schema(
-            description="Update step status, block reason, or remaining steps of an existing plan",
+            description=(
+                "Update the current plan step. "
+                "Call step_done immediately when a step is complete — do not wait or batch. "
+                "Call block when a step cannot proceed. "
+                "Call adjust to replace remaining steps if the plan needs replanning."
+            ),
             actions=["step_done", "block", "adjust"],
             properties={
                 "findings": {
                     "type": "string",
-                    "description": "For step_done: key information obtained in this step",
+                    "description": "For step_done: key information obtained in this step (required, cannot be empty)",
                 },
                 "reason": {
                     "type": "string",

@@ -518,6 +518,16 @@ class RapidExecutionLoop:
         finally:
             if context is not None:
                 loop_result.compacted_summary = context.compacted_summary
+
+                if context.plan is not None:
+                    if loop_result.status == LoopStatus.COMPLETED:
+                        context.plan.finalize_for_completion()
+                    elif loop_result.status == LoopStatus.FAILED:
+                        context.plan.finalize_for_failure()
+                    elif loop_result.status == LoopStatus.CANCELLED:
+                        context.plan.finalize_for_cancellation()
+                    await self._emit("plan:updated", context.plan.to_dict())
+
             self._runtime = None
             loop_result.total_duration = time.time() - start_time
             loop_result.completed_at = datetime.now()

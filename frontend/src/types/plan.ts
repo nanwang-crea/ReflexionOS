@@ -1,7 +1,7 @@
 export interface PlanStep {
   id: number
   description: string
-  status: 'pending' | 'in_progress' | 'completed' | 'blocked'
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked' | 'failed' | 'cancelled'
 }
 
 export interface Plan {

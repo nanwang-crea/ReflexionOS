@@ -53,6 +53,7 @@ class InitialPlanBootstrapper:
             result = await plan_tool.execute(tool_call.arguments)
             if result.success and plan_tool.get_plan() is not None:
                 context.plan = plan_tool.get_plan()
+                context.metadata["plan_update_required"] = False
                 await self.emit("plan:updated", context.plan.to_dict())
             elif result.error:
                 context.add_message("system", f"初始计划创建失败: {result.error}")

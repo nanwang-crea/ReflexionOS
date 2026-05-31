@@ -8,7 +8,7 @@ from typing import Literal
 class PlanStep:
     id: int
     description: str
-    status: Literal["pending", "in_progress", "completed", "blocked"] = "pending"
+    status: Literal["pending", "in_progress", "completed", "blocked", "failed", "cancelled"] = "pending"
     findings: str = ""
 
     def to_dict(self) -> dict:
@@ -70,6 +70,27 @@ class Plan:
     def completed_findings(self) -> list[str]:
         return [s.findings for s in self.steps if s.status == "completed" and s.findings]
 
+    def finalize_for_completion(self):
+        for step in self.steps:
+            if step.status == "in_progress":
+                step.status = "completed"
+            elif step.status == "pending":
+                step.status = "completed"
+
+    def finalize_for_failure(self):
+        for step in self.steps:
+            if step.status == "in_progress":
+                step.status = "failed"
+            elif step.status == "pending":
+                step.status = "pending"
+
+    def finalize_for_cancellation(self):
+        for step in self.steps:
+            if step.status == "in_progress":
+                step.status = "cancelled"
+            elif step.status == "pending":
+                step.status = "cancelled"
+
     def render_for_context(self) -> str:
         lines = [f"## 执行计划\n目标: {self.goal}", ""]
         for s in self.steps:
@@ -78,6 +99,8 @@ class Plan:
                 "in_progress": "►",
                 "completed": "✓",
                 "blocked": "✗",
+                "failed": "✗",
+                "cancelled": "○",
             }[s.status]
             lines.append(f"{mark} {s.description}")
             if s.status == "completed" and s.findings:
