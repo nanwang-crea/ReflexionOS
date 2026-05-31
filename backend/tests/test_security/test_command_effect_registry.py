@@ -1,11 +1,11 @@
 # backend/tests/test_security/test_command_effect_registry.py
 import pytest
 
-from app.security.effect_category import EffectCategory
 from app.security.command_effect_registry import (
     CommandEffectEntry,
     CommandEffectRegistry,
 )
+from app.security.effect_category import EffectCategory
 
 
 class TestCommandEffectEntry:

@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+
 from app.main import app
 from app.orchestration.skill_registry import SkillMetadata, skill_registry
 

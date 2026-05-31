@@ -139,7 +139,7 @@ class TestEditToolStrReplace:
         })
         assert result.success is True
         content = f.read_bytes()
-        assert b"line_one\r\nline2\r\n" == content
+        assert content == b"line_one\r\nline2\r\n"
 
     @pytest.mark.asyncio
     async def test_same_old_new_rejected(self, edit_tool, temp_dir):

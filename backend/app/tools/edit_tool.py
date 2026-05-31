@@ -85,8 +85,8 @@ class EditTool(BaseTool):
 
     async def _str_replace(self, args: dict[str, Any]) -> ToolResult:
         path = self.security.validate_write_path(args["path"])
-        old_string = args.get("old_string", None)
-        new_string = args.get("new_string", None)
+        old_string = args.get("old_string")
+        new_string = args.get("new_string")
 
         if old_string is None:
             return ToolResult(success=False, error="缺少 old_string 参数")

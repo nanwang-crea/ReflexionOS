@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generator
+from collections.abc import Generator
 
 
 def _exact_replacer(content: str, old_string: str) -> Generator[str, None, None]:
@@ -63,7 +63,7 @@ def _anchor_replacer(content: str, old_string: str) -> Generator[str, None, None
                 yield candidate
             continue
         match_count = sum(
-            1 for a, b in zip(middle_old, block[1:-1]) if a.strip() == b.strip()
+            1 for a, b in zip(middle_old, block[1:-1], strict=False) if a.strip() == b.strip()
         )
         if match_count / len(middle_old) >= 0.5:
             candidate = "\n".join(block)

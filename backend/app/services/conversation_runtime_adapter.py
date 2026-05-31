@@ -1,6 +1,5 @@
 from datetime import datetime
 
-from app.errors import NotFoundValueError
 from app.ids import new_event_id, new_message_id
 from app.llm.base import MessageRole
 from app.models.conversation import (

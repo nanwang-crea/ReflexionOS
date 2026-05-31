@@ -15,8 +15,8 @@ class ExploreTool(BaseTool):
         self._glob_tool = None
         if path_security:
             from app.tools.file_tool import FileTool
-            from app.tools.grep_tool import GrepTool
             from app.tools.glob_tool import GlobTool
+            from app.tools.grep_tool import GrepTool
             self._file_tool = FileTool(path_security)
             self._grep_tool = GrepTool(path_security)
             self._glob_tool = GlobTool(path_security)
@@ -93,7 +93,7 @@ class ExploreTool(BaseTool):
     def _extract_keywords(self, query: str) -> list[str]:
         stop_words = {
             "how", "does", "the", "a", "an", "is", "are", "what", "where",
-            "which", "who", "when", "why", "do", "does", "can", "all",
+            "which", "who", "when", "why", "do", "can", "all",
             "find", "search", "look", "for", "in", "on", "to", "from",
             "and", "or", "of", "with", "by", "that", "this", "it",
             "works", "work", "related", "about",

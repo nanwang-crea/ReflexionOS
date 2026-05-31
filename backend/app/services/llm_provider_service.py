@@ -45,6 +45,7 @@ class LLMProviderService:
             id=model_id or f"model-{uuid4().hex[:8]}",
             display_name=display_name,
             model_name=model_name,
+            context_window=model.context_window,
             enabled=model.enabled,
         )
 
@@ -177,6 +178,7 @@ class LLMProviderService:
             provider_type=provider.provider_type,
             model_id=selected_model.id,
             model=selected_model.model_name,
+            context_window=selected_model.context_window,
             api_key=provider.api_key,
             base_url=provider.base_url,
             temperature=temperature,

@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 
-from app.errors import NotFoundValueError, SecurityError, ValidationError
+from app.errors import SecurityError, ValidationError
 from app.security.path_security import PathSecurity, create_project_security
 from app.services.project_service import project_service
 

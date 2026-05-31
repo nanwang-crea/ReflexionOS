@@ -23,7 +23,6 @@ from app.errors import AppError
 async def lifespan(_app: FastAPI):
     agent_service.start_background_tasks()
 
-    from pathlib import Path
 
     from app.config.settings import config_manager
     from app.orchestration.skill_registry import skill_registry

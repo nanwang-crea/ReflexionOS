@@ -3,8 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.context_manager import LoopContext
+from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.llm.base import LLMResponse, LLMToolCall, StreamChunk

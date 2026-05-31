@@ -1,8 +1,8 @@
 """审批流 — 只负责等待/接收审批结果，返回结构化 ApprovalResult。"""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from app.execution.models import LoopStep
 

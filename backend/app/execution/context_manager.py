@@ -119,3 +119,62 @@ class LoopContext:
             pass
         else:
             self.group_count += 1
+
+    def prune_tool_outputs(
+        self,
+        protect_recent_groups: int = 2,
+        minimum_recovery_tokens: int = 20_000,
+        protected_tool_names: set[str] | None = None,
+    ) -> int:
+        """
+        轻量裁剪：清除旧 tool output 的 content，回收 token。
+        保护最近 protect_recent_groups 组消息，且至少回收 minimum_recovery_tokens 才执行。
+        返回实际回收的 token 数。
+        """
+        from app.execution.loop_message_builder import LoopMessageBuilder
+
+        if protected_tool_names is None:
+            protected_tool_names = {"skill"}
+
+        grouped = LoopMessageBuilder._group_messages_static(self.messages)
+        if len(grouped) <= protect_recent_groups:
+            return 0
+
+        older_groups = grouped[:-protect_recent_groups]
+        reclaimable = 0
+        candidates: list[tuple[int, dict[str, Any]]] = []
+
+        for group in older_groups:
+            for msg in group:
+                if msg["role"] != MessageRole.TOOL:
+                    continue
+                content = msg.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+                if content == "[Old tool result content cleared]":
+                    continue
+                is_protected = any(
+                    name in protected_tool_names
+                    for tc in (group[0].get("tool_calls") or [])
+                    for name in [tc.get("name", "")]
+                )
+                if is_protected:
+                    continue
+                msg_tokens = count_messages_tokens([msg])
+                reclaimable += msg_tokens
+                candidates.append((msg_tokens, msg))
+
+        if reclaimable < minimum_recovery_tokens:
+            return 0
+
+        recovered = 0
+        for msg_tokens, msg in candidates:
+            msg["content"] = "[Old tool result content cleared]"
+            recovered += msg_tokens
+
+        self.recalculate_tokens()
+        logger.info(
+            "Pruned %d tool outputs, recovered ~%d tokens, remaining total_tokens=%d",
+            len(candidates), recovered, self.total_tokens,
+        )
+        return recovered

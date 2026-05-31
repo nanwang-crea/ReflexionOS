@@ -3,9 +3,8 @@ from pathlib import Path
 import pytest
 
 from app.models.project import Project
-from app.models.session import Session
+from app.models.session import Session, SessionCreate, SessionUpdate
 from app.services.conversation_service import ConversationService
-from app.models.session import SessionCreate, SessionUpdate
 from app.services.session_service import SessionService
 from app.storage.database import Database
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository

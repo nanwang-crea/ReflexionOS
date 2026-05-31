@@ -2,8 +2,8 @@ from collections.abc import Awaitable, Callable
 
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
-from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.plan_file_sync import PlanFileSync
+from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.llm.base import LLMToolCall, UniversalLLMInterface
 
 

@@ -524,13 +524,7 @@ class CommandPolicy:
                     i += 2  # Skip both |
                     continue
                 # Check for | (single pipe)
-                elif ch == '|':
-                    segments.append(''.join(current))
-                    current = []
-                    i += 1
-                    continue
-                # Check for ; (semicolon)
-                elif ch == ';':
+                elif ch == '|' or ch == ';':
                     segments.append(''.join(current))
                     current = []
                     i += 1

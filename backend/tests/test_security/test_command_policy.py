@@ -4,7 +4,7 @@ import tempfile
 import pytest
 
 from app.security.command_effect_registry import CommandEffectRegistry
-from app.security.command_policy import CommandAction, CommandDecision, CommandPolicy
+from app.security.command_policy import CommandAction, CommandPolicy
 from app.security.effect_category import EffectCategory
 from app.security.path_security import PathSecurity
 from app.security.shell_security import ShellSecurity

@@ -14,12 +14,18 @@ class ExecutionSettings(BaseModel):
 
     max_steps: int = Field(default=1000, ge=1, le=1000)
     max_execution_time: int = Field(default=600)
-    # Tier 2: 超出窗口的旧消息逐条截断但始终可见（tool output 截断至 tool_output_max_chars）
-    tier2_truncate_threshold_tokens: int = Field(default=50_000, ge=1)
-    # Tier 3: Tier 2 之后仍超限，将旧消息经 LLM 压缩为摘要（不可逆，但可 session_recall 回溯）
-    tier3_compact_threshold_tokens: int = Field(default=100_000, ge=1)
+    # 预留的输出 token buffer，usable = context_window - compaction_buffer
+    compaction_buffer: int = Field(default=20_000, ge=1_000)
+    # Tier 2 触发比例：usable * tier2_ratio
+    tier2_ratio: float = Field(default=0.5, ge=0.1, le=1.0)
+    # Tier 3 触发比例：usable * tier3_ratio
+    tier3_ratio: float = Field(default=0.85, ge=0.1, le=1.0)
     # Tier 2 中 tool output 的最大字符数，超出部分 head+tail 截断并标记 [可 session_recall 取回]
     tool_output_max_chars: int = Field(default=2_400, ge=100)
+    # Pruning: 保护的最近消息分组数
+    prune_protect_groups: int = Field(default=2, ge=1)
+    # Pruning: 最少回收 token 数才触发
+    prune_minimum_recovery_tokens: int = Field(default=20_000, ge=1_000)
 
 
 class MemorySettings(BaseModel):

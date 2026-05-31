@@ -1,6 +1,5 @@
 # backend/app/security/command_effect_registry.py
 import logging
-import re
 
 from pydantic import BaseModel
 

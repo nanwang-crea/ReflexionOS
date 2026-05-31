@@ -2,12 +2,12 @@ import logging
 from contextlib import contextmanager
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from alembic import command
+from alembic.config import Config as AlembicConfig
 from app.storage.models import Base
 
 logger = logging.getLogger(__name__)

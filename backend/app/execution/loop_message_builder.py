@@ -221,7 +221,7 @@ class LoopMessageBuilder:
         """
         构建 Tier 2 消息：超出窗口的旧消息逐条截断但始终可见。
         tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [session_recall can retrieve]。
-        保持原始消息角色，只截断内容。
+        保持原始消息角色，确保 tool_call_id / tool_calls 关联不被破坏。
         """
         grouped = self._group_messages(context.messages)
         if len(grouped) <= self.max_context_groups:
@@ -234,9 +234,20 @@ class LoopMessageBuilder:
             for msg in group:
                 content = msg.get("content")
                 if not isinstance(content, str) or not content.strip():
+                    if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
+                        tool_calls_list = msg.get("tool_calls")
+                        kwargs: dict = {"role": MessageRole.ASSISTANT, "content": content}
+                        if tool_calls_list:
+                            kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
+                        tier2.append(LLMMessage(**kwargs))
                     continue
 
                 if msg["role"] == MessageRole.TOOL:
+                    if content == "[Old tool result content cleared]":
+                        tier2.append(
+                            LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
+                        )
+                        continue
                     if len(content) > self.tool_output_max_chars:
                         content = truncate_head_tail(
                             content,
@@ -290,6 +301,11 @@ class LoopMessageBuilder:
         ]
 
     def _group_messages(self, messages: list[dict]) -> list[list[dict]]:
+        """将消息按 assistant+tool_calls 开组的方式分组，确保 tool_call 与 tool output 不被拆分"""
+        return self._group_messages_static(messages)
+
+    @staticmethod
+    def _group_messages_static(messages: list[dict]) -> list[list[dict]]:
         """将消息按 assistant+tool_calls 开组的方式分组，确保 tool_call 与 tool output 不被拆分"""
         grouped: list[list[dict]] = []
         active_tool_group: list[dict] | None = None

@@ -6,7 +6,6 @@ from typing import Literal
 from app.models.approval import (
     AllowApprovalDecision,
     ApprovalDecision,
-    ApprovalStatus,
     PendingToolApproval,
 )
 

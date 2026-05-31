@@ -4,7 +4,7 @@ import pytest
 
 from app.errors import NotFoundValueError
 from app.ids import new_message_id
-from app.models.conversation import ConversationEvent, EventType, MessageType, RunStatus
+from app.models.conversation import ConversationEvent, EventType, MessageType
 from app.models.session import Session
 from app.services.conversation_service import ConversationService
 from app.storage.database import Database

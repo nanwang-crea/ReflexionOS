@@ -5,7 +5,16 @@ from threading import Lock, RLock
 from app.errors import NotFoundValueError
 from app.ids import new_event_id, new_message_id, new_run_id, new_turn_id
 from app.llm.base import MessageRole
-from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus, Turn, TurnStatus
+from app.models.conversation import (
+    ConversationEvent,
+    EventType,
+    Message,
+    MessageType,
+    Run,
+    RunStatus,
+    Turn,
+    TurnStatus,
+)
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository

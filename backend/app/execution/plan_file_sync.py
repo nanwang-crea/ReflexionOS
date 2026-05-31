@@ -44,7 +44,7 @@ class PlanFileSync:
     def read(self, path: str) -> Plan | None:
         if not os.path.exists(path):
             return None
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
         return Plan.parse_from_markdown(content)
 

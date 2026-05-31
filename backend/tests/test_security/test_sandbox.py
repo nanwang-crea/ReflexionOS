@@ -1,5 +1,4 @@
 # backend/tests/test_security/test_sandbox.py
-import shlex
 from unittest.mock import patch
 
 import pytest
@@ -9,10 +8,9 @@ from app.security.sandbox.factory import NullSandbox, create_sandbox
 from app.security.sandbox.landlock import LandlockSandbox
 from app.security.sandbox.landlock_profile import LandlockProfileBuilder
 from app.security.sandbox.profile_builder import ProfileBuilder
+from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
 from app.security.sandbox.seatbelt import SeatbeltSandbox
 from app.security.sandbox.seatbelt_profile import SeatbeltProfileBuilder
-from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
-
 
 # ---------------------------------------------------------------------------
 # SandboxLevel enum

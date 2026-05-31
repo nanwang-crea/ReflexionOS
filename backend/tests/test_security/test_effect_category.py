@@ -1,14 +1,15 @@
 # backend/tests/test_security/test_effect_category.py
 import enum
+
 import pytest
 
+from app.security.command_policy import CommandAction
 from app.security.effect_category import (
-    EffectCategory,
-    EFFECT_DANGER_LEVEL,
     EFFECT_ACTION_MAP,
+    EFFECT_DANGER_LEVEL,
+    EffectCategory,
     most_dangerous,
 )
-from app.security.command_policy import CommandAction
 
 
 class TestEffectCategory:

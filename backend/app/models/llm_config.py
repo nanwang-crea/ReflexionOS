@@ -18,6 +18,7 @@ class ProviderModelConfig(BaseModel):
     id: str
     display_name: str
     model_name: str
+    context_window: int = 128000
     enabled: bool = True
 
 
@@ -76,6 +77,7 @@ class ResolvedLLMConfig(BaseModel):
     provider_type: ProviderType
     model_id: str
     model: str
+    context_window: int = 128000
     api_key: str | None = None
     base_url: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)

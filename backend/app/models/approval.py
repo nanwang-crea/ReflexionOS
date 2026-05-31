@@ -1,10 +1,9 @@
-from app.ids import new_approval_id as _new_approval_id
-from copy import deepcopy
 from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.ids import new_approval_id as _new_approval_id
 
 ApprovalStatus = Literal["pending", "approved", "denied", "expired", "stale"]
 ApprovalDecision = Literal["allow_once", "deny", "trust_and_allow"]

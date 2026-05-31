@@ -3,8 +3,8 @@ import tempfile
 
 import pytest
 
-from app.security.command_effect_registry import CommandEffectRegistry
 from app.errors import SecurityError
+from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import NullSandbox
 from app.security.shell_security import ShellSecurity

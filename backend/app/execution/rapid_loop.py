@@ -55,12 +55,15 @@ class RapidExecutionLoop:
         tool_registry: ToolRegistry,
         max_steps: int | None = None,
         event_callback: Callable[[str, dict], Awaitable[None]] | None = None,
+        context_window: int = 128000,
     ):
         self.llm = llm
         self._tool_registry = tool_registry
         self.max_steps = max_steps or config_manager.settings.execution.max_steps
         self.prompt_manager = PromptManager()
         self.event_callback = event_callback
+        self.context_window = context_window
+        self._overflow_retry_count = 0
         self.tool_definitions = RuntimeToolDefinitions(self._tool_registry)
         self.message_builder = LoopMessageBuilder(
             prompt_manager=self.prompt_manager,
@@ -113,6 +116,7 @@ class RapidExecutionLoop:
             rt._plan_exit_confirmed = False
             await self._confirm_plan_exit(context, rt)
 
+        self._overflow_retry_count = 0
         rt.response = await self._call_llm(context)
 
         if rt.response.has_tool_calls:
@@ -293,6 +297,13 @@ class RapidExecutionLoop:
         # Sync plan file after plan tool changes
         if context.plan and context.plan_file_path:
             self.plan_file_sync.sync(context.plan, context.plan_file_path)
+
+        # Pruning: lightweight context recovery after each tool execution round
+        settings = config_manager.settings.execution
+        context.prune_tool_outputs(
+            protect_recent_groups=settings.prune_protect_groups,
+            minimum_recovery_tokens=settings.prune_minimum_recovery_tokens,
+        )
 
         return LoopPhase.PLANNING
 
@@ -731,6 +742,20 @@ class RapidExecutionLoop:
                     self.llm.get_model_name(),
                 )
 
+                # API overflow handling: try compaction then retry once
+                if self._overflow_retry_count < 1 and context.total_tokens > 0:
+                    self._overflow_retry_count += 1
+                    logger.info("Attempting overflow compaction + retry")
+                    try:
+                        await self._compact_tier3(context)
+                        context.prune_tool_outputs(
+                            protect_recent_groups=config_manager.settings.execution.prune_protect_groups,
+                            minimum_recovery_tokens=1,
+                        )
+                    except Exception:
+                        logger.exception("Overflow compaction failed")
+                    return await self._call_llm(context)
+
             logger.warning(
                 "LLM 空响应 (attempt %d/%d), finish_reason=%s, model=%s",
                 attempt + 1,
@@ -788,11 +813,14 @@ class RapidExecutionLoop:
     async def _compact_context(self, context: LoopContext) -> None:
         """
         检测上下文 token 压力，超阈值时触发逐级压缩：
-        - total_tokens > tier3_compact_threshold_tokens → Tier 3 LLM 摘要压缩
+        - total_tokens > tier3_threshold → Tier 3 LLM 摘要压缩
         - Tier 2 截断由 LoopMessageBuilder._build_tier2_messages() 在 build 时自动处理
+        阈值根据 model context window 动态计算。
         """
         settings = config_manager.settings.execution
-        if context.total_tokens <= settings.tier3_compact_threshold_tokens:
+        usable = self.context_window - settings.compaction_buffer
+        tier3_threshold = int(usable * settings.tier3_ratio)
+        if context.total_tokens <= tier3_threshold:
             return
         await self._compact_tier3(context)
 

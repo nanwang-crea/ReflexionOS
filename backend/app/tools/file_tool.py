@@ -39,12 +39,15 @@ class FileTool(BaseTool):
     MAX_DIRECTORY_SEARCH_MATCHES = 50
     MAX_DIRECTORY_SEARCH_OUTPUT = 20
     MAX_LIST_DISPLAY_ITEMS = 15
+    MAX_READ_BYTES = 50 * 1024
+    MAX_LINE_LENGTH = 2000
+    LINE_TRUNCATION_SUFFIX = "... (line truncated to 2000 chars)"
 
     def __init__(self, security: PathSecurity):
         self.security = security
         self.min_read_limit = 30
-        self.default_read_limit = 80
-        self.max_read_limit = 100
+        self.default_read_limit = 500
+        self.max_read_limit = 2000
         self._read_cache: dict[str, tuple[float, list[str]]] = {}
         self._read_cache_max = 128
 
@@ -82,11 +85,11 @@ class FileTool(BaseTool):
                     "limit": {
                         "type": "integer",
                         "minimum": 30,
-                        "maximum": 100,
-                        "default": 80,
+                        "maximum": 2000,
+                        "default": 500,
                         "description": (
                             "For read: number of lines to read, recommended with start_line; "
-                            "min 30, max 100, default 80"
+                            "min 30, max 2000, default 500"
                         ),
                     },
                     "line": {
@@ -179,11 +182,25 @@ class FileTool(BaseTool):
         if os.path.isdir(path):
             return ToolResult(success=False, error=f"路径是目录: {path}，请使用 list 操作")
 
+        file_size = os.path.getsize(path)
+        if file_size > self.MAX_READ_BYTES * 4:
+            return ToolResult(
+                success=False,
+                error=f"文件过大 ({file_size} bytes)，超过 200KB 上限。请使用 grep 搜索特定内容。",
+            )
+
         all_lines = self._get_cached_lines(path)
         if all_lines is None:
-            async with aiofiles.open(path, encoding="utf-8") as f:
+            async with aiofiles.open(path, encoding="utf-8", errors="replace") as f:
                 all_lines = await f.readlines()
             self._set_cached_lines(path, all_lines)
+
+        all_lines = [
+            line.rstrip()[:self.MAX_LINE_LENGTH] + self.LINE_TRUNCATION_SUFFIX
+            if len(line.rstrip()) > self.MAX_LINE_LENGTH
+            else line.rstrip()
+            for line in all_lines
+        ]
 
         total_lines = len(all_lines)
 
@@ -222,9 +239,21 @@ class FileTool(BaseTool):
         # 构建输出
         output_lines = []
         for i, line_content in enumerate(selected_lines, start=start_line):
-            output_lines.append(f"{i:4d}: {line_content.rstrip()}")
+            output_lines.append(f"{i:4d}: {line_content}")
 
         content = "\n".join(output_lines)
+
+        # 字节上限检查
+        content_bytes = len(content.encode("utf-8"))
+        if content_bytes > self.MAX_READ_BYTES:
+            while content_bytes > self.MAX_READ_BYTES and end_line > start_line + 1:
+                end_line -= 1
+                selected_lines = all_lines[start_line - 1 : end_line]
+                output_lines = []
+                for i, line_content in enumerate(selected_lines, start=start_line):
+                    output_lines.append(f"{i:4d}: {line_content}")
+                content = "\n".join(output_lines)
+                content_bytes = len(content.encode("utf-8"))
 
         # 构建元信息
         meta = f"文件: {path}\n总行数: {total_lines}\n显示: 第 {start_line}-{end_line} 行"

@@ -1514,7 +1514,8 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
 
     approval_id = "approval-resume-e2e"
 
-    from app.execution.models import LoopResult, LoopStatus as ExecLoopStatus
+    from app.execution.models import LoopResult
+    from app.execution.models import LoopStatus as ExecLoopStatus
 
     class StubRapidExecutionLoop:
         def __init__(self, **kwargs):

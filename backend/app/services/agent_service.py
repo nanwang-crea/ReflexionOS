@@ -28,6 +28,8 @@ from app.models.conversation import (
 )
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
+from app.orchestration.package_resolver import PackageResolver
+from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import create_sandbox
@@ -36,16 +38,14 @@ from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.tools.base import ToolResult
+from app.tools.edit_tool import EditTool
+from app.tools.explore_tool import ExploreTool
 from app.tools.file_tool import FileTool
 from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
 from app.tools.memory_tool import MemoryTool
-from app.tools.edit_tool import EditTool
-from app.tools.explore_tool import ExploreTool
 from app.tools.plan_exit_tool import PlanExitTool
 from app.tools.plan_tool import PlanTool
-from app.orchestration.package_resolver import PackageResolver
-from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
@@ -380,6 +380,7 @@ class AgentService:
             llm=llm,
             tool_registry=run_tool_registry,
             event_callback=event_callback,
+            context_window=resolved_llm.context_window,
         )
         self._execution_loops[run_id] = execution_loop
 

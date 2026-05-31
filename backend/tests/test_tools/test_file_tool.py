@@ -23,8 +23,8 @@ class TestFileTool:
         limit_schema = file_tool.get_schema()["parameters"]["properties"]["limit"]
 
         assert limit_schema["minimum"] == 30
-        assert limit_schema["maximum"] == 100
-        assert limit_schema["default"] == 80
+        assert limit_schema["maximum"] == 2000
+        assert limit_schema["default"] == 500
         assert "start_line" in limit_schema["description"]
 
     def test_schema_is_flat_and_openai_compatible(self, file_tool):
@@ -97,22 +97,22 @@ class TestFileTool:
         assert "line31" not in result.data["content"]
 
     @pytest.mark.asyncio
-    async def test_read_file_clamps_limit_between_30_and_100(self, file_tool, temp_dir):
+    async def test_read_file_clamps_limit_between_30_and_2000(self, file_tool, temp_dir):
         test_file = Path(temp_dir) / "test.py"
-        lines = [f"line{i}" for i in range(1, 121)]
+        lines = [f"line{i}" for i in range(1, 3001)]
         test_file.write_text("\n".join(lines))
 
         small_limit = await file_tool.execute(
             {"action": "read", "path": str(test_file), "start_line": 1, "limit": 1}
         )
         large_limit = await file_tool.execute(
-            {"action": "read", "path": str(test_file), "start_line": 1, "limit": 500}
+            {"action": "read", "path": str(test_file), "start_line": 1, "limit": 5000}
         )
 
         assert small_limit.success is True
         assert small_limit.data["end_line"] == 30
         assert large_limit.success is True
-        assert large_limit.data["end_line"] == 100
+        assert large_limit.data["end_line"] == 2000
 
     @pytest.mark.asyncio
     async def test_read_file_rejects_invalid_line_range(self, file_tool, temp_dir):

@@ -2,7 +2,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
 DEFAULT_SESSION_TITLE = "新建聊天"
 
 

@@ -73,9 +73,7 @@ class Plan:
 
     def finalize_for_completion(self):
         for step in self.steps:
-            if step.status == "in_progress":
-                step.status = "completed"
-            elif step.status == "pending":
+            if step.status == "in_progress" or step.status == "pending":
                 step.status = "completed"
 
     def finalize_for_failure(self):
@@ -87,9 +85,7 @@ class Plan:
 
     def finalize_for_cancellation(self):
         for step in self.steps:
-            if step.status == "in_progress":
-                step.status = "cancelled"
-            elif step.status == "pending":
+            if step.status == "in_progress" or step.status == "pending":
                 step.status = "cancelled"
 
     def render_for_context(self) -> str:
@@ -109,7 +105,7 @@ class Plan:
         return "\n".join(lines)
 
     def render_to_markdown(self) -> str:
-        lines = [f"# 执行计划", f"goal: {self.goal}", ""]
+        lines = ["# 执行计划", f"goal: {self.goal}", ""]
         lines.append("## 步骤")
         for s in self.steps:
             findings_part = f"  findings: {s.findings}" if s.findings else ""
@@ -119,7 +115,7 @@ class Plan:
         return "\n".join(lines)
 
     @classmethod
-    def parse_from_markdown(cls, text: str) -> "Plan":
+    def parse_from_markdown(cls, text: str) -> Plan:
         import re
         goal = ""
         steps: list[PlanStep] = []
