@@ -1,11 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Sparkles, Search, BookOpen, ChevronRight, X, RefreshCw, Code2, Globe } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe } from 'lucide-react'
 import { skillApi } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
-import type { Skill, SkillDetail, SkillCategories } from '@/types/skill'
+import type { Skill, SkillCategories } from '@/types/skill'
 
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',
@@ -28,9 +26,6 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('全部')
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null)
-  const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
-  const [detailLoading, setDetailLoading] = useState(false)
   const [toggling, setToggling] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -85,25 +80,6 @@ export default function SkillsPage() {
     return tabs
   }, [categories, skills])
 
-  const handleSelectSkill = async (name: string) => {
-    if (selectedSkill === name) {
-      setSelectedSkill(null)
-      setSkillDetail(null)
-      return
-    }
-    setSelectedSkill(name)
-    setDetailLoading(true)
-    try {
-      const res = await skillApi.detail(name)
-      setSkillDetail(res.data)
-    } catch (error) {
-      console.error('Failed to load skill detail:', error)
-      useToastStore.getState().addToast('warning', '加载技能详情失败')
-    } finally {
-      setDetailLoading(false)
-    }
-  }
-
   const handleToggle = async (name: string, enabled: boolean) => {
     setToggling(name)
     try {
@@ -115,11 +91,6 @@ export default function SkillsPage() {
       setSkills((prev) =>
         prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))
       )
-      if (skillDetail?.name === name) {
-        setSkillDetail((prev) =>
-          prev ? { ...prev, enabled: !enabled } : prev
-        )
-      }
     } catch (error) {
       console.error('Failed to toggle skill:', error)
       useToastStore.getState().addToast('warning', '切换技能状态失败')
@@ -215,14 +186,9 @@ export default function SkillsPage() {
               const src = getSourceLabel(skill)
               return (
                 <div key={skill.name}>
-                  <div
-                    onClick={() => handleSelectSkill(skill.name)}
-                    className={`cursor-pointer rounded-3xl border bg-surface-primary p-6 transition-colors hover:bg-surface-secondary ${
-                      selectedSkill === skill.name
-                        ? 'border-content-primary'
-                        : 'border-edge'
-                    }`}
-                  >
+                    <div
+                      className="rounded-3xl border border-edge bg-surface-primary p-6 transition-colors hover:bg-surface-secondary"
+                    >
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -252,8 +218,7 @@ export default function SkillsPage() {
 
                       <div className="flex shrink-0 items-center gap-2">
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation()
+                          onClick={() => {
                             openFile(skill.install_path + '/SKILL.md', 'edit')
                           }}
                           className="rounded-lg p-1 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
@@ -262,8 +227,7 @@ export default function SkillsPage() {
                           <Code2 className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation()
+                          onClick={() => {
                             handleToggle(skill.name, skill.enabled)
                           }}
                           disabled={toggling === skill.name}
@@ -281,11 +245,6 @@ export default function SkillsPage() {
                             }`}
                           />
                         </button>
-                        <ChevronRight
-                          className={`h-4 w-4 text-content-muted transition-transform ${
-                            selectedSkill === skill.name ? 'rotate-90' : ''
-                          }`}
-                        />
                       </div>
                     </div>
 
@@ -308,37 +267,6 @@ export default function SkillsPage() {
                       </div>
                     )}
                   </div>
-
-                  {selectedSkill === skill.name && (
-                    <div className="rounded-b-3xl border border-t-0 border-edge bg-surface-tertiary px-6 py-5">
-                      <div className="mb-3 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
-                          <BookOpen className="h-4 w-4" />
-                          <span>技能详情</span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setSelectedSkill(null)
-                            setSkillDetail(null)
-                          }}
-                          className="rounded-full p-1 text-content-muted hover:bg-surface-primary"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                      {detailLoading ? (
-                        <p className="text-sm text-content-muted">
-                          加载中...
-                        </p>
-                      ) : skillDetail ? (
-                        <article className="prose-sm prose-invert max-w-none text-content-secondary [&_h1]:text-content-primary [&_h2]:text-content-primary [&_h3]:text-content-primary [&_h4]:text-content-primary [&_h5]:text-content-primary [&_h6]:text-content-primary [&_a]:text-blue-400 [&_a]:underline [&_code]:rounded [&_code]:bg-surface-primary [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_pre]:rounded-2xl [&_pre]:bg-surface-primary [&_pre]:p-4 [&_ul]:list-disc [&_ol]:list-decimal [&_blockquote]:border-l-2 [&_blockquote]:border-content-muted [&_blockquote]:pl-4 [&_blockquote]:italic [&_strong]:text-content-primary [&_hr]:border-edge">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {skillDetail.content}
-                          </ReactMarkdown>
-                        </article>
-                      ) : null}
-                    </div>
-                  )}
                 </div>
               )
             })}

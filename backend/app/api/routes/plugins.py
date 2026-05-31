@@ -28,23 +28,20 @@ def _get_resolver_and_loader():
 @router.get("/")
 async def list_plugins():
     resolver, loader = _get_resolver_and_loader()
-    registrations = loader.list_registrations()
     installed = resolver.list_installed()
-    installed_map = {p.specifier.name: p for p in installed}
 
     result = []
-    for reg in registrations:
-        pkg = installed_map.get(reg.plugin_name)
+    for pkg in installed:
+        reg = loader.get_registration(pkg.specifier.name)
         entry = {
-            "name": reg.plugin_name,
-            "has_tools": len(reg.tools) > 0,
-            "skill_dirs": reg.skill_dirs,
-            "num_skills": len(reg.skill_dirs),
+            "name": pkg.specifier.name,
+            "specifier": pkg.specifier.raw,
+            "resolved_ref": pkg.resolved_ref,
+            "install_path": pkg.install_path,
+            "has_tools": len(reg.tools) > 0 if reg else pkg.has_plugin_entry,
+            "skill_dirs": reg.skill_dirs if reg else pkg.skill_dirs,
+            "num_skills": len(reg.skill_dirs) if reg else len(pkg.skill_dirs),
         }
-        if pkg:
-            entry["specifier"] = pkg.specifier.raw
-            entry["resolved_ref"] = pkg.resolved_ref
-            entry["install_path"] = pkg.install_path
         result.append(entry)
     return result
 
