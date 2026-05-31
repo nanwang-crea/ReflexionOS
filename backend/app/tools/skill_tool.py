@@ -1,6 +1,7 @@
 import logging
 from typing import Any
 
+from app.orchestration.skill_installer import InstallResult
 from app.orchestration.skill_registry import SkillRegistry
 from app.tools.base import BaseTool, ToolResult
 
@@ -17,8 +18,10 @@ class SkillTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return ("Discover and load skill guides. Use 'list' to see available "
-                "skills, 'load' to read full content, 'search' to find by keyword.")
+        return ("Discover, install, and manage skill guides. "
+                "Use 'list' to see skills, 'load' to read content, "
+                "'search' by keyword, 'install' from Git URL, "
+                "'uninstall' a skill.")
 
     def get_schema(self) -> dict[str, Any]:
         return {
@@ -29,9 +32,11 @@ class SkillTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "load", "search"],
+                        "enum": ["list", "load", "search", "install", "uninstall"],
                         "description": ("Action: 'list' all skills, 'load' a "
-                                        "skill's content, 'search' by keyword"),
+                                        "skill's content, 'search' by keyword, "
+                                        "'install' from Git URL, "
+                                        "'uninstall' a skill"),
                     },
                     "name": {
                         "type": "string",
@@ -40,6 +45,24 @@ class SkillTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": "Search keyword (required for 'search' action)",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "Git repository URL (required for 'install')",
+                    },
+                    "skill_name": {
+                        "type": "string",
+                        "description": ("Skill name (required for 'install' and "
+                                        "'uninstall')"),
+                    },
+                    "subdir": {
+                        "type": "string",
+                        "description": ("Subdirectory path within repo (optional "
+                                        "for 'install')"),
+                    },
+                    "branch": {
+                        "type": "string",
+                        "description": "Git branch (optional for 'install', default main)",
                     },
                 },
                 "required": ["action"],
@@ -82,5 +105,39 @@ class SkillTool(BaseTool):
             else:
                 output = "No skills match the query."
             return ToolResult(success=True, output=output)
+
+        if action == "install":
+            url = args.get("url", "")
+            s_name = args.get("skill_name") or args.get("name", "")
+            if not url or not s_name:
+                return ToolResult(
+                    success=False,
+                    error="url and skill_name required for install",
+                )
+            subdir = args.get("subdir", "")
+            branch = args.get("branch", "main")
+            result = self._registry.install_skill(url, s_name, subdir, branch)
+            if result.success:
+                return ToolResult(
+                    success=True,
+                    output=f"Installed skill '{s_name}' to "
+                           f"{result.install_path}",
+                )
+            return ToolResult(success=False, error=result.error)
+
+        if action == "uninstall":
+            s_name = args.get("skill_name") or args.get("name", "")
+            if not s_name:
+                return ToolResult(
+                    success=False,
+                    error="skill_name required for uninstall",
+                )
+            result = self._registry.uninstall_skill(s_name)
+            if result.success:
+                return ToolResult(
+                    success=True,
+                    output=f"Uninstalled skill '{s_name}'",
+                )
+            return ToolResult(success=False, error=result.error)
 
         return ToolResult(success=False, error=f"Unknown action: {action}")

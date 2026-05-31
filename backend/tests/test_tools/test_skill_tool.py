@@ -1,5 +1,7 @@
 import pytest
+from unittest.mock import patch
 
+from app.orchestration.skill_installer import InstallResult
 from app.orchestration.skill_registry import SkillMetadata, SkillRegistry
 from app.tools.skill_tool import SkillTool
 
@@ -74,4 +76,43 @@ class TestSkillTool:
     async def test_execute_unknown_action(self, registry):
         tool = SkillTool(registry)
         result = await tool.execute({"action": "delete"})
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_execute_install(self, registry):
+        tool = SkillTool(registry)
+        with patch.object(registry, "install_skill") as mock:
+            mock.return_value = InstallResult(
+                success=True, install_path="/tmp/new-skill"
+            )
+            result = await tool.execute({
+                "action": "install",
+                "url": "https://github.com/x/skills.git",
+                "skill_name": "new-skill",
+            })
+        assert result.success
+        assert "Installed" in result.output
+
+    @pytest.mark.asyncio
+    async def test_execute_install_missing_params(self, registry):
+        tool = SkillTool(registry)
+        result = await tool.execute({"action": "install"})
+        assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_execute_uninstall(self, registry):
+        tool = SkillTool(registry)
+        with patch.object(registry, "uninstall_skill") as mock:
+            mock.return_value = InstallResult(success=True)
+            result = await tool.execute({
+                "action": "uninstall",
+                "skill_name": "brainstorming",
+            })
+        assert result.success
+        assert "Uninstalled" in result.output
+
+    @pytest.mark.asyncio
+    async def test_execute_uninstall_missing_name(self, registry):
+        tool = SkillTool(registry)
+        result = await tool.execute({"action": "uninstall"})
         assert result.success is False
