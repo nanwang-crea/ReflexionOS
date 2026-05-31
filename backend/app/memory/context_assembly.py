@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.memory.curated_store import CuratedMemoryStore
 from app.memory.message_normalizer import normalize_message_text_for_seed
 from app.models.conversation import MessageType
+from app.orchestration.skill_registry import SkillRegistry
 from app.services.conversation_service import ConversationService
 
 
@@ -57,9 +58,11 @@ class ContextAssembler:
         *,
         conversation_service: ConversationService,
         curated_store: CuratedMemoryStore | None = None,
+        skill_registry: SkillRegistry | None = None,
     ):
         self.conversation_service = conversation_service
         self.curated_store = curated_store or CuratedMemoryStore()
+        self.skill_registry = skill_registry
 
     def build_for_session(
         self,
@@ -83,6 +86,20 @@ class ContextAssembler:
                 static_blocks.append(
                     f"Project rules (from {agents_path}):\n{agents_content}"
                 )
+
+        # 1.5) Inject enabled skill metadata into system context.
+        if self.skill_registry:
+            enabled_skills = self.skill_registry.list_enabled_skills()
+            if enabled_skills:
+                skill_section_parts = ["## Available Skills\n"]
+                skill_section_parts.append(
+                    "You have access to the following skills. Use the 'skill' tool with action='load' "
+                    "to read a skill's full content before following its guidance.\n"
+                )
+                for s in enabled_skills:
+                    req = f" (requires: {', '.join(s.required_skills)})" if s.required_skills else ""
+                    skill_section_parts.append(f"- **{s.name}**: {s.description}{req}")
+                static_blocks.append("\n".join(skill_section_parts))
 
         # 2) Curated USER/MEMORY (project-level) if any active entries exist.
         for target in ("user", "memory"):

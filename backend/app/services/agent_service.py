@@ -103,7 +103,10 @@ class AgentService:
         self.pending_approval_store = pending_approval_store or PendingApprovalStore()
         self.session_service = session_service
         self.prompt_manager = PromptManager()
-        self.context_assembler = ContextAssembler(conversation_service=self.conversation_service)
+        self.context_assembler = ContextAssembler(
+            conversation_service=self.conversation_service,
+            skill_registry=global_skill_registry,
+        )
         self.continuation_builder = ContinuationArtifactBuilder()
 
     @staticmethod
