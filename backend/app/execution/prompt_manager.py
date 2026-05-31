@@ -1,7 +1,5 @@
 from string import Template
 
-from app.llm.base import LLMToolDefinition
-
 
 class PromptTemplate:
     """Prompt 模板"""
@@ -53,10 +51,7 @@ The system will handle the execution.
 
         self.register_template(
             name="system_tool_policy",
-            template="""## Available tools:
-$tool_list
-
-## Tool and shell rules:
+            template="""## Tool and shell rules:
 - Read only the minimum relevant file sections needed.
 - Prefer targeted search (grep, glob) before large file reads.
 - Avoid reading entire repositories or very large files when a specific section suffices.
@@ -68,7 +63,7 @@ $tool_list
   unless explicitly requested by the user.
 - Do not use network-related commands unless required by the task.
 """,
-            variables=["tool_list"],
+            variables=[],
         )
 
         self.register_template(
@@ -236,31 +231,17 @@ Please try a different approach or fix the issue.""",
             raise ValueError(f"Template not found: {name}")
         return self.templates[name]
 
-    def get_system_prompt(self, tools: list[LLMToolDefinition]) -> str:
+    def get_system_prompt(self) -> str:
         """获取系统提示"""
-        return "\n\n".join(self.get_system_prompt_sections(tools))
+        return "\n\n".join(self.get_system_prompt_sections())
 
-    def get_system_prompt_sections(self, tools: list[LLMToolDefinition]) -> list[str]:
-        tool_list = self._format_tools(tools)
+    def get_system_prompt_sections(self) -> list[str]:
         return [
             self.get_template("system_core").render(),
-            self.get_template("system_tool_policy").render(tool_list=tool_list),
+            self.get_template("system_tool_policy").render(),
             self.get_template("system_investigation_policy").render(),
             self.get_template("system_plan_policy").render(),
         ]
-
-    def _format_tools(self, tools: list[LLMToolDefinition]) -> str:
-        """格式化工具列表"""
-        lines = []
-        for tool in tools:
-            lines.append(f"\n### {tool.name}")
-            lines.append(f"{tool.description}")
-            if tool.parameters.get("properties"):
-                lines.append("Parameters:")
-                for prop, schema in tool.parameters["properties"].items():
-                    prop_desc = schema.get("description", "")
-                    lines.append(f"  - {prop}: {prop_desc}")
-        return "\n".join(lines)
 
     def get_error_prompt(self, error: str, tool: str, code_snippet: str = "") -> str:
         """获取错误提示"""

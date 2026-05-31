@@ -97,7 +97,7 @@ def test_task_anchor_injected():
     ctx = LoopContext(task="Fix the login bug")
     ctx.add_message("user", "Fix the login bug")
     ctx.add_message("assistant", "I will investigate")
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
     user_contents = [m.content for m in messages if m.role == MessageRole.USER]
     assert any("Fix the login bug" in c for c in user_contents if c)
 
@@ -107,7 +107,7 @@ def test_task_anchor_not_duplicated_in_recent():
     ctx = LoopContext(task="Fix the login bug")
     ctx.add_message("user", "Fix the login bug")
     ctx.add_message("assistant", "I will investigate")
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
     task_count = sum(
         1
         for m in messages
@@ -122,7 +122,7 @@ def test_compacted_summary_injected():
     ctx.compacted_summary = "User's original intent: Fix bug\nOperations performed: read foo.py"
     ctx.add_message("user", "Fix bug")
     ctx.add_message("assistant", "Working on it")
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
     system_contents = [
         m.content for m in messages
         if m.role == MessageRole.SYSTEM and m.content
@@ -141,7 +141,7 @@ def test_tier2_messages_with_tool_output_truncation():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", long_output, tool_call_id=f"c{i}")
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
     tool_messages = [
         m for m in messages
         if m.role == MessageRole.SYSTEM and m.content and "truncated" in m.content
@@ -164,7 +164,7 @@ def test_full_three_tier_flow():
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
 
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
 
     has_task_anchor = any(
         m.role == MessageRole.USER and m.content == task
@@ -199,7 +199,7 @@ def test_task_anchor_preserves_original_intent():
         )
         ctx.add_message("tool", "B" * 3000, tool_call_id=f"c{i}")
 
-    messages = builder.build(ctx, tools=[])
+    messages = builder.build(ctx)
     anchor = next(
         (m for m in messages if m.role == MessageRole.USER and "SSO" in (m.content or "")),
         None,

@@ -569,7 +569,7 @@ class RapidExecutionLoop:
 
         for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
             tools = self.tool_definitions.for_context(context)
-            messages = self.message_builder.build(context, tools)
+            messages = self.message_builder.build(context)
             call_started_at = time.perf_counter()
             first_chunk_latency: float | None = None
 

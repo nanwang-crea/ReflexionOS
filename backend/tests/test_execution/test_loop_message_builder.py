@@ -2,7 +2,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import LLMToolCall, LLMToolDefinition
+from app.llm.base import LLMToolCall
 
 
 def build_message_builder() -> LoopMessageBuilder:
@@ -26,7 +26,8 @@ def test_build_messages_keeps_tool_outputs_with_matching_assistant_call():
     for index in range(9):
         context.add_message("user", content=f"filler {index}")
 
-    messages = builder.build(context, tools=[])
+    messages = builder.build(context)
+
 
     assistant_messages = [msg for msg in messages if msg.role == "assistant" and msg.tool_calls]
     tool_messages = [msg for msg in messages if msg.role == "tool"]
@@ -43,7 +44,8 @@ def test_build_messages_does_not_duplicate_initial_user_task():
     context = LoopContext(task="检查重复 user 消息")
     context.add_message("user", "检查重复 user 消息")
 
-    messages = builder.build(context, tools=[])
+    messages = builder.build(context)
+
     user_contents = [message.content for message in messages if message.role == "user"]
 
     assert user_contents.count("检查重复 user 消息") == 1
@@ -57,7 +59,8 @@ def test_build_messages_places_current_task_after_history():
     context.add_message("assistant", "上一轮结论")
     context.add_message("user", "继续当前任务")
 
-    messages = builder.build(context, tools=[])
+    messages = builder.build(context)
+
 
     assert messages[-1].role == "user"
     assert messages[-1].content == "继续当前任务"
@@ -92,20 +95,13 @@ def test_system_prompt_uses_runtime_tool_definitions():
     builder = build_message_builder()
     context = LoopContext(task="检查工具列表")
     context.add_message("user", "检查工具列表")
-    tools = [
-        LLMToolDefinition(
-            name="mock",
-            description="Mock tool",
-            parameters={"type": "object", "properties": {}},
-        )
-    ]
 
-    messages = builder.build(context, tools=tools)
+    messages = builder.build(context)
 
     system_messages = [message for message in messages if message.role == "system"]
     assert len(system_messages) >= 3
     assert "autonomous coding agent" in system_messages[0].content
-    assert any("mock" in message.content and "Mock tool" in message.content for message in system_messages)
+    assert any("Tool and shell rules" in message.content for message in system_messages)
     assert any("Never restart investigation from scratch" in message.content for message in system_messages)
 
 
@@ -123,7 +119,7 @@ def test_build_messages_injects_current_plan_step_and_update_requirement():
     )
     context.metadata["plan_update_required"] = True
 
-    messages = builder.build(context, tools=[])
+    messages = builder.build(context)
     system_contents = [message.content for message in messages if message.role == "system" and message.content]
 
     assert any("Current plan step: 修改执行循环" in content for content in system_contents)

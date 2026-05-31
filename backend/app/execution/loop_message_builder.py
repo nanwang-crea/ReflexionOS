@@ -1,6 +1,6 @@
 from app.execution.context_manager import LoopContext
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import LLMMessage, LLMToolCall, LLMToolDefinition, MessageRole
+from app.llm.base import LLMMessage, LLMToolCall, MessageRole
 from app.memory.text_compaction import truncate_head_tail
 
 
@@ -37,11 +37,11 @@ class LoopMessageBuilder:
         if supplemental and str(supplemental).strip():
             messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
 
-    def build(self, context: LoopContext, tools: list[LLMToolDefinition]) -> list[LLMMessage]:
+    def build(self, context: LoopContext) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""
         messages = [
             LLMMessage(role=MessageRole.SYSTEM, content=section)
-            for section in self.prompt_manager.get_system_prompt_sections(tools)
+            for section in self.prompt_manager.get_system_prompt_sections()
         ]
 
         self._inject_context_sections(context, messages)

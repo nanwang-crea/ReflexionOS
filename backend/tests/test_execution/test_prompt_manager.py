@@ -1,7 +1,6 @@
 import pytest
 
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import LLMToolDefinition
 
 
 class TestPromptManager:
@@ -10,18 +9,10 @@ class TestPromptManager:
         return PromptManager()
 
     def test_get_system_prompt(self, manager):
-        tools = [
-            LLMToolDefinition(
-                name="file",
-                description="File operations",
-                parameters={"type": "object", "properties": {"path": {"type": "string"}}},
-            )
-        ]
-        prompt = manager.get_system_prompt(tools)
+        prompt = manager.get_system_prompt()
 
         assert "autonomous coding agent" in prompt
-        assert "file" in prompt
-        assert "File operations" in prompt
+        assert "Tool and shell rules" in prompt
         assert "Never restart investigation from scratch unless a concrete prior finding was disproven." in prompt
         assert "At most one broad exploration pass and one targeted follow-up pass per task." in prompt
         assert "If the last tool batch produced no new facts, stop exploring and answer" in prompt
