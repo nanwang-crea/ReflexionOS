@@ -1,9 +1,9 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Sparkles, Search, BookOpen, ChevronRight, X, Plus, RefreshCw, Code2, Trash2, Globe } from 'lucide-react'
+import { Sparkles, Search, BookOpen, ChevronRight, X, RefreshCw, Code2, Globe } from 'lucide-react'
 import { skillApi } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
-import type { Skill, SkillDetail, SkillCategories, InstallRequest } from '@/types/skill'
+import type { Skill, SkillDetail, SkillCategories } from '@/types/skill'
 
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',
@@ -30,14 +30,6 @@ export default function SkillsPage() {
   const [skillDetail, setSkillDetail] = useState<SkillDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [toggling, setToggling] = useState<string | null>(null)
-  const [showInstall, setShowInstall] = useState(false)
-  const [installing, setInstalling] = useState(false)
-  const [installForm, setInstallForm] = useState<InstallRequest>({
-    url: '',
-    skill_name: '',
-    subdir: '',
-    branch: 'main',
-  })
   const [refreshing, setRefreshing] = useState(false)
 
   const openFile = useCodeTabStore((s) => s.openFile)
@@ -134,46 +126,6 @@ export default function SkillsPage() {
     }
   }
 
-  const handleInstall = async () => {
-    if (!installForm.url.trim() || !installForm.skill_name.trim()) {
-      useToastStore.getState().addToast('warning', '请填写 Git URL 和技能名称')
-      return
-    }
-    setInstalling(true)
-    try {
-      await skillApi.install({
-        url: installForm.url,
-        skill_name: installForm.skill_name,
-        subdir: installForm.subdir || undefined,
-        branch: installForm.branch || 'main',
-      })
-      useToastStore.getState().addToast('info', '技能安装成功')
-      setShowInstall(false)
-      setInstallForm({ url: '', skill_name: '', subdir: '', branch: 'main' })
-      loadSkills()
-    } catch (error) {
-      console.error('Failed to install skill:', error)
-      useToastStore.getState().addToast('warning', '技能安装失败')
-    } finally {
-      setInstalling(false)
-    }
-  }
-
-  const handleUninstall = async (name: string) => {
-    try {
-      await skillApi.uninstall(name)
-      useToastStore.getState().addToast('info', '技能已卸载')
-      if (selectedSkill === name) {
-        setSelectedSkill(null)
-        setSkillDetail(null)
-      }
-      loadSkills()
-    } catch (error) {
-      console.error('Failed to uninstall skill:', error)
-      useToastStore.getState().addToast('warning', '卸载技能失败')
-    }
-  }
-
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
@@ -187,9 +139,6 @@ export default function SkillsPage() {
       setRefreshing(false)
     }
   }
-
-  const canUninstall = (skill: Skill) =>
-    skill.install_path?.includes('.reflexion/skills')
 
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">
@@ -242,13 +191,6 @@ export default function SkillsPage() {
               title="刷新"
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={() => setShowInstall(true)}
-              className="rounded-xl border border-edge bg-surface-tertiary p-2 text-content-secondary transition-colors hover:bg-surface-secondary"
-              title="安装技能"
-            >
-              <Plus className="h-4 w-4" />
             </button>
           </div>
         </div>
@@ -317,20 +259,6 @@ export default function SkillsPage() {
                         >
                           <Code2 className="h-4 w-4" />
                         </button>
-                        {canUninstall(skill) && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (confirm(`确定要卸载技能 "${skill.name}" 吗？`)) {
-                                handleUninstall(skill.name)
-                              }
-                            }}
-                            className="rounded-lg p-1 text-content-muted transition-colors hover:bg-red-500/10 hover:text-red-400"
-                            title="卸载"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -413,97 +341,6 @@ export default function SkillsPage() {
           </div>
         )}
       </div>
-
-      {showInstall && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-md rounded-2xl border border-edge bg-surface-primary p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-content-primary">
-                安装技能
-              </h2>
-              <button
-                onClick={() => setShowInstall(false)}
-                className="rounded-full p-1 text-content-muted hover:bg-surface-tertiary"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-sm text-content-secondary">
-                  Git URL <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="https://github.com/user/skills-repo"
-                  value={installForm.url}
-                  onChange={(e) =>
-                    setInstallForm((f) => ({ ...f, url: e.target.value }))
-                  }
-                  className="w-full rounded-xl border border-edge bg-surface-tertiary px-3 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-content-secondary">
-                  技能名称 <span className="text-red-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="my-skill"
-                  value={installForm.skill_name}
-                  onChange={(e) =>
-                    setInstallForm((f) => ({ ...f, skill_name: e.target.value }))
-                  }
-                  className="w-full rounded-xl border border-edge bg-surface-tertiary px-3 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-content-secondary">
-                  子目录（可选）
-                </label>
-                <input
-                  type="text"
-                  placeholder="skills/my-skill"
-                  value={installForm.subdir}
-                  onChange={(e) =>
-                    setInstallForm((f) => ({ ...f, subdir: e.target.value }))
-                  }
-                  className="w-full rounded-xl border border-edge bg-surface-tertiary px-3 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm text-content-secondary">
-                  分支（可选，默认 main）
-                </label>
-                <input
-                  type="text"
-                  placeholder="main"
-                  value={installForm.branch}
-                  onChange={(e) =>
-                    setInstallForm((f) => ({ ...f, branch: e.target.value }))
-                  }
-                  className="w-full rounded-xl border border-edge bg-surface-tertiary px-3 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => setShowInstall(false)}
-                className="rounded-xl px-4 py-2 text-sm text-content-secondary transition-colors hover:bg-surface-tertiary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleInstall}
-                disabled={installing}
-                className="rounded-xl bg-content-primary px-4 py-2 text-sm text-surface-primary transition-colors hover:opacity-90 disabled:opacity-50"
-              >
-                {installing ? '安装中...' : '安装'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

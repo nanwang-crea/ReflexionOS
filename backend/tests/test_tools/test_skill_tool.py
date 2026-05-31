@@ -1,8 +1,7 @@
-import pytest
-from unittest.mock import patch
 
-from app.orchestration.skill_installer import InstallResult
-from app.orchestration.skill_registry import SkillMetadata, SkillRegistry
+import pytest
+
+from app.orchestration.skill_registry import SkillMetadata, SkillRegistry, SkillSource
 from app.tools.skill_tool import SkillTool
 
 
@@ -15,6 +14,7 @@ def registry():
             description="Use when exploring ideas.",
             category="discipline",
             file_path="/fake/SKILL.md",
+            source_type=SkillSource.PROJECT,
         )
     )
     r._content_cache["brainstorming"] = "# Brainstorming\n\nHelp turn ideas into designs."
@@ -25,6 +25,7 @@ def registry():
             category="discipline",
             enabled=False,
             file_path="/fake2/SKILL.md",
+            source_type=SkillSource.GLOBAL,
         )
     )
     r._content_cache["tdd"] = "# TDD\n\nWrite test first."
@@ -37,6 +38,7 @@ class TestSkillTool:
         schema = tool.get_schema()
         assert schema["name"] == "skill"
         assert "action" in schema["parameters"]["properties"]
+        assert schema["parameters"]["properties"]["action"]["enum"] == ["list", "load", "search", "update"]
 
     @pytest.mark.asyncio
     async def test_execute_list(self, registry):
@@ -75,44 +77,27 @@ class TestSkillTool:
     @pytest.mark.asyncio
     async def test_execute_unknown_action(self, registry):
         tool = SkillTool(registry)
-        result = await tool.execute({"action": "delete"})
-        assert result.success is False
-
-    @pytest.mark.asyncio
-    async def test_execute_install(self, registry):
-        tool = SkillTool(registry)
-        with patch.object(registry, "install_skill") as mock:
-            mock.return_value = InstallResult(
-                success=True, install_path="/tmp/new-skill"
-            )
-            result = await tool.execute({
-                "action": "install",
-                "url": "https://github.com/x/skills.git",
-                "skill_name": "new-skill",
-            })
-        assert result.success
-        assert "Installed" in result.output
-
-    @pytest.mark.asyncio
-    async def test_execute_install_missing_params(self, registry):
-        tool = SkillTool(registry)
         result = await tool.execute({"action": "install"})
         assert result.success is False
 
     @pytest.mark.asyncio
-    async def test_execute_uninstall(self, registry):
+    async def test_execute_update_no_resolver(self, registry):
         tool = SkillTool(registry)
-        with patch.object(registry, "uninstall_skill") as mock:
-            mock.return_value = InstallResult(success=True)
-            result = await tool.execute({
-                "action": "uninstall",
-                "skill_name": "brainstorming",
-            })
-        assert result.success
-        assert "Uninstalled" in result.output
+        result = await tool.execute({"action": "update"})
+        assert result.success is False
+        assert "No package resolver" in result.error
 
     @pytest.mark.asyncio
-    async def test_execute_uninstall_missing_name(self, registry):
+    async def test_dynamic_description_includes_skills(self, registry):
         tool = SkillTool(registry)
-        result = await tool.execute({"action": "uninstall"})
-        assert result.success is False
+        desc = tool.description
+        assert "<available_skills>" in desc
+        assert "brainstorming" in desc
+        assert "tdd" not in desc
+
+    @pytest.mark.asyncio
+    async def test_dynamic_description_empty(self):
+        r = SkillRegistry()
+        tool = SkillTool(r)
+        desc = tool.description
+        assert "<available_skills>" not in desc

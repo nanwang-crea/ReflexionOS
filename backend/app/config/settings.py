@@ -36,6 +36,21 @@ class SkillSettings(BaseModel):
     install_dir: str = Field(
         default_factory=lambda: str(Path.home() / ".reflexion" / "skills")
     )
+    compat_dirs: list[str] = Field(
+        default_factory=lambda: [
+            str(Path.home() / ".agents" / "skills"),
+        ]
+    )
+
+
+class PluginSettings(BaseModel):
+    """插件配置"""
+
+    plugins: list[str] = Field(default_factory=list)
+    package_cache_dir: str = Field(
+        default_factory=lambda: str(Path.home() / ".reflexion" / "packages")
+    )
+    auto_update: bool = False
 
 
 class UISettings(BaseModel):
@@ -52,6 +67,7 @@ class AppSettings(BaseModel):
     memory: MemorySettings = MemorySettings()
     ui: UISettings = UISettings()
     skill: SkillSettings = SkillSettings()
+    plugin: PluginSettings = PluginSettings()
 
 
 class ConfigManager:

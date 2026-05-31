@@ -6,10 +6,14 @@ from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
 
+_MAX_DESC_SKILLS = 30
+_MAX_DESC_LENGTH = 200
+
 
 class SkillTool(BaseTool):
-    def __init__(self, registry: SkillRegistry):
+    def __init__(self, registry: SkillRegistry, resolver=None):
         self._registry = registry
+        self._resolver = resolver
 
     @property
     def name(self) -> str:
@@ -17,10 +21,28 @@ class SkillTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return ("Discover, install, and manage skill guides. "
+        base = ("Discover and load skill guides. "
                 "Use 'list' to see skills, 'load' to read content, "
-                "'search' by keyword, 'install' from Git URL, "
-                "'uninstall' a skill.")
+                "'search' by keyword, 'update' to check for plugin updates.")
+
+        enabled = self._registry.list_enabled_skills()
+        if enabled:
+            shown = enabled[:_MAX_DESC_SKILLS]
+            lines = []
+            for s in shown:
+                desc = s.description[:_MAX_DESC_LENGTH]
+                req = f" (requires: {', '.join(s.required_skills)})" if s.required_skills else ""
+                lines.append(
+                    f"  <skill>\n"
+                    f"    <name>{s.name}</name>\n"
+                    f"    <description>{desc}{req}</description>\n"
+                    f"    <location>{s.file_path}</location>\n"
+                    f"  </skill>"
+                )
+            base += "\n\n<available_skills>\n" + "\n".join(lines) + "\n</available_skills>"
+            if len(enabled) > _MAX_DESC_SKILLS:
+                base += f"\n\n({len(enabled) - _MAX_DESC_SKILLS} more skills available. Use 'list' action to see all.)"
+        return base
 
     def get_schema(self) -> dict[str, Any]:
         return {
@@ -31,11 +53,11 @@ class SkillTool(BaseTool):
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["list", "load", "search", "install", "uninstall"],
-                        "description": ("Action: 'list' all skills, 'load' a "
-                                        "skill's content, 'search' by keyword, "
-                                        "'install' from Git URL, "
-                                        "'uninstall' a skill"),
+                        "enum": ["list", "load", "search", "update"],
+                        "description": ("Action: 'list' all skills, "
+                                        "'load' a skill's content, "
+                                        "'search' by keyword, "
+                                        "'update' check for plugin updates"),
                     },
                     "name": {
                         "type": "string",
@@ -44,24 +66,6 @@ class SkillTool(BaseTool):
                     "query": {
                         "type": "string",
                         "description": "Search keyword (required for 'search' action)",
-                    },
-                    "url": {
-                        "type": "string",
-                        "description": "Git repository URL (required for 'install')",
-                    },
-                    "skill_name": {
-                        "type": "string",
-                        "description": ("Skill name (required for 'install' and "
-                                        "'uninstall')"),
-                    },
-                    "subdir": {
-                        "type": "string",
-                        "description": ("Subdirectory path within repo (optional "
-                                        "for 'install')"),
-                    },
-                    "branch": {
-                        "type": "string",
-                        "description": "Git branch (optional for 'install', default main)",
                     },
                 },
                 "required": ["action"],
@@ -77,7 +81,8 @@ class SkillTool(BaseTool):
             for s in skills:
                 req_str = ", ".join(s.required_skills)
                 req = f" (requires: {req_str})" if s.required_skills else ""
-                lines.append(f"- {s.name}: {s.description}{req}")
+                source = f" [{s.source_type}]" if s.source_type and s.source_type.value != "project" else ""
+                lines.append(f"- {s.name}: {s.description}{req}{source}")
             output = "Available skills:\n" + "\n".join(lines) if lines else "No skills available."
             return ToolResult(success=True, output=output)
 
@@ -105,38 +110,26 @@ class SkillTool(BaseTool):
                 output = "No skills match the query."
             return ToolResult(success=True, output=output)
 
-        if action == "install":
-            url = args.get("url", "")
-            s_name = args.get("skill_name") or args.get("name", "")
-            if not url or not s_name:
-                return ToolResult(
-                    success=False,
-                    error="url and skill_name required for install",
-                )
-            subdir = args.get("subdir", "")
-            branch = args.get("branch", "main")
-            result = self._registry.install_skill(url, s_name, subdir, branch)
-            if result.success:
-                return ToolResult(
-                    success=True,
-                    output=f"Installed skill '{s_name}' to "
-                           f"{result.install_path}",
-                )
-            return ToolResult(success=False, error=result.error)
-
-        if action == "uninstall":
-            s_name = args.get("skill_name") or args.get("name", "")
-            if not s_name:
-                return ToolResult(
-                    success=False,
-                    error="skill_name required for uninstall",
-                )
-            result = self._registry.uninstall_skill(s_name)
-            if result.success:
-                return ToolResult(
-                    success=True,
-                    output=f"Uninstalled skill '{s_name}'",
-                )
-            return ToolResult(success=False, error=result.error)
+        if action == "update":
+            if self._resolver is None:
+                return ToolResult(success=False, error="No package resolver configured")
+            from app.config.settings import config_manager
+            plugin_settings = config_manager.settings.plugin
+            if not plugin_settings.plugins:
+                return ToolResult(success=True, output="No plugins configured.")
+            results = []
+            for spec_str in plugin_settings.plugins:
+                from app.orchestration.package_resolver import PackageSpecifier
+                spec = PackageSpecifier.parse(spec_str)
+                try:
+                    has_update = self._resolver.is_update_available(spec)
+                    if has_update:
+                        self._resolver.update(spec)
+                        results.append(f"Updated: {spec.name}")
+                    else:
+                        results.append(f"Up to date: {spec.name}")
+                except Exception as e:
+                    results.append(f"Error checking {spec.name}: {e}")
+            return ToolResult(success=True, output="\n".join(results))
 
         return ToolResult(success=False, error=f"Unknown action: {action}")

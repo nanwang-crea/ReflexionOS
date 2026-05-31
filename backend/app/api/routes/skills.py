@@ -1,16 +1,8 @@
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from app.orchestration.skill_registry import skill_registry
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
-
-
-class InstallRequest(BaseModel):
-    url: str
-    skill_name: str
-    subdir: str = ""
-    branch: str = "main"
 
 
 @router.get("/")
@@ -24,7 +16,10 @@ async def list_skills():
             "required_skills": s.required_skills,
             "enabled": s.enabled,
             "source": s.source,
+            "source_type": s.source_type.value if s.source_type else "",
             "install_path": s.install_path,
+            "plugin_name": s.plugin_name,
+            "version": s.version,
         }
         for s in metadata_list
     ]
@@ -41,24 +36,6 @@ async def list_categories():
             "enabled": skill.enabled,
         })
     return result
-
-
-@router.post("/install")
-async def install_skill(req: InstallRequest):
-    result = skill_registry.install_skill(
-        url=req.url,
-        skill_name=req.skill_name,
-        subdir=req.subdir,
-        branch=req.branch,
-    )
-    if not result.success:
-        raise HTTPException(status_code=400, detail=result.error)
-    skill = skill_registry.get_skill(req.skill_name)
-    return {
-        "name": skill.name if skill else req.skill_name,
-        "install_path": result.install_path,
-        "installed": True,
-    }
 
 
 @router.post("/refresh")
@@ -81,7 +58,10 @@ async def get_skill_detail(skill_name: str):
         "required_skills": skill.required_skills,
         "enabled": skill.enabled,
         "source": skill.source,
+        "source_type": skill.source_type.value if skill.source_type else "",
         "install_path": skill.install_path,
+        "plugin_name": skill.plugin_name,
+        "version": skill.version,
         "content": content or "",
     }
 
@@ -100,11 +80,3 @@ async def disable_skill(skill_name: str):
     if not ok:
         raise HTTPException(status_code=404, detail="技能不存在")
     return {"name": skill_name, "enabled": False}
-
-
-@router.delete("/{skill_name}")
-async def uninstall_skill(skill_name: str):
-    result = skill_registry.uninstall_skill(skill_name)
-    if not result.success:
-        raise HTTPException(status_code=400, detail=result.error)
-    return {"name": skill_name, "uninstalled": True}

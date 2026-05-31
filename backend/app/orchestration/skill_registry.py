@@ -1,4 +1,5 @@
 import logging
+from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -8,6 +9,15 @@ from app.orchestration.skill_parser import parse_skill_md
 logger = logging.getLogger(__name__)
 
 
+class SkillSource(str, Enum):
+    PROJECT = "project"
+    PROJECT_REFLEXION = "project_reflexion"
+    GLOBAL = "global"
+    PLUGIN = "plugin"
+    COMPAT = "compat"
+    CONFIG = "config"
+
+
 class SkillMetadata(BaseModel):
     name: str
     description: str
@@ -15,9 +25,12 @@ class SkillMetadata(BaseModel):
     required_skills: list[str] = []
     file_path: str = ""
     source: str = ""
+    source_type: SkillSource = SkillSource.PROJECT
     install_path: str = ""
+    plugin_name: str = ""
     enabled: bool = True
     content_loaded: bool = False
+    version: str = ""
 
 
 class SkillRegistry:
@@ -25,10 +38,9 @@ class SkillRegistry:
     def __init__(self):
         self.skills: dict[str, SkillMetadata] = {}
         self._content_cache: dict[str, str] = {}
-        self._installer = None
         logger.info("SkillRegistry initialized")
 
-    def scan_directory(self, dir_path: Path | str) -> int:
+    def scan_directory(self, dir_path: Path | str, source_type: SkillSource = SkillSource.PROJECT, plugin_name: str = "") -> int:
         dir_path = Path(dir_path)
         if not dir_path.is_dir():
             logger.warning("Scan directory does not exist: %s", dir_path)
@@ -52,7 +64,9 @@ class SkillRegistry:
                     required_skills=fm.required_skills,
                     file_path=parsed.file_path,
                     source=fm.source,
+                    source_type=source_type,
                     install_path=str(child),
+                    plugin_name=plugin_name,
                     enabled=True,
                     content_loaded=True,
                 )
@@ -64,6 +78,77 @@ class SkillRegistry:
                 logger.exception("Failed to parse skill: %s", skill_file)
 
         return count
+
+    def scan_recursive(self, dir_path: Path | str, source_type: SkillSource = SkillSource.PLUGIN, plugin_name: str = "") -> int:
+        dir_path = Path(dir_path)
+        if not dir_path.is_dir():
+            logger.warning("Scan directory does not exist: %s", dir_path)
+            return 0
+
+        count = 0
+        for skill_file in sorted(dir_path.rglob("SKILL.md")):
+            try:
+                parsed = parse_skill_md(skill_file)
+                fm = parsed.frontmatter
+                meta = SkillMetadata(
+                    name=fm.name,
+                    description=fm.description,
+                    category=fm.category,
+                    required_skills=fm.required_skills,
+                    file_path=parsed.file_path,
+                    source=fm.source,
+                    source_type=source_type,
+                    install_path=str(skill_file.parent),
+                    plugin_name=plugin_name,
+                    enabled=True,
+                    content_loaded=True,
+                )
+                self.skills[meta.name] = meta
+                self._content_cache[meta.name] = parsed.body
+                count += 1
+                logger.info("Scanned skill (recursive): %s", meta.name)
+            except Exception:
+                logger.exception("Failed to parse skill: %s", skill_file)
+
+        return count
+
+    def scan_all(self, plugin_skill_dirs: list[str] | None = None) -> int:
+        self.skills.clear()
+        self._content_cache.clear()
+        from app.config.settings import config_manager
+
+        skill_settings = config_manager.settings.skill
+        total = 0
+
+        project_skills = Path.cwd() / "skills"
+        if project_skills.exists():
+            total += self.scan_directory(project_skills, SkillSource.PROJECT)
+
+        project_reflexion_skills = Path.cwd() / ".reflexion" / "skills"
+        if project_reflexion_skills.exists():
+            total += self.scan_directory(project_reflexion_skills, SkillSource.PROJECT_REFLEXION)
+
+        global_skills = Path(skill_settings.install_dir)
+        if global_skills.exists():
+            total += self.scan_directory(global_skills, SkillSource.GLOBAL)
+
+        if plugin_skill_dirs:
+            for d in plugin_skill_dirs:
+                p = Path(d)
+                if p.exists():
+                    total += self.scan_recursive(p, SkillSource.PLUGIN)
+
+        for compat_dir in skill_settings.compat_dirs:
+            p = Path(compat_dir)
+            if p.exists():
+                total += self.scan_directory(p, SkillSource.COMPAT)
+
+        for extra_dir in skill_settings.scan_dirs:
+            p = Path(extra_dir)
+            if p.exists():
+                total += self.scan_directory(p, SkillSource.CONFIG)
+
+        return total
 
     def register_skill(self, skill: SkillMetadata) -> None:
         self.skills[skill.name] = skill
@@ -125,54 +210,8 @@ class SkillRegistry:
             return True
         return False
 
-    def get_installer(self):
-        from app.orchestration.skill_installer import SkillInstaller
-
-        if self._installer is None:
-            from app.config.settings import config_manager
-
-            install_dir = config_manager.settings.skill.install_dir
-            self._installer = SkillInstaller(install_dir)
-        return self._installer
-
-    def install_skill(
-        self, url: str, skill_name: str, subdir: str = "", branch: str = "main"
-    ):
-
-        result = self.get_installer().install(url, skill_name, subdir, branch)
-        if result.success:
-            self.scan_directory(result.install_path)
-        return result
-
-    def uninstall_skill(self, name: str):
-        from app.orchestration.skill_installer import InstallResult
-
-        skill = self.get_skill(name)
-        if skill is None:
-            return InstallResult(success=False, error=f"Skill '{name}' not registered")
-        result = self.get_installer().uninstall(name)
-        if result.success:
-            self.unregister_skill(name)
-        return result
-
-    def refresh(self) -> int:
-        self.skills.clear()
-        self._content_cache.clear()
-        from app.config.settings import config_manager
-
-        skill_settings = config_manager.settings.skill
-        total = 0
-        project_skills = Path.cwd() / "skills"
-        if project_skills.exists():
-            total += self.scan_directory(project_skills)
-        global_skills = Path(skill_settings.install_dir)
-        if global_skills.exists():
-            total += self.scan_directory(global_skills)
-        for extra_dir in skill_settings.scan_dirs:
-            p = Path(extra_dir)
-            if p.exists():
-                total += self.scan_directory(p)
-        return total
+    def refresh(self, plugin_skill_dirs: list[str] | None = None) -> int:
+        return self.scan_all(plugin_skill_dirs=plugin_skill_dirs)
 
 
 skill_registry = SkillRegistry()

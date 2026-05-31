@@ -1,11 +1,20 @@
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import files, git, llm, projects, sessions, skills, ui_settings, websocket
+from app.api.routes import (
+    files,
+    git,
+    llm,
+    plugins,
+    projects,
+    sessions,
+    skills,
+    ui_settings,
+    websocket,
+)
 from app.app_services import agent_service
 from app.errors import AppError
 
@@ -14,21 +23,37 @@ from app.errors import AppError
 async def lifespan(_app: FastAPI):
     agent_service.start_background_tasks()
 
+    from pathlib import Path
+
     from app.config.settings import config_manager
+    from app.orchestration.package_resolver import PackageResolver
+    from app.orchestration.plugin_loader import PluginLoader
     from app.orchestration.skill_registry import skill_registry
 
+    plugin_settings = config_manager.settings.plugin
     skill_settings = config_manager.settings.skill
+
+    packages = []
+    plugin_skill_dirs = []
+
+    if plugin_settings.plugins:
+        resolver = PackageResolver(Path(plugin_settings.package_cache_dir))
+        try:
+            packages = resolver.resolve_all(plugin_settings.plugins)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
+
+        loader = PluginLoader(resolver)
+        try:
+            loader.load_all(packages)
+            plugin_skill_dirs = loader.get_all_skill_dirs()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Failed to load plugins: %s", e)
+
     if skill_settings.auto_scan:
-        project_skills = Path.cwd() / "skills"
-        if project_skills.exists():
-            skill_registry.scan_directory(project_skills)
-        global_skills = Path.home() / ".reflexion" / "skills"
-        if global_skills.exists():
-            skill_registry.scan_directory(global_skills)
-        for extra_dir in skill_settings.scan_dirs:
-            p = Path(extra_dir)
-            if p.exists():
-                skill_registry.scan_directory(p)
+        skill_registry.scan_all(plugin_skill_dirs=plugin_skill_dirs)
 
     try:
         yield
@@ -66,6 +91,7 @@ app.include_router(projects.router)
 app.include_router(sessions.router)
 app.include_router(llm.router)
 app.include_router(skills.router)
+app.include_router(plugins.router)
 app.include_router(ui_settings.router)
 app.include_router(websocket.router)
 app.include_router(files.router)

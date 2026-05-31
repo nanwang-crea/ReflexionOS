@@ -5,7 +5,10 @@ export interface Skill {
   required_skills: string[]
   enabled: boolean
   source: string
+  source_type: string
   install_path: string
+  plugin_name: string
+  version: string
 }
 
 export interface SkillDetail extends Skill {
@@ -14,11 +17,4 @@ export interface SkillDetail extends Skill {
 
 export interface SkillCategories {
   [category: string]: { name: string; description: string; enabled: boolean }[]
-}
-
-export interface InstallRequest {
-  url: string
-  skill_name: string
-  subdir?: string
-  branch?: string
 }

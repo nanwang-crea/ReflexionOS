@@ -43,6 +43,7 @@ from app.tools.memory_tool import MemoryTool
 from app.tools.edit_tool import EditTool
 from app.tools.explore_tool import ExploreTool
 from app.tools.plan_tool import PlanTool
+from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -134,7 +135,9 @@ class AgentService:
         registry.register(MemoryTool())
         registry.register(PlanTool())
         registry.register(ExploreTool(path_security))
-        registry.register(SkillTool(global_skill_registry))
+        from app.config.settings import config_manager as _cfg_mgr
+        _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
+        registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
 
         logger.info(
             "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
