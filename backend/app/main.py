@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,23 @@ from app.errors import AppError
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     agent_service.start_background_tasks()
+
+    from app.config.settings import config_manager
+    from app.orchestration.skill_registry import skill_registry
+
+    skill_settings = config_manager.settings.skill
+    if skill_settings.auto_scan:
+        project_skills = Path.cwd() / "skills"
+        if project_skills.exists():
+            skill_registry.scan_directory(project_skills)
+        global_skills = Path.home() / ".reflexion" / "skills"
+        if global_skills.exists():
+            skill_registry.scan_directory(global_skills)
+        for extra_dir in skill_settings.scan_dirs:
+            p = Path(extra_dir)
+            if p.exists():
+                skill_registry.scan_directory(p)
+
     try:
         yield
     finally:

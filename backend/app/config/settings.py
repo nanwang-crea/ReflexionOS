@@ -28,6 +28,13 @@ class MemorySettings(BaseModel):
     base_dir: str = Field(default_factory=lambda: str(Path.home() / ".reflexion" / "memory"))
 
 
+class SkillSettings(BaseModel):
+    """技能配置"""
+
+    scan_dirs: list[str] = Field(default_factory=list)
+    auto_scan: bool = True
+
+
 class UISettings(BaseModel):
     """UI 偏好配置"""
 
@@ -41,6 +48,7 @@ class AppSettings(BaseModel):
     execution: ExecutionSettings = ExecutionSettings()
     memory: MemorySettings = MemorySettings()
     ui: UISettings = UISettings()
+    skill: SkillSettings = SkillSettings()
 
 
 class ConfigManager:
