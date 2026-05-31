@@ -1,96 +1,176 @@
-from app.orchestration.skill_registry import Skill, SkillRegistry
+from pathlib import Path
+
+from app.orchestration.skill_registry import SkillMetadata, SkillRegistry
 
 
-class TestSkillRegistry:
-    def test_registry_initialization(self):
-        registry = SkillRegistry()
+class TestSkillMetadata:
+    def test_default_values(self):
+        meta = SkillMetadata(name="test", description="A test skill")
 
-        assert len(registry.skills) > 0
-        assert "code_edit" in registry.skills
-        assert "debug" in registry.skills
-        assert "refactor" in registry.skills
+        assert meta.name == "test"
+        assert meta.description == "A test skill"
+        assert meta.category == ""
+        assert meta.required_skills == []
+        assert meta.file_path == ""
+        assert meta.enabled is True
+        assert meta.content_loaded is False
 
-    def test_register_skill(self):
-        registry = SkillRegistry()
-        skill = Skill(
-            name="test_skill",
-            description="测试技能",
-            tools=["file"],
-            prompt_template="Test template",
+    def test_all_fields(self):
+        meta = SkillMetadata(
+            name="full",
+            description="Full skill",
+            category="development",
+            required_skills=["code_edit", "debug"],
+            file_path="/skills/full/SKILL.md",
+            enabled=False,
+            content_loaded=True,
         )
 
-        registry.register_skill(skill)
+        assert meta.category == "development"
+        assert meta.required_skills == ["code_edit", "debug"]
+        assert meta.file_path == "/skills/full/SKILL.md"
+        assert meta.enabled is False
+        assert meta.content_loaded is True
 
-        assert "test_skill" in registry.skills
-        assert registry.skills["test_skill"].description == "测试技能"
 
-    def test_unregister_skill(self):
+def _create_skill_dir(base: Path, name: str, frontmatter_lines: list[str], body: str = "Body content\n") -> Path:
+    skill_dir = base / name
+    skill_dir.mkdir()
+    skill_file = skill_dir / "SKILL.md"
+    fm = "\n".join(frontmatter_lines)
+    skill_file.write_text(f"---\n{fm}\n---\n{body}")
+    return skill_file
+
+
+class TestSkillRegistryFileSystemScan:
+    def test_scan_skills_dir(self, tmp_path: Path):
+        _create_skill_dir(tmp_path, "brainstorming", ["name: Brainstorm", "description: Ideation skill"])
+
         registry = SkillRegistry()
-        skill = Skill(name="to_remove", description="将被删除")
-        registry.register_skill(skill)
+        count = registry.scan_directory(tmp_path)
 
-        result = registry.unregister_skill("to_remove")
-
-        assert result is True
-        assert "to_remove" not in registry.skills
-
-    def test_get_skill(self):
-        registry = SkillRegistry()
-
-        skill = registry.get_skill("code_edit")
-
+        assert count == 1
+        skill = registry.get_skill("Brainstorm")
         assert skill is not None
-        assert skill.name == "code_edit"
+        assert skill.description == "Ideation skill"
+        assert skill.content_loaded is True
+        assert registry.get_skill_content("Brainstorm") == "Body content\n"
 
-    def test_get_nonexistent_skill(self):
+    def test_scan_multiple_dirs(self, tmp_path: Path):
+        dir_a = tmp_path / "group_a"
+        dir_a.mkdir()
+        dir_b = tmp_path / "group_b"
+        dir_b.mkdir()
+        _create_skill_dir(dir_a, "skill-a", ["name: SkillA", "description: From A"])
+        _create_skill_dir(dir_b, "skill-b", ["name: SkillB", "description: From B"])
+
         registry = SkillRegistry()
+        total = registry.scan_directory(dir_a) + registry.scan_directory(dir_b)
 
-        skill = registry.get_skill("nonexistent")
+        assert total == 2
+        assert registry.get_skill("SkillA") is not None
+        assert registry.get_skill("SkillB") is not None
 
-        assert skill is None
+    def test_get_skill_content_lazy(self, tmp_path: Path):
+        skill_file = _create_skill_dir(tmp_path, "lazy-skill", "name: LazySkill\n description: Lazy\n")
 
-    def test_list_skills(self):
         registry = SkillRegistry()
+        meta = SkillMetadata(
+            name="LazySkill",
+            description="Lazy",
+            file_path=str(skill_file),
+            content_loaded=False,
+        )
+        registry.register_skill(meta)
 
-        skills = registry.list_skills()
+        assert registry.get_skill("LazySkill").content_loaded is False
 
-        assert len(skills) >= 3
-        assert any(s.name == "code_edit" for s in skills)
+        content = registry.get_skill_content("LazySkill")
 
-    def test_enable_disable_skill(self):
+        assert content is not None
+        assert "Body content" in content
+        assert registry.get_skill("LazySkill").content_loaded is True
+
+    def test_scan_skips_invalid_dirs(self, tmp_path: Path):
+        _create_skill_dir(tmp_path, "valid-skill", ["name: Valid", "description: OK"])
+        no_skill_dir = tmp_path / "no-skill-here"
+        no_skill_dir.mkdir()
+        (no_skill_dir / "README.md").write_text("Not a skill")
+
         registry = SkillRegistry()
+        count = registry.scan_directory(tmp_path)
 
-        registry.disable_skill("code_edit")
-        assert registry.get_skill("code_edit").enabled is False
+        assert count == 1
+        assert registry.get_skill("Valid") is not None
 
-        registry.enable_skill("code_edit")
-        assert registry.get_skill("code_edit").enabled is True
+    def test_skill_metadata_fields(self, tmp_path: Path):
+        _create_skill_dir(
+            tmp_path,
+            "categorized",
+            ["name: Categorized", "description: Has metadata", "category: planning", "required_skills:", "  - brainstorm"],
+        )
+
+        registry = SkillRegistry()
+        registry.scan_directory(tmp_path)
+
+        skill = registry.get_skill("Categorized")
+        assert skill is not None
+        assert skill.category == "planning"
+        assert skill.required_skills == ["brainstorm"]
+        assert skill.file_path != ""
+        assert skill.enabled is True
+
+
+class TestSkillRegistryBasicOps:
+    def test_register_and_unregister(self):
+        registry = SkillRegistry()
+        meta = SkillMetadata(name="temp", description="Temporary")
+        registry.register_skill(meta)
+        assert registry.get_skill("temp") is not None
+
+        registry.unregister_skill("temp")
+        assert registry.get_skill("temp") is None
+
+    def test_unregister_clears_content_cache(self, tmp_path: Path):
+        _create_skill_dir(tmp_path, "cache-skill", ["name: CacheSkill", "description: Cached"])
+        registry = SkillRegistry()
+        registry.scan_directory(tmp_path)
+
+        assert registry.get_skill_content("CacheSkill") is not None
+        registry.unregister_skill("CacheSkill")
+        assert registry.get_skill_content("CacheSkill") is None
+
+    def test_enable_disable(self):
+        registry = SkillRegistry()
+        meta = SkillMetadata(name="toggle", description="Toggle me")
+        registry.register_skill(meta)
+
+        assert registry.get_skill("toggle").enabled is True
+        registry.disable_skill("toggle")
+        assert registry.get_skill("toggle").enabled is False
+        registry.enable_skill("toggle")
+        assert registry.get_skill("toggle").enabled is True
 
     def test_list_enabled_skills(self):
         registry = SkillRegistry()
-        registry.disable_skill("debug")
+        registry.register_skill(SkillMetadata(name="a", description="A"))
+        registry.register_skill(SkillMetadata(name="b", description="B", enabled=False))
 
         enabled = registry.list_enabled_skills()
+        assert len(enabled) == 1
+        assert enabled[0].name == "a"
 
-        assert all(s.enabled for s in enabled)
-        assert "debug" not in [s.name for s in enabled]
+    def test_list_skills_by_category(self):
+        registry = SkillRegistry()
+        registry.register_skill(SkillMetadata(name="x", description="X", category="dev"))
+        registry.register_skill(SkillMetadata(name="y", description="Y", category="planning"))
+        registry.register_skill(SkillMetadata(name="z", description="Z", category="dev"))
 
-        registry.enable_skill("debug")
+        dev_skills = registry.list_skills_by_category("dev")
+        assert len(dev_skills) == 2
+        assert all(s.category == "dev" for s in dev_skills)
 
-
-class TestSkill:
-    def test_skill_creation(self):
-        skill = Skill(
-            name="test", description="测试", tools=["file", "shell"], prompt_template="template"
-        )
-
-        assert skill.name == "test"
-        assert len(skill.tools) == 2
-        assert skill.enabled is True
-
-    def test_skill_default_values(self):
-        skill = Skill(name="minimal", description="最小技能")
-
-        assert skill.tools == []
-        assert skill.prompt_template == ""
-        assert skill.enabled is True
+    def test_scan_nonexistent_directory(self):
+        registry = SkillRegistry()
+        count = registry.scan_directory("/nonexistent/path")
+        assert count == 0
