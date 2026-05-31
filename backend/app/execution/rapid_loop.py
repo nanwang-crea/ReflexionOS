@@ -18,6 +18,7 @@ from app.execution.models import (
     RuntimeState,
     StepStatus,
 )
+from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
@@ -78,6 +79,7 @@ class RapidExecutionLoop:
         )
         self.approval_flow = ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
+        self.plan_file_sync = PlanFileSync()
 
     @property
     def tool_registry(self) -> ToolRegistry:
@@ -106,6 +108,11 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """PLANNING 阶段：调用 LLM 决策，决定下一阶段。"""
+        # Check for plan_exit confirmation
+        if rt._plan_exit_confirmed:
+            rt._plan_exit_confirmed = False
+            await self._confirm_plan_exit(context, rt)
+
         rt.response = await self._call_llm(context)
 
         if rt.response.has_tool_calls:
@@ -156,6 +163,22 @@ class RapidExecutionLoop:
 
         read_only_calls = []
         write_calls = []
+
+        # Handle plan_exit — emit event, wait for user confirmation
+        for tool_call in list(rt.response.tool_calls):
+            if tool_call.name == "plan_exit":
+                rt.step_num += 1
+                step = await self.tool_executor.execute(tool_call, context, rt.step_num)
+                result.steps.append(step)
+                context.add_step(step)
+                if step.status == StepStatus.SUCCESS:
+                    await self._emit("plan:exit_requested", {
+                        "run_id": result.id,
+                        "summary": step.args.get("summary", ""),
+                    })
+                    context.metadata["plan_exit_requested"] = True
+                    context.metadata["plan_exit_summary"] = step.args.get("summary", "")
+                return LoopPhase.PLANNING
 
         for tool_call in rt.response.tool_calls:
             if self.tool_executor._is_read_only_call(tool_call):
@@ -266,6 +289,11 @@ class RapidExecutionLoop:
 
         if error_recovery_needed:
             return LoopPhase.ERROR_RECOVERY
+
+        # Sync plan file after plan tool changes
+        if context.plan and context.plan_file_path:
+            self.plan_file_sync.sync(context.plan, context.plan_file_path)
+
         return LoopPhase.PLANNING
 
     async def _handle_approval(
@@ -397,6 +425,24 @@ class RapidExecutionLoop:
 
         return LoopPhase.PLANNING
 
+    async def _confirm_plan_exit(self, context: LoopContext, rt: RuntimeState) -> None:
+        """Handle user confirmation of plan_exit — switch to build mode."""
+        context.agent_mode = "build"
+        rt.steps_since_last_plan_update = 0
+        context.metadata.pop("plan_exit_requested", None)
+        summary = context.metadata.pop("plan_exit_summary", "")
+        injection = f"计划已批准，开始执行。{summary}"
+        if context.plan_file_path:
+            injection += f"\n计划文件: {context.plan_file_path}"
+        context.add_message("user", injection)
+        if context.plan and context.plan_file_path:
+            self.plan_file_sync.sync(context.plan, context.plan_file_path)
+
+    async def confirm_plan_exit_from_external(self, run_id: str) -> None:
+        """Called externally when user confirms plan_exit via WebSocket."""
+        if self._runtime is not None:
+            self._runtime._plan_exit_confirmed = True
+
     async def _handle_final_summary(
         self,
         context: LoopContext,
@@ -526,6 +572,9 @@ class RapidExecutionLoop:
                 if context.plan is not None:
                     if loop_result.status == LoopStatus.COMPLETED:
                         context.plan.finalize_for_completion()
+                        if context.plan_file_path:
+                            self.plan_file_sync.delete(context.plan_file_path)
+                            await self._emit("plan:file_deleted", {"path": context.plan_file_path})
                     elif loop_result.status == LoopStatus.FAILED:
                         context.plan.finalize_for_failure()
                     elif loop_result.status == LoopStatus.CANCELLED:

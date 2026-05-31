@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
+from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall, UniversalLLMInterface
 
 
@@ -28,6 +29,21 @@ class InitialPlanBootstrapper:
             return
 
         plan_tool.set_plan(None)
+
+        # Check for recovery plan file
+        plan_file_sync = PlanFileSync()
+        recovery_path = plan_file_sync.find_recovery_plan(context.project_path)
+        if recovery_path is not None:
+            recovered_plan = plan_file_sync.read(recovery_path)
+            if recovered_plan is not None:
+                context.plan = recovered_plan
+                context.plan_file_path = recovery_path
+                context.metadata["plan_update_required"] = False
+                context.metadata["steps_since_last_plan_update"] = 0
+                await self.emit("plan:updated", context.plan.to_dict())
+                await self.emit("plan:recovered", {"path": recovery_path, "goal": recovered_plan.goal})
+                return
+
         if context.plan is not None:
             return
 
@@ -54,6 +70,12 @@ class InitialPlanBootstrapper:
             if result.success and plan_tool.get_plan() is not None:
                 context.plan = plan_tool.get_plan()
                 context.metadata["plan_update_required"] = False
+                context.metadata["steps_since_last_plan_update"] = 0
+                # Write plan file for persistence
+                slug = context.task[:40].replace(" ", "-").lower()
+                plan_file_sync = PlanFileSync()
+                plan_path = plan_file_sync.write(context.plan, slug=slug, project_path=context.project_path)
+                context.plan_file_path = plan_path
                 await self.emit("plan:updated", context.plan.to_dict())
             elif result.error:
                 context.add_message("system", f"初始计划创建失败: {result.error}")
