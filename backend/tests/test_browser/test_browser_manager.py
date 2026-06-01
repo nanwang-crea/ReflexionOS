@@ -1,7 +1,7 @@
 import re
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.browser.manager import BrowserManager, MAX_TABS
 from app.config.settings import BrowserSettings
@@ -25,6 +25,7 @@ def _mock_page():
     page.evaluate = AsyncMock(return_value=42)
     page.select_option = AsyncMock()
     page.wait_for_selector = AsyncMock()
+    page.screenshot = AsyncMock()
     page.url = "about:blank"
     locator = MagicMock()
     locator.inner_text = AsyncMock(return_value="hello world")
@@ -59,18 +60,37 @@ def _mock_playwright(browser):
     return pw
 
 
-async def _start_manager(manager, page=None):
-    """Helper: wire mocks and call start()."""
+def _inject_running(manager, page=None):
+    """Directly set manager state to 'running' with a mock page."""
+    if page is None:
+        page = _mock_page()
+    ctx = _mock_context(page)
+    browser = _mock_browser(ctx)
+
+    manager._playwright = MagicMock()
+    manager._browser = browser
+    manager._context = ctx
+    tab_id = manager._new_tab_id()
+    manager._tabs[tab_id] = page
+    manager._active_tab_id = tab_id
+    return page
+
+
+async def _start_with_mocks(manager, page=None):
+    """Call start() with properly mocked async_playwright."""
     if page is None:
         page = _mock_page()
     ctx = _mock_context(page)
     browser = _mock_browser(ctx)
     pw = _mock_playwright(browser)
 
-    with patch("app.browser.manager.async_playwright", return_value=pw):
+    async_pw_cm = MagicMock()
+    async_pw_cm.start = AsyncMock(return_value=pw)
+
+    with patch("app.browser.manager.async_playwright", return_value=async_pw_cm):
         result = await manager.start()
 
-    return result, pw, browser, ctx, page
+    return result
 
 
 # ------------------------------------------------------------------
@@ -95,7 +115,7 @@ def test_new_tab_id_format(manager):
 # 3. start() with mock Playwright succeeds
 # ------------------------------------------------------------------
 async def test_start_succeeds(manager):
-    result, *_ = await _start_manager(manager)
+    result = await _start_with_mocks(manager)
     assert result.success is True
     assert result.action == "start"
     assert manager.is_running is True
@@ -107,7 +127,7 @@ async def test_start_succeeds(manager):
 # 4. close() cleans up state
 # ------------------------------------------------------------------
 async def test_close_cleans_up(manager):
-    await _start_manager(manager)
+    _inject_running(manager)
     result = await manager.close()
     assert result.success is True
     assert manager._browser is None
@@ -136,8 +156,7 @@ def test_cleanup_screenshots(tmp_path, manager):
 # 6. navigate calls page.goto
 # ------------------------------------------------------------------
 async def test_navigate_calls_goto(manager):
-    page = _mock_page()
-    await _start_manager(manager, page)
+    page = _inject_running(manager)
     result = await manager.navigate("https://example.com")
     assert result.success is True
     page.goto.assert_awaited_once_with("https://example.com", wait_until="load")
@@ -147,8 +166,7 @@ async def test_navigate_calls_goto(manager):
 # 7. click with selector calls page.click
 # ------------------------------------------------------------------
 async def test_click_selector(manager):
-    page = _mock_page()
-    await _start_manager(manager, page)
+    page = _inject_running(manager)
     result = await manager.click(selector="button#submit")
     assert result.success is True
     page.click.assert_awaited_once_with("button#submit")
@@ -158,8 +176,7 @@ async def test_click_selector(manager):
 # 8. fill calls page.fill
 # ------------------------------------------------------------------
 async def test_fill(manager):
-    page = _mock_page()
-    await _start_manager(manager, page)
+    page = _inject_running(manager)
     result = await manager.fill("input[name=email]", "test@example.com")
     assert result.success is True
     page.fill.assert_awaited_once_with("input[name=email]", "test@example.com")
@@ -169,8 +186,7 @@ async def test_fill(manager):
 # 9. read returns content
 # ------------------------------------------------------------------
 async def test_read_returns_content(manager):
-    page = _mock_page()
-    await _start_manager(manager, page)
+    _inject_running(manager)
     result = await manager.read()
     assert result.success is True
     assert result.data["content"] == "hello world"
@@ -181,23 +197,24 @@ async def test_read_returns_content(manager):
 # ------------------------------------------------------------------
 async def test_close_tab_creates_blank(manager):
     page = _mock_page()
-    ctx = _mock_context(page)
     blank_page = _mock_page()
-    ctx.new_page = AsyncMock(side_effect=[page, blank_page])
-
+    ctx = _mock_context(page)
+    ctx.new_page = AsyncMock(return_value=blank_page)
     browser = _mock_browser(ctx)
-    pw = _mock_playwright(browser)
 
-    with patch("app.browser.manager.async_playwright", return_value=pw):
-        await manager.start()
+    manager._playwright = MagicMock()
+    manager._browser = browser
+    manager._context = ctx
+    tab_id = manager._new_tab_id()
+    manager._tabs[tab_id] = page
+    manager._active_tab_id = tab_id
 
-    first_tab_id = manager._active_tab_id
     assert len(manager._tabs) == 1
 
-    result = await manager.close_tab(first_tab_id)
+    result = await manager.close_tab(tab_id)
     assert result.success is True
     assert len(manager._tabs) == 1
-    assert manager._active_tab_id != first_tab_id
+    assert manager._active_tab_id != tab_id
     assert manager._active_tab_id in manager._tabs
 
 
@@ -205,25 +222,27 @@ async def test_close_tab_creates_blank(manager):
 # 11. MAX_TABS limit on new_tab
 # ------------------------------------------------------------------
 async def test_max_tabs_limit(manager):
-    page = _mock_page()
-    ctx = _mock_context(page)
+    first_page = _mock_page()
+    extra_pages = [_mock_page() for _ in range(MAX_TABS - 1)]
+    all_pages = [first_page] + extra_pages
+
+    ctx = _mock_context(first_page)
+    ctx.new_page = AsyncMock(side_effect=extra_pages)
     browser = _mock_browser(ctx)
-    pw = _mock_playwright(browser)
 
-    pages = [_mock_page() for _ in range(MAX_TABS)]
-    ctx.new_page = AsyncMock(side_effect=pages)
+    manager._playwright = MagicMock()
+    manager._browser = browser
+    manager._context = ctx
+    tab_id = manager._new_tab_id()
+    manager._tabs[tab_id] = first_page
+    manager._active_tab_id = tab_id
 
-    with patch("app.browser.manager.async_playwright", return_value=pw):
-        await manager.start()
-
-    # Fill up to MAX_TABS (1 already created by start)
     for _ in range(MAX_TABS - 1):
         res = await manager.new_tab()
         assert res.success is True
 
     assert len(manager._tabs) == MAX_TABS
 
-    # Next one should fail
     result = await manager.new_tab()
     assert result.success is False
     assert "Maximum" in result.error
