@@ -74,6 +74,7 @@ class BrowserSettings(BaseModel):
     default_wait_until: str = "load"
     block_private_ips: bool = False
     blocked_url_patterns: list[str] = Field(default_factory=list)
+    allowed_schemes: list[str] = Field(default=["http", "https"])
 
 
 class AppSettings(BaseModel):

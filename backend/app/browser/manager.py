@@ -35,6 +35,7 @@ class BrowserManager:
         self._security = BrowserSecurityConfig(
             block_private_ips=self._config.block_private_ips,
             blocked_url_patterns=self._config.blocked_url_patterns,
+            allowed_schemes=self._config.allowed_schemes,
         )
 
         self._playwright: Playwright | None = None
