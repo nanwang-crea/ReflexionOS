@@ -1,6 +1,20 @@
+/**
+ * BrowserPanel — 浏览器配置面板组件。
+ *
+ * 在 Settings 页面的"浏览器" tab 中展示，提供浏览器相关配置项的
+ * 展示和编辑功能。配置通过 /api/ui-settings API 读写。
+ *
+ * 配置项：
+ *   - headless: 是否无头模式
+ *   - browser_engine: 浏览器引擎 (chromium/firefox/webkit)
+ *   - default_timeout: 导航超时时间 (ms)
+ *   - block_private_ips: 是否禁止访问私有 IP
+ */
+
 import { useEffect, useState } from 'react'
 import { Globe, Monitor, Shield, Clock } from 'lucide-react'
 
+/** 浏览器配置数据结构，与后端 BrowserSettings 模型对应 */
 interface BrowserSettings {
   headless: boolean
   browser_engine: 'chromium' | 'firefox' | 'webkit'
@@ -10,7 +24,16 @@ interface BrowserSettings {
   blocked_url_patterns: string[]
 }
 
+/**
+ * 浏览器配置面板组件。
+ *
+ * 执行逻辑：
+ *   1. 组件挂载时从 GET /api/ui-settings 加载现有配置
+ *   2. 用户修改配置项后更新本地 state
+ *   3. 点击"保存配置"时将完整 ui-settings（含 browser 字段）PUT 回后端
+ */
 export function BrowserPanel() {
+  /** 浏览器配置状态，初始化为默认值 */
   const [settings, setSettings] = useState<BrowserSettings>({
     headless: true,
     browser_engine: 'chromium',
@@ -19,8 +42,14 @@ export function BrowserPanel() {
     block_private_ips: false,
     blocked_url_patterns: [],
   })
+
+  /** 保存按钮的加载状态 */
   const [saving, setSaving] = useState(false)
 
+  /**
+   * 组件挂载时加载配置。
+   * 从 /api/ui-settings 读取完整配置，提取 browser 字段设置到本地 state。
+   */
   useEffect(() => {
     fetch('/api/ui-settings')
       .then(r => r.json())
@@ -30,6 +59,14 @@ export function BrowserPanel() {
       .catch(console.error)
   }, [])
 
+  /**
+   * 保存配置到后端。
+   *
+   * 执行逻辑：
+   *   1. 先获取当前完整 ui-settings（避免覆盖其他配置）
+   *   2. 合并 browser 字段
+   *   3. PUT /api/ui-settings 提交
+   */
   const save = async () => {
     setSaving(true)
     try {
@@ -51,6 +88,7 @@ export function BrowserPanel() {
       <h3 className="text-lg font-semibold text-content-primary">浏览器配置</h3>
 
       <div className="space-y-4 rounded-lg border border-edge bg-surface-secondary p-4">
+        {/* 无头模式开关 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Monitor className="h-4 w-4 text-content-secondary" />
@@ -64,6 +102,7 @@ export function BrowserPanel() {
           </button>
         </div>
 
+        {/* 浏览器引擎选择 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Globe className="h-4 w-4 text-content-secondary" />
@@ -80,6 +119,7 @@ export function BrowserPanel() {
           </select>
         </div>
 
+        {/* 导航超时设置 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-content-secondary" />
@@ -93,6 +133,7 @@ export function BrowserPanel() {
           />
         </div>
 
+        {/* 私有 IP 限制开关 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="h-4 w-4 text-content-secondary" />
@@ -107,6 +148,7 @@ export function BrowserPanel() {
         </div>
       </div>
 
+      {/* 保存按钮 */}
       <button
         onClick={save}
         disabled={saving}

@@ -1,3 +1,12 @@
+"""
+test_browser_manager — BrowserManager 单元测试。
+
+覆盖浏览器生命周期、页面交互、标签管理和资源清理。
+通过 Mock Playwright 对象隔离测试，不依赖真实浏览器。
+
+依赖：pytest, pytest-asyncio, app.browser.manager
+"""
+
 import re
 
 import pytest
@@ -9,10 +18,16 @@ from app.config.settings import BrowserSettings
 
 @pytest.fixture
 def manager():
+    """创建 BrowserManager 实例，使用 headless=True 配置。"""
     return BrowserManager(BrowserSettings(headless=True))
 
 
+# ------------------------------------------------------------------
+# Mock 辅助函数 — 创建模拟的 Playwright 对象
+# ------------------------------------------------------------------
+
 def _mock_page():
+    """创建模拟的 Playwright Page 对象，所有方法都是 AsyncMock。"""
     page = MagicMock()
     page.goto = AsyncMock()
     page.click = AsyncMock()
@@ -37,6 +52,7 @@ def _mock_page():
 
 
 def _mock_context(page):
+    """创建模拟的 BrowserContext 对象。"""
     ctx = MagicMock()
     ctx.new_page = AsyncMock(return_value=page)
     ctx.set_default_timeout = MagicMock()
@@ -44,6 +60,7 @@ def _mock_context(page):
 
 
 def _mock_browser(ctx):
+    """创建模拟的 Browser 对象。"""
     browser = MagicMock()
     browser.is_connected = MagicMock(return_value=True)
     browser.new_context = AsyncMock(return_value=ctx)
@@ -53,6 +70,7 @@ def _mock_browser(ctx):
 
 
 def _mock_playwright(browser):
+    """创建模拟的 Playwright 运行时对象。"""
     pw = MagicMock()
     pw.chromium = MagicMock()
     pw.chromium.launch = AsyncMock(return_value=browser)
@@ -61,7 +79,15 @@ def _mock_playwright(browser):
 
 
 def _inject_running(manager, page=None):
-    """Directly set manager state to 'running' with a mock page."""
+    """直接将 manager 状态设置为"运行中"，跳过 start() 流程。
+
+    入参：
+        manager: BrowserManager 实例
+        page: 可选的 mock Page，为 None 时自动创建
+
+    出参：
+        MagicMock: 注入的 mock Page 对象
+    """
     if page is None:
         page = _mock_page()
     ctx = _mock_context(page)
@@ -77,7 +103,15 @@ def _inject_running(manager, page=None):
 
 
 async def _start_with_mocks(manager, page=None):
-    """Call start() with properly mocked async_playwright."""
+    """调用 start() 并注入 mock 的 async_playwright。
+
+    入参：
+        manager: BrowserManager 实例
+        page: 可选的 mock Page
+
+    出参：
+        BrowserActionResult: start() 的返回结果
+    """
     if page is None:
         page = _mock_page()
     ctx = _mock_context(page)
@@ -94,27 +128,28 @@ async def _start_with_mocks(manager, page=None):
 
 
 # ------------------------------------------------------------------
-# 1. Initial state
+# 测试用例
 # ------------------------------------------------------------------
+
+# 1. 初始状态
 async def test_initial_state(manager):
+    """新建的 BrowserManager 应处于未运行状态。"""
     assert manager.is_running is False
     assert manager._tabs == {}
     assert manager._active_tab_id is None
 
 
-# ------------------------------------------------------------------
-# 2. _new_tab_id returns 12-char hex
-# ------------------------------------------------------------------
+# 2. _new_tab_id 格式
 def test_new_tab_id_format(manager):
+    """_new_tab_id 应返回 12 位十六进制字符串。"""
     tid = manager._new_tab_id()
     assert len(tid) == 12
     assert re.fullmatch(r"[0-9a-f]{12}", tid)
 
 
-# ------------------------------------------------------------------
-# 3. start() with mock Playwright succeeds
-# ------------------------------------------------------------------
+# 3. start() 成功启动
 async def test_start_succeeds(manager):
+    """start() 应成功启动浏览器并创建初始标签页。"""
     result = await _start_with_mocks(manager)
     assert result.success is True
     assert result.action == "start"
@@ -123,10 +158,9 @@ async def test_start_succeeds(manager):
     assert manager._active_tab_id is not None
 
 
-# ------------------------------------------------------------------
-# 4. close() cleans up state
-# ------------------------------------------------------------------
+# 4. close() 清理状态
 async def test_close_cleans_up(manager):
+    """close() 应清空所有运行时状态。"""
     _inject_running(manager)
     result = await manager.close()
     assert result.success is True
@@ -137,10 +171,9 @@ async def test_close_cleans_up(manager):
     assert manager._active_tab_id is None
 
 
-# ------------------------------------------------------------------
-# 5. cleanup_screenshots removes temp directory
-# ------------------------------------------------------------------
+# 5. cleanup_screenshots 删除临时目录
 def test_cleanup_screenshots(tmp_path, manager):
+    """cleanup_screenshots 应删除截图临时目录及其内容。"""
     ss_dir = tmp_path / "screenshots"
     ss_dir.mkdir()
     (ss_dir / "img.png").write_bytes(b"fake")
@@ -152,50 +185,45 @@ def test_cleanup_screenshots(tmp_path, manager):
     assert manager._screenshot_dir is None
 
 
-# ------------------------------------------------------------------
-# 6. navigate calls page.goto
-# ------------------------------------------------------------------
+# 6. navigate 调用 page.goto
 async def test_navigate_calls_goto(manager):
+    """navigate 应调用 page.goto() 并传递正确的 URL 和 wait_until。"""
     page = _inject_running(manager)
     result = await manager.navigate("https://example.com")
     assert result.success is True
     page.goto.assert_awaited_once_with("https://example.com", wait_until="load")
 
 
-# ------------------------------------------------------------------
-# 7. click with selector calls page.click
-# ------------------------------------------------------------------
+# 7. click 使用 selector
 async def test_click_selector(manager):
+    """click(selector=...) 应调用 page.click()。"""
     page = _inject_running(manager)
     result = await manager.click(selector="button#submit")
     assert result.success is True
     page.click.assert_awaited_once_with("button#submit")
 
 
-# ------------------------------------------------------------------
-# 8. fill calls page.fill
-# ------------------------------------------------------------------
+# 8. fill 调用 page.fill
 async def test_fill(manager):
+    """fill 应调用 page.fill() 传入选择器和值。"""
     page = _inject_running(manager)
     result = await manager.fill("input[name=email]", "test@example.com")
     assert result.success is True
     page.fill.assert_awaited_once_with("input[name=email]", "test@example.com")
 
 
-# ------------------------------------------------------------------
-# 9. read returns content
-# ------------------------------------------------------------------
+# 9. read 返回内容
 async def test_read_returns_content(manager):
+    """read 应返回元素的 innerText 内容。"""
     _inject_running(manager)
     result = await manager.read()
     assert result.success is True
     assert result.data["content"] == "hello world"
 
 
-# ------------------------------------------------------------------
-# 10. close_tab auto-creates blank tab when closing last
-# ------------------------------------------------------------------
+# 10. close_tab 关闭最后一个标签时自动创建空白页
 async def test_close_tab_creates_blank(manager):
+    """关闭最后一个标签页时应自动创建新的空白标签页。"""
     page = _mock_page()
     blank_page = _mock_page()
     ctx = _mock_context(page)
@@ -213,15 +241,14 @@ async def test_close_tab_creates_blank(manager):
 
     result = await manager.close_tab(tab_id)
     assert result.success is True
-    assert len(manager._tabs) == 1
-    assert manager._active_tab_id != tab_id
+    assert len(manager._tabs) == 1  # 关闭后自动创建了新标签
+    assert manager._active_tab_id != tab_id  # 活跃标签已切换
     assert manager._active_tab_id in manager._tabs
 
 
-# ------------------------------------------------------------------
-# 11. MAX_TABS limit on new_tab
-# ------------------------------------------------------------------
+# 11. MAX_TABS 限制
 async def test_max_tabs_limit(manager):
+    """标签页数量达到 MAX_TABS 后，new_tab 应返回错误。"""
     first_page = _mock_page()
     extra_pages = [_mock_page() for _ in range(MAX_TABS - 1)]
     all_pages = [first_page] + extra_pages
@@ -237,12 +264,14 @@ async def test_max_tabs_limit(manager):
     manager._tabs[tab_id] = first_page
     manager._active_tab_id = tab_id
 
+    # 创建到上限
     for _ in range(MAX_TABS - 1):
         res = await manager.new_tab()
         assert res.success is True
 
     assert len(manager._tabs) == MAX_TABS
 
+    # 超出上限应失败
     result = await manager.new_tab()
     assert result.success is False
     assert "Maximum" in result.error
