@@ -83,7 +83,7 @@ async def test_execute_js(browser):
     """执行 JavaScript 并获取返回值。"""
     url = TEST_PAGE.as_uri()
     await browser.navigate(url)
-    result = await browser.execute_js("return document.title")
+    result = await browser.execute_js("() => document.title")
     assert result.success
     assert result.data["result"] == "Test Page"
 
