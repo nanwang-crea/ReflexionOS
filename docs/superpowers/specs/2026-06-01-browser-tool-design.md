@@ -1,9 +1,9 @@
 # Browser Tool 设计文档
 
 > 日期：2026-06-01
-> 状态：已批准（评审修订 v2）
+> 状态：已批准（评审修订 v3）
 > 范围：为 ReflexionOS Agent 增加浏览器操作能力
-> 评审修订：已回应全部 8 条评审意见
+> 评审修订：已回应全部 13 条评审意见（首轮 8 条 + 二轮 5 条）
 
 ---
 
@@ -88,7 +88,6 @@ playwright>=1.40.0
 | `click` | 点击元素 | `selector` 或 `text`(文本匹配) | 成功/失败 |
 | `fill` | 填写表单 | `selector`, `value` | 成功/失败 |
 | `select` | 下拉选择 | `selector`, `value` | 成功/失败 |
-| `paste` | 粘贴剪贴板 | `selector` | 成功/失败，从系统剪贴板读取内容并粘贴到指定元素 |
 | `screenshot` | 截图 | `selector?`(区域), `full_page?` | 截图文件路径 + 缩略信息 |
 | `read` | 读取内容 | `selector?`, `format?`(text/html) | 文本/HTML |
 | `wait` | 等待元素 | `selector`, `timeout?`, `state?`(visible/hidden/attached) | 成功/超时 |
@@ -105,13 +104,13 @@ playwright>=1.40.0
 ```json
 {
   "name": "browser",
-  "description": "Control a web browser. Actions: launch (start browser), navigate (open URL), click (click element by selector or text), fill (fill input field), select (select dropdown option), paste (paste from clipboard into element), screenshot (capture image), read (get text/HTML), wait (wait for element), execute_js (run JavaScript), new_tab (open new tab), switch_tab (switch to tab), close_tab (close a tab), close (shut down browser).",
+  "description": "Control a web browser. Actions: launch (start browser), navigate (open URL), click (click element by selector or text), fill (fill input field), select (select dropdown option), screenshot (capture image), read (get text/HTML), wait (wait for element), execute_js (run JavaScript), new_tab (open new tab), switch_tab (switch to tab), close_tab (close a tab), close (shut down browser).",
   "parameters": {
     "type": "object",
     "properties": {
       "action": {
         "type": "string",
-        "enum": ["launch","navigate","click","fill","select","paste","screenshot","read","wait","execute_js","new_tab","switch_tab","close_tab","close"],
+        "enum": ["launch","navigate","click","fill","select","screenshot","read","wait","execute_js","new_tab","switch_tab","close_tab","close"],
         "description": "The browser action to perform"
       },
       "url": {
@@ -120,7 +119,7 @@ playwright>=1.40.0
       },
       "selector": {
         "type": "string",
-        "description": "CSS selector of the target element (used by: click, fill, select, paste, screenshot, read, wait)"
+        "description": "CSS selector of the target element (used by: click, fill, select, screenshot, read, wait)"
       },
       "text": {
         "type": "string",
@@ -200,6 +199,8 @@ ToolResult(
 ```
 
 > **评审回应 #4**：截图不以 base64 放入 ToolResult（避免占用 Token），而是存为临时文件。ToolResult.data 只返回文件路径。前端 ActionReceipt 通过后端 API 获取图片进行渲染。
+>
+> **评审回应（二轮 #2）**：截图临时目录在 Run 结束时随 `BrowserTool.cleanup()` 一起清理（`shutil.rmtree`）。如果需要跨 Run 保留截图，可配置 TTL 过期策略（默认 Run 结束即清理）。
 
 错误：
 ```python
@@ -234,6 +235,7 @@ Run 结束
   → BrowserTool.cleanup() 被调用（在 try/finally 中）
     → BrowserManager.close()
       → context.close() + browser.close() + playwright.stop()
+    → 清理截图临时目录（shutil.rmtree(_screenshot_dir)）
 ```
 
 **孤儿进程防护（三重保障）：**
@@ -320,22 +322,47 @@ class BrowserSecurityConfig(BaseModel):
     max_navigation_depth: int = 10                 # 最大连续导航次数（防重定向循环）
 ```
 
-### 7.3 execute_js 审计（新增）
+### 7.3 execute_js 审计（增强）
+
+> **评审回应（二轮 #4）**：记录完整脚本 + hash，200 字符仅作前端展示用。
 
 每次 `execute_js` 调用记录审计日志：
 
 ```python
+import hashlib
+
 # 审计日志格式
 {
     "action": "execute_js",
-    "script_preview": "return document.title",  # 前 200 字符
+    "script_full": "return document.title",        # 完整脚本（用于审计追溯）
+    "script_hash": "sha256:abc123...",              # 脚本 hash（用于去重/检测）
+    "script_preview": "return document.title",      # 前 200 字符（用于前端展示）
     "timestamp": "2026-06-01T10:30:00Z",
     "session_id": "...",
     "run_id": "..."
 }
 ```
 
-### 7.4 恶意页面防护
+### 7.4 截图 API 路径安全（新增）
+
+> **评审回应（二轮 #3）**：`GET /api/browser/screenshot?path=...` 的 path 参数需防路径遍历攻击。
+
+后端 API 校验逻辑：
+```python
+async def get_screenshot(path: str):
+    # 1. 规范化路径，防止 ../ 遍历
+    real_path = Path(path).resolve()
+    # 2. 白名单校验：必须在合法截图目录内
+    screenshot_base = Path(tempfile.gettempdir()) / "browser-screenshots"
+    if not str(real_path).startswith(str(screenshot_base.resolve())):
+        raise HTTPException(403, "Path outside allowed directory")
+    # 3. 确认文件存在
+    if not real_path.exists():
+        raise HTTPException(404, "Screenshot not found")
+    return FileResponse(real_path)
+```
+
+### 7.5 恶意页面防护
 
 - 导航超时限制（默认 30s），防止页面挂起
 - 最大连续导航深度（默认 10），防止重定向循环
@@ -384,7 +411,7 @@ interface BrowserSettings {
 |------|------|------|
 | GET | `/api/ui-settings` | 获取全部 UI 设置（含浏览器配置） |
 | PUT | `/api/ui-settings` | 更新 UI 设置 |
-| GET | `/api/browser/screenshot?path=...` | 获取截图图片流 |
+| GET | `/api/browser/screenshot?path=...` | 获取截图图片流（路径白名单校验） |
 
 配置从前端通过 `PUT /api/ui-settings` 传入后端，存入数据库 `ui_settings` 表。`AgentService._build_run_tool_registry()` 读取配置创建 `BrowserTool`。
 
@@ -396,7 +423,7 @@ interface BrowserSettings {
 
 文件：`tests/test_tools/test_browser_tool.py`
 
-覆盖所有 14 个 action 的：
+覆盖所有 13 个 action 的：
 - 正常调用路径
 - 缺少必填参数
 - 无效参数值
@@ -448,7 +475,7 @@ def test_page_url():
 ### 第一版（本次实施）
 
 - BrowserTool + BrowserManager 完整实现（含并发锁 + 孤儿进程防护）
-- 14 个 action 全部实现
+- 13 个 action 全部实现
 - 扁平化 Schema + execute() 内部参数校验
 - 截图存为临时文件 + 后端截图 API
 - URL 安全策略（黑名单 + 私有 IP 限制）
@@ -460,11 +487,14 @@ def test_page_url():
 
 ### 后续迭代（不在本次范围）
 
-- 多浏览器实例管理
-- 浏览器录制/回放
-- 定时任务调度（AutomationPage 仍保持占位）
-- 浏览器扩展支持
-- 浏览器 Cookie/Session 持久化
+| 事项 | Owner | 预计时间 | 说明 |
+|------|-------|----------|------|
+| 浏览器二进制打包（PyInstaller 包含 Playwright） | TBD | 第二版发布前 | 当前第一版仅支持开发模式，打包前必须解决 |
+| 多浏览器实例管理 | TBD | 第二版 | |
+| 浏览器录制/回放 | TBD | 待定 | |
+| 定时任务调度（AutomationPage） | TBD | 待定 | |
+| 浏览器扩展支持 | TBD | 待定 | |
+| 浏览器 Cookie/Session 持久化 | TBD | 待定 | |
 
 ## 11. 依赖影响
 
