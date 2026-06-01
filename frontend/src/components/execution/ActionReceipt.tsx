@@ -138,6 +138,20 @@ const ActionReceiptDetailRow = memo(function ActionReceiptDetailRow({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {detail.data?.screenshot_path && (
+        <div className="mt-2">
+          <img
+            src={`/api/browser/screenshot?path=${encodeURIComponent(detail.data.screenshot_path as string)}`}
+            alt="Browser screenshot"
+            className="max-w-sm rounded border border-edge cursor-pointer hover:opacity-80"
+            onClick={() => window.open(`/api/browser/screenshot?path=${encodeURIComponent(detail.data!.screenshot_path as string)}`, '_blank')}
+          />
+          <p className="mt-1 text-xs text-content-tertiary">
+            {detail.data.width as number}x{detail.data.height as number} — 点击查看原图
+          </p>
+        </div>
+      )}
     </div>
   )
 })

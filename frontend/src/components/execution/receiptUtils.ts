@@ -25,6 +25,7 @@ export interface ActionReceiptDetail {
   duration?: number
   arguments?: Record<string, unknown>
   target?: string
+  data?: Record<string, unknown>
 }
 
 function truncate(value: string, length: number) {
