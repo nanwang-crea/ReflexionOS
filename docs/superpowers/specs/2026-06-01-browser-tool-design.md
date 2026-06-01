@@ -86,6 +86,7 @@ playwright>=1.40.0
 | `click` | 点击元素 | `selector` 或 `text`(文本匹配) | 成功/失败 |
 | `fill` | 填写表单 | `selector`, `value` | 成功/失败 |
 | `select` | 下拉选择 | `selector`, `value` | 成功/失败 |
+| `paste` | 粘贴剪贴板 | `selector` | 成功/失败，从系统剪贴板读取内容并粘贴到指定元素 |
 | `screenshot` | 截图 | `selector?`(区域), `full_page?` | base64 图片 |
 | `read` | 读取内容 | `selector?`, `format?`(text/html) | 文本/HTML |
 | `wait` | 等待元素 | `selector`, `timeout?`, `state?`(visible/hidden/attached) | 成功/超时 |
@@ -108,7 +109,7 @@ playwright>=1.40.0
     "properties": {
       "action": {
         "type": "string",
-        "enum": ["launch","navigate","click","fill","select","screenshot","read","wait","execute_js","new_tab","switch_tab","close_tab","close"],
+        "enum": ["launch","navigate","click","fill","select","paste","screenshot","read","wait","execute_js","new_tab","switch_tab","close_tab","close"],
         "description": "The browser action to perform"
       }
     },
@@ -155,6 +156,13 @@ playwright>=1.40.0
           "value": {"type": "string", "description": "Option value to select"}
         },
         "required": ["selector", "value"]
+      },
+      {
+        "properties": {
+          "action": {"const": "paste"},
+          "selector": {"type": "string", "description": "CSS selector of the element to paste into (e.g. input, textarea)"}
+        },
+        "required": ["selector"]
       },
       {
         "properties": {
