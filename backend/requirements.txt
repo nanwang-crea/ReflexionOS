@@ -18,3 +18,4 @@ ruff==0.11.8
 # Packaging dependencies
 pyinstaller==6.13.0
 tiktoken
+playwright==1.49.1

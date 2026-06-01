@@ -65,6 +65,17 @@ class UISettings(BaseModel):
     show_continuation_notices: bool = False
 
 
+class BrowserSettings(BaseModel):
+    """浏览器配置"""
+
+    headless: bool = True
+    browser_engine: str = "chromium"
+    default_timeout: int = 30000
+    default_wait_until: str = "load"
+    block_private_ips: bool = False
+    blocked_url_patterns: list[str] = Field(default_factory=list)
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
 
@@ -74,6 +85,7 @@ class AppSettings(BaseModel):
     ui: UISettings = UISettings()
     skill: SkillSettings = SkillSettings()
     plugin: PluginSettings = PluginSettings()
+    browser: BrowserSettings = Field(default_factory=BrowserSettings)
 
 
 class ConfigManager:
@@ -117,6 +129,11 @@ class ConfigManager:
     def update_ui(self, ui_settings: UISettings):
         """更新 UI 偏好配置"""
         self.settings.ui = ui_settings
+        self.save()
+
+    def update_browser(self, browser_settings: BrowserSettings):
+        """更新浏览器配置"""
+        self.settings.browser = browser_settings
         self.save()
 
     def should_show_continuation_notices(self) -> bool:
