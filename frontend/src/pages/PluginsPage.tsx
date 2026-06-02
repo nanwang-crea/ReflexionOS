@@ -158,22 +158,22 @@ export default function PluginsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">
-      <div className="mx-auto max-w-5xl px-10 py-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
         {/* Header */}
-        <div className="mb-10">
+        <div className="mb-8 lg:mb-10">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-surface-tertiary px-3 py-1 text-sm text-content-muted">
             <Puzzle className="h-4 w-4" />
             <span>插件</span>
           </div>
-          <h1 className="text-3xl font-semibold text-content-primary">插件工作台</h1>
+          <h1 className="text-2xl font-semibold text-content-primary sm:text-3xl">插件工作台</h1>
           <p className="mt-3 max-w-2xl text-[16px] leading-7 text-content-muted">
             管理已安装的插件，安装新插件以扩展 Agent 能力。插件可以提供工具和技能。
           </p>
         </div>
 
         {/* Toolbar */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-content-muted">
               {plugins.length > 0 ? `已安装 ${plugins.length} 个插件` : '暂无已安装插件'}
             </span>
@@ -209,12 +209,12 @@ export default function PluginsPage() {
 
         {/* Install Dialog */}
         {showInstallDialog && (
-          <div className="mb-6 rounded-3xl border border-edge bg-surface-tertiary p-6">
+          <div className="mb-6 rounded-3xl border border-edge bg-surface-tertiary p-4 sm:p-6">
             <h3 className="mb-3 text-sm font-medium text-content-primary">安装新插件</h3>
             <p className="mb-4 text-sm text-content-muted">
               输入插件标识符（如 GitHub 仓库路径 <code className="rounded bg-surface-primary px-1.5 py-0.5 text-xs">owner/repo</code> 或带版本 <code className="rounded bg-surface-primary px-1.5 py-0.5 text-xs">owner/repo@v1.0</code>）
             </p>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="text"
                 placeholder="例如: owner/repo 或 owner/repo@v1.0"
@@ -223,7 +223,7 @@ export default function PluginsPage() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleInstall()
                 }}
-                className="flex-1 rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
+                className="min-w-0 flex-1 rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
                 autoFocus
               />
               <button
@@ -252,8 +252,8 @@ export default function PluginsPage() {
             正在加载插件列表...
           </div>
         ) : plugins.length === 0 ? (
-          <div className="rounded-3xl border border-edge bg-surface-tertiary px-8 py-10">
-            <div className="flex items-start gap-4">
+          <div className="rounded-3xl border border-edge bg-surface-tertiary px-4 py-6 sm:px-8 sm:py-10">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
               <div className="rounded-2xl bg-surface-primary p-3 text-content-muted shadow-sm">
                 <Package className="h-6 w-6" />
               </div>
@@ -272,16 +272,16 @@ export default function PluginsPage() {
                 {/* Plugin Card */}
                 <div
                   onClick={() => handleToggleExpand(plugin.name)}
-                  className={`cursor-pointer rounded-3xl border bg-surface-primary p-6 transition-colors hover:bg-surface-secondary ${
+                  className={`cursor-pointer rounded-3xl border bg-surface-primary p-4 transition-colors hover:bg-surface-secondary sm:p-6 ${
                     expandedPlugin === plugin.name
                       ? 'border-content-primary'
                       : 'border-edge'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-xl font-semibold text-content-primary">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="min-w-0 break-words text-xl font-semibold text-content-primary">
                           {plugin.name}
                         </h2>
                         {plugin.has_tools && (
@@ -298,19 +298,19 @@ export default function PluginsPage() {
                         )}
                       </div>
                       {plugin.specifier && (
-                        <p className="mt-1 text-sm text-content-muted">
+                        <p className="mt-1 break-all text-sm text-content-muted">
                           {plugin.specifier}
                         </p>
                       )}
                       {plugin.resolved_ref && (
-                        <div className="mt-2 flex items-center gap-1.5 text-xs text-content-muted">
+                        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-content-muted">
                           <Globe className="h-3 w-3" />
-                          <span>{plugin.resolved_ref}</span>
+                          <span className="min-w-0 break-all">{plugin.resolved_ref}</span>
                         </div>
                       )}
                     </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -344,7 +344,7 @@ export default function PluginsPage() {
 
                 {/* Expanded Skills Panel */}
                 {expandedPlugin === plugin.name && (
-                  <div className="rounded-b-3xl border border-t-0 border-edge bg-surface-tertiary px-6 py-5">
+                  <div className="rounded-b-3xl border border-t-0 border-edge bg-surface-tertiary px-4 py-5 sm:px-6">
                     <div className="mb-3 flex items-center gap-2 text-sm font-medium text-content-primary">
                       <BookOpen className="h-4 w-4" />
                       <span>插件技能</span>
@@ -356,10 +356,10 @@ export default function PluginsPage() {
                         {pluginSkills[plugin.name].map((skill) => (
                           <div
                             key={skill.name}
-                            className="flex items-center justify-between rounded-2xl bg-surface-primary px-4 py-2.5"
+                            className="flex flex-col gap-2 rounded-2xl bg-surface-primary px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between"
                           >
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-medium text-content-primary">
                                   {skill.name}
                                 </span>
@@ -372,7 +372,7 @@ export default function PluginsPage() {
                               </p>
                             </div>
                             <span
-                              className={`ml-2 rounded-full px-2 py-0.5 text-xs ${
+                              className={`self-start rounded-full px-2 py-0.5 text-xs sm:ml-2 sm:self-center ${
                                 skill.enabled
                                   ? 'bg-green-500/10 text-green-400'
                                   : 'bg-surface-tertiary text-content-muted'

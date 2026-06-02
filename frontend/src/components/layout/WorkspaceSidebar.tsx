@@ -371,7 +371,7 @@ export function WorkspaceSidebar() {
   ]
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-edge bg-surface-secondary lg:w-[320px]">
+    <aside className="flex max-h-[42vh] w-full shrink-0 flex-col overflow-hidden border-b border-edge bg-surface-secondary md:h-full md:max-h-none md:w-64 md:border-b-0 md:border-r lg:w-[320px]">
       <div className="flex-1 overflow-y-auto px-4 pb-4 pt-5">
         <div className="space-y-1">
           {globalEntries.map((entry) => {

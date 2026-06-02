@@ -115,13 +115,13 @@ export default function SkillsPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">
-      <div className="mx-auto max-w-5xl px-10 py-10">
-        <div className="mb-10">
+      <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+        <div className="mb-8 lg:mb-10">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-surface-tertiary px-3 py-1 text-sm text-content-muted">
             <Sparkles className="h-4 w-4" />
             <span>技能</span>
           </div>
-          <h1 className="text-3xl font-semibold text-content-primary">
+          <h1 className="text-2xl font-semibold text-content-primary sm:text-3xl">
             技能配置
           </h1>
           <p className="mt-3 max-w-2xl text-[16px] leading-7 text-content-muted">
@@ -146,8 +146,8 @@ export default function SkillsPage() {
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-muted" />
               <input
                 type="text"
@@ -187,12 +187,12 @@ export default function SkillsPage() {
               return (
                 <div key={skill.name}>
                     <div
-                      className="rounded-3xl border border-edge bg-surface-primary p-6 transition-colors hover:bg-surface-secondary"
+                      className="rounded-3xl border border-edge bg-surface-primary p-4 transition-colors hover:bg-surface-secondary sm:p-6"
                     >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-xl font-semibold text-content-primary">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="min-w-0 break-words text-xl font-semibold text-content-primary">
                             {skill.name}
                           </h2>
                           <span className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-muted">
@@ -216,7 +216,7 @@ export default function SkillsPage() {
                         </p>
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
                         <button
                           onClick={() => {
                             openFile(skill.install_path + '/SKILL.md', 'edit')

@@ -33,7 +33,7 @@ export function ProviderPanel() {
     <div className="space-y-6">
       <div className="grid gap-6 xl:grid-cols-[280px,minmax(0,1fr)]">
         <div className="rounded-lg border border-edge bg-surface-primary p-4">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-lg font-semibold text-content-primary">供应商实例</h3>
             <button
               onClick={handleCreateProvider}
@@ -79,8 +79,8 @@ export function ProviderPanel() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-edge bg-surface-primary p-6">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="rounded-lg border border-edge bg-surface-primary p-4 sm:p-6">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-lg font-semibold text-content-primary">
               {selectedSavedProvider ? '编辑供应商' : '新建供应商'}
             </h3>
@@ -140,7 +140,7 @@ export function ProviderPanel() {
           </div>
 
           <div className="mt-6">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h4 className="text-sm font-semibold text-content-primary">模型列表</h4>
               <button
                 type="button"
@@ -154,7 +154,7 @@ export function ProviderPanel() {
             <div className="max-h-[50vh] space-y-3 overflow-y-auto">
               {draftProvider.models.map((model) => (
                 <div key={model.id} className="rounded-lg border border-edge p-4">
-                  <div className="grid gap-3 sm:grid-cols-[1fr,1fr] md:grid-cols-[1fr,1fr,auto,auto]">
+                  <div className="grid gap-3 sm:grid-cols-[1fr,1fr] lg:grid-cols-[1fr,1fr,auto,auto]">
                     <input
                       type="text"
                       value={model.display_name}
@@ -220,7 +220,7 @@ export function ProviderPanel() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <button
               onClick={() => { void handleTestConnection() }}
               disabled={testing}

@@ -5,7 +5,7 @@ from threading import Barrier, BrokenBarrierError
 
 import pytest
 
-from app.models.conversation import ConversationEvent, EventType, MessageType, RunStatus
+from app.models.conversation import ConversationEvent, EventType, Message, MessageType, RunStatus, StreamState, Turn, TurnStatus
 from app.models.session import Session
 from app.services.conversation_service import ConversationService
 from app.storage.database import Database
@@ -52,6 +52,45 @@ def test_get_snapshot_returns_session_turn_run_and_messages(tmp_path):
     assert [turn.id for turn in snapshot.turns] == [started.turn.id]
     assert [run.id for run in snapshot.runs] == [started.run.id]
     assert [message.id for message in snapshot.messages] == [started.user_message.id]
+
+
+def test_get_snapshot_paginated_has_more_tracks_older_messages(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-pagination.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    for index in range(1, 6):
+        turn_id = f"turn-{index}"
+        service.turn_repo.create(Turn(
+            id=turn_id,
+            session_id="session-1",
+            turn_index=index,
+            root_message_id=f"msg-{index}",
+            status=TurnStatus.COMPLETED,
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-{index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"message {index}",
+        ))
+
+    latest = service.get_snapshot("session-1", limit=2)
+    middle = service.get_snapshot("session-1", limit=2, before="msg-4")
+    oldest = service.get_snapshot("session-1", limit=2, before="msg-2")
+
+    assert [message.id for message in latest.messages] == ["msg-4", "msg-5"]
+    assert latest.has_more is True
+    assert [message.id for message in middle.messages] == ["msg-2", "msg-3"]
+    assert middle.has_more is True
+    assert [message.id for message in oldest.messages] == ["msg-1"]
+    assert oldest.has_more is False
 
 
 def test_cancel_run_appends_cancel_and_system_notice(tmp_path):

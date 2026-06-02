@@ -25,7 +25,7 @@ export function RunningIndicator({
       className={
         isHeader
           ? 'border-b border-edge-subtle bg-accent/8 px-4 py-3'
-          : 'mb-8 flex items-center gap-3 text-sm text-content-secondary'
+          : 'mb-8 mx-auto flex w-full max-w-[920px] items-center gap-3 text-sm text-content-secondary'
       }
       aria-live="polite"
     >

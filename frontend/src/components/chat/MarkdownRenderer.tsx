@@ -60,7 +60,7 @@ export function MarkdownRenderer({
             >
               复制
             </button>
-            <pre className="bg-surface-code text-content-primary rounded-lg p-4 overflow-x-auto my-3 pt-8">
+            <pre className="bg-surface-code text-content-primary rounded-lg p-4 overflow-x-auto my-3 pt-8 max-w-full">
               <code className={className} {...props}>
                 {children}
               </code>
@@ -111,7 +111,7 @@ export function MarkdownRenderer({
     ),
 
     table: ({ children }: any) => (
-      <div className="overflow-x-auto my-3">
+      <div className="overflow-x-auto my-3 max-w-full">
         <table className="min-w-full border border-edge">
           {children}
         </table>

@@ -46,15 +46,16 @@ export function useCurrentSessionViewModel(options: {
   const isLoadingMoreRef = useRef(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
 
-  const handleLoadMore = useCallback((beforeMessageId: string) => {
+  const handleLoadMore = useCallback(async (beforeMessageId: string) => {
     if (isLoadingMoreRef.current || !options.hasMore) return
     isLoadingMoreRef.current = true
     setIsLoadingMore(true)
-    options.onLoadMore?.(beforeMessageId)
-    setTimeout(() => {
+    try {
+      await options.onLoadMore?.(beforeMessageId)
+    } finally {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)
-    }, 1000)
+    }
   }, [options.hasMore, options.onLoadMore])
 
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {

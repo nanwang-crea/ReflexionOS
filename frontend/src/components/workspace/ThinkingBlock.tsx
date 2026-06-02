@@ -19,7 +19,7 @@ export function ThinkingBlock({
   }, [isStreaming])
 
   return (
-    <div className="mb-3 max-w-[920px] rounded-lg border border-edge bg-surface-secondary/60 px-3 py-2 text-xs leading-6 text-content-muted">
+    <div className="mb-3 max-w-[920px] mx-auto w-full rounded-lg border border-edge bg-surface-secondary/60 px-3 py-2 text-xs leading-6 text-content-muted">
       <button
         type="button"
         onClick={() => setIsExpanded((value) => !value)}

@@ -18,10 +18,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
 
   return (
-    <div className="flex h-full bg-surface-primary">
-      <nav className="w-56 shrink-0 border-r border-edge bg-surface-secondary p-4">
-        <h2 className="mb-4 px-3 text-xl font-bold text-content-primary">设置</h2>
-        <ul className="space-y-1">
+    <div className="flex h-full flex-col bg-surface-primary md:flex-row">
+      <nav className="shrink-0 border-b border-edge bg-surface-secondary p-3 md:w-56 md:border-b-0 md:border-r md:p-4">
+        <h2 className="mb-3 px-3 text-xl font-bold text-content-primary md:mb-4">设置</h2>
+        <ul className="flex gap-1 overflow-x-auto md:block md:space-y-1 md:overflow-visible">
           {tabs.map((tab) => {
             const Icon = tab.icon
             const active = activeTab === tab.key
@@ -30,7 +30,7 @@ export default function SettingsPage() {
                 <button
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] transition ${
+                  className={`flex whitespace-nowrap items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] transition md:w-full ${
                     active
                       ? 'bg-surface-tertiary text-content-primary font-medium'
                       : 'text-content-secondary hover:bg-surface-tertiary'
@@ -45,8 +45,8 @@ export default function SettingsPage() {
         </ul>
       </nav>
 
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-4xl px-8 py-8">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
           {activeTab === 'providers' && <ProviderPanel />}
           {activeTab === 'default-model' && <DefaultModelPanel />}
           {activeTab === 'display' && <DisplayOptionsPanel />}

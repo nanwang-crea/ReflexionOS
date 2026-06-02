@@ -24,8 +24,8 @@ export function WorkspaceHeader({
   const togglePanel = useTerminalStore((s) => s.togglePanel)
 
   return (
-    <div className="flex items-center justify-between border-b border-edge bg-surface-primary px-6 py-4">
-      <div className="flex items-center gap-3">
+    <div className="flex flex-col gap-3 border-b border-edge bg-surface-primary px-4 py-3 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex min-w-0 items-center gap-3">
         {workspaceTab === 'code' && (
           <button
             type="button"
@@ -54,14 +54,14 @@ export function WorkspaceHeader({
             <TerminalSquare className="h-4 w-4" />
           </button>
         )}
-        <div>
-          <h2 className="text-lg font-semibold text-content-primary">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold text-content-primary">{title}</h2>
           {projectPath && (
-            <p className="text-sm text-content-muted">{projectPath}</p>
+            <p className="truncate text-sm text-content-muted">{projectPath}</p>
           )}
         </div>
       </div>
-        <div className="flex items-center gap-1 rounded-lg bg-surface-tertiary p-1">
+        <div className="flex w-full items-center justify-center gap-1 rounded-lg bg-surface-tertiary p-1 sm:w-auto">
           {(['chat', 'code'] as WorkspaceTab[]).map((tab) => (
             <button
               key={tab}
@@ -77,7 +77,7 @@ export function WorkspaceHeader({
             </button>
           ))}
         </div>
-      <div className="flex items-center gap-4">
+      <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:justify-end lg:w-auto">
         <div className="flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${
             connectionStatus === 'connected' ? 'bg-status-success' :

@@ -27,20 +27,20 @@ function App() {
 
   return (
     <Router>
-      <div className="flex h-screen bg-surface-primary">
+      <div className="flex h-screen flex-col bg-surface-primary md:flex-row">
         {!sidebarCollapsed ? (
           <WorkspaceSidebar />
         ) : (
           <button
             type="button"
             onClick={() => useThemeStore.getState().toggleSidebar()}
-            className="flex h-full w-10 shrink-0 items-center justify-center border-r border-edge bg-surface-secondary text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
+            className="flex h-10 w-full shrink-0 items-center justify-center border-b border-edge bg-surface-secondary text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary md:h-full md:w-10 md:border-b-0 md:border-r"
             title="展开侧边栏"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
           </button>
         )}
-        <main className="flex flex-1 flex-col overflow-hidden bg-surface-primary">
+        <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-surface-primary">
           <Routes>
             <Route path="/" element={<Navigate to="/agent" replace />} />
             <Route path="/agent" element={<AgentWorkspace />} />

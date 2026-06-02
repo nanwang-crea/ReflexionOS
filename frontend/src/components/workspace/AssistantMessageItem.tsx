@@ -9,6 +9,8 @@ import { getAssistantReasoningText } from './runtimeStatus'
 
 const transcriptClassName = [
   'max-w-[920px]',
+  'mx-auto',
+  'w-full',
   'text-[17px]',
   'leading-[1.8]',
   'text-content-primary',

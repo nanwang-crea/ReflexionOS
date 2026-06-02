@@ -165,7 +165,7 @@ const ApprovalCard = memo(function ApprovalCard({
   const summary = useMemo(() => summarizeReceipt(details, 'waiting_for_approval'), [details])
 
   return (
-    <div className="mb-8 max-w-[920px] rounded-xl border border-edge bg-surface-primary overflow-hidden">
+    <div className="mb-8 max-w-[920px] mx-auto w-full rounded-xl border border-edge bg-surface-primary overflow-hidden">
       <div className="flex flex-col gap-3 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
           <ShieldAlert className="h-4 w-4 shrink-0 text-content-muted" />
@@ -258,7 +258,7 @@ export const ActionReceipt = memo(function ActionReceipt({ status, details, onAp
   }
 
   return (
-    <div className="mb-8 max-w-[920px]">
+    <div className="mb-8 max-w-[920px] mx-auto w-full">
       <div className="flex flex-wrap items-center gap-2">
         <button
           ref={topRef}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Virtuoso } from 'react-virtuoso'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
@@ -245,6 +245,27 @@ export function WorkspaceTranscript({
   }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length])
 
   const virtuosoComponents = useMemo(() => ({
+    ScrollContainer: React.forwardRef<HTMLDivElement, any>(
+      ({ style, children }, ref) => (
+        <div
+          ref={ref}
+          style={{
+            ...style,
+            overflowX: 'hidden',
+            maxWidth: 1280,
+            marginLeft: 'auto',
+            marginRight: 'auto',
+            width: '100%',
+            paddingLeft: 32,
+            paddingRight: 32,
+            paddingTop: 32,
+            paddingBottom: 32,
+          }}
+        >
+          {children}
+        </div>
+      )
+    ),
     Header: () => (
       <>
         {loaded && !configured && (
@@ -356,7 +377,6 @@ export function WorkspaceTranscript({
         startReached={handleStartReached}
         atBottomStateChange={setIsAtBottom}
         components={virtuosoComponents}
-        className="mx-auto w-full max-w-[1280px] px-8 py-8"
       />
     </div>
   )

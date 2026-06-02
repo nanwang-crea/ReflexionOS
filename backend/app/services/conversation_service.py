@@ -125,13 +125,15 @@ class ConversationService:
                 has_more=False,
             )
 
+        probe_limit = limit + 1
         if before is not None:
-            messages = self.message_repo.list_by_session_before(session_id, before, limit)
+            messages = self.message_repo.list_by_session_before(session_id, before, probe_limit)
         else:
-            messages = self.message_repo.list_by_session_latest(session_id, limit)
+            messages = self.message_repo.list_by_session_latest(session_id, probe_limit)
 
-        total_count = self.message_repo.count_by_session(session_id)
-        has_more = total_count > len(messages)
+        has_more = len(messages) > limit
+        if has_more:
+            messages = messages[-limit:]
 
         turn_ids = list(dict.fromkeys(m.turn_id for m in messages))
         turns = self.turn_repo.list_by_ids(turn_ids) if turn_ids else []

@@ -108,8 +108,8 @@ export function ChatInput({
           className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary"
         />
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-edge-subtle px-3 py-2">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-col gap-3 border-t border-edge-subtle px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
               onClick={() => onModeChange?.(agentMode === 'build' ? 'plan' : 'build')}
@@ -124,13 +124,13 @@ export function ChatInput({
             </button>
             {providerOptions.length > 0 ? (
               <>
-                 <label className="flex items-center gap-2 text-xs text-content-muted">
-                   <span>供应商</span>
+                 <label className="flex w-full items-center gap-2 text-xs text-content-muted sm:w-auto">
+                   <span className="shrink-0">供应商</span>
                    <select
                      value={selectedProviderId || ''}
                      onChange={(e) => onProviderChange?.(e.target.value || null)}
                      disabled={selectionDisabled}
-                     className="rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary"
+                     className="min-w-0 flex-1 rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary sm:w-40 sm:flex-none"
                    >
                     <option value="">请选择供应商</option>
                     {providerOptions.map((option) => (
@@ -140,13 +140,13 @@ export function ChatInput({
                     ))}
                   </select>
                 </label>
-                 <label className="flex items-center gap-2 text-xs text-content-muted">
-                   <span>模型</span>
+                 <label className="flex w-full items-center gap-2 text-xs text-content-muted sm:w-auto">
+                   <span className="shrink-0">模型</span>
                    <select
                      value={selectedModelId || ''}
                      onChange={(e) => onModelChange?.(e.target.value || null)}
                      disabled={selectionDisabled || modelOptions.length === 0}
-                     className="rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary"
+                     className="min-w-0 flex-1 rounded-lg border border-edge bg-surface-primary px-2 py-1 text-xs text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-secondary sm:w-44 sm:flex-none"
                    >
                     <option value="">请选择模型</option>
                     {modelOptions.map((option) => (
@@ -162,12 +162,12 @@ export function ChatInput({
                 请先在设置页配置供应商和模型
               </span>
             )}
-            <span className="text-xs text-content-muted">
+            <span className="hidden text-xs text-content-muted sm:inline">
               `Enter` 发送，`Shift + Enter` 换行
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
             {canCancel || isCancelling ? (
               <motion.button
                 type="button"

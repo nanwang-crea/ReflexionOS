@@ -18,9 +18,10 @@ vi.mock('framer-motion', () => ({
 vi.mock('react-virtuoso', () => {
   const React = require('react')
   return {
-    Virtuoso: ({ data, itemContent, components, atBottomStateChange }: any) => {
+    Virtuoso: ({ data, itemContent, components, atBottomStateChange, startReached }: any) => {
       const isAtBottom = data && data.length > 0
       if (atBottomStateChange) atBottomStateChange(isAtBottom)
+      if (startReached) startReached()
       const header = components?.Header?.()
       const footer = components?.Footer?.()
       return React.createElement('div', null,
@@ -33,7 +34,9 @@ vi.mock('react-virtuoso', () => {
 })
 
 vi.mock('@/components/chat/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
+  MarkdownRenderer: ({ content, className }: { content: string; className?: string }) => (
+    <div className={className}>{content}</div>
+  ),
 }))
 
 function buildMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
@@ -73,6 +76,7 @@ describe('ToolTraceCard', () => {
     )
 
     expect(html).toContain('已探索 1 个文件')
+    expect(html).toContain('mb-8 max-w-[920px] mx-auto w-full')
     expect(html).not.toContain('探索 src/app.py')
     expect(html).not.toContain('action')
     expect(html).not.toContain('hello')
@@ -123,6 +127,7 @@ describe('ToolTraceCard', () => {
     )
 
     expect(html).toContain('需要批准执行命令')
+    expect(html).toContain('mb-8 max-w-[920px] mx-auto w-full')
     expect(html).toContain('允许一次')
     expect(html).toContain('拒绝')
     expect(html).toContain('flex-col')
@@ -496,6 +501,104 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).toContain('aria-expanded="false"')
   })
 
+  it('centers assistant transcript blocks inside the reading column', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-assistant',
+            messageType: 'assistant_message',
+            contentText: '居中显示的助手回复',
+            streamState: 'completed',
+            payloadJson: {
+              reasoning_text: '居中的思考块',
+            },
+          }),
+          buildMessage({
+            id: 'msg-notice',
+            role: 'system',
+            runId: null,
+            messageType: 'system_notice',
+            contentText: '居中的系统提示',
+          }),
+        ]}
+      />
+    )
+
+    expect(html).toContain('max-w-[920px] mx-auto w-full text-[17px]')
+    expect(html).toContain('mb-3 max-w-[920px] mx-auto w-full')
+    expect(html).toContain('mb-6 max-w-[920px] mx-auto w-full')
+    expect(html).toContain('mt-1 mx-auto flex w-full max-w-[920px]')
+    expect(html).toContain('居中的思考块')
+    expect(html).toContain('居中的系统提示')
+  })
+
+  it('loads older messages when the virtualized transcript reaches the start', () => {
+    const loadMore = vi.fn()
+
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-oldest',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '最早已加载消息',
+          }),
+          buildMessage({
+            id: 'msg-newest',
+            messageType: 'assistant_message',
+            contentText: '最新已加载消息',
+            streamState: 'completed',
+          }),
+        ]}
+        hasMore
+        onLoadMore={loadMore}
+      />
+    )
+
+    expect(loadMore).toHaveBeenCalledTimes(1)
+    expect(loadMore).toHaveBeenCalledWith('msg-oldest')
+  })
+
   it('keeps the thinking block expanded while reasoning is still streaming', () => {
     const html = renderToStaticMarkup(
       <WorkspaceTranscript
@@ -578,6 +681,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
     )
 
     expect(html).toContain('正在执行工具')
+    expect(html).toContain('mb-8 mx-auto flex w-full max-w-[920px]')
     expect(html).toContain('data-running-bars="true"')
     expect(html).toContain('data-running-bar="1"')
     expect(html).toContain('data-running-bar="2"')
