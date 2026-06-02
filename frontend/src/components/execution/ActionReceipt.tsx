@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, Loader2, ShieldAlert, Terminal, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, Loader2, ShieldAlert, ShieldCheck, Terminal, X } from 'lucide-react'
 import { type ApprovalActionHandler, type ApprovalActionPayload, type ApprovalActionType, sendApprovalAction } from './approvalActions'
 import { type ActionReceiptDetail, type ActionReceiptStatus, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
 
@@ -182,15 +182,28 @@ const ApprovalCard = memo(function ApprovalCard({
 
       <div className="border-t border-edge bg-surface-secondary px-4 py-3">
         {approvalDetails.map((detail) => (
-          <div key={detail.id} className="flex gap-2">
+          <div key={detail.id} className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
               className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent/40"
             >
               <Check className="h-3.5 w-3.5" />
-              允许执行
+              允许一次
             </button>
+            <button
+              type="button"
+              onClick={() => sendApprovalAction(onApprovalAction, 'trust', detail.approval)}
+              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-accent bg-surface-primary px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/30"
+            >
+              <ShieldCheck className="h-3.5 w-3.5" />
+              此会话允许
+            </button>
+            {detail.shell && detail.approval.suggestedTrust?.prefix && (
+              <span className="text-xs text-content-muted">
+                将信任: {detail.approval.suggestedTrust.prefix.join(', ')}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
