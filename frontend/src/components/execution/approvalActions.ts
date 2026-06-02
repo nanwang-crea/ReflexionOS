@@ -1,4 +1,4 @@
-export type ApprovalActionType = 'approve' | 'deny'
+export type ApprovalActionType = 'approve' | 'trust' | 'deny'
 
 export interface ApprovalActionPayload {
   runId: string

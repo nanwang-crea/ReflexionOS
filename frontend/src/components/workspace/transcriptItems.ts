@@ -92,9 +92,12 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
     const approvalPayload = approvalObj?.payload as Record<string, unknown> | undefined
     const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
 
+    const suggestedTrust = approvalObj?.suggested_trust as Record<string, unknown> | undefined
+
     detail.approval = {
       runId: message.runId,
       approvalId: payload.approval_id,
+      suggestedTrust: suggestedTrust ?? undefined,
       ...(hasShellPayload
         ? {
             shell: {

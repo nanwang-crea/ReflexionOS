@@ -18,6 +18,7 @@ export interface ActionReceiptDetail {
   approval?: {
     runId: string
     approvalId: string
+    suggestedTrust?: { prefix?: string[] }
     shell?: ShellApprovalPayload
   }
   output?: string
