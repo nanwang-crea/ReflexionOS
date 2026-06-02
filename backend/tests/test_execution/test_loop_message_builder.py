@@ -119,10 +119,13 @@ def test_build_messages_injects_current_plan_step_and_update_requirement():
     context.metadata["plan_update_required"] = True
 
     messages = builder.build(context)
-    system_contents = [message.content for message in messages if message.role == "system" and message.content]
 
-    assert any("修改执行循环" in content for content in system_contents)
-    assert any("plan.step_done" in content for content in system_contents)
+    # Plan Focus 作为 user 消息注入在末尾，包含当前步骤描述
+    user_contents = [message.content for message in messages if message.role == "user"]
+    assert any("修改执行循环" in (c or "") for c in user_contents)
+    assert any("plan.step_done" in (c or "") for c in user_contents)
+    # plan_update_required 的 reminder 仍在 system 消息中
+    system_contents = [message.content for message in messages if message.role == "system" and message.content]
     assert any("call plan.step_done, plan.block, or plan.adjust" in content for content in system_contents)
 
 
@@ -175,3 +178,54 @@ def test_task_anchor_injected_only_on_first_round():
     user_contents_mid = [m.content for m in messages_mid if m.role == "user"]
     # "安装依赖" 只出现 1 次（来自原始消息），不通过 anchor 重复注入
     assert user_contents_mid.count("安装依赖") == 1
+
+
+def test_plan_focus_injected_once_per_step():
+    """Plan Focus 仅在当前步骤首次出现时注入一次，同一步骤内不重复注入。"""
+    builder = build_message_builder()
+
+    context = LoopContext(task="修复登录问题")
+    context.plan = Plan(
+        goal="修复登录",
+        steps=[
+            PlanStep(id=1, description="定位 bug", status="in_progress"),
+            PlanStep(id=2, description="修复代码", status="pending"),
+        ],
+        current_step_index=0,
+    )
+    context.add_message("user", "修复登录问题")
+
+    # 首次 build：步骤 1 首次出现，应注入 Plan Focus
+    messages_1 = builder.build(context)
+    user_1 = [m.content for m in messages_1 if m.role == "user"]
+    focus_1 = [c for c in user_1 if c and "Plan Focus" in c]
+    assert len(focus_1) == 1
+    assert "定位 bug" in focus_1[0]
+
+    # 同一步骤内第二次 build：不应重复注入
+    context.add_message("assistant", "检查代码", tool_calls=[
+        {"id": "c1", "name": "shell", "arguments": {"command": "grep bug auth.py"}},
+    ])
+    context.add_message("tool", content="found bug", tool_call_id="c1")
+    messages_2 = builder.build(context)
+    user_2 = [m.content for m in messages_2 if m.role == "user"]
+    focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
+    assert len(focus_2) == 0
+
+    # 步骤切换到步骤 2：应注入新的 Plan Focus
+    context.plan.advance("已定位 bug 在 auth.py")
+    messages_3 = builder.build(context)
+    user_3 = [m.content for m in messages_3 if m.role == "user"]
+    focus_3 = [c for c in user_3 if c and "Plan Focus" in c]
+    assert len(focus_3) == 1
+    assert "修复代码" in focus_3[0]
+
+    # 步骤 2 内再次 build：不应重复注入
+    context.add_message("assistant", "修复中", tool_calls=[
+        {"id": "c2", "name": "edit", "arguments": {"path": "auth.py"}},
+    ])
+    context.add_message("tool", content="edit done", tool_call_id="c2")
+    messages_4 = builder.build(context)
+    user_4 = [m.content for m in messages_4 if m.role == "user"]
+    focus_4 = [c for c in user_4 if c and "Plan Focus" in c]
+    assert len(focus_4) == 0

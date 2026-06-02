@@ -237,6 +237,10 @@ ipcMain.handle('terminal:kill', (_event, id) => {
   }
 })
 
+ipcMain.handle('terminal:isAlive', (_event, id) => {
+  return terminals.has(id)
+})
+
 app.whenReady().then(bootstrap)
 
 ipcMain.handle('dialog:select-directory', async () => {

@@ -65,17 +65,6 @@ class LoopMessageBuilder:
         if context.plan:
             plan_parts = [context.plan.render_for_context()]
             current_step = context.plan.current_step
-            if current_step is not None:
-                completed = sum(1 for s in context.plan.steps if s.status == "completed")
-                total = len(context.plan.steps)
-                plan_parts.append(
-                    f"### Current focus (step {current_step.id}/{total}, {completed} completed):\n"
-                    f"Goal: {context.plan.goal}\n"
-                    f"Task: {current_step.description}\n"
-                    "You MUST focus on completing this step. "
-                    "When done, immediately call plan.step_done with findings. "
-                    "If blocked, call plan.block with the reason."
-                )
             if context.metadata.get("plan_update_required"):
                 stagnant = context.metadata.get("steps_since_last_plan_update", 0)
                 if stagnant >= 15:
@@ -140,6 +129,24 @@ class LoopMessageBuilder:
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
         if context.group_count <= 1:
             messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+
+        # Plan Focus: 当计划存在且当前步骤切换时注入一次焦点提示，
+        # 后续轮次不重复注入，避免循环。用 _injected_focus_step_id 追踪。
+        if context.plan and context.plan.current_step is not None:
+            current_step_id = context.plan.current_step.id
+            injected_id = context.metadata.get("_injected_focus_step_id")
+            if injected_id != current_step_id:
+                completed = sum(1 for s in context.plan.steps if s.status == "completed")
+                total = len(context.plan.steps)
+                focus_text = (
+                    f"[Plan Focus] Now executing step {current_step_id}/{total} "
+                    f"({completed} completed): {context.plan.current_step.description}\n"
+                    f"Goal: {context.plan.goal}\n"
+                    "When done, call plan.step_done with findings. "
+                    "If blocked, call plan.block with the reason."
+                )
+                messages.append(LLMMessage(role=MessageRole.USER, content=focus_text))
+                context.metadata["_injected_focus_step_id"] = current_step_id
 
         return messages
 

@@ -36,6 +36,12 @@ export const terminalIpc = {
     return api.kill(id)
   },
 
+  async isAlive(id: string): Promise<boolean> {
+    const api = getApi()
+    if (!api) return false
+    return api.isAlive(id)
+  },
+
   onData(callback: (id: string, data: string) => void): () => void {
     const api = getApi()
     if (!api) return () => {}

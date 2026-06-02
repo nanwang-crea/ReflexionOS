@@ -127,48 +127,44 @@ export default function AgentWorkspace() {
     <>
       <ToastContainer />
       <div className="flex h-full">
-        <div className="flex h-full flex-col bg-surface-primary flex-1 min-w-0">
+        <div className={`flex h-full flex-col bg-surface-primary flex-1 min-w-0 ${workspaceTab === 'code' ? '' : 'hidden'}`}>
           <WorkspaceHeader {...viewModel.headerProps} />
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <CodeTab />
+          </div>
+          <TerminalPanel />
+        </div>
 
-        {workspaceTab === 'code' ? (
-          <>
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <CodeTab />
-            </div>
-            <TerminalPanel />
-          </>
-        ) : (
-          <>
-            <WorkspaceTranscript
-              {...viewModel.transcriptProps}
-              runsById={runsById}
-              isPlanMinimized={effectivePlanMinimized}
-              onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
-              onDetailClick={handleDetailClick}
-            />
+        <div className={`flex h-full flex-col bg-surface-primary flex-1 min-w-0 ${workspaceTab === 'chat' ? '' : 'hidden'}`}>
+          <WorkspaceHeader {...viewModel.headerProps} />
+          <WorkspaceTranscript
+            {...viewModel.transcriptProps}
+            runsById={runsById}
+            isPlanMinimized={effectivePlanMinimized}
+            onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
+            onDetailClick={handleDetailClick}
+          />
 
-            <div className="border-t border-edge bg-surface-primary">
-              {plan && effectivePlanMinimized && (
-                <PlanMinimizedBar
-                  plan={plan}
-                  onExpand={() => setIsPlanMinimized(false)}
-                />
+          <div className="border-t border-edge bg-surface-primary">
+            {plan && effectivePlanMinimized && (
+              <PlanMinimizedBar
+                plan={plan}
+                onExpand={() => setIsPlanMinimized(false)}
+              />
+            )}
+            <div className="p-4">
+              <ChatInput
+                onSend={sendMessage}
+                onCancel={cancelRun}
+                agentMode={agentMode}
+                onModeChange={(mode) => setMode(mode)}
+                {...viewModel.inputProps}
+              />
+              {!viewModel.currentProject && (
+                <p className="mt-2 text-sm text-content-muted">请先从左侧选择一个项目</p>
               )}
-              <div className="p-4">
-                <ChatInput
-                  onSend={sendMessage}
-                  onCancel={cancelRun}
-                  agentMode={agentMode}
-                  onModeChange={(mode) => setMode(mode)}
-                  {...viewModel.inputProps}
-                />
-                {!viewModel.currentProject && (
-                  <p className="mt-2 text-sm text-content-muted">请先从左侧选择一个项目</p>
-                )}
-              </div>
             </div>
-          </>
-        )}
+          </div>
         </div>
         {workspaceTab === 'code' && <FileSidebar />}
       </div>

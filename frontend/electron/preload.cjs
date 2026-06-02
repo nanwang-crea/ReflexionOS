@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     write: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
     resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
     kill: (id) => ipcRenderer.invoke('terminal:kill', id),
+    isAlive: (id) => ipcRenderer.invoke('terminal:isAlive', id),
     onData: (callback) => {
       const handler = (_event, id, data) => callback(id, data)
       ipcRenderer.on('terminal:data', handler)

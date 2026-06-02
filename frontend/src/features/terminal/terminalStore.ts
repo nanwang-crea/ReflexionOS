@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
+import { terminalIpc } from '@/services/terminalIpc'
 
 const MIN_PANEL_HEIGHT = 100
 const MAX_PANEL_HEIGHT = 600
@@ -70,7 +71,8 @@ export const useTerminalStore = create<TerminalState & TerminalActions>()(
         return id
       },
 
-      closeTerminal: (id) =>
+      closeTerminal: (id) => {
+        terminalIpc.kill(id).catch(() => {})
         set((state) => {
           const remaining = state.instances.filter((t) => t.id !== id)
           let newActiveId = state.activeTerminalId
@@ -82,10 +84,16 @@ export const useTerminalStore = create<TerminalState & TerminalActions>()(
             activeTerminalId: newActiveId,
             panelVisible: remaining.length > 0 ? state.panelVisible : false,
           }
-        }),
+        })
+      },
 
-      closeAllTerminals: () =>
-        set({ instances: [], activeTerminalId: null, panelVisible: false }),
+      closeAllTerminals: () => {
+        const { instances } = useTerminalStore.getState()
+        for (const inst of instances) {
+          terminalIpc.kill(inst.id).catch(() => {})
+        }
+        set({ instances: [], activeTerminalId: null, panelVisible: false })
+      },
 
       setActiveTerminal: (id) => set({ activeTerminalId: id }),
 
