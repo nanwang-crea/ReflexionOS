@@ -571,12 +571,13 @@ def test_session_conversation_websocket_supports_approve_tool_action(client_with
 
     calls = []
 
-    async def approve_tool_call(*, session_id, run_id, approval_id):
+    async def approve_tool_call(*, session_id, run_id, approval_id, decision="allow_once"):
         calls.append(
             {
                 "session_id": session_id,
                 "run_id": run_id,
                 "approval_id": approval_id,
+                "decision": decision,
             }
         )
 
@@ -601,6 +602,7 @@ def test_session_conversation_websocket_supports_approve_tool_action(client_with
             "session_id": "session-1",
             "run_id": "run-1",
             "approval_id": "approval-1",
+            "decision": "allow_once",
         }
     ]
 
