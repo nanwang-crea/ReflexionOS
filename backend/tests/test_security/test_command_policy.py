@@ -511,3 +511,23 @@ class TestFullPipelineIntegration:
         for cmd in ["ls", "rm file.txt", "sudo ls", "curl url", "python -c '1'"]:
             decision = policy.evaluate(command=cmd)
             assert decision.effect_category is not None, f"{cmd} should have effect_category"
+
+
+class TestCommandPolicyEvaluate:
+    def test_argv_require_approval_has_suggested_prefix_rule(self, policy):
+        decision = policy.evaluate(command="rm file.txt", cwd=policy.path_security.base_dir)
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.suggested_prefix_rule is not None
+        assert len(decision.suggested_prefix_rule) == 1
+        assert decision.suggested_prefix_rule[0] == "rm *"
+
+    def test_shell_require_approval_has_suggested_prefix_rule(self, policy):
+        decision = policy.evaluate(command="rm -rf build/ && echo done", cwd=policy.path_security.base_dir)
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.suggested_prefix_rule is not None
+        assert len(decision.suggested_prefix_rule) == 1
+
+    def test_allow_decision_has_no_suggested_prefix_rule(self, policy):
+        decision = policy.evaluate(command="echo hello", cwd=policy.path_security.base_dir)
+        if decision.action == CommandAction.ALLOW:
+            assert decision.suggested_prefix_rule is None

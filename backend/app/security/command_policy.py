@@ -6,6 +6,7 @@ import subprocess
 from pydantic import BaseModel, Field
 
 from app.errors import SecurityError
+from app.security.command_arity import extract_prefix_rule
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.effect_category import (
     EFFECT_ACTION_MAP,
@@ -263,6 +264,7 @@ class CommandPolicy:
             risks.append("命令会交给本地 shell 解释执行，无法完全静态校验路径安全")
 
         approval_kind = "shell_command"
+        suggested_prefix_rule = [extract_prefix_rule(command)] if action == CommandAction.REQUIRE_APPROVAL else None
 
         return CommandDecision(
             action=action,
@@ -274,6 +276,7 @@ class CommandPolicy:
             reasons=reasons or [f"效果分类: {effect.value}"],
             risks=risks,
             approval_kind=approval_kind,
+            suggested_prefix_rule=suggested_prefix_rule,
             environment_snapshot=snapshot,
             effect_category=effect,
         )
@@ -374,6 +377,8 @@ class CommandPolicy:
                         environment_snapshot=snapshot,
                     )
 
+        suggested_prefix_rule = [extract_prefix_rule(command)] if action == CommandAction.REQUIRE_APPROVAL else None
+
         return CommandDecision(
             action=action,
             execution_mode="argv",
@@ -384,6 +389,7 @@ class CommandPolicy:
             reasons=reasons or [f"效果分类: {effect.value}"],
             risks=risks,
             approval_kind=approval_kind,
+            suggested_prefix_rule=suggested_prefix_rule,
             environment_snapshot=snapshot,
             effect_category=effect,
         )
