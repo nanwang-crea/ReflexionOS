@@ -60,7 +60,7 @@ export default function PluginsPage() {
     setInstalling(true)
     try {
       await pluginApi.install({ specifier } as InstallPluginRequest)
-      useToastStore.getState().addToast('success', `插件 ${specifier} 安装成功`)
+      useToastStore.getState().addToast('info', `插件 ${specifier} 安装成功`)
       setInstallSpecifier('')
       setShowInstallDialog(false)
       await loadPlugins()
@@ -76,7 +76,7 @@ export default function PluginsPage() {
     setUninstalling(name)
     try {
       await pluginApi.uninstall(name)
-      useToastStore.getState().addToast('success', `插件 ${name} 已卸载`)
+      useToastStore.getState().addToast('info', `插件 ${name} 已卸载`)
       if (expandedPlugin === name) {
         setExpandedPlugin(null)
       }
@@ -93,7 +93,7 @@ export default function PluginsPage() {
     setUpdating(name)
     try {
       await pluginApi.update(name)
-      useToastStore.getState().addToast('success', `插件 ${name} 更新成功`)
+      useToastStore.getState().addToast('info', `插件 ${name} 更新成功`)
       await loadPlugins()
     } catch (error: any) {
       const msg = error?.response?.data?.detail || error?.message || '更新失败'
@@ -109,7 +109,7 @@ export default function PluginsPage() {
       const res = await pluginApi.updateAll()
       const { updated = [], errors = [] } = res.data
       if (updated.length > 0) {
-        useToastStore.getState().addToast('success', `已更新 ${updated.length} 个插件`)
+        useToastStore.getState().addToast('info', `已更新 ${updated.length} 个插件`)
       }
       if (errors.length > 0) {
         useToastStore.getState().addToast('warning', `${errors.length} 个插件更新失败`)
