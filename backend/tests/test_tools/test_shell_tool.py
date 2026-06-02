@@ -7,6 +7,7 @@ from app.errors import SecurityError
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import NullSandbox
+from app.security.session_trust_store import SessionTrustStore, TrustRule
 from app.security.shell_security import ShellSecurity
 from app.tools.shell_tool import ShellTool
 
@@ -21,6 +22,23 @@ class TestShellTool:
             registry = CommandEffectRegistry()
             sandbox = NullSandbox()
             yield ShellTool(security, path_security, registry, sandbox)
+
+    @pytest.fixture
+    def trust_store(self):
+        return SessionTrustStore()
+
+    @pytest.fixture
+    def shell_tool_with_trust(self, trust_store):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root_dir = os.path.realpath(tmpdir)
+            path_security = PathSecurity([root_dir], base_dir=root_dir)
+            security = ShellSecurity()
+            registry = CommandEffectRegistry()
+            sandbox = NullSandbox()
+            yield ShellTool(
+                security, path_security, registry, sandbox,
+                session_id="session-1", trust_store=trust_store,
+            )
 
     @pytest.mark.asyncio
     async def test_execute_allowed_command(self, shell_tool):
@@ -224,3 +242,21 @@ class TestShellTool:
 
             with pytest.raises(SecurityError, match="不在允许范围内"):
                 security.validate_path(sibling_dir)
+
+    @pytest.mark.asyncio
+    async def test_shell_tool_trusted_command_bypasses_approval(self, trust_store, shell_tool_with_trust):
+        trust_store.add_rule("session-1", TrustRule(permission="shell", pattern="echo *"))
+        result = await shell_tool_with_trust.execute({"command": "echo hello"})
+        assert result.approval_required is False
+
+    @pytest.mark.asyncio
+    async def test_shell_tool_untrusted_command_still_requires_approval(self, shell_tool_with_trust):
+        result = await shell_tool_with_trust.execute({"command": "curl https://example.com"})
+        assert result.approval_required is True
+
+    @pytest.mark.asyncio
+    async def test_shell_tool_hard_deny_overrides_trust(self, trust_store, shell_tool_with_trust):
+        trust_store.add_rule("session-1", TrustRule(permission="shell", pattern="rm *"))
+        result = await shell_tool_with_trust.execute({"command": "rm -rf /"})
+        assert result.success is False
+        assert result.approval_required is False

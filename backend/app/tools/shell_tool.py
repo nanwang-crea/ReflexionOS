@@ -10,6 +10,7 @@ from app.security.effect_category import EffectCategory
 from app.security.path_security import PathSecurity
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.factory import NullSandbox
+from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 
@@ -25,13 +26,16 @@ class ShellTool(BaseTool):
         path_security: PathSecurity,
         registry: CommandEffectRegistry | None = None,
         sandbox: SandboxProvider | None = None,
+        session_id: str | None = None,
+        trust_store: SessionTrustStore | None = None,
     ):
         self.security = security
         self.path_security = path_security
         self.registry = registry or CommandEffectRegistry()
         self.sandbox = sandbox or NullSandbox()
-        # Policy does NOT receive sandbox — approval decisions are sandbox-independent
         self.policy = CommandPolicy(security, path_security, self.registry)
+        self._session_id = session_id
+        self.trust_store = trust_store
 
     @property
     def name(self) -> str:
@@ -75,6 +79,14 @@ class ShellTool(BaseTool):
         approved_decision_data = args.get("_approved_decision")
         if approved_decision_data:
             return await self._execute_approved_decision(approved_decision_data, timeout)
+
+        if self._session_id and self.trust_store:
+            if self.trust_store.matches(self._session_id, "shell", command):
+                decision = self.policy.evaluate(command=command, cwd=cwd, timeout=timeout)
+                if decision.action == CommandAction.DENY:
+                    reason_str = "; ".join(decision.reasons) if decision.reasons else "命令被拒绝"
+                    return ToolResult(success=False, error=reason_str)
+                return await self._execute_decision(decision)
 
         decision = self.policy.evaluate(command=command, cwd=cwd, timeout=timeout)
 
