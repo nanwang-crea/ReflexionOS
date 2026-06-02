@@ -296,7 +296,7 @@ class RapidExecutionLoop:
 
         # Sync plan file after plan tool changes
         if context.plan and context.plan_file_path:
-            self.plan_file_sync.sync(context.plan, context.plan_file_path)
+            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
 
         # Pruning: lightweight context recovery after each tool execution round
         settings = config_manager.settings.execution
@@ -447,7 +447,7 @@ class RapidExecutionLoop:
             injection += f"\n计划文件: {context.plan_file_path}"
         context.add_message("user", injection)
         if context.plan and context.plan_file_path:
-            self.plan_file_sync.sync(context.plan, context.plan_file_path)
+            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
 
     async def confirm_plan_exit_from_external(self, run_id: str) -> None:
         """Called externally when user confirms plan_exit via WebSocket."""
@@ -584,7 +584,7 @@ class RapidExecutionLoop:
                     if loop_result.status == LoopStatus.COMPLETED:
                         context.plan.finalize_for_completion()
                         if context.plan_file_path:
-                            self.plan_file_sync.delete(context.plan_file_path)
+                            self.plan_file_sync.delete(context.plan_file_path, project_path=context.project_path)
                             await self._emit("plan:file_deleted", {"path": context.plan_file_path})
                     elif loop_result.status == LoopStatus.FAILED:
                         context.plan.finalize_for_failure()

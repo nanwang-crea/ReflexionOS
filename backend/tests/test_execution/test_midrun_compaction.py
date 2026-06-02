@@ -297,10 +297,19 @@ def test_task_anchor_preserves_original_intent():
         )
         ctx.add_message("tool", "B" * 3000, tool_call_id=f"c{i}")
 
+    # 中间执行轮次：group_count > 1，不注入 Task Anchor
     messages = builder.build(ctx)
     anchor = next(
         (m for m in messages if m.role == MessageRole.USER and "SSO" in (m.content or "")),
         None,
     )
-    assert anchor is not None
-    assert "auth.py line 42" in anchor.content
+    assert anchor is None
+
+    # 但在 final summary 中，Task Anchor 重新注入，确保回答围绕原始任务
+    summary_messages = builder.build_final_summary(ctx)
+    summary_anchor = next(
+        (m for m in summary_messages if m.role == MessageRole.USER and "SSO" in (m.content or "")),
+        None,
+    )
+    assert summary_anchor is not None
+    assert "auth.py line 42" in summary_anchor.content

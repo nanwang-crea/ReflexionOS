@@ -61,9 +61,8 @@ def test_build_messages_places_current_task_after_history():
 
     messages = builder.build(context)
 
-
-    assert messages[-1].role == "user"
-    assert messages[-1].content == "继续当前任务"
+    # 当 group_count > 1（已有多轮交互），不再重复注入 Task Anchor
+    # "继续当前任务" 应只出现一次（来自原始消息，不被 anchor 重复）
     assert [message.content for message in messages if message.role == "user"].count(
         "继续当前任务"
     ) == 1
@@ -146,3 +145,33 @@ def test_final_summary_messages_flatten_tool_protocol_history():
         if m.role == MessageRole.TOOL and m.content
     ]
     assert any("README output" in c for c in tool_contents)
+    # Task Anchor 应在 final summary 末尾重新注入
+    assert messages[-1].role == "user"
+    assert messages[-1].content == "总结工具结果"
+
+
+def test_task_anchor_injected_only_on_first_round():
+    """Task Anchor 仅在首轮（group_count <= 1）注入，中间轮次不重复注入。"""
+    builder = build_message_builder()
+
+    # 首轮：只有初始 user 消息，group_count=1，应注入 anchor
+    context_first = LoopContext(task="安装依赖")
+    context_first.add_message("user", "安装依赖")
+    messages_first = builder.build(context_first)
+    user_contents_first = [m.content for m in messages_first if m.role == "user"]
+    assert "安装依赖" in user_contents_first
+
+    # 中间轮次：已执行过工具，group_count > 1，不应注入 anchor
+    context_mid = LoopContext(task="安装依赖")
+    tool_call = LLMToolCall(id="call_1", name="shell", arguments={"command": "pip3 list"})
+    context_mid.add_message("user", "安装依赖")
+    context_mid.add_message(
+        "assistant",
+        content="检查已安装的包",
+        tool_calls=[tool_call.model_dump()],
+    )
+    context_mid.add_message("tool", content="mlx 0.31.1", tool_call_id=tool_call.id)
+    messages_mid = builder.build(context_mid)
+    user_contents_mid = [m.content for m in messages_mid if m.role == "user"]
+    # "安装依赖" 只出现 1 次（来自原始消息），不通过 anchor 重复注入
+    assert user_contents_mid.count("安装依赖") == 1

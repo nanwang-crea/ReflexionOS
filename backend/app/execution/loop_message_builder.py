@@ -135,8 +135,11 @@ class LoopMessageBuilder:
                 )
             )
 
-        # Task Anchor: 原始用户输入作为不可截断的最新 user 消息始终放在最后
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+        # Task Anchor: 仅在首轮（尚未执行工具）时注入原始任务，
+        # 避免中间执行轮次重复注入导致模型陷入循环。
+        # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
+        if context.group_count <= 1:
+            messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
 
         return messages
 
@@ -215,6 +218,9 @@ class LoopMessageBuilder:
 
             messages.append(LLMMessage(role=msg["role"], content=content))
 
+        # Task Anchor: 在最终总结时重新注入原始任务，确保回答围绕用户需求
+        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+
         return messages
 
     def _build_tier2_messages(self, context: LoopContext) -> list[LLMMessage]:
@@ -266,14 +272,15 @@ class LoopMessageBuilder:
                         kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
                     tier2.append(LLMMessage(**kwargs))
                 elif msg["role"] == MessageRole.USER:
-                    if content == context.task:
+                    # 仅在 anchor 会注入时（group_count <= 1）过滤重复 task
+                    if content == context.task and context.group_count <= 1:
                         continue
                     tier2.append(LLMMessage(role=MessageRole.USER, content=content))
 
         return tier2
 
     def recent_context_messages(self, context: LoopContext) -> list[dict]:
-        """获取 Tier 1 最近 N 组消息，并跳过与 Task Anchor 重复的 user 消息"""
+        """获取 Tier 1 最近 N 组消息。当 Task Anchor 会注入时（group_count <= 1），跳过重复的 task user 消息。"""
         if not context.messages:
             return []
 
@@ -295,9 +302,11 @@ class LoopMessageBuilder:
 
         recent_groups = grouped_messages[-self.max_context_groups :]
         flat = [message for group in recent_groups for message in group]
+        # 仅在 anchor 会注入时过滤重复，避免中间轮次丢失用户消息
+        should_dedup_task = context.group_count <= 1
         return [
             m for m in flat
-            if not (m["role"] == MessageRole.USER and m.get("content") == context.task)
+            if not (should_dedup_task and m["role"] == MessageRole.USER and m.get("content") == context.task)
         ]
 
     def _group_messages(self, messages: list[dict]) -> list[list[dict]]:
