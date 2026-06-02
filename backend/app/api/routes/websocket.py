@@ -220,10 +220,20 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 try:
                     if msg_type == "conversation:approve_tool":
+                        decision_str = msg_data.get("decision", "allow_once")
+                        if decision_str not in ("allow_once", "trust_and_allow"):
+                            await _send_error(
+                                websocket,
+                                code="invalid_request",
+                                message="decision must be allow_once or trust_and_allow",
+                            )
+                            continue
+
                         await agent_service.approve_tool_call(
                             session_id=session_id,
                             run_id=run_id,
                             approval_id=approval_id,
+                            decision=decision_str,
                         )
                     else:
                         await agent_service.deny_tool_call(
