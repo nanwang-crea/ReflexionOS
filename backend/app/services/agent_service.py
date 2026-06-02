@@ -131,7 +131,10 @@ class AgentService:
             )
         )
         base_dir = resolved_project_path or str(Path.cwd().resolve())
-        path_security = PathSecurity(allowed_paths, base_dir=base_dir)
+        path_security = PathSecurity(
+            allowed_paths, base_dir=base_dir,
+            session_id=session_id, trust_store=trust_store,
+        )
 
         registry = ToolRegistry()
         registry.register(FileTool(path_security))
@@ -924,6 +927,21 @@ class AgentService:
 
     def _add_trust_rules_from_approval(self, pending: PendingToolApproval, session_id: str) -> None:
         inner_payload = pending.approval_payload.get("payload", {})
+        access_type = inner_payload.get("access_type")
+
+        if access_type == "external_path_read":
+            for key in ("suggested_prefix_rule", "prefix"):
+                prefixes = inner_payload.get(key) if key == "suggested_prefix_rule" else None
+                if not prefixes:
+                    suggested_trust = pending.approval_payload.get("suggested_trust")
+                    if isinstance(suggested_trust, dict):
+                        prefixes = suggested_trust.get("prefix")
+                if prefixes and isinstance(prefixes, list):
+                    for prefix in prefixes:
+                        if isinstance(prefix, str) and prefix:
+                            self.trust_store.add_rule(session_id, TrustRule(permission="external_path", pattern=prefix))
+            return
+
         suggested_prefixes = inner_payload.get("suggested_prefix_rule")
         if suggested_prefixes and isinstance(suggested_prefixes, list):
             for prefix in suggested_prefixes:
@@ -943,18 +961,23 @@ class AgentService:
             pending = self.pending_approval_store.get(approval_id)
             if pending is None or pending.status != "pending":
                 continue
-            command = pending.approval_payload.get("payload", {}).get("command") or pending.tool_arguments.get("command")
-            if command and self.trust_store.matches(session_id, "shell", command):
-                await self.approve_tool_call(
-                    session_id=session_id,
-                    run_id=pending.run_id,
-                    approval_id=pending.id,
-                    decision="allow_once",
-                )
-
-        for message in self.conversation_service.list_turn_messages(run.turn_id):
-            if message.run_id != run_id or message.message_type != MessageType.TOOL_TRACE:
-                continue
-            if message.payload_json.get("approval_id") == approval_id:
-                return message
+            inner_payload = pending.approval_payload.get("payload", {})
+            if inner_payload.get("access_type") == "external_path_read":
+                path = inner_payload.get("path")
+                if path and self.trust_store.matches(session_id, "external_path", path):
+                    await self.approve_tool_call(
+                        session_id=session_id,
+                        run_id=pending.run_id,
+                        approval_id=pending.id,
+                        decision="allow_once",
+                    )
+            else:
+                command = inner_payload.get("command") or pending.tool_arguments.get("command")
+                if command and self.trust_store.matches(session_id, "shell", command):
+                    await self.approve_tool_call(
+                        session_id=session_id,
+                        run_id=pending.run_id,
+                        approval_id=pending.id,
+                        decision="allow_once",
+                    )
         return None
