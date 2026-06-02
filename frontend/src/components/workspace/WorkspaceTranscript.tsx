@@ -25,8 +25,8 @@ import { SystemNoticeItem } from './SystemNoticeItem'
 import { ToolGroupItem } from './ToolGroupItem'
 
 const VIRTUOSO_INDEX_OFFSET = 1_000_000
-const MIN_TRANSCRIPT_BOTTOM_INSET_PX = 160
-const TRANSCRIPT_BOTTOM_GAP_PX = 24
+const MIN_TRANSCRIPT_BOTTOM_INSET_PX = 20
+const TRANSCRIPT_BOTTOM_GAP_PX = 16
 
 interface TranscriptScrollerContextValue {
   bottomPadding: number
@@ -77,7 +77,7 @@ const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(funct
   { style, children, ...props },
   ref
 ) {
-  const { bottomPadding, onUserScrollIntent, onScrollerScroll } = React.useContext(TranscriptScrollerContext)
+  const { onUserScrollIntent, onScrollerScroll } = React.useContext(TranscriptScrollerContext)
   const domHandlers = props as React.HTMLAttributes<HTMLDivElement>
 
   return (
@@ -118,7 +118,6 @@ const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(funct
           paddingLeft: 32,
           paddingRight: 32,
           paddingTop: 32,
-          paddingBottom: bottomPadding,
         }}
       >
         {children}
@@ -166,6 +165,7 @@ function TranscriptHeader() {
 
 function TranscriptFooter() {
   const {
+    bottomPadding,
     showReconnectIndicator,
     reconnectLabel,
     reconnectCountdownSeconds,
@@ -212,6 +212,11 @@ function TranscriptFooter() {
           />
         )}
       </AnimatePresence>
+      <div
+        data-transcript-bottom-spacer
+        aria-hidden="true"
+        style={{ height: bottomPadding }}
+      />
     </>
   )
 }

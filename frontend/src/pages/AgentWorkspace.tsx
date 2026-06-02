@@ -19,7 +19,7 @@ import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
 
-const CHAT_INPUT_FALLBACK_INSET_PX = 160
+const CHAT_INPUT_FALLBACK_INSET_PX = 40
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
