@@ -64,6 +64,13 @@ class PendingApprovalStore:
     def deny(self, approval_id: str) -> PendingToolApproval:
         return self._decide(approval_id, status="denied", decision="deny")
 
+    def list_pending_approval_ids_for_session(self, session_id: str) -> list[str]:
+        with self._lock:
+            return [
+                aid for aid, pending in self._approvals.items()
+                if pending.session_id == session_id and pending.status == "pending"
+            ]
+
     def expire_for_run(self, run_id: str) -> list[PendingToolApproval]:
         expired: list[PendingToolApproval] = []
         with self._lock:

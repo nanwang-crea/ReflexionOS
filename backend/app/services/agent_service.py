@@ -17,7 +17,7 @@ from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
 from app.memory.context_assembly import ContextAssembler
 from app.memory.continuation import build_continuation_artifact
 from app.memory.continuation_builder import ContinuationArtifactBuilder
-from app.models.approval import PendingToolApproval
+from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
     EventType,
@@ -33,6 +33,7 @@ from app.orchestration.skill_registry import skill_registry as global_skill_regi
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import create_sandbox
+from app.security.session_trust_store import SessionTrustStore, TrustRule
 from app.security.shell_security import ShellSecurity
 from app.storage.database import db
 from app.storage.repositories.project_repo import ProjectRepository
@@ -110,9 +111,14 @@ class AgentService:
             skill_registry=global_skill_registry,
         )
         self.continuation_builder = ContinuationArtifactBuilder()
+        self.trust_store = SessionTrustStore()
 
     @staticmethod
-    def _build_run_tool_registry(project_path: str | None) -> ToolRegistry:
+    def _build_run_tool_registry(
+        project_path: str | None,
+        session_id: str | None = None,
+        trust_store: SessionTrustStore | None = None,
+    ) -> ToolRegistry:
         resolved_project_path = (
             str(Path(project_path).resolve())
             if project_path and Path(project_path).exists()
@@ -131,7 +137,11 @@ class AgentService:
         registry.register(FileTool(path_security))
         registry.register(GlobTool(path_security))
         registry.register(GrepTool(path_security))
-        registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox()))
+        registry.register(ShellTool(
+            ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox(),
+            session_id=session_id,
+            trust_store=trust_store,
+        ))
         registry.register(EditTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
@@ -374,7 +384,7 @@ class AgentService:
             else:
                 await persist_and_broadcast(event_type, data)
 
-        run_tool_registry = self._build_run_tool_registry(project_path)
+        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         execution_loop = RapidExecutionLoop(
             llm=llm,
@@ -713,13 +723,15 @@ class AgentService:
         return started
 
     async def approve_tool_call(
-        self, *, session_id: str, run_id: str, approval_id: str
+        self, *, session_id: str, run_id: str, approval_id: str,
+        decision: AllowApprovalDecision = "allow_once",
     ) -> None:
         await self._decide_tool_call_approval(
             session_id=session_id,
             run_id=run_id,
             approval_id=approval_id,
             approval_event_type=EventType.APPROVAL_APPROVED,
+            decision=decision,
         )
 
     async def confirm_plan_exit(self, run_id: str) -> None:
@@ -744,6 +756,7 @@ class AgentService:
         run_id: str,
         approval_id: str,
         approval_event_type: EventType,
+        decision: AllowApprovalDecision = "allow_once",
     ) -> None:
         terminal_event_type: EventType | None = None
         terminal_payload: dict | None = None
@@ -767,8 +780,12 @@ class AgentService:
                 raise ValueError("审批已处理")
 
             if approval_event_type == EventType.APPROVAL_APPROVED:
-                self.pending_approval_store.approve(approval_id)
+                self.pending_approval_store.approve(approval_id, decision=decision)
                 trace_status = "approved"
+
+                if decision == "trust_and_allow":
+                    self._add_trust_rules_from_approval(pending, session_id)
+                    await self._cascade_auto_approve(session_id)
 
                 execution_result = await self._execute_approved_tool(pending, run_id=run_id)
 
@@ -897,6 +914,43 @@ class AgentService:
         run = self.conversation_service.get_run(run_id)
         if run is None:
             return None
+
+        for message in self.conversation_service.list_turn_messages(run.turn_id):
+            if message.run_id != run_id or message.message_type != MessageType.TOOL_TRACE:
+                continue
+            if message.payload_json.get("approval_id") == approval_id:
+                return message
+        return None
+
+    def _add_trust_rules_from_approval(self, pending: PendingToolApproval, session_id: str) -> None:
+        inner_payload = pending.approval_payload.get("payload", {})
+        suggested_prefixes = inner_payload.get("suggested_prefix_rule")
+        if suggested_prefixes and isinstance(suggested_prefixes, list):
+            for prefix in suggested_prefixes:
+                if isinstance(prefix, str) and prefix:
+                    self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
+
+        suggested_trust = pending.approval_payload.get("suggested_trust")
+        if isinstance(suggested_trust, dict):
+            trust_prefixes = suggested_trust.get("prefix")
+            if isinstance(trust_prefixes, list):
+                for prefix in trust_prefixes:
+                    if isinstance(prefix, str) and prefix:
+                        self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
+
+    async def _cascade_auto_approve(self, session_id: str) -> None:
+        for approval_id in self.pending_approval_store.list_pending_approval_ids_for_session(session_id):
+            pending = self.pending_approval_store.get(approval_id)
+            if pending is None or pending.status != "pending":
+                continue
+            command = pending.approval_payload.get("payload", {}).get("command") or pending.tool_arguments.get("command")
+            if command and self.trust_store.matches(session_id, "shell", command):
+                await self.approve_tool_call(
+                    session_id=session_id,
+                    run_id=pending.run_id,
+                    approval_id=pending.id,
+                    decision="allow_once",
+                )
 
         for message in self.conversation_service.list_turn_messages(run.turn_id):
             if message.run_id != run_id or message.message_type != MessageType.TOOL_TRACE:
