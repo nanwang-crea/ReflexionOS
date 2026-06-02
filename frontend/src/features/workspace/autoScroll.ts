@@ -1,4 +1,4 @@
-export const AUTO_SCROLL_FOLLOW_THRESHOLD_PX = 80
+export const AUTO_SCROLL_FOLLOW_THRESHOLD_PX = 100
 
 export function shouldFollowTranscript(position: {
   scrollTop: number

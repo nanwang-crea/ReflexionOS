@@ -22,7 +22,8 @@ describe('shouldFollowTranscript', () => {
     ).toBe(false)
   })
 
-  it('uses a small threshold so tiny offsets still follow the stream', () => {
+  it('uses a 100px threshold so nearby streaming output still follows', () => {
+    expect(AUTO_SCROLL_FOLLOW_THRESHOLD_PX).toBe(100)
     expect(
       shouldFollowTranscript({
         scrollTop: 1240 - 280 - AUTO_SCROLL_FOLLOW_THRESHOLD_PX + 1,
@@ -30,5 +31,15 @@ describe('shouldFollowTranscript', () => {
         scrollHeight: 1240,
       })
     ).toBe(true)
+  })
+
+  it('returns false immediately when the viewport is more than 100px from the bottom', () => {
+    expect(
+      shouldFollowTranscript({
+        scrollTop: 1240 - 280 - AUTO_SCROLL_FOLLOW_THRESHOLD_PX - 1,
+        clientHeight: 280,
+        scrollHeight: 1240,
+      })
+    ).toBe(false)
   })
 })

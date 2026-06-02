@@ -22,6 +22,8 @@ interface MockVirtuosoProps {
   atBottomStateChange?: (isAtBottom: boolean) => void
   startReached?: () => void
   firstItemIndex?: number
+  atBottomThreshold?: number
+  followOutput?: boolean | 'smooth' | ((isAtBottom: boolean) => boolean | 'smooth')
   computeItemKey?: (index: number, item: TranscriptItem) => React.Key
 }
 
@@ -674,6 +676,72 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(latestVirtuosoProps?.computeItemKey?.(999998, latestVirtuosoProps.data?.[0] as TranscriptItem)).toBe('msg-oldest')
   })
 
+  it('uses a 100px bottom threshold for button visibility and streaming follow', () => {
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-assistant',
+            messageType: 'assistant_message',
+            contentText: '正在回复',
+            streamState: 'streaming',
+          }),
+        ]}
+      />
+    )
+
+    expect(latestVirtuosoProps?.atBottomThreshold).toBe(100)
+    expect(typeof latestVirtuosoProps?.followOutput).toBe('function')
+    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(true)).toBe('smooth')
+    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe(false)
+  })
+
+  it('autoscrolls streaming content growth only when the user was already at the bottom', async () => {
+    const module = await import('./WorkspaceTranscript') as unknown as {
+      shouldAutoscrollTranscriptChange?: (
+        previous: { sessionId: string | null; tailKey: string | null } | null,
+        next: { sessionId: string | null; tailKey: string | null },
+        wasAtBottom: boolean
+      ) => boolean
+    }
+
+    expect(typeof module.shouldAutoscrollTranscriptChange).toBe('function')
+    expect(module.shouldAutoscrollTranscriptChange?.(
+      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
+      { sessionId: 'session-1', tailKey: 'msg-2:streaming:longer' },
+      true
+    )).toBe(true)
+    expect(module.shouldAutoscrollTranscriptChange?.(
+      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
+      { sessionId: 'session-1', tailKey: 'msg-2:streaming:longer' },
+      false
+    )).toBe(false)
+    expect(module.shouldAutoscrollTranscriptChange?.(
+      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
+      { sessionId: 'session-2', tailKey: 'msg-2:streaming:longer' },
+      true
+    )).toBe(false)
+  })
+
   it('forwards Virtuoso scroller DOM attributes required for measurement', () => {
     const html = renderToStaticMarkup(
       <WorkspaceTranscript
@@ -907,5 +975,59 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(module.getRetryCountdownSeconds?.(2, 1_000)).toBe(1)
     expect(module.getRetryCountdownSeconds?.(2, 2_000)).toBe(0)
     expect(module.getRetryCountdownSeconds?.(2, 3_000)).toBe(0)
+  })
+
+  it('only shifts the virtual first item index when history is prepended', async () => {
+    const module = await import('./WorkspaceTranscript') as unknown as {
+      getNextFirstItemIndex?: (
+        previous: null | {
+          sessionId: string | null
+          firstItemId: string | null
+          lastItemId: string | null
+          itemCount: number
+          firstItemIndex: number
+        },
+        next: {
+          sessionId: string | null
+          firstItemId: string | null
+          lastItemId: string | null
+          itemCount: number
+        }
+      ) => number
+    }
+
+    expect(typeof module.getNextFirstItemIndex).toBe('function')
+    const initialIndex = module.getNextFirstItemIndex?.(null, {
+      sessionId: 'session-1',
+      firstItemId: 'msg-2',
+      lastItemId: 'msg-3',
+      itemCount: 2,
+    })
+
+    expect(initialIndex).toBe(999998)
+    expect(module.getNextFirstItemIndex?.({
+      sessionId: 'session-1',
+      firstItemId: 'msg-2',
+      lastItemId: 'msg-3',
+      itemCount: 2,
+      firstItemIndex: initialIndex ?? 0,
+    }, {
+      sessionId: 'session-1',
+      firstItemId: 'msg-2',
+      lastItemId: 'msg-4',
+      itemCount: 3,
+    })).toBe(initialIndex)
+    expect(module.getNextFirstItemIndex?.({
+      sessionId: 'session-1',
+      firstItemId: 'msg-2',
+      lastItemId: 'msg-3',
+      itemCount: 2,
+      firstItemIndex: initialIndex ?? 0,
+    }, {
+      sessionId: 'session-1',
+      firstItemId: 'msg-1',
+      lastItemId: 'msg-3',
+      itemCount: 3,
+    })).toBe(999997)
   })
 })

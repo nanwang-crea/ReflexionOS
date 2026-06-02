@@ -8,6 +8,7 @@ import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
+import { AUTO_SCROLL_FOLLOW_THRESHOLD_PX } from '@/features/workspace/autoScroll'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { ArrowDown, Loader2 } from 'lucide-react'
 import { PlanProgress } from './PlanProgress'
@@ -24,6 +25,54 @@ import { SystemNoticeItem } from './SystemNoticeItem'
 import { ToolGroupItem } from './ToolGroupItem'
 
 const VIRTUOSO_INDEX_OFFSET = 1_000_000
+
+interface VirtualListIndexSnapshot {
+  sessionId: string | null
+  firstItemId: string | null
+  lastItemId: string | null
+  itemCount: number
+  firstItemIndex: number
+}
+
+interface TranscriptTailSnapshot {
+  sessionId: string | null
+  tailKey: string | null
+}
+
+export function getNextFirstItemIndex(
+  previous: VirtualListIndexSnapshot | null,
+  next: Omit<VirtualListIndexSnapshot, 'firstItemIndex'>
+) {
+  if (!previous || previous.sessionId !== next.sessionId || next.itemCount === 0) {
+    return Math.max(1, VIRTUOSO_INDEX_OFFSET - next.itemCount)
+  }
+
+  const addedItemCount = next.itemCount - previous.itemCount
+  const prependedItems = (
+    addedItemCount > 0 &&
+    previous.lastItemId === next.lastItemId &&
+    previous.firstItemId !== next.firstItemId
+  )
+
+  if (prependedItems) {
+    return Math.max(1, previous.firstItemIndex - addedItemCount)
+  }
+
+  return previous.firstItemIndex
+}
+
+export function shouldAutoscrollTranscriptChange(
+  previous: TranscriptTailSnapshot | null,
+  next: TranscriptTailSnapshot,
+  wasAtBottom: boolean
+) {
+  return Boolean(
+    wasAtBottom &&
+    previous &&
+    previous.sessionId === next.sessionId &&
+    previous.tailKey !== next.tailKey
+  )
+}
 
 export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
@@ -78,6 +127,9 @@ export function WorkspaceTranscript({
   const [editContent, setEditContent] = useState('')
   const [isAtBottom, setIsAtBottom] = useState(false)
   const virtuosoRef = useRef<import('react-virtuoso').VirtuosoHandle>(null)
+  const virtualListIndexSnapshotRef = useRef<VirtualListIndexSnapshot | null>(null)
+  const transcriptTailSnapshotRef = useRef<TranscriptTailSnapshot | null>(null)
+  const isAtBottomRef = useRef(false)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
 
   const filteredMessages = useMemo(() => {
@@ -167,16 +219,64 @@ export function WorkspaceTranscript({
     setEditingMessageId(null)
   }, [])
 
+  const followOutput = useCallback((atBottom: boolean) => (atBottom ? 'smooth' : false), [])
+  const firstItemId = transcriptItems[0]?.id ?? null
+  const lastItemId = transcriptItems[transcriptItems.length - 1]?.id ?? null
+  const firstItemIndex = getNextFirstItemIndex(virtualListIndexSnapshotRef.current, {
+    sessionId: currentSession?.id ?? null,
+    firstItemId,
+    lastItemId,
+    itemCount: transcriptItems.length,
+  })
+  virtualListIndexSnapshotRef.current = {
+    sessionId: currentSession?.id ?? null,
+    firstItemId,
+    lastItemId,
+    itemCount: transcriptItems.length,
+    firstItemIndex,
+  }
+  const lastItemIndex = firstItemIndex + Math.max(0, transcriptItems.length - 1)
+  const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
+
+  const lastTranscriptItem = transcriptItems[transcriptItems.length - 1] ?? null
+  const tailKey = lastTranscriptItem
+    ? lastTranscriptItem.kind === 'message'
+      ? [
+          lastTranscriptItem.id,
+          lastTranscriptItem.message.streamState,
+          lastTranscriptItem.message.contentText.length,
+          lastTranscriptItem.message.updatedAt,
+        ].join(':')
+      : [
+          lastTranscriptItem.id,
+          lastTranscriptItem.status,
+          lastTranscriptItem.messages[lastTranscriptItem.messages.length - 1]?.updatedAt ?? '',
+        ].join(':')
+    : null
+
+  useEffect(() => {
+    const nextSnapshot = {
+      sessionId: currentSession?.id ?? null,
+      tailKey,
+    }
+    if (shouldAutoscrollTranscriptChange(transcriptTailSnapshotRef.current, nextSnapshot, isAtBottomRef.current)) {
+      virtuosoRef.current?.autoscrollToBottom()
+    }
+    transcriptTailSnapshotRef.current = nextSnapshot
+  }, [currentSession?.id, tailKey])
+
+  const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
+    isAtBottomRef.current = atBottom
+    setIsAtBottom(atBottom)
+  }, [])
+
   const scrollToBottom = useCallback(() => {
     virtuosoRef.current?.scrollToIndex({
-      index: transcriptItems.length - 1,
+      index: lastItemIndex,
+      align: 'end',
       behavior: 'smooth',
     })
-  }, [transcriptItems.length])
-
-  const followOutput = isAtBottom ? 'smooth' : false
-  const firstItemIndex = Math.max(1, VIRTUOSO_INDEX_OFFSET - transcriptItems.length)
-  const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
+  }, [lastItemIndex])
 
   const itemContent = useCallback((index: number, item: TranscriptItem) => {
     const isLastItem = index === transcriptItems.length - 1
@@ -330,24 +430,6 @@ export function WorkspaceTranscript({
             />
           )}
         </AnimatePresence>
-
-        <AnimatePresence>
-          {!isAtBottom && (
-            <motion.button
-              type="button"
-              aria-label="滚动到底部"
-              title="滚动到底部"
-              onClick={scrollToBottom}
-              initial={{ opacity: 0, y: 10, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.96 }}
-              transition={{ duration: 0.18 }}
-              className="sticky bottom-4 z-20 mx-auto mb-4 grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-theme transition-colors hover:border-edge hover:text-content-primary"
-            >
-              <ArrowDown className="h-5 w-5" />
-            </motion.button>
-          )}
-        </AnimatePresence>
       </>
     ),
   }), [
@@ -367,24 +449,42 @@ export function WorkspaceTranscript({
     liveThinkingText,
     isPlanMinimized,
     onTogglePlanMinimize,
-    isAtBottom,
-    scrollToBottom,
   ])
 
   return (
-    <div className="flex-1 overflow-hidden bg-surface-primary">
+    <div className="relative flex-1 overflow-hidden bg-surface-primary">
       <Virtuoso
         ref={virtuosoRef}
         data={transcriptItems}
         itemContent={itemContent}
         computeItemKey={computeItemKey}
         firstItemIndex={firstItemIndex}
+        atBottomThreshold={AUTO_SCROLL_FOLLOW_THRESHOLD_PX}
         followOutput={followOutput}
-        initialTopMostItemIndex={Math.max(0, transcriptItems.length - 1)}
+        initialTopMostItemIndex={lastItemIndex}
         startReached={handleStartReached}
-        atBottomStateChange={setIsAtBottom}
+        atBottomStateChange={handleAtBottomStateChange}
         components={virtuosoComponents}
       />
+      <AnimatePresence>
+        {!isAtBottom && (
+          <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex justify-center">
+            <motion.button
+              type="button"
+              aria-label="滚动到底部"
+              title="滚动到底部"
+              onClick={scrollToBottom}
+              initial={{ opacity: 0, y: 10, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.96 }}
+              transition={{ duration: 0.18 }}
+              className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-theme transition-colors hover:border-edge hover:text-content-primary"
+            >
+              <ArrowDown className="h-5 w-5" />
+            </motion.button>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
