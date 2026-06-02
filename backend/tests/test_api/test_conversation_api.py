@@ -80,7 +80,7 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload.keys()) == {"session", "turns", "runs", "messages"}
+    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more"}
     assert "rounds" not in payload
     assert payload["session"]["id"] == "session-1"
     assert payload["session"]["last_event_seq"] >= 1
@@ -186,7 +186,7 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     assert response.status_code == 200
     payload = response.json()
 
-    assert set(payload.keys()) == {"session", "turns", "runs", "messages"}
+    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more"}
     assert any(msg["message_type"] == "assistant_message" for msg in payload["messages"])
     assert any(
         msg["message_type"] == "system_notice"

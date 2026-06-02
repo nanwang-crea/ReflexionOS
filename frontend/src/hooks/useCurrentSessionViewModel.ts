@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
@@ -6,7 +6,6 @@ import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
 import { getRuntimeStatusDescriptor } from '@/components/workspace/runtimeStatus'
-import { shouldFollowTranscript } from '@/features/workspace/autoScroll'
 import { useSessionData } from './useSessionData'
 import { useSessionSelection } from './useSessionSelection'
 
@@ -17,6 +16,8 @@ export function useCurrentSessionViewModel(options: {
   connectionStatus: 'connected' | 'connecting' | 'disconnected'
   retryInfo: LlmRetryDto | null
   plan: Plan | null
+  hasMore?: boolean
+  onLoadMore?: (beforeMessageId: string) => void
   onReset: () => void
   onApprovalAction?: ToolApprovalActionHandler
   editAndRerun?: (payload: {
@@ -41,10 +42,20 @@ export function useCurrentSessionViewModel(options: {
     preferredProviderId: currentSessionSummary?.preferredProviderId,
     preferredModelId: currentSessionSummary?.preferredModelId,
   })
-  const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScrollRef = useRef(true)
-  const [isAtBottom, setIsAtBottom] = useState(true)
+
+  const isLoadingMoreRef = useRef(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+
+  const handleLoadMore = useCallback((beforeMessageId: string) => {
+    if (isLoadingMoreRef.current || !options.hasMore) return
+    isLoadingMoreRef.current = true
+    setIsLoadingMore(true)
+    options.onLoadMore?.(beforeMessageId)
+    setTimeout(() => {
+      isLoadingMoreRef.current = false
+      setIsLoadingMore(false)
+    }, 1000)
+  }, [options.hasMore, options.onLoadMore])
 
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {
     if (!currentSessionSummary) return
@@ -67,35 +78,6 @@ export function useCurrentSessionViewModel(options: {
     })
   }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
-  const handleTranscriptScroll = useCallback(() => {
-    const container = transcriptScrollRef.current
-    if (!container) {
-      return
-    }
-
-    const shouldFollow = shouldFollowTranscript({
-      scrollTop: container.scrollTop,
-      clientHeight: container.clientHeight,
-      scrollHeight: container.scrollHeight,
-    })
-    shouldAutoScrollRef.current = shouldFollow
-    setIsAtBottom(shouldFollow)
-  }, [])
-
-  const scrollToBottom = useCallback(() => {
-    shouldAutoScrollRef.current = true
-    setIsAtBottom(true)
-    messagesEndRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' })
-  }, [])
-
-  useEffect(() => {
-    if (!shouldAutoScrollRef.current) {
-      return
-    }
-    messagesEndRef.current?.scrollIntoView({ block: 'end' })
-    setIsAtBottom(true)
-  }, [options.messages])
-
   const runtimeStatus = getRuntimeStatusDescriptor({
     isRunning: options.isRunning,
     retryInfo: options.retryInfo,
@@ -108,7 +90,6 @@ export function useCurrentSessionViewModel(options: {
     configured,
     loaded,
     selection,
-    messagesEndRef,
     availableProviders,
     selectedModels,
     headerProps: {
@@ -127,14 +108,12 @@ export function useCurrentSessionViewModel(options: {
       retryInfo: options.retryInfo,
       plan: options.plan,
       runtimeStatus,
-      transcriptScrollRef,
-      onTranscriptScroll: handleTranscriptScroll,
-      isAtBottom,
-      onScrollToBottom: scrollToBottom,
       onApprovalAction: options.onApprovalAction,
-      messagesEndRef,
       onEditMessage: handleEditMessage,
       onRegenerateMessage: handleRegenerateMessage,
+      hasMore: options.hasMore,
+      isLoadingMore,
+      onLoadMore: handleLoadMore,
     },
     inputProps: {
       disabled: !loaded || !configured || !currentProject || options.isRunning || options.isCancelling,

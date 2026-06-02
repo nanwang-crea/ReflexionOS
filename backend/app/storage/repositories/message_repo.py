@@ -1,6 +1,6 @@
 import json
 
-from sqlalchemy import case, func
+from sqlalchemy import and_, case, func, or_
 
 from app.errors import NotFoundValueError
 from app.models.conversation import Message, MessageType, StreamState
@@ -51,6 +51,73 @@ class MessageRepository(BaseRepository[Message]):
                 .all()
             )
             return self._to_domain_list(models)
+
+    def count_by_session(self, session_id: str) -> int:
+        with self.db.get_session() as db_session:
+            count = (
+                db_session.query(func.count(MessageModel.id))
+                .filter(MessageModel.session_id == session_id)
+                .scalar()
+            )
+            return int(count or 0)
+
+    def list_by_session_latest(self, session_id: str, limit: int) -> list[Message]:
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(MessageModel)
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(MessageModel.session_id == session_id)
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).desc(),
+                    TurnModel.turn_index.desc(),
+                    MessageModel.turn_message_index.desc(),
+                    MessageModel.created_at.desc(),
+                )
+                .limit(limit)
+                .all()
+            )
+            return self._to_domain_list(list(reversed(models)))
+
+    def list_by_session_before(self, session_id: str, before_message_id: str, limit: int) -> list[Message]:
+        with self.db.get_session() as db_session:
+            cursor = db_session.query(MessageModel).filter_by(id=before_message_id).first()
+            if cursor is None:
+                return self.list_by_session_latest(session_id, limit)
+
+            cursor_turn = db_session.query(TurnModel).filter_by(id=cursor.turn_id).first()
+            cursor_turn_index = cursor_turn.turn_index if cursor_turn else 0
+
+            models = (
+                db_session.query(MessageModel)
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(
+                    MessageModel.session_id == session_id,
+                    or_(
+                        TurnModel.turn_index < cursor_turn_index,
+                        and_(
+                            TurnModel.turn_index == cursor_turn_index,
+                            MessageModel.turn_message_index < cursor.turn_message_index,
+                        ),
+                    ),
+                )
+                .order_by(
+                    case((TurnModel.turn_index.is_(None), 1), else_=0).desc(),
+                    TurnModel.turn_index.desc(),
+                    MessageModel.turn_message_index.desc(),
+                    MessageModel.created_at.desc(),
+                )
+                .limit(limit)
+                .all()
+            )
+            return self._to_domain_list(list(reversed(models)))
 
     def list_by_turn(self, turn_id: str) -> list[Message]:
         with self.db.get_session() as db_session:

@@ -9,6 +9,7 @@ class ConversationSnapshot(BaseModel):
     turns: list[Turn]
     runs: list[Run]
     messages: list[Message]
+    has_more: bool = False
 
 
 class StartTurnResult(BaseModel):

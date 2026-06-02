@@ -111,16 +111,38 @@ class ConversationService:
         finally:
             lock.release()
 
-    def get_snapshot(self, session_id: str) -> ConversationSnapshot:
+    def get_snapshot(self, session_id: str, *, limit: int = 0, before: str | None = None) -> ConversationSnapshot:
         session = self.session_repo.get(session_id)
         if session is None:
             raise NotFoundValueError("会话不存在")
 
+        if limit <= 0:
+            return ConversationSnapshot(
+                session=session,
+                turns=self.turn_repo.list_by_session(session_id),
+                runs=self.run_repo.list_by_session(session_id),
+                messages=self.message_repo.list_by_session(session_id),
+                has_more=False,
+            )
+
+        if before is not None:
+            messages = self.message_repo.list_by_session_before(session_id, before, limit)
+        else:
+            messages = self.message_repo.list_by_session_latest(session_id, limit)
+
+        total_count = self.message_repo.count_by_session(session_id)
+        has_more = total_count > len(messages)
+
+        turn_ids = list(dict.fromkeys(m.turn_id for m in messages))
+        turns = self.turn_repo.list_by_ids(turn_ids) if turn_ids else []
+        runs = self.run_repo.list_by_turn_ids(turn_ids) if turn_ids else []
+
         return ConversationSnapshot(
             session=session,
-            turns=self.turn_repo.list_by_session(session_id),
-            runs=self.run_repo.list_by_session(session_id),
-            messages=self.message_repo.list_by_session(session_id),
+            turns=turns,
+            runs=runs,
+            messages=messages,
+            has_more=has_more,
         )
 
     def list_events_after(self, session_id: str, after_seq: int) -> list[ConversationEvent]:

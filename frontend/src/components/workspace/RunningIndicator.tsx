@@ -1,5 +1,3 @@
-import { motion } from 'framer-motion'
-
 type RunningIndicatorLayout = 'header' | 'inline'
 
 interface RunningIndicatorProps {
@@ -37,25 +35,14 @@ export function RunningIndicator({
             <div
               key={index}
               {...buildDataAttr(barDataAttr, String(index))}
-              className={
-                'relative h-1 overflow-hidden rounded-full bg-accent/20 ring-1 ring-accent/20'
-              }
+              className="relative h-1 overflow-hidden rounded-full bg-accent/20 ring-1 ring-accent/20"
             >
-              <motion.div
-                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-accent via-status-success to-accent-hover shadow-[0_0_14px_rgba(59,130,246,0.45)]"
-                initial={{ x: '-55%', scaleX: 0.55, opacity: 0.55 }}
-                animate={{
-                  x: ['-55%', '10%', '42%', '-55%'],
-                  scaleX: [0.55, 1, 0.8, 0.55],
-                  opacity: [0.65, 1, 0.9, 0.65],
+              <div
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-accent via-status-success to-accent-hover shadow-[0_0_14px_rgba(59,130,246,0.45)] animate-running-bar"
+                style={{
+                  width: `${52 + index * 12}%`,
+                  animationDelay: `${(index - 1) * 0.16}s`,
                 }}
-                transition={{
-                  duration: 1.35,
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                  delay: (index - 1) * 0.16,
-                }}
-                style={{ width: `${52 + index * 12}%` }}
               />
             </div>
           ))}

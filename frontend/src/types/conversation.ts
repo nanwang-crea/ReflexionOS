@@ -124,6 +124,7 @@ export interface ConversationSnapshot {
   turns: ConversationTurn[]
   runs: ConversationRun[]
   messages: ConversationMessage[]
+  hasMore: boolean
 }
 
 export interface ConversationState {
@@ -135,6 +136,7 @@ export interface ConversationState {
   runsById: Record<string, ConversationRun>
   messageOrder: string[]
   messagesById: Record<string, ConversationMessage>
+  hasMore: boolean
 }
 
 export type { Plan, PlanStep } from '@/types/plan'

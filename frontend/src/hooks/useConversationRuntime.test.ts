@@ -62,6 +62,7 @@ vi.mock('react', () => ({
 vi.mock('@/features/conversation/conversationApi', () => ({
   conversationApi: {
     getConversation: getConversationMock,
+    getConversationPaginated: getConversationMock,
   },
 }))
 
@@ -128,6 +129,7 @@ function buildSnapshot(): ConversationSnapshot {
       },
     ],
     messages: [],
+    hasMore: false,
   }
 }
 
@@ -184,7 +186,7 @@ describe('useConversationRuntime', () => {
 
     await flushAsyncEffects()
 
-    expect(getConversationMock).toHaveBeenCalledWith('session-1')
+    expect(getConversationMock).toHaveBeenCalledWith('session-1', { limit: 20 })
     expect(setSnapshotMock).toHaveBeenCalledWith('session-1', snapshot)
     expect(wsConnectMock).toHaveBeenCalledWith('session-1')
     expect(wsSendSyncMock).toHaveBeenCalledWith(9)
@@ -381,6 +383,7 @@ describe('useConversationRuntime', () => {
     expect(wsApproveToolMock).toHaveBeenCalledWith({
       runId: 'run-1',
       approvalId: 'approval-1',
+      decision: 'allow_once',
     })
     expect(wsDenyToolMock).toHaveBeenCalledWith({
       runId: 'run-1',

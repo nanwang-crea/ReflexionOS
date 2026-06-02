@@ -1,19 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { RefObject, UIEventHandler } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { SlideIn } from '@/components/animations/SlideIn'
-import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
-import { ToolTraceGroup } from '@/components/workspace/ToolTraceCard'
-import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
-import { useSettingsStore } from '@/stores/settingsStore'
-import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
-import type { Project } from '@/types/project'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { Virtuoso } from 'react-virtuoso'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
-import { ArrowDown, Brain, ChevronDown, ChevronRight, Loader2 } from 'lucide-react'
-import { MessageActions } from './MessageActions'
+import type { Project } from '@/types/project'
+import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
+import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { ArrowDown, Loader2 } from 'lucide-react'
 import { PlanProgress } from './PlanProgress'
 import { RunningIndicator } from './RunningIndicator'
 import {
@@ -21,99 +17,16 @@ import {
   getLatestAssistantMessage,
   type RuntimeStatusDescriptor,
 } from './runtimeStatus'
-import { buildTranscriptItems } from './transcriptItems'
-
-const transcriptClassName = [
-  'max-w-[920px]',
-  'text-[17px]',
-  'leading-[1.8]',
-  'text-content-primary',
-  '[&_p]:m-0',
-  '[&_p+p]:mt-6',
-  '[&_ul]:my-4',
-  '[&_ol]:my-4',
-  '[&_li]:mt-1.5',
-  '[&_h1]:mt-0',
-  '[&_h2]:mt-8',
-  '[&_h3]:mt-6',
-  '[&_pre]:my-4',
-  '[&_blockquote]:my-5',
-].join(' ')
+import { buildTranscriptItems, type TranscriptItem } from './transcriptItems'
+import { UserMessageItem } from './UserMessageItem'
+import { AssistantMessageItem } from './AssistantMessageItem'
+import { SystemNoticeItem } from './SystemNoticeItem'
+import { ToolGroupItem } from './ToolGroupItem'
 
 export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
   const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
   return Math.max(0, delaySeconds - elapsedSeconds)
-}
-
-function ThinkingBlock({
-  text,
-  isStreaming,
-}: {
-  text: string
-  isStreaming: boolean
-}) {
-  const [isExpanded, setIsExpanded] = useState(isStreaming)
-
-  useEffect(() => {
-    if (isStreaming) {
-      setIsExpanded(true)
-      return
-    }
-    setIsExpanded(false)
-  }, [isStreaming])
-
-  return (
-    <div className="mb-3 max-w-[920px] rounded-lg border border-edge bg-surface-secondary/60 px-3 py-2 text-xs leading-6 text-content-muted">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((value) => !value)}
-        aria-expanded={isExpanded}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-        )}
-        <Brain className="h-3.5 w-3.5 shrink-0" />
-        <span>Thinking</span>
-      </button>
-      <div
-        className={`mt-2 whitespace-pre-wrap pl-9 ${isExpanded ? 'block' : 'hidden'}`}
-        aria-hidden={!isExpanded}
-      >
-        {text}
-      </div>
-    </div>
-  )
-}
-
-function WorkingNoteBlock({ text }: { text: string }) {
-  const [isExpanded, setIsExpanded] = useState(false)
-
-  return (
-    <div className="mb-4 max-w-[920px] rounded-lg border border-edge bg-surface-secondary/50 px-3 py-2 text-sm leading-6 text-content-muted">
-      <button
-        type="button"
-        onClick={() => setIsExpanded((value) => !value)}
-        aria-expanded={isExpanded}
-        className="flex w-full items-center gap-2 text-left"
-      >
-        {isExpanded ? (
-          <ChevronDown className="h-3.5 w-3.5 shrink-0" />
-        ) : (
-          <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-        )}
-        <span>过程说明</span>
-      </button>
-      {isExpanded && (
-        <div className="mt-2 whitespace-pre-wrap pl-5 text-content-secondary">
-          {text}
-        </div>
-      )}
-    </div>
-  )
 }
 
 interface WorkspaceTranscriptProps {
@@ -128,16 +41,14 @@ interface WorkspaceTranscriptProps {
   runtimeStatus?: RuntimeStatusDescriptor
   isPlanMinimized?: boolean
   onTogglePlanMinimize?: () => void
-  transcriptScrollRef?: RefObject<HTMLDivElement>
-  onTranscriptScroll?: UIEventHandler<HTMLDivElement>
-  isAtBottom?: boolean
-  onScrollToBottom?: () => void
   onApprovalAction?: ToolApprovalActionHandler
   onDetailClick?: (detail: ActionReceiptDetail) => void
-  messagesEndRef: RefObject<HTMLDivElement>
   runsById?: Record<string, ConversationRun>
   onEditMessage?: (messageId: string, contentText: string) => void
   onRegenerateMessage?: (messageId: string) => void
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: (beforeMessageId: string) => void
 }
 
 export function WorkspaceTranscript({
@@ -152,20 +63,21 @@ export function WorkspaceTranscript({
   runtimeStatus = { kind: 'idle', label: '' },
   isPlanMinimized = false,
   onTogglePlanMinimize,
-  transcriptScrollRef,
-  onTranscriptScroll,
-  isAtBottom = true,
-  onScrollToBottom,
   onApprovalAction,
   onDetailClick,
-  messagesEndRef,
   runsById,
   onEditMessage,
   onRegenerateMessage,
+  hasMore = false,
+  isLoadingMore = false,
+  onLoadMore,
 }: WorkspaceTranscriptProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
+  const [isAtBottom, setIsAtBottom] = useState(false)
+  const virtuosoRef = useRef<import('react-virtuoso').VirtuosoHandle>(null)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
+
   const filteredMessages = useMemo(() => {
     if (showContinuationNotices) return messages
     return messages.filter((message) => {
@@ -176,7 +88,9 @@ export function WorkspaceTranscript({
       return true
     })
   }, [messages, showContinuationNotices])
+
   const transcriptItems = useMemo(() => buildTranscriptItems(filteredMessages), [filteredMessages])
+
   const hasVisibleStreamingMessage = filteredMessages.some((message) => {
     if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
       return true
@@ -196,6 +110,7 @@ export function WorkspaceTranscript({
   const retryMaxRetries = retryInfo?.max_retries ?? null
   const reconnectLabel = hasRetryInfo ? `reconnect（${retryAttempt}/${retryMaxRetries}）` : null
   const showReconnectIndicator = isRunning && reconnectLabel !== null
+
   const latestAssistantMessage = useMemo(
     () => getLatestAssistantMessage(filteredMessages),
     [filteredMessages]
@@ -223,13 +138,115 @@ export function WorkspaceTranscript({
     return () => window.clearInterval(intervalId)
   }, [hasRetryInfo, isRunning, retryAttempt, retryDelay, retryMaxRetries])
 
-  return (
-    <div
-      ref={transcriptScrollRef}
-      onScroll={onTranscriptScroll}
-      className="flex-1 overflow-y-auto bg-surface-primary"
-    >
-      <div className="mx-auto w-full max-w-[1280px] px-8 py-8">
+  const oldestMessageId = useMemo(() => {
+    if (filteredMessages.length === 0) return null
+    return filteredMessages[0].id
+  }, [filteredMessages])
+
+  const handleStartReached = useCallback(() => {
+    if (hasMore && oldestMessageId && !isLoadingMore) {
+      onLoadMore?.(oldestMessageId)
+    }
+  }, [hasMore, oldestMessageId, isLoadingMore, onLoadMore])
+
+  const handleEditStart = useCallback((messageId: string, contentText: string) => {
+    setEditingMessageId(messageId)
+    setEditContent(contentText)
+  }, [])
+
+  const handleEditSubmit = useCallback(() => {
+    if (editContent.trim() && editingMessageId) {
+      onEditMessage?.(editingMessageId, editContent.trim())
+      setEditingMessageId(null)
+    }
+  }, [editContent, editingMessageId, onEditMessage])
+
+  const handleEditCancel = useCallback(() => {
+    setEditingMessageId(null)
+  }, [])
+
+  const scrollToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({
+      index: transcriptItems.length - 1,
+      behavior: 'smooth',
+    })
+  }, [transcriptItems.length])
+
+  const followOutput = isAtBottom ? 'smooth' : false
+
+  const itemContent = useCallback((index: number, item: TranscriptItem) => {
+    const isLastItem = index === transcriptItems.length - 1
+
+    if (item.kind === 'tool_group') {
+      return (
+        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+          <ToolGroupItem
+            status={item.status}
+            details={item.details}
+            onApprovalAction={onApprovalAction}
+            onDetailClick={onDetailClick}
+          />
+        </div>
+      )
+    }
+
+    const { message } = item
+
+    if (message.messageType === 'user_message') {
+      const isEditing = editingMessageId === message.id
+      return (
+        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+          <UserMessageItem
+            messageId={message.id}
+            contentText={message.contentText}
+            isEditing={isEditing}
+            editContent={editContent}
+            onEdit={handleEditStart}
+            onRegenerate={onRegenerateMessage ?? (() => {})}
+            onEditContentChange={setEditContent}
+            onEditCancel={handleEditCancel}
+            onEditSubmit={handleEditSubmit}
+            showActions={!!onEditMessage}
+          />
+        </div>
+      )
+    }
+
+    if (message.messageType === 'tool_trace') return null
+
+    if (message.messageType === 'system_notice') {
+      return (
+        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+          <SystemNoticeItem contentText={message.contentText} />
+        </div>
+      )
+    }
+
+    if (message.messageType === 'assistant_message') {
+      return (
+        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+          <AssistantMessageItem
+            messageId={message.id}
+            contentText={message.contentText}
+            streamState={message.streamState}
+            displayMode={message.displayMode}
+            payloadJson={message.payloadJson}
+            runId={message.runId}
+            runsById={runsById}
+            onEdit={onEditMessage ?? (() => {})}
+            onRegenerate={onRegenerateMessage ?? (() => {})}
+            onDetailClick={onDetailClick}
+          />
+        </div>
+      )
+    }
+
+    return null
+  }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length])
+
+  const virtuosoComponents = useMemo(() => ({
+    Header: () => (
+      <>
         {loaded && !configured && (
           <div className="mb-4 rounded-lg border border-status-warning-border bg-status-warning-soft p-4">
             <p className="text-status-warning">请先在设置页面配置供应商、模型和默认项</p>
@@ -244,165 +261,17 @@ export function WorkspaceTranscript({
 
         {currentProject && !currentSession && messages.length === 0 && (
           <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
-            这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击“新建聊天”。
+            这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击"新建聊天"。
           </div>
         )}
 
-        <AnimatePresence mode="popLayout">
-          {transcriptItems.map((item) => {
-            if (item.kind === 'tool_group') {
-              return (
-                <SlideIn key={item.id} direction="up">
-                  <ToolTraceGroup
-                    status={item.status}
-                    details={item.details}
-                    onApprovalAction={onApprovalAction}
-                    onDetailClick={onDetailClick}
-                  />
-                </SlideIn>
-              )
-            }
-
-            const { message } = item
-
-            if (message.messageType === 'user_message') {
-              const isEditing = editingMessageId === message.id
-              return (
-                <SlideIn key={message.id} direction="up">
-                  <div className="mb-8 flex flex-col items-end group">
-                    {isEditing ? (
-                      <div className="max-w-[720px] w-full">
-                        <textarea
-                          className="w-full rounded-2xl bg-surface-tertiary border border-edge px-5 py-4 text-[15px] leading-7 text-content-secondary resize-y min-h-[60px] focus:outline-none focus:border-edge-active"
-                          value={editContent}
-                          onChange={(e) => setEditContent(e.target.value)}
-                          autoFocus
-                        />
-                        <div className="mt-2 flex justify-end gap-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border border-edge px-3 py-1.5 text-xs text-content-muted hover:text-content-secondary hover:border-edge-active transition-colors"
-                            onClick={() => setEditingMessageId(null)}
-                          >
-                            取消
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded-lg bg-surface-tertiary px-3 py-1.5 text-xs text-content-secondary hover:bg-surface-active transition-colors"
-                            onClick={() => {
-                              if (editContent.trim()) {
-                                onEditMessage?.(message.id, editContent.trim())
-                                setEditingMessageId(null)
-                              }
-                            }}
-                          >
-                            发送
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <motion.div
-                        className="max-w-[720px] rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary"
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        {message.contentText}
-                      </motion.div>
-                    )}
-                    {!isEditing && onEditMessage && (
-                      <MessageActions
-                        messageId={message.id}
-                        contentText={message.contentText}
-                        messageType="user_message"
-                        onEdit={(msgId, content) => {
-                          setEditingMessageId(msgId)
-                          setEditContent(content)
-                        }}
-                        onRegenerate={onRegenerateMessage ?? (() => {})}
-                      />
-                    )}
-                  </div>
-                </SlideIn>
-              )
-            }
-
-            if (message.messageType === 'tool_trace') {
-              return null
-            }
-
-            if (message.messageType === 'system_notice') {
-              return (
-                <SlideIn key={message.id} direction="up">
-                  <div className="mb-6 max-w-[920px] rounded-2xl border border-status-warning-border bg-status-warning-soft px-4 py-3 text-sm text-status-warning">
-                    {message.contentText}
-                  </div>
-                </SlideIn>
-              )
-            }
-
-            if (message.messageType === 'assistant_message') {
-              const isFailed = message.streamState === 'failed'
-              const isCancelled = message.streamState === 'cancelled'
-              const run = message.runId != null ? runsById?.[message.runId] : undefined
-              const errorCode = (message.payloadJson?.error_code as string | undefined) ?? run?.errorCode ?? undefined
-              const errorMessage = (message.payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
-              const reasoningText = getAssistantReasoningText(message)
-              const shouldCollapseThinking = message.streamState !== 'streaming'
-              const isWorkingNote = message.displayMode === 'working_note'
-
-              return (
-                <SlideIn key={message.id} direction="up">
-                  <div className="mb-10 group">
-                    {reasoningText && (
-                      <ThinkingBlock
-                        text={reasoningText}
-                        isStreaming={!shouldCollapseThinking}
-                      />
-                    )}
-                    {isWorkingNote && message.contentText && (
-                      <WorkingNoteBlock text={message.contentText} />
-                    )}
-                    {!isWorkingNote && message.contentText && (
-                      <MarkdownRenderer
-                        content={message.contentText}
-                        variant="plain"
-                        isStreaming={message.streamState === 'streaming'}
-                        className={transcriptClassName}
-                      />
-                    )}
-                    {(isFailed || isCancelled) && (errorMessage || errorCode) && (
-                      <div className={`mt-3 rounded-lg border px-4 py-3 text-sm ${
-                        isFailed
-                          ? 'border-status-error-border bg-status-error-soft text-status-error'
-                          : 'border-status-warning-border bg-status-warning-soft text-status-warning'
-                      }`}>
-                        <div className="flex items-center gap-2 font-medium">
-                          {isFailed ? '执行失败' : '执行已取消'}
-                        </div>
-                        {errorMessage && (
-                          <div className="mt-1 text-xs opacity-80">{errorMessage}</div>
-                        )}
-                      </div>
-                    )}
-                    {message.streamState === 'completed' && onRegenerateMessage && (
-                      <MessageActions
-                        messageId={message.id}
-                        contentText={message.contentText}
-                        messageType="assistant_message"
-                        onEdit={onEditMessage ?? (() => {})}
-                        onRegenerate={onRegenerateMessage}
-                      />
-                    )}
-                  </div>
-                </SlideIn>
-              )
-            }
-
-            return null
-          })}
-        </AnimatePresence>
-
+        {isLoadingMore && (
+          <div className="py-4 text-center text-sm text-content-muted">加载更多消息...</div>
+        )}
+      </>
+    ),
+    Footer: () => (
+      <>
         {showReconnectIndicator && (
           <div className="mb-8 flex items-center gap-3 text-sm text-status-warning" aria-live="polite">
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-status-warning" />
@@ -437,12 +306,12 @@ export function WorkspaceTranscript({
         </AnimatePresence>
 
         <AnimatePresence>
-          {!isAtBottom && onScrollToBottom && (
+          {!isAtBottom && (
             <motion.button
               type="button"
               aria-label="滚动到底部"
               title="滚动到底部"
-              onClick={onScrollToBottom}
+              onClick={scrollToBottom}
               initial={{ opacity: 0, y: 10, scale: 0.96 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.96 }}
@@ -453,9 +322,44 @@ export function WorkspaceTranscript({
             </motion.button>
           )}
         </AnimatePresence>
+      </>
+    ),
+  }), [
+    loaded,
+    configured,
+    currentProject,
+    currentSession,
+    messages.length,
+    isLoadingMore,
+    showReconnectIndicator,
+    reconnectLabel,
+    reconnectCountdownSeconds,
+    showThinkingIndicator,
+    isRunning,
+    plan,
+    runtimeStatus,
+    liveThinkingText,
+    isPlanMinimized,
+    onTogglePlanMinimize,
+    isAtBottom,
+    scrollToBottom,
+  ])
 
-        <div ref={messagesEndRef} />
-      </div>
+  return (
+    <div className="flex-1 overflow-hidden bg-surface-primary">
+      <Virtuoso
+        ref={virtuosoRef}
+        data={transcriptItems}
+        itemContent={itemContent}
+        followOutput={followOutput}
+        initialTopMostItemIndex={Math.max(0, transcriptItems.length - 1)}
+        startReached={handleStartReached}
+        atBottomStateChange={setIsAtBottom}
+        components={virtuosoComponents}
+        className="mx-auto w-full max-w-[1280px] px-8 py-8"
+      />
     </div>
   )
 }
+
+export { getAssistantReasoningText } from './runtimeStatus'

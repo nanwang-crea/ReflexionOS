@@ -33,8 +33,9 @@ export default function AgentWorkspace() {
     editAndRerun,
     setMode,
     resetConversationRuntime,
+    loadMore,
   } = useConversationRuntime(currentSessionId)
-  const { messages, isRunning, plan } = useConversationData(currentSessionId)
+  const { messages, isRunning, plan, hasMore } = useConversationData(currentSessionId)
   const agentMode = useConversationStore(
     (s) => (currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build') as AgentMode
   )
@@ -102,6 +103,8 @@ export default function AgentWorkspace() {
     connectionStatus,
     retryInfo,
     plan,
+    hasMore,
+    onLoadMore: currentSessionId ? (beforeMessageId) => loadMore(currentSessionId, beforeMessageId) : undefined,
     onReset: resetConversationRuntime,
     editAndRerun,
     onApprovalAction: (action, payload) => {

@@ -41,5 +41,7 @@ export function useConversationData(currentSessionId: string | null) {
     return state.planBySessionId[currentSessionId] ?? null
   })
 
-  return { messages, isRunning, plan }
+  const hasMore = conversation?.hasMore ?? false
+
+  return { messages, isRunning, plan, hasMore }
 }

@@ -77,13 +77,14 @@ describe('conversationApi', () => {
             completed_at: '2026-04-24T10:00:00Z',
           },
         ],
+        has_more: false,
       },
     })
 
     const { conversationApi } = await import('./conversationApi')
     const response = await conversationApi.getConversation('session-1')
 
-    expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation')
+    expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', { params: { limit: 0 } })
     expect(response.data).toEqual({
       session: {
         id: 'session-1',
@@ -144,6 +145,7 @@ describe('conversationApi', () => {
           completedAt: '2026-04-24T10:00:00Z',
         },
       ],
+      hasMore: false,
     })
   })
 })

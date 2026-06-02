@@ -2,8 +2,11 @@ import { create } from 'zustand'
 import type {
   ConversationEvent,
   ConversationLiveMessage,
+  ConversationMessage,
+  ConversationRun,
   ConversationSnapshot,
   ConversationState,
+  ConversationTurn,
   Plan,
 } from '@/types/conversation'
 import {
@@ -12,6 +15,7 @@ import {
   applyConversationLiveState,
   applyConversationSnapshot,
   createEmptyConversationState,
+  prependMessages,
 } from './conversationReducer'
 
 interface ConversationStoreState {
@@ -24,6 +28,8 @@ interface ConversationStoreState {
   setLiveState: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setPlan: (sessionId: string, plan: Plan | null) => void
   setAgentMode: (sessionId: string, mode: import('@/types/conversation').AgentMode) => void
+  prependMessages: (sessionId: string, messages: ConversationMessage[], turns: ConversationTurn[], runs: ConversationRun[]) => void
+  setHasMore: (sessionId: string, hasMore: boolean) => void
   clearConversation: (sessionId: string) => void
 }
 
@@ -86,6 +92,26 @@ export const createConversationStore = () => create<ConversationStoreState>((set
       [sessionId]: mode,
     },
   })),
+  prependMessages: (sessionId, messages, turns, runs) => set((state) => {
+    const conversation = state.conversationsBySessionId[sessionId]
+    if (!conversation) return state
+    return {
+      conversationsBySessionId: {
+        ...state.conversationsBySessionId,
+        [sessionId]: prependMessages(conversation, messages, turns, runs),
+      },
+    }
+  }),
+  setHasMore: (sessionId, hasMore) => set((state) => {
+    const conversation = state.conversationsBySessionId[sessionId]
+    if (!conversation) return state
+    return {
+      conversationsBySessionId: {
+        ...state.conversationsBySessionId,
+        [sessionId]: { ...conversation, hasMore },
+      },
+    }
+  }),
   clearConversation: (sessionId) => set((state) => ({
     conversationsBySessionId: Object.fromEntries(
       Object.entries(state.conversationsBySessionId).filter(([id]) => id !== sessionId)

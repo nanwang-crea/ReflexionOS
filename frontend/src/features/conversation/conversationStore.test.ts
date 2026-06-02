@@ -62,6 +62,7 @@ function buildSnapshot(): ConversationSnapshot {
         completedAt: null,
       },
     ],
+    hasMore: false,
   }
 }
 

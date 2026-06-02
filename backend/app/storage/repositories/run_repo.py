@@ -42,6 +42,22 @@ class RunRepository(BaseRepository[Run]):
             )
             return self._to_domain_list(models)
 
+    def list_by_turn_ids(self, turn_ids: list[str]) -> list[Run]:
+        if not turn_ids:
+            return []
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(RunModel)
+                .filter(RunModel.turn_id.in_(turn_ids))
+                .order_by(
+                    RunModel.turn_id.asc(),
+                    RunModel.attempt_index.asc(),
+                    RunModel.id.asc(),
+                )
+                .all()
+            )
+            return self._to_domain_list(models)
+
     def update(self, run: Run, *, db_session=None) -> Run:
         if db_session is None:
             with self.db.get_session() as managed_session:

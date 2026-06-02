@@ -139,6 +139,7 @@ export function createEmptyConversationState(sessionId: string | null = null): C
     runsById: {},
     messageOrder: [],
     messagesById: {},
+    hasMore: false,
   }
 }
 
@@ -181,6 +182,7 @@ export function applyConversationSnapshot(
     runsById,
     messageOrder,
     messagesById,
+    hasMore: snapshot.hasMore,
   }
 }
 
@@ -498,6 +500,47 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
   return {
     ...currentState,
     lastEventSeq: event.seq,
+  }
+}
+
+export function prependMessages(
+  state: ConversationState,
+  messages: ConversationMessage[],
+  turns: ConversationTurn[],
+  runs: ConversationRun[],
+): ConversationState {
+  const newMessageIds = messages.map((m) => m.id).filter((id) => !(id in state.messagesById))
+  const newMessagesById = Object.fromEntries(
+    messages.filter((m) => !(m.id in state.messagesById)).map((m) => [m.id, m])
+  )
+  const newTurnEntries = turns
+    .filter((t) => !(t.id in state.turnsById))
+    .sort((a, b) => a.turnIndex - b.turnIndex)
+  const mergedTurnOrder = [...state.turnOrder]
+  for (const turn of newTurnEntries) {
+    let insertPos = mergedTurnOrder.length
+    for (let i = 0; i < mergedTurnOrder.length; i++) {
+      const existingTurn = state.turnsById[mergedTurnOrder[i]]
+      if (existingTurn && existingTurn.turnIndex > turn.turnIndex) {
+        insertPos = i
+        break
+      }
+    }
+    mergedTurnOrder.splice(insertPos, 0, turn.id)
+  }
+  const newTurnsById = Object.fromEntries(
+    turns.filter((t) => !(t.id in state.turnsById)).map((t) => [t.id, t])
+  )
+  const newRunsById = Object.fromEntries(
+    runs.filter((r) => !(r.id in state.runsById)).map((r) => [r.id, r])
+  )
+  return {
+    ...state,
+    messageOrder: [...newMessageIds, ...state.messageOrder],
+    messagesById: { ...newMessagesById, ...state.messagesById },
+    turnOrder: mergedTurnOrder,
+    turnsById: { ...newTurnsById, ...state.turnsById },
+    runsById: { ...newRunsById, ...state.runsById },
   }
 }
 

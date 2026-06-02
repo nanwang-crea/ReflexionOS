@@ -1,5 +1,3 @@
-import { createRef } from 'react'
-import type { HTMLAttributes, ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { sendApprovalAction } from '@/components/execution/approvalActions'
@@ -9,17 +7,30 @@ import { WorkspaceTranscript } from './WorkspaceTranscript'
 import { buildToolTraceDetail } from './transcriptItems'
 
 vi.mock('framer-motion', () => ({
-  AnimatePresence: ({ children }: { children?: ReactNode }) => <>{children}</>,
+  AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
   motion: {
-    div: ({ children, ...props }: HTMLAttributes<HTMLDivElement> & { children?: ReactNode }) => <div {...props}>{children}</div>,
-    span: ({ children, ...props }: HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }) => <span {...props}>{children}</span>,
-    button: ({ children, ...props }: HTMLAttributes<HTMLButtonElement> & { children?: ReactNode }) => <button {...props}>{children}</button>,
+    div: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement> & { children?: React.ReactNode }) => <div {...props}>{children}</div>,
+    span: ({ children, ...props }: React.HTMLAttributes<HTMLSpanElement> & { children?: React.ReactNode }) => <span {...props}>{children}</span>,
+    button: ({ children, ...props }: React.HTMLAttributes<HTMLButtonElement> & { children?: React.ReactNode }) => <button {...props}>{children}</button>,
   },
 }))
 
-vi.mock('@/components/animations/SlideIn', () => ({
-  SlideIn: ({ children }: { children?: ReactNode }) => <>{children}</>,
-}))
+vi.mock('react-virtuoso', () => {
+  const React = require('react')
+  return {
+    Virtuoso: ({ data, itemContent, components, atBottomStateChange }: any) => {
+      const isAtBottom = data && data.length > 0
+      if (atBottomStateChange) atBottomStateChange(isAtBottom)
+      const header = components?.Header?.()
+      const footer = components?.Footer?.()
+      return React.createElement('div', null,
+        header,
+        (data || []).map((item: any, index: number) => React.createElement(React.Fragment, { key: item.id }, itemContent(index, item))),
+        footer
+      )
+    },
+  }
+})
 
 vi.mock('@/components/chat/MarkdownRenderer', () => ({
   MarkdownRenderer: ({ content }: { content: string }) => <div>{content}</div>,
@@ -112,7 +123,7 @@ describe('ToolTraceCard', () => {
     )
 
     expect(html).toContain('需要批准执行命令')
-    expect(html).toContain('允许执行')
+    expect(html).toContain('允许一次')
     expect(html).toContain('拒绝')
     expect(html).toContain('flex-col')
     expect(html).not.toContain('border-l-4')
@@ -230,7 +241,6 @@ describe('WorkspaceTranscript conversation rendering', () => {
             contentText: '你说得对，我先看一下当前实现。',
           }),
         ]}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -269,7 +279,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
           }}
           currentSession={{
             id: 'session-1',
-projectId: 'project-1',
+          projectId: 'project-1',
           title: '会话',
           agentMode: 'build',
           lastEventSeq: 0,
@@ -278,7 +288,6 @@ projectId: 'project-1',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
         messages={[toolTrace, systemNotice]}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -337,7 +346,6 @@ projectId: 'project-1',
             },
           }),
         ]}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -370,9 +378,6 @@ projectId: 'project-1',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
         messages={[]}
-        isAtBottom={false}
-        onScrollToBottom={() => {}}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -403,7 +408,6 @@ projectId: 'project-1',
         }}
         messages={[]}
         isRunning
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -441,7 +445,6 @@ projectId: 'project-1',
           delay: 2,
           message: 'connection failed',
         }}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -485,7 +488,6 @@ projectId: 'project-1',
           }),
         ]}
         isRunning={false}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -528,7 +530,6 @@ projectId: 'project-1',
           }),
         ]}
         isRunning
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -573,7 +574,6 @@ projectId: 'project-1',
         ]}
         isRunning
         runtimeStatus={{ kind: 'executing_tool', label: '正在执行工具' }}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -622,7 +622,6 @@ projectId: 'project-1',
           delay: 2,
           message: 'connection failed',
         }}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 
@@ -672,7 +671,6 @@ projectId: 'project-1',
             { id: 3, description: '验证结果', status: 'pending' },
           ],
         }}
-        messagesEndRef={createRef<HTMLDivElement>()}
       />
     )
 

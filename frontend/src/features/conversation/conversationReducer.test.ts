@@ -84,6 +84,7 @@ function buildSnapshot(): ConversationSnapshot {
         completedAt: '2026-04-24T10:00:00Z',
       },
     ],
+    hasMore: false,
   }
 }
 
@@ -508,6 +509,7 @@ describe('conversationReducer', () => {
             completedAt: null,
           },
         ],
+        hasMore: false,
       }
     }
 

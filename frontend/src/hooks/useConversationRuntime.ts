@@ -191,7 +191,7 @@ export function useConversationRuntime(
     closeWebSocket()
     setConnectionStatus('connecting')
 
-    const response = await conversationApi.getConversation(sessionId)
+    const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20 })
     if (connectVersion !== connectVersionRef.current) {
       return
     }
@@ -436,6 +436,13 @@ export function useConversationRuntime(
     }
   }, [closeWebSocket, flushPendingLiveEvent])
 
+  const loadMore = useCallback(async (sessionId: string, beforeMessageId: string) => {
+    const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20, before: beforeMessageId })
+    const snapshot = response.data
+    useConversationStore.getState().prependMessages(sessionId, snapshot.messages, snapshot.turns, snapshot.runs)
+    useConversationStore.getState().setHasMore(sessionId, snapshot.hasMore)
+  }, [])
+
   return {
     connectionStatus,
     isCancelling,
@@ -448,5 +455,6 @@ export function useConversationRuntime(
     editAndRerun,
     setMode,
     resetConversationRuntime,
+    loadMore,
   }
 }
