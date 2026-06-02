@@ -28,6 +28,200 @@ const VIRTUOSO_INDEX_OFFSET = 1_000_000
 const MIN_TRANSCRIPT_BOTTOM_INSET_PX = 160
 const TRANSCRIPT_BOTTOM_GAP_PX = 24
 
+interface TranscriptScrollerContextValue {
+  bottomPadding: number
+  onUserScrollIntent: () => void
+  onScrollerScroll: (event: React.UIEvent<HTMLDivElement>) => void
+  loaded: boolean
+  configured: boolean
+  currentProject: Project | null
+  currentSession: SessionSummary | null
+  messagesLength: number
+  isLoadingMore: boolean
+  showReconnectIndicator: boolean
+  reconnectLabel: string | null
+  reconnectCountdownSeconds: number
+  showThinkingIndicator: boolean
+  runtimeStatus: RuntimeStatusDescriptor
+  isRunning: boolean
+  plan: Plan | null
+  liveThinkingText: string
+  isPlanMinimized: boolean
+  onTogglePlanMinimize: () => void
+}
+
+const noop = () => {}
+const TranscriptScrollerContext = React.createContext<TranscriptScrollerContextValue>({
+  bottomPadding: getTranscriptBottomPadding(MIN_TRANSCRIPT_BOTTOM_INSET_PX),
+  onUserScrollIntent: noop,
+  onScrollerScroll: noop,
+  loaded: false,
+  configured: false,
+  currentProject: null,
+  currentSession: null,
+  messagesLength: 0,
+  isLoadingMore: false,
+  showReconnectIndicator: false,
+  reconnectLabel: null,
+  reconnectCountdownSeconds: 0,
+  showThinkingIndicator: false,
+  runtimeStatus: { kind: 'idle', label: '' },
+  isRunning: false,
+  plan: null,
+  liveThinkingText: '',
+  isPlanMinimized: false,
+  onTogglePlanMinimize: noop,
+})
+
+const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(function TranscriptScroller(
+  { style, children, ...props },
+  ref
+) {
+  const { bottomPadding, onUserScrollIntent, onScrollerScroll } = React.useContext(TranscriptScrollerContext)
+  const domHandlers = props as React.HTMLAttributes<HTMLDivElement>
+
+  return (
+    <div
+      {...props}
+      ref={ref}
+      onScroll={(event) => {
+        domHandlers.onScroll?.(event)
+        onScrollerScroll(event)
+      }}
+      onWheel={(event) => {
+        onUserScrollIntent()
+        domHandlers.onWheel?.(event)
+      }}
+      onTouchMove={(event) => {
+        onUserScrollIntent()
+        domHandlers.onTouchMove?.(event)
+      }}
+      onPointerDown={(event) => {
+        onUserScrollIntent()
+        domHandlers.onPointerDown?.(event)
+      }}
+      style={{
+        ...style,
+        overflowX: 'hidden',
+        width: '100%',
+        boxSizing: 'border-box',
+      }}
+    >
+      <div
+        data-transcript-frame
+        style={{
+          maxWidth: 1280,
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          width: '100%',
+          boxSizing: 'border-box',
+          paddingLeft: 32,
+          paddingRight: 32,
+          paddingTop: 32,
+          paddingBottom: bottomPadding,
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+})
+
+function TranscriptHeader() {
+  const {
+    loaded,
+    configured,
+    currentProject,
+    currentSession,
+    messagesLength,
+    isLoadingMore,
+  } = React.useContext(TranscriptScrollerContext)
+
+  return (
+    <>
+      {loaded && !configured && (
+        <div className="mb-4 rounded-lg border border-status-warning-border bg-status-warning-soft p-4">
+          <p className="text-status-warning">请先在设置页面配置供应商、模型和默认项</p>
+        </div>
+      )}
+
+      {!currentProject && (
+        <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
+          先在左侧选择一个项目，再开始新的聊天。
+        </div>
+      )}
+
+      {currentProject && !currentSession && messagesLength === 0 && (
+        <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
+          这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击"新建聊天"。
+        </div>
+      )}
+
+      {isLoadingMore && (
+        <div className="py-4 text-center text-sm text-content-muted">加载更多消息...</div>
+      )}
+    </>
+  )
+}
+
+function TranscriptFooter() {
+  const {
+    showReconnectIndicator,
+    reconnectLabel,
+    reconnectCountdownSeconds,
+    showThinkingIndicator,
+    runtimeStatus,
+    isRunning,
+    plan,
+    liveThinkingText,
+    isPlanMinimized,
+    onTogglePlanMinimize,
+  } = React.useContext(TranscriptScrollerContext)
+
+  return (
+    <>
+      {showReconnectIndicator && (
+        <div className="mb-8 flex items-center gap-3 text-sm text-status-warning" aria-live="polite">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-status-warning" />
+          <span>{reconnectLabel} · {reconnectCountdownSeconds} 秒后重试</span>
+        </div>
+      )}
+
+      {showThinkingIndicator && (
+        <RunningIndicator
+          label={runtimeStatus.label || '等待模型响应'}
+          rootDataAttr="data-running-bars"
+          barDataAttr="data-running-bar"
+        />
+      )}
+
+      {!showReconnectIndicator && !showThinkingIndicator && isRunning && !plan && runtimeStatus.kind !== 'idle' && !liveThinkingText && (
+        <RunningIndicator
+          label={runtimeStatus.label}
+          rootDataAttr="data-running-bars"
+          barDataAttr="data-running-bar"
+        />
+      )}
+
+      <AnimatePresence>
+        {plan && (
+          <PlanProgress
+            plan={plan}
+            isMinimized={isPlanMinimized}
+            onToggleMinimize={onTogglePlanMinimize}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
+
+const VIRTUOSO_COMPONENTS = {
+  Scroller: TranscriptScroller,
+  Header: TranscriptHeader,
+  Footer: TranscriptFooter,
+}
+
 interface VirtualListIndexSnapshot {
   sessionId: string | null
   firstItemId: string | null
@@ -76,6 +270,22 @@ export function shouldMarkUserScrolledAway(position: {
     return false
   }
   return position.userScrollIntent
+}
+
+export function shouldForceBottomOnNewUserMessage(wasUserScrolledAway: boolean) {
+  return wasUserScrolledAway
+}
+
+export function shouldForceBottomAfterUserAppend(position: {
+  previousLastUserMessageId: string | null
+  nextLastUserMessageId: string | null
+  wasUserScrolledAway: boolean
+}) {
+  return Boolean(
+    position.wasUserScrolledAway &&
+    position.nextLastUserMessageId &&
+    position.nextLastUserMessageId !== position.previousLastUserMessageId
+  )
 }
 
 interface WorkspaceTranscriptProps {
@@ -131,7 +341,6 @@ export function WorkspaceTranscript({
   const isAtBottomRef = useRef(false)
   const userScrolledAwayRef = useRef(false)
   const userScrollIntentRef = useRef(false)
-  const prevIsRunningRef = useRef(isRunning)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
   const transcriptBottomPadding = getTranscriptBottomPadding(bottomInset)
 
@@ -224,7 +433,7 @@ export function WorkspaceTranscript({
 
   const followOutput = useCallback((_atBottom: boolean) => {
     if (userScrolledAwayRef.current) return false
-    return 'smooth'
+    return true
   }, [])
 
   const markUserScrollIntent = useCallback(() => {
@@ -251,6 +460,7 @@ export function WorkspaceTranscript({
       userScrolledAwayRef.current = true
     }
   }, [])
+
   const firstItemId = transcriptItems[0]?.id ?? null
   const lastItemId = transcriptItems[transcriptItems.length - 1]?.id ?? null
   const firstItemIndex = getNextFirstItemIndex(virtualListIndexSnapshotRef.current, {
@@ -267,36 +477,44 @@ export function WorkspaceTranscript({
     firstItemIndex,
   }
   const lastItemIndex = firstItemIndex + Math.max(0, transcriptItems.length - 1)
+  const initialTopMostItemIndexRef = useRef<{
+    sessionId: string | null
+    index: number
+  } | null>(null)
+  const sessionId = currentSession?.id ?? null
+  if (initialTopMostItemIndexRef.current?.sessionId !== sessionId) {
+    initialTopMostItemIndexRef.current = {
+      sessionId,
+      index: lastItemIndex,
+    }
+  }
 
   const scrollToTranscriptBottom = useCallback((behavior: 'auto' | 'smooth' = 'auto') => {
     virtuosoRef.current?.scrollToIndex({
-      index: lastItemIndex,
+      index: 'LAST',
       align: 'end',
       behavior,
     })
-  }, [lastItemIndex])
+  }, [])
 
   const prevLastUserMessageIdRef = useRef<string | null>(null)
   useEffect(() => {
     const lastMessage = filteredMessages[filteredMessages.length - 1]
     const lastUserMsgId = lastMessage?.messageType === 'user_message' ? lastMessage.id : null
-    if (lastUserMsgId && lastUserMsgId !== prevLastUserMessageIdRef.current) {
+    if (lastUserMsgId) {
+      const wasUserScrolledAway = userScrolledAwayRef.current
       userScrolledAwayRef.current = false
       userScrollIntentRef.current = false
-      scrollToTranscriptBottom('auto')
+      if (shouldForceBottomAfterUserAppend({
+        previousLastUserMessageId: prevLastUserMessageIdRef.current,
+        nextLastUserMessageId: lastUserMsgId,
+        wasUserScrolledAway,
+      })) {
+        scrollToTranscriptBottom('auto')
+      }
     }
     prevLastUserMessageIdRef.current = lastUserMsgId
   }, [filteredMessages, scrollToTranscriptBottom])
-
-  useEffect(() => {
-    const wasRunning = prevIsRunningRef.current
-    prevIsRunningRef.current = isRunning
-
-    if (wasRunning && !isRunning && !userScrolledAwayRef.current) {
-      userScrollIntentRef.current = false
-      scrollToTranscriptBottom('auto')
-    }
-  }, [isRunning, scrollToTranscriptBottom])
 
   const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
 
@@ -389,177 +607,86 @@ export function WorkspaceTranscript({
     return null
   }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length])
 
-  const virtuosoComponents = useMemo(() => ({
-    Scroller: React.forwardRef<HTMLDivElement, ScrollerProps>(
-      ({ style, children, ...props }, ref) => {
-        const domHandlers = props as React.HTMLAttributes<HTMLDivElement>
-
-        return (
-          <div
-            {...props}
-            ref={ref}
-            onScroll={(event) => {
-              domHandlers.onScroll?.(event)
-              handleScrollerScroll(event)
-            }}
-            onWheel={(event) => {
-              markUserScrollIntent()
-              domHandlers.onWheel?.(event)
-            }}
-            onTouchMove={(event) => {
-              markUserScrollIntent()
-              domHandlers.onTouchMove?.(event)
-            }}
-            onPointerDown={(event) => {
-              markUserScrollIntent()
-              domHandlers.onPointerDown?.(event)
-            }}
-            style={{
-              ...style,
-              overflowX: 'hidden',
-              width: '100%',
-              boxSizing: 'border-box',
-            }}
-          >
-            <div
-              data-transcript-frame
-              style={{
-                maxWidth: 1280,
-                marginLeft: 'auto',
-                marginRight: 'auto',
-                width: '100%',
-                boxSizing: 'border-box',
-                paddingLeft: 32,
-                paddingRight: 32,
-                paddingTop: 32,
-                paddingBottom: transcriptBottomPadding,
-              }}
-            >
-              {children}
-            </div>
-          </div>
-        )
-      }
-    ),
-    Header: () => (
-      <>
-        {loaded && !configured && (
-          <div className="mb-4 rounded-lg border border-status-warning-border bg-status-warning-soft p-4">
-            <p className="text-status-warning">请先在设置页面配置供应商、模型和默认项</p>
-          </div>
-        )}
-
-        {!currentProject && (
-          <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
-            先在左侧选择一个项目，再开始新的聊天。
-          </div>
-        )}
-
-        {currentProject && !currentSession && messages.length === 0 && (
-          <div className="max-w-[720px] rounded-3xl border border-edge bg-surface-secondary px-6 py-8 text-content-muted">
-            这个项目下还没有聊天。可以直接在下方输入，或者从左侧点击"新建聊天"。
-          </div>
-        )}
-
-        {isLoadingMore && (
-          <div className="py-4 text-center text-sm text-content-muted">加载更多消息...</div>
-        )}
-      </>
-    ),
-    Footer: () => (
-      <>
-        {showReconnectIndicator && (
-          <div className="mb-8 flex items-center gap-3 text-sm text-status-warning" aria-live="polite">
-            <Loader2 className="h-4 w-4 shrink-0 animate-spin text-status-warning" />
-            <span>{reconnectLabel} · {reconnectCountdownSeconds} 秒后重试</span>
-          </div>
-        )}
-
-        {showThinkingIndicator && (
-          <RunningIndicator
-            label={runtimeStatus.label || '等待模型响应'}
-            rootDataAttr="data-running-bars"
-            barDataAttr="data-running-bar"
-          />
-        )}
-
-        {!showReconnectIndicator && !showThinkingIndicator && isRunning && !plan && runtimeStatus.kind !== 'idle' && !liveThinkingText && (
-          <RunningIndicator
-            label={runtimeStatus.label}
-            rootDataAttr="data-running-bars"
-            barDataAttr="data-running-bar"
-          />
-        )}
-
-        <AnimatePresence>
-          {plan && (
-            <PlanProgress
-              plan={plan}
-              isMinimized={isPlanMinimized}
-              onToggleMinimize={onTogglePlanMinimize ?? (() => {})}
-            />
-          )}
-        </AnimatePresence>
-      </>
-    ),
+  const scrollerContextValue = useMemo(() => ({
+    bottomPadding: transcriptBottomPadding,
+    onUserScrollIntent: markUserScrollIntent,
+    onScrollerScroll: handleScrollerScroll,
+    loaded,
+    configured,
+    currentProject,
+    currentSession,
+    messagesLength: messages.length,
+    isLoadingMore,
+    showReconnectIndicator,
+    reconnectLabel,
+    reconnectCountdownSeconds,
+    showThinkingIndicator,
+    runtimeStatus,
+    isRunning,
+    plan,
+    liveThinkingText,
+    isPlanMinimized,
+    onTogglePlanMinimize: onTogglePlanMinimize ?? noop,
   }), [
+    transcriptBottomPadding,
+    markUserScrollIntent,
+    handleScrollerScroll,
     loaded,
     configured,
     currentProject,
     currentSession,
     messages.length,
     isLoadingMore,
-    handleScrollerScroll,
-    markUserScrollIntent,
-    transcriptBottomPadding,
     showReconnectIndicator,
     reconnectLabel,
     reconnectCountdownSeconds,
     showThinkingIndicator,
+    runtimeStatus,
     isRunning,
     plan,
-    runtimeStatus,
     liveThinkingText,
     isPlanMinimized,
     onTogglePlanMinimize,
   ])
 
   return (
-    <div className="relative flex-1 overflow-hidden bg-surface-primary">
-      <Virtuoso
-        ref={virtuosoRef}
-        data={transcriptItems}
-        itemContent={itemContent}
-        computeItemKey={computeItemKey}
-        firstItemIndex={firstItemIndex}
-        alignToBottom
-        atBottomThreshold={AUTO_SCROLL_FOLLOW_THRESHOLD_PX}
-        followOutput={followOutput}
-        initialTopMostItemIndex={lastItemIndex}
-        startReached={handleStartReached}
-        atBottomStateChange={handleAtBottomStateChange}
-        components={virtuosoComponents}
-      />
-      <AnimatePresence>
-        {!isAtBottom && (
-          <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex justify-center">
-            <motion.button
-              type="button"
-              aria-label="滚动到底部"
-              title="滚动到底部"
-              onClick={scrollToBottom}
-              initial={{ opacity: 0, y: 10, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.96 }}
-              transition={{ duration: 0.18 }}
-              className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-theme transition-colors hover:border-edge hover:text-content-primary"
-            >
-              <ArrowDown className="h-5 w-5" />
-            </motion.button>
-          </div>
-        )}
-      </AnimatePresence>
-    </div>
+    <TranscriptScrollerContext.Provider value={scrollerContextValue}>
+      <div className="relative flex-1 overflow-hidden bg-surface-primary">
+        <Virtuoso
+          ref={virtuosoRef}
+          data={transcriptItems}
+          itemContent={itemContent}
+          computeItemKey={computeItemKey}
+          firstItemIndex={firstItemIndex}
+          alignToBottom
+          atBottomThreshold={AUTO_SCROLL_FOLLOW_THRESHOLD_PX}
+          followOutput={followOutput}
+          initialTopMostItemIndex={initialTopMostItemIndexRef.current.index}
+          startReached={handleStartReached}
+          atBottomStateChange={handleAtBottomStateChange}
+          components={VIRTUOSO_COMPONENTS}
+        />
+        <AnimatePresence>
+          {!isAtBottom && (
+            <div className="pointer-events-none absolute bottom-4 left-0 right-0 z-20 flex justify-center">
+              <motion.button
+                type="button"
+                aria-label="滚动到底部"
+                title="滚动到底部"
+                onClick={scrollToBottom}
+                initial={{ opacity: 0, y: 10, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.96 }}
+                transition={{ duration: 0.18 }}
+                className="pointer-events-auto grid h-11 w-11 place-items-center rounded-full border border-edge bg-surface-primary text-content-secondary shadow-theme transition-colors hover:border-edge hover:text-content-primary"
+              >
+                <ArrowDown className="h-5 w-5" />
+              </motion.button>
+            </div>
+          )}
+        </AnimatePresence>
+      </div>
+    </TranscriptScrollerContext.Provider>
   )
 }
 

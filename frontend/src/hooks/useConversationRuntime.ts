@@ -139,6 +139,14 @@ export function useConversationRuntime(
     sessionId: string,
     liveMessage: ConversationLiveMessage
   ) => {
+    if (!liveEventFlushTimerRef.current && !pendingLiveEventRef.current) {
+      useConversationStore.getState().applyLiveEvent(sessionId, liveMessage)
+      liveEventFlushTimerRef.current = setTimeout(() => {
+        flushPendingLiveEvent()
+      }, LIVE_EVENT_FLUSH_INTERVAL_MS)
+      return
+    }
+
     pendingLiveEventRef.current = { sessionId, liveMessage }
     if (liveEventFlushTimerRef.current) {
       return
@@ -160,7 +168,7 @@ export function useConversationRuntime(
     wsRef.current = null
     connectedSessionIdRef.current = null
     setConnectionStatus('disconnected')
-  }, [])
+  }, [flushPendingLiveEvent])
 
   const refreshSnapshot = useCallback(async (sessionId: string) => {
     const response = await conversationApi.getConversation(sessionId)

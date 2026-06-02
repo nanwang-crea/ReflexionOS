@@ -260,7 +260,7 @@ describe('useConversationRuntime', () => {
     })
   })
 
-  it('throttles rapid live conversation updates and flushes the latest message', async () => {
+  it('applies the first live update immediately, then throttles rapid follow-up updates', async () => {
     vi.useFakeTimers()
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
 
@@ -282,6 +282,19 @@ describe('useConversationRuntime', () => {
       content_text: 'A',
       stream_state: 'streaming',
     })
+
+    expect(applyLiveEventMock).toHaveBeenCalledTimes(1)
+    expect(applyLiveEventMock).toHaveBeenCalledWith('session-1', {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      runId: 'run-1',
+      messageId: 'msg-2',
+      messageType: 'assistant_message',
+      delta: 'A',
+      contentText: 'A',
+      streamState: 'streaming',
+    })
+
     wsHandlers.get('conversation:live_event')?.({
       session_id: 'session-1',
       turn_id: 'turn-1',
@@ -293,11 +306,11 @@ describe('useConversationRuntime', () => {
       stream_state: 'streaming',
     })
 
-    expect(applyLiveEventMock).not.toHaveBeenCalled()
+    expect(applyLiveEventMock).toHaveBeenCalledTimes(1)
 
     vi.advanceTimersByTime(50)
 
-    expect(applyLiveEventMock).toHaveBeenCalledTimes(1)
+    expect(applyLiveEventMock).toHaveBeenCalledTimes(2)
     expect(applyLiveEventMock).toHaveBeenCalledWith('session-1', {
       sessionId: 'session-1',
       turnId: 'turn-1',

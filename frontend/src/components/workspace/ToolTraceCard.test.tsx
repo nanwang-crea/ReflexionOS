@@ -26,6 +26,7 @@ interface MockVirtuosoProps {
   followOutput?: boolean | 'smooth' | ((isAtBottom: boolean) => boolean | 'smooth')
   computeItemKey?: (index: number, item: TranscriptItem) => React.Key
   alignToBottom?: boolean
+  initialTopMostItemIndex?: number
 }
 
 let latestVirtuosoProps: MockVirtuosoProps | null = null
@@ -67,8 +68,8 @@ vi.mock('react-virtuoso', () => {
 })
 
 vi.mock('@/components/chat/MarkdownRenderer', () => ({
-  MarkdownRenderer: ({ content, className }: { content: string; className?: string }) => (
-    <div className={className}>{content}</div>
+  MarkdownRenderer: ({ content, className, isStreaming }: { content: string; className?: string; isStreaming?: boolean }) => (
+    <div className={className} data-markdown-streaming={String(Boolean(isStreaming))}>{content}</div>
   ),
 }))
 
@@ -358,6 +359,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
     )
 
     expect(html).toContain('正在输出')
+    expect(html).toContain('data-markdown-streaming="true"')
     expect(html).not.toContain('transcript-item-enter')
   })
 
@@ -788,8 +790,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(latestVirtuosoProps?.atBottomThreshold).toBe(100)
     expect(latestVirtuosoProps?.alignToBottom).toBe(true)
     expect(typeof latestVirtuosoProps?.followOutput).toBe('function')
-    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(true)).toBe('smooth')
-    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe('smooth')
+    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(true)).toBe(true)
+    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe(true)
   })
 
   it('forwards Virtuoso scroller DOM attributes required for measurement', () => {
@@ -1138,6 +1140,12 @@ describe('WorkspaceTranscript conversation rendering', () => {
         userScrollIntent: boolean
         distanceFromBottom: number
       }) => boolean
+      shouldForceBottomOnNewUserMessage?: (wasUserScrolledAway: boolean) => boolean
+      shouldForceBottomAfterUserAppend?: (position: {
+        previousLastUserMessageId: string | null
+        nextLastUserMessageId: string | null
+        wasUserScrolledAway: boolean
+      }) => boolean
     }
 
     expect(typeof module.shouldMarkUserScrolledAway).toBe('function')
@@ -1153,5 +1161,100 @@ describe('WorkspaceTranscript conversation rendering', () => {
       userScrollIntent: false,
       distanceFromBottom: 40,
     })).toBe(false)
+    expect(typeof module.shouldForceBottomOnNewUserMessage).toBe('function')
+    expect(module.shouldForceBottomOnNewUserMessage?.(false)).toBe(false)
+    expect(module.shouldForceBottomOnNewUserMessage?.(true)).toBe(true)
+    expect(typeof module.shouldForceBottomAfterUserAppend).toBe('function')
+    expect(module.shouldForceBottomAfterUserAppend?.({
+      previousLastUserMessageId: 'msg-user-1',
+      nextLastUserMessageId: 'msg-user-2',
+      wasUserScrolledAway: false,
+    })).toBe(false)
+    expect(module.shouldForceBottomAfterUserAppend?.({
+      previousLastUserMessageId: 'msg-user-1',
+      nextLastUserMessageId: 'msg-user-2',
+      wasUserScrolledAway: true,
+    })).toBe(true)
+    expect(module.shouldForceBottomAfterUserAppend?.({
+      previousLastUserMessageId: 'msg-user-2',
+      nextLastUserMessageId: 'msg-user-2',
+      wasUserScrolledAway: true,
+    })).toBe(false)
+  })
+
+  it('keeps the Virtuoso components object stable when messages append', () => {
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-user-1',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '第一条',
+          }),
+        ]}
+      />
+    )
+    const firstComponents = latestVirtuosoProps?.components
+
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-user-1',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '第一条',
+          }),
+          buildMessage({
+            id: 'msg-user-2',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '第二条',
+            turnMessageIndex: 2,
+          }),
+        ]}
+      />
+    )
+
+    expect(latestVirtuosoProps?.components).toBe(firstComponents)
   })
 })
