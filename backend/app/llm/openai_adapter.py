@@ -83,11 +83,13 @@ class OpenAIAdapter(UniversalLLMInterface):
 
         return self._parse_response(response)
 
+    _MAX_STREAM_RETRIES = 3
+
     async def stream_complete(
         self, messages: list[LLMMessage], tools: list[LLMToolDefinition] = None
     ) -> AsyncIterator[StreamChunk]:
         """
-        流式补全（支持工具调用），连接阶段带指数退避重试
+        流式补全（支持工具调用），连接阶段和流早期断连均带重试
 
         Args:
             messages: 消息列表
@@ -111,114 +113,118 @@ class OpenAIAdapter(UniversalLLMInterface):
             kwargs["tools"] = openai_tools
             kwargs["tool_choice"] = "auto"
 
-        # Retry at connection-establishment level only.
-        # Once the stream is opened, transient errors within the stream
-        # cannot be safely retried (partial output already yielded).
-        stream = await retry_async(
-            lambda: self.client.chat.completions.create(**kwargs),
-            retryable_exceptions=_RETRYABLE,
-            on_retry=self.on_retry,
-            raise_retry_exhausted=True,
-            cancel_event=self.cancel_event,
-        )
+        for stream_attempt in range(self._MAX_STREAM_RETRIES):
+            stream = await retry_async(
+                lambda: self.client.chat.completions.create(**kwargs),
+                retryable_exceptions=_RETRYABLE,
+                on_retry=self.on_retry,
+                raise_retry_exhausted=True,
+                cancel_event=self.cancel_event,
+            )
 
-        # 收集 tool_calls（流式时需要聚合）
-        current_tool_calls: dict[int, dict] = {}
+            current_tool_calls: dict[int, dict] = {}
+            _dsml_prefix = "<|DSML|"
+            _content_buf = ""
+            _dsml_detected = False
+            _yielded_cursor = 0
+            yielded_any = False
 
-        # DSML detection state
-        _dsml_prefix = "<|DSML|"
-        _content_buf = ""
-        _dsml_detected = False
-        _yielded_cursor = 0
+            try:
+                async for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    finish_reason = chunk.choices[0].finish_reason
 
-        try:
-            async for chunk in stream:
-                delta = chunk.choices[0].delta
-                finish_reason = chunk.choices[0].finish_reason
+                    reasoning_delta = self._extract_reasoning_delta(delta)
+                    if reasoning_delta:
+                        yielded_any = True
+                        yield StreamChunk(type="reasoning", reasoning_content=reasoning_delta)
 
-                reasoning_delta = self._extract_reasoning_delta(delta)
-                if reasoning_delta:
-                    yield StreamChunk(type="reasoning", reasoning_content=reasoning_delta)
+                    if delta.content:
+                        _content_buf += delta.content
 
-                # 流式输出 content（含 DSML 检测）
-                if delta.content:
-                    _content_buf += delta.content
+                        if not _dsml_detected:
+                            idx = _content_buf.find(_dsml_prefix)
+                            if idx != -1:
+                                _dsml_detected = True
+                                if idx > _yielded_cursor:
+                                    yielded_any = True
+                                    yield StreamChunk(
+                                        type="content",
+                                        content=_content_buf[_yielded_cursor:idx],
+                                    )
+                                _yielded_cursor = len(_content_buf)
+                            else:
+                                safe_end = len(_content_buf)
+                                for i in range(1, min(len(_dsml_prefix), len(_content_buf) + 1)):
+                                    if _dsml_prefix.startswith(_content_buf[-i:]):
+                                        safe_end = len(_content_buf) - i
+                                        break
+                                if safe_end > _yielded_cursor:
+                                    yielded_any = True
+                                    yield StreamChunk(
+                                        type="content",
+                                        content=_content_buf[_yielded_cursor:safe_end],
+                                    )
+                                    _yielded_cursor = safe_end
 
-                    if not _dsml_detected:
-                        idx = _content_buf.find(_dsml_prefix)
-                        if idx != -1:
-                            _dsml_detected = True
-                            if idx > _yielded_cursor:
-                                yield StreamChunk(
-                                    type="content",
-                                    content=_content_buf[_yielded_cursor:idx],
-                                )
-                            _yielded_cursor = len(_content_buf)
-                        else:
-                            # Hold back tail that could be a partial <|DSML| prefix
-                            safe_end = len(_content_buf)
-                            for i in range(1, min(len(_dsml_prefix), len(_content_buf) + 1)):
-                                if _dsml_prefix.startswith(_content_buf[-i:]):
-                                    safe_end = len(_content_buf) - i
-                                    break
-                            if safe_end > _yielded_cursor:
-                                yield StreamChunk(
-                                    type="content",
-                                    content=_content_buf[_yielded_cursor:safe_end],
-                                )
-                                _yielded_cursor = safe_end
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in current_tool_calls:
+                                current_tool_calls[idx] = {
+                                    "id": tc.id or "",
+                                    "name": "",
+                                    "arguments": "",
+                                }
+                            elif tc.id:
+                                current_tool_calls[idx]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    current_tool_calls[idx]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    current_tool_calls[idx]["arguments"] += tc.function.arguments
 
-                # 处理 tool_calls（流式，结构化路径）
-                if delta.tool_calls:
-                    for tc in delta.tool_calls:
-                        idx = tc.index
-                        if idx not in current_tool_calls:
-                            current_tool_calls[idx] = {
-                                "id": tc.id or "",
-                                "name": "",
-                                "arguments": "",
-                            }
-                        elif tc.id:
-                            current_tool_calls[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                current_tool_calls[idx]["name"] = tc.function.name
-                            if tc.function.arguments:
-                                current_tool_calls[idx]["arguments"] += tc.function.arguments
+                    if finish_reason:
+                        has_structured_tc = bool(current_tool_calls)
 
-                # 流式结束时处理
-                if finish_reason:
-                    has_structured_tc = bool(current_tool_calls)
-
-                    if has_structured_tc:
-                        yield StreamChunk(
-                            type="tool_calls",
-                            tool_calls=self._build_structured_tool_calls(current_tool_calls),
-                            finish_reason=finish_reason,
-                        )
-                    elif _dsml_detected:
-                        result = parse_dsml_tool_calls(_content_buf)
-                        if result.tool_calls:
+                        if has_structured_tc:
                             yield StreamChunk(
                                 type="tool_calls",
-                                tool_calls=result.tool_calls,
+                                tool_calls=self._build_structured_tool_calls(current_tool_calls),
                                 finish_reason=finish_reason,
                             )
+                        elif _dsml_detected:
+                            result = parse_dsml_tool_calls(_content_buf)
+                            if result.tool_calls:
+                                yield StreamChunk(
+                                    type="tool_calls",
+                                    tool_calls=result.tool_calls,
+                                    finish_reason=finish_reason,
+                                )
+                            else:
+                                remaining = _content_buf[_yielded_cursor:]
+                                if remaining:
+                                    yield StreamChunk(type="content", content=remaining)
+                                yield StreamChunk(type="done", finish_reason=finish_reason)
                         else:
                             remaining = _content_buf[_yielded_cursor:]
                             if remaining:
                                 yield StreamChunk(type="content", content=remaining)
                             yield StreamChunk(type="done", finish_reason=finish_reason)
-                    else:
-                        remaining = _content_buf[_yielded_cursor:]
-                        if remaining:
-                            yield StreamChunk(type="content", content=remaining)
-                        yield StreamChunk(type="done", finish_reason=finish_reason)
 
-                    break
-        except Exception as e:
-            logger.error("OpenAI 流式读取失败: %s", e)
-            yield StreamChunk(type="error", error=str(e))
+                        return
+            except Exception as e:
+                if not yielded_any and stream_attempt < self._MAX_STREAM_RETRIES - 1:
+                    logger.warning(
+                        "OpenAI 流式连接中断 (attempt %d/%d), 重试: %s",
+                        stream_attempt + 1,
+                        self._MAX_STREAM_RETRIES,
+                        e,
+                    )
+                    continue
+                logger.error("OpenAI 流式读取失败: %s", e)
+                yield StreamChunk(type="error", error=str(e))
+                return
 
     def get_model_name(self) -> str:
         """获取模型名称"""
