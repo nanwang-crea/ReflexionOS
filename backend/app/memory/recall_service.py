@@ -53,7 +53,7 @@ class RecallService:
         self.db = db
         self._now = now or datetime.now
 
-    def search(self, *, project_id: str, query: str, limit: int = 3) -> list[RecallResult]:
+    def search(self, *, project_id: str, query: str, limit: int = 3, session_id: str | None = None) -> list[RecallResult]:
         if not project_id:
             raise ValueError("project_id is required")
         if not query:
@@ -64,7 +64,7 @@ class RecallService:
             return []
 
         now = self._now()
-        candidates = self._list_project_documents(project_id=project_id, max_candidates=200)
+        candidates = self._list_project_documents(project_id=project_id, session_id=session_id, max_candidates=200)
 
         scored: list[tuple[float, datetime, str, _MessageSearchDocumentSnapshot]] = []
         for document in candidates:
@@ -84,11 +84,10 @@ class RecallService:
         return results
 
     def _list_project_documents(
-        self, *, project_id: str, max_candidates: int
+        self, *, project_id: str, max_candidates: int, session_id: str | None = None
     ) -> list[_MessageSearchDocumentSnapshot]:
         with self.db.get_session() as db_session:
-            # Strict scoping: documents do not carry project_id directly, so we join via sessions.
-            rows = (
+            q = (
                 db_session.query(
                     MessageSearchDocumentModel.message_id,
                     MessageSearchDocumentModel.session_id,
@@ -99,7 +98,11 @@ class RecallService:
                 )
                 .join(SessionModel, MessageSearchDocumentModel.session_id == SessionModel.id)
                 .filter(SessionModel.project_id == project_id)
-                .order_by(MessageSearchDocumentModel.created_at.desc())
+            )
+            if session_id:
+                q = q.filter(MessageSearchDocumentModel.session_id == session_id)
+            rows = (
+                q.order_by(MessageSearchDocumentModel.created_at.desc())
                 .limit(max_candidates)
                 .all()
             )

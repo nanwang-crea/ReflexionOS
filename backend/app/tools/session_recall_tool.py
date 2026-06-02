@@ -61,11 +61,12 @@ class SessionRecallTool(BaseTool):
     async def execute(self, args: dict[str, Any]) -> ToolResult:
         query = args.get("query", "").strip()
         if not query:
-            return ToolResult(success=True, data={"results": [], "message": "Empty query, no results"})
+            return ToolResult(success=False, error="query is required and cannot be empty")
 
         limit = args.get("limit", 3)
         results = self._recall_service.search(
             project_id=self._project_id,
+            session_id=self._session_id,
             query=query,
             limit=limit,
         )
@@ -77,6 +78,7 @@ class SessionRecallTool(BaseTool):
         if not results:
             return ToolResult(
                 success=True,
+                output=f"No results found for '{query}'",
                 data={"results": [], "message": f"No results found for '{query}'"},
             )
 
@@ -88,4 +90,11 @@ class SessionRecallTool(BaseTool):
                 "evidence": r.evidence,
             })
 
-        return ToolResult(success=True, data={"results": formatted})
+        output_parts: list[str] = []
+        for r in results:
+            output_parts.append(f"[score={round(r.score, 3)}] {r.summary}")
+            for ev in r.evidence:
+                output_parts.append(f"  {ev}")
+        output_text = "\n".join(output_parts)
+
+        return ToolResult(success=True, output=output_text, data={"results": formatted})
