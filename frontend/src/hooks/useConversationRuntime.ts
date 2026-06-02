@@ -358,7 +358,7 @@ export function useConversationRuntime(
       return
     }
 
-    wsRef.current.approveTool({ runId, approvalId })
+    wsRef.current.approveTool({ runId, approvalId, decision: 'allow_once' })
   }, [])
 
   const denyTool = useCallback((runId: string, approvalId: string) => {
@@ -367,6 +367,14 @@ export function useConversationRuntime(
     }
 
     wsRef.current.denyTool({ runId, approvalId })
+  }, [])
+
+  const trustTool = useCallback((runId: string, approvalId: string) => {
+    if (!wsRef.current?.isConnected()) {
+      return
+    }
+
+    wsRef.current.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
   }, [])
 
   const editAndRerun = useCallback((payload: {
@@ -436,6 +444,7 @@ export function useConversationRuntime(
     cancelRun,
     approveTool,
     denyTool,
+    trustTool,
     editAndRerun,
     setMode,
     resetConversationRuntime,

@@ -129,15 +129,16 @@ function buildCancelRunMessage(runId: string) {
 
 function buildToolApprovalMessage(
   type: 'conversation:approve_tool' | 'conversation:deny_tool',
-  payload: { runId: string; approvalId: string }
+  payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }
 ) {
-  return {
-    type,
-    data: {
-      approval_id: payload.approvalId,
-      run_id: payload.runId,
-    },
+  const data: Record<string, string> = {
+    approval_id: payload.approvalId,
+    run_id: payload.runId,
   }
+  if (payload.decision) {
+    data.decision = payload.decision
+  }
+  return { type, data }
 }
 
 function buildEditAndRerunMessage(payload: {
@@ -298,7 +299,7 @@ class SessionConversationWebSocket {
     }
   }
 
-  approveTool(payload: { runId: string; approvalId: string }): void {
+  approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:approve_tool', payload)))
     }

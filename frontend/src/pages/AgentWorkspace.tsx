@@ -29,6 +29,7 @@ export default function AgentWorkspace() {
     cancelRun,
     approveTool,
     denyTool,
+    trustTool,
     editAndRerun,
     setMode,
     resetConversationRuntime,
@@ -108,7 +109,10 @@ export default function AgentWorkspace() {
         approveTool(payload.runId, payload.approvalId)
         return
       }
-
+      if (action === 'trust') {
+        trustTool(payload.runId, payload.approvalId)
+        return
+      }
       denyTool(payload.runId, payload.approvalId)
     },
   })
