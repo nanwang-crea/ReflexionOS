@@ -1,10 +1,31 @@
 import { renderToStaticMarkup } from 'react-dom/server'
+import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { sendApprovalAction } from '@/components/execution/approvalActions'
 import type { ConversationMessage } from '@/types/conversation'
 import { ToolTraceCard, ToolTraceGroup } from './ToolTraceCard'
 import { WorkspaceTranscript } from './WorkspaceTranscript'
-import { buildToolTraceDetail } from './transcriptItems'
+import { buildToolTraceDetail, type TranscriptItem } from './transcriptItems'
+
+interface MockVirtuosoProps {
+  data?: TranscriptItem[]
+  itemContent: (index: number, item: TranscriptItem) => React.ReactNode
+  components?: {
+    Header?: () => React.ReactNode
+    Footer?: () => React.ReactNode
+    Scroller?: React.ComponentType<{
+      children?: React.ReactNode
+      style?: React.CSSProperties
+      'data-virtuoso-scroller'?: boolean
+    }>
+  }
+  atBottomStateChange?: (isAtBottom: boolean) => void
+  startReached?: () => void
+  firstItemIndex?: number
+  computeItemKey?: (index: number, item: TranscriptItem) => React.Key
+}
+
+let latestVirtuosoProps: MockVirtuosoProps | null = null
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -16,19 +37,28 @@ vi.mock('framer-motion', () => ({
 }))
 
 vi.mock('react-virtuoso', () => {
-  const React = require('react')
   return {
-    Virtuoso: ({ data, itemContent, components, atBottomStateChange, startReached }: any) => {
-      const isAtBottom = data && data.length > 0
+    Virtuoso: (props: MockVirtuosoProps) => {
+      latestVirtuosoProps = props
+      const { data, itemContent, components, atBottomStateChange, startReached } = props
+      const isAtBottom = Boolean(data && data.length > 0)
       if (atBottomStateChange) atBottomStateChange(isAtBottom)
       if (startReached) startReached()
       const header = components?.Header?.()
       const footer = components?.Footer?.()
-      return React.createElement('div', null,
+      const content = React.createElement(React.Fragment, null,
         header,
-        (data || []).map((item: any, index: number) => React.createElement(React.Fragment, { key: item.id }, itemContent(index, item))),
+        (data || []).map((item, index) => React.createElement(React.Fragment, { key: item.id }, itemContent(index, item))),
         footer
       )
+      if (components?.Scroller) {
+        return React.createElement(
+          components.Scroller,
+          { 'data-virtuoso-scroller': true, style: { height: 400 } },
+          content
+        )
+      }
+      return React.createElement('div', null, content)
     },
   }
 })
@@ -597,6 +627,87 @@ describe('WorkspaceTranscript conversation rendering', () => {
 
     expect(loadMore).toHaveBeenCalledTimes(1)
     expect(loadMore).toHaveBeenCalledWith('msg-oldest')
+  })
+
+  it('passes stable virtual-list keys and indexes so prepended history keeps its scroll anchor', () => {
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-oldest',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '最早已加载消息',
+          }),
+          buildMessage({
+            id: 'msg-newest',
+            messageType: 'assistant_message',
+            contentText: '最新已加载消息',
+            streamState: 'completed',
+          }),
+        ]}
+        hasMore
+        onLoadMore={vi.fn()}
+      />
+    )
+
+    expect(latestVirtuosoProps?.firstItemIndex).toBe(999998)
+    expect(latestVirtuosoProps?.computeItemKey?.(999998, latestVirtuosoProps.data?.[0] as TranscriptItem)).toBe('msg-oldest')
+  })
+
+  it('forwards Virtuoso scroller DOM attributes required for measurement', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-oldest',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '最早已加载消息',
+          }),
+        ]}
+      />
+    )
+
+    expect(html).toContain('data-virtuoso-scroller="true"')
   })
 
   it('keeps the thinking block expanded while reasoning is still streaming', () => {

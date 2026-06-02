@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Virtuoso } from 'react-virtuoso'
+import { Virtuoso, type ScrollerProps } from 'react-virtuoso'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
@@ -22,6 +22,8 @@ import { UserMessageItem } from './UserMessageItem'
 import { AssistantMessageItem } from './AssistantMessageItem'
 import { SystemNoticeItem } from './SystemNoticeItem'
 import { ToolGroupItem } from './ToolGroupItem'
+
+const VIRTUOSO_INDEX_OFFSET = 1_000_000
 
 export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
@@ -173,6 +175,8 @@ export function WorkspaceTranscript({
   }, [transcriptItems.length])
 
   const followOutput = isAtBottom ? 'smooth' : false
+  const firstItemIndex = Math.max(1, VIRTUOSO_INDEX_OFFSET - transcriptItems.length)
+  const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
 
   const itemContent = useCallback((index: number, item: TranscriptItem) => {
     const isLastItem = index === transcriptItems.length - 1
@@ -245,9 +249,10 @@ export function WorkspaceTranscript({
   }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length])
 
   const virtuosoComponents = useMemo(() => ({
-    ScrollContainer: React.forwardRef<HTMLDivElement, any>(
-      ({ style, children }, ref) => (
+    Scroller: React.forwardRef<HTMLDivElement, ScrollerProps>(
+      ({ style, children, ...props }, ref) => (
         <div
+          {...props}
           ref={ref}
           style={{
             ...style,
@@ -372,6 +377,8 @@ export function WorkspaceTranscript({
         ref={virtuosoRef}
         data={transcriptItems}
         itemContent={itemContent}
+        computeItemKey={computeItemKey}
+        firstItemIndex={firstItemIndex}
         followOutput={followOutput}
         initialTopMostItemIndex={Math.max(0, transcriptItems.length - 1)}
         startReached={handleStartReached}
