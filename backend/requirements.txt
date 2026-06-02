@@ -9,6 +9,9 @@ openai==1.109.1
 aiofiles==24.1.0
 sqlalchemy==2.0.37
 alembic==1.14.1
+tiktoken
+gitpython
+pyyaml
 
 # Test dependencies
 pytest==8.3.4
@@ -17,4 +20,3 @@ ruff==0.11.8
 
 # Packaging dependencies
 pyinstaller==6.13.0
-tiktoken
