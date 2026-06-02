@@ -25,6 +25,7 @@ interface MockVirtuosoProps {
   atBottomThreshold?: number
   followOutput?: boolean | 'smooth' | ((isAtBottom: boolean) => boolean | 'smooth')
   computeItemKey?: (index: number, item: TranscriptItem) => React.Key
+  alignToBottom?: boolean
 }
 
 let latestVirtuosoProps: MockVirtuosoProps | null = null
@@ -654,7 +655,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).toContain('max-w-[920px] mx-auto w-full text-[17px]')
     expect(html).toContain('mb-3 max-w-[920px] mx-auto w-full')
     expect(html).toContain('mb-6 max-w-[920px] mx-auto w-full')
-    expect(html).toContain('mt-1 mx-auto flex w-full max-w-[920px]')
+    expect(html).toContain('mt-1 flex w-full max-w-[920px]')
     expect(html).toContain('居中的思考块')
     expect(html).toContain('居中的系统提示')
   })
@@ -785,9 +786,10 @@ describe('WorkspaceTranscript conversation rendering', () => {
     )
 
     expect(latestVirtuosoProps?.atBottomThreshold).toBe(100)
+    expect(latestVirtuosoProps?.alignToBottom).toBe(true)
     expect(typeof latestVirtuosoProps?.followOutput).toBe('function')
     expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(true)).toBe('smooth')
-    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe(false)
+    expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe('smooth')
   })
 
   it('forwards Virtuoso scroller DOM attributes required for measurement', () => {
@@ -849,6 +851,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
           createdAt: '2026-04-24T10:00:00Z',
           updatedAt: '2026-04-24T10:00:00Z',
         }}
+        bottomInset={220}
         messages={[
           buildMessage({
             id: 'msg-user',
@@ -862,6 +865,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
 
     expect(html).toContain('data-transcript-frame="true"')
     expect(html).toContain('max-width:1280px')
+    expect(html).toContain('padding-bottom:244px')
     expect(html).not.toContain('overflow-x:hidden;max-width:1280px')
   })
 
@@ -1116,5 +1120,38 @@ describe('WorkspaceTranscript conversation rendering', () => {
       lastItemId: 'msg-3',
       itemCount: 3,
     })).toBe(999997)
+  })
+
+  it('computes transcript bottom padding from the measured input safe area', async () => {
+    const module = await import('./WorkspaceTranscript') as unknown as {
+      getTranscriptBottomPadding?: (bottomInset: number) => number
+    }
+
+    expect(typeof module.getTranscriptBottomPadding).toBe('function')
+    expect(module.getTranscriptBottomPadding?.(220)).toBe(244)
+    expect(module.getTranscriptBottomPadding?.(80)).toBe(184)
+  })
+
+  it('distinguishes user scroll intent from streaming measurement jitter', async () => {
+    const module = await import('./WorkspaceTranscript') as unknown as {
+      shouldMarkUserScrolledAway?: (position: {
+        userScrollIntent: boolean
+        distanceFromBottom: number
+      }) => boolean
+    }
+
+    expect(typeof module.shouldMarkUserScrolledAway).toBe('function')
+    expect(module.shouldMarkUserScrolledAway?.({
+      userScrollIntent: false,
+      distanceFromBottom: 360,
+    })).toBe(false)
+    expect(module.shouldMarkUserScrolledAway?.({
+      userScrollIntent: true,
+      distanceFromBottom: 360,
+    })).toBe(true)
+    expect(module.shouldMarkUserScrolledAway?.({
+      userScrollIntent: false,
+      distanceFromBottom: 40,
+    })).toBe(false)
   })
 })

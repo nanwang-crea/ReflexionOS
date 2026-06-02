@@ -165,7 +165,7 @@ function shouldAppendToToolGroup(
 function buildToolGroup(messages: ConversationMessage[]): TranscriptItem {
   return {
     kind: 'tool_group',
-    id: `tools-${messages.map((message) => message.id).join('-')}`,
+    id: `tools-${messages[0].id}`,
     messages,
     details: messages.map(buildToolTraceDetail),
     status: getToolGroupStatus(messages),

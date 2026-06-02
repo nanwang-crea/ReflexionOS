@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import AgentWorkspace from './AgentWorkspace'
 
+let latestTranscriptProps: Record<string, unknown> | null = null
+
 vi.mock('@/components/chat/ChatInput', () => ({
   ChatInput: () => <div data-chat-input="true" />,
 }))
@@ -19,7 +21,10 @@ vi.mock('@/components/workspace/WorkspaceHeader', () => ({
 }))
 
 vi.mock('@/components/workspace/WorkspaceTranscript', () => ({
-  WorkspaceTranscript: () => <div data-workspace-transcript="true" />,
+  WorkspaceTranscript: (props: Record<string, unknown>) => {
+    latestTranscriptProps = props
+    return <div data-workspace-transcript="true" data-bottom-inset={String(props.bottomInset)} />
+  },
 }))
 
 vi.mock('@/components/terminal/TerminalPanel', () => ({
@@ -119,5 +124,12 @@ describe('AgentWorkspace', () => {
     expect(html).toContain('max-w-[1280px]')
     expect(html).toContain('mx-auto')
     expect(html).toContain('data-chat-input="true"')
+  })
+
+  it('passes a bottom safe area to the transcript before measurement completes', () => {
+    const html = renderToStaticMarkup(<AgentWorkspace />)
+
+    expect(latestTranscriptProps?.bottomInset).toBe(160)
+    expect(html).toContain('data-bottom-inset="160"')
   })
 })

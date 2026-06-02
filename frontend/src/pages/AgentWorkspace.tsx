@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { CodeTab } from '@/components/workspace/CodeTab'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
@@ -18,6 +18,8 @@ import { ToastContainer } from '@/components/common/Toast'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
+
+const CHAT_INPUT_FALLBACK_INSET_PX = 160
 
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
@@ -43,6 +45,8 @@ export default function AgentWorkspace() {
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
   )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
+  const [chatInputInset, setChatInputInset] = useState(CHAT_INPUT_FALLBACK_INSET_PX)
+  const chatInputFrameRef = useRef<HTMLDivElement | null>(null)
   const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
   const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
   const openFile = useCodeTabStore((s) => s.openFile)
@@ -85,6 +89,29 @@ export default function AgentWorkspace() {
       setSidebarOpen(false)
     }
   }, [workspaceTab, setSidebarOpen])
+
+  useEffect(() => {
+    const element = chatInputFrameRef.current
+    if (!element) return
+
+    const updateChatInputInset = () => {
+      const nextInset = Math.ceil(element.getBoundingClientRect().height)
+      if (nextInset > 0) {
+        setChatInputInset(nextInset)
+      }
+    }
+
+    updateChatInputInset()
+
+    if (typeof ResizeObserver === 'undefined') {
+      return
+    }
+
+    const resizeObserver = new ResizeObserver(updateChatInputInset)
+    resizeObserver.observe(element)
+
+    return () => resizeObserver.disconnect()
+  }, [])
 
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const path = detail.arguments?.path as string | undefined
@@ -146,10 +173,11 @@ export default function AgentWorkspace() {
             isPlanMinimized={effectivePlanMinimized}
             onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
             onDetailClick={handleDetailClick}
+            bottomInset={chatInputInset}
           />
 
           <div className="border-t border-edge bg-surface-primary">
-            <div data-chat-input-frame className="mx-auto w-full max-w-[1280px] p-4">
+            <div ref={chatInputFrameRef} data-chat-input-frame className="mx-auto w-full max-w-[1280px] p-4">
               {plan && effectivePlanMinimized && (
                 <PlanMinimizedBar
                   plan={plan}

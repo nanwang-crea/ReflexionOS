@@ -1,7 +1,9 @@
 const fs = require('fs')
 
 const IMPORT_NAME_OVERRIDES = {
+  gitpython: 'git',
   'pydantic-settings': 'pydantic_settings',
+  pyyaml: 'yaml',
   'python-dotenv': 'dotenv',
 }
 

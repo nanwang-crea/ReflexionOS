@@ -48,18 +48,10 @@ class InitialPlanBootstrapper:
         if context.plan is not None:
             return
 
-        tool_calls: list[LLMToolCall] = []
         tools = self.tool_definitions.for_initial_plan()
         messages = self.message_builder.build_initial_plan(context)
-
-        async for chunk in self.llm.stream_complete(messages, tools):
-            if chunk.type == "tool_calls":
-                tool_calls = chunk.tool_calls
-                break
-            if chunk.type == "done":
-                break
-            if chunk.type == "error":
-                raise RuntimeError(chunk.error or "LLM 初始计划判断失败")
+        response = await self.llm.complete(messages, tools)
+        tool_calls: list[LLMToolCall] = response.tool_calls
 
         for tool_call in tool_calls:
             if tool_call.name != plan_tool.name:

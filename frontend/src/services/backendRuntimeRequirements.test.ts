@@ -32,4 +32,17 @@ pyinstaller==6.13.0
       'sqlalchemy',
     ])
   })
+
+  it('maps distribution package names to their import module names', () => {
+    const modules = probeModuleNamesFromRequirements(`
+# Runtime dependencies
+GitPython
+PyYAML
+`)
+
+    expect(modules).toEqual([
+      'git',
+      'yaml',
+    ])
+  })
 })

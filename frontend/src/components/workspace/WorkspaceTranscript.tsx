@@ -25,6 +25,8 @@ import { SystemNoticeItem } from './SystemNoticeItem'
 import { ToolGroupItem } from './ToolGroupItem'
 
 const VIRTUOSO_INDEX_OFFSET = 1_000_000
+const MIN_TRANSCRIPT_BOTTOM_INSET_PX = 160
+const TRANSCRIPT_BOTTOM_GAP_PX = 24
 
 interface VirtualListIndexSnapshot {
   sessionId: string | null
@@ -62,6 +64,20 @@ export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   return Math.max(0, delaySeconds - elapsedSeconds)
 }
 
+export function getTranscriptBottomPadding(bottomInset: number) {
+  return Math.max(MIN_TRANSCRIPT_BOTTOM_INSET_PX, bottomInset) + TRANSCRIPT_BOTTOM_GAP_PX
+}
+
+export function shouldMarkUserScrolledAway(position: {
+  userScrollIntent: boolean
+  distanceFromBottom: number
+}) {
+  if (position.distanceFromBottom <= AUTO_SCROLL_FOLLOW_THRESHOLD_PX) {
+    return false
+  }
+  return position.userScrollIntent
+}
+
 interface WorkspaceTranscriptProps {
   loaded: boolean
   configured: boolean
@@ -82,6 +98,7 @@ interface WorkspaceTranscriptProps {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: (beforeMessageId: string) => void
+  bottomInset?: number
 }
 
 export function WorkspaceTranscript({
@@ -104,6 +121,7 @@ export function WorkspaceTranscript({
   hasMore = false,
   isLoadingMore = false,
   onLoadMore,
+  bottomInset = MIN_TRANSCRIPT_BOTTOM_INSET_PX,
 }: WorkspaceTranscriptProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
@@ -111,7 +129,11 @@ export function WorkspaceTranscript({
   const virtuosoRef = useRef<import('react-virtuoso').VirtuosoHandle>(null)
   const virtualListIndexSnapshotRef = useRef<VirtualListIndexSnapshot | null>(null)
   const isAtBottomRef = useRef(false)
+  const userScrolledAwayRef = useRef(false)
+  const userScrollIntentRef = useRef(false)
+  const prevIsRunningRef = useRef(isRunning)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
+  const transcriptBottomPadding = getTranscriptBottomPadding(bottomInset)
 
   const filteredMessages = useMemo(() => {
     if (showContinuationNotices) return messages
@@ -200,7 +222,35 @@ export function WorkspaceTranscript({
     setEditingMessageId(null)
   }, [])
 
-  const followOutput = useCallback((atBottom: boolean) => (atBottom ? 'smooth' : false), [])
+  const followOutput = useCallback((_atBottom: boolean) => {
+    if (userScrolledAwayRef.current) return false
+    return 'smooth'
+  }, [])
+
+  const markUserScrollIntent = useCallback(() => {
+    userScrollIntentRef.current = true
+  }, [])
+
+  const handleScrollerScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget
+    const distanceFromBottom = Math.max(
+      0,
+      target.scrollHeight - (target.scrollTop + target.clientHeight)
+    )
+
+    if (distanceFromBottom <= AUTO_SCROLL_FOLLOW_THRESHOLD_PX) {
+      userScrolledAwayRef.current = false
+      userScrollIntentRef.current = false
+      return
+    }
+
+    if (shouldMarkUserScrolledAway({
+      userScrollIntent: userScrollIntentRef.current,
+      distanceFromBottom,
+    })) {
+      userScrolledAwayRef.current = true
+    }
+  }, [])
   const firstItemId = transcriptItems[0]?.id ?? null
   const lastItemId = transcriptItems[transcriptItems.length - 1]?.id ?? null
   const firstItemIndex = getNextFirstItemIndex(virtualListIndexSnapshotRef.current, {
@@ -217,20 +267,53 @@ export function WorkspaceTranscript({
     firstItemIndex,
   }
   const lastItemIndex = firstItemIndex + Math.max(0, transcriptItems.length - 1)
+
+  const scrollToTranscriptBottom = useCallback((behavior: 'auto' | 'smooth' = 'auto') => {
+    virtuosoRef.current?.scrollToIndex({
+      index: lastItemIndex,
+      align: 'end',
+      behavior,
+    })
+  }, [lastItemIndex])
+
+  const prevLastUserMessageIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const lastMessage = filteredMessages[filteredMessages.length - 1]
+    const lastUserMsgId = lastMessage?.messageType === 'user_message' ? lastMessage.id : null
+    if (lastUserMsgId && lastUserMsgId !== prevLastUserMessageIdRef.current) {
+      userScrolledAwayRef.current = false
+      userScrollIntentRef.current = false
+      scrollToTranscriptBottom('auto')
+    }
+    prevLastUserMessageIdRef.current = lastUserMsgId
+  }, [filteredMessages, scrollToTranscriptBottom])
+
+  useEffect(() => {
+    const wasRunning = prevIsRunningRef.current
+    prevIsRunningRef.current = isRunning
+
+    if (wasRunning && !isRunning && !userScrolledAwayRef.current) {
+      userScrollIntentRef.current = false
+      scrollToTranscriptBottom('auto')
+    }
+  }, [isRunning, scrollToTranscriptBottom])
+
   const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
 
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom
     setIsAtBottom(atBottom)
+    if (atBottom) {
+      userScrolledAwayRef.current = false
+      userScrollIntentRef.current = false
+    }
   }, [])
 
   const scrollToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({
-      index: lastItemIndex,
-      align: 'end',
-      behavior: 'smooth',
-    })
-  }, [lastItemIndex])
+    userScrolledAwayRef.current = false
+    userScrollIntentRef.current = false
+    scrollToTranscriptBottom('smooth')
+  }, [scrollToTranscriptBottom])
 
   const itemContent = useCallback((index: number, item: TranscriptItem) => {
     const isLastItem = index === transcriptItems.length - 1
@@ -308,35 +391,55 @@ export function WorkspaceTranscript({
 
   const virtuosoComponents = useMemo(() => ({
     Scroller: React.forwardRef<HTMLDivElement, ScrollerProps>(
-      ({ style, children, ...props }, ref) => (
-        <div
-          {...props}
-          ref={ref}
-          style={{
-            ...style,
-            overflowX: 'hidden',
-            width: '100%',
-            boxSizing: 'border-box',
-          }}
-        >
+      ({ style, children, ...props }, ref) => {
+        const domHandlers = props as React.HTMLAttributes<HTMLDivElement>
+
+        return (
           <div
-            data-transcript-frame
+            {...props}
+            ref={ref}
+            onScroll={(event) => {
+              domHandlers.onScroll?.(event)
+              handleScrollerScroll(event)
+            }}
+            onWheel={(event) => {
+              markUserScrollIntent()
+              domHandlers.onWheel?.(event)
+            }}
+            onTouchMove={(event) => {
+              markUserScrollIntent()
+              domHandlers.onTouchMove?.(event)
+            }}
+            onPointerDown={(event) => {
+              markUserScrollIntent()
+              domHandlers.onPointerDown?.(event)
+            }}
             style={{
-              maxWidth: 1280,
-              marginLeft: 'auto',
-              marginRight: 'auto',
+              ...style,
+              overflowX: 'hidden',
               width: '100%',
               boxSizing: 'border-box',
-              paddingLeft: 32,
-              paddingRight: 32,
-              paddingTop: 32,
-              paddingBottom: 32,
             }}
           >
-            {children}
+            <div
+              data-transcript-frame
+              style={{
+                maxWidth: 1280,
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                width: '100%',
+                boxSizing: 'border-box',
+                paddingLeft: 32,
+                paddingRight: 32,
+                paddingTop: 32,
+                paddingBottom: transcriptBottomPadding,
+              }}
+            >
+              {children}
+            </div>
           </div>
-        </div>
-      )
+        )
+      }
     ),
     Header: () => (
       <>
@@ -406,6 +509,9 @@ export function WorkspaceTranscript({
     currentSession,
     messages.length,
     isLoadingMore,
+    handleScrollerScroll,
+    markUserScrollIntent,
+    transcriptBottomPadding,
     showReconnectIndicator,
     reconnectLabel,
     reconnectCountdownSeconds,
@@ -426,6 +532,7 @@ export function WorkspaceTranscript({
         itemContent={itemContent}
         computeItemKey={computeItemKey}
         firstItemIndex={firstItemIndex}
+        alignToBottom
         atBottomThreshold={AUTO_SCROLL_FOLLOW_THRESHOLD_PX}
         followOutput={followOutput}
         initialTopMostItemIndex={lastItemIndex}

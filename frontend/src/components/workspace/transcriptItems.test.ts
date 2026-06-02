@@ -65,7 +65,7 @@ describe('buildTranscriptItems', () => {
     expect(items.map((item) => item.kind)).toEqual(['tool_group', 'message', 'tool_group'])
     expect(items[0]).toMatchObject({
       kind: 'tool_group',
-      id: 'tools-msg-tool-read-msg-tool-command',
+      id: 'tools-msg-tool-read',
       status: 'completed',
     })
     expect(items[0].kind === 'tool_group' ? items[0].details : []).toHaveLength(2)
