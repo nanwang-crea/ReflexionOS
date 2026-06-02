@@ -108,7 +108,7 @@ export function ChatInput({
           className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary"
         />
 
-        <div className="flex flex-col gap-3 border-t border-edge-subtle px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-edge-subtle px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
             <button
               type="button"
@@ -167,7 +167,7 @@ export function ChatInput({
             </span>
           </div>
 
-          <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
+          <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:shrink-0">
             {canCancel || isCancelling ? (
               <motion.button
                 type="button"
@@ -189,8 +189,8 @@ export function ChatInput({
                 type="button"
                 onClick={handleSend}
                 disabled={!value.trim() || disabled || isLoading}
-                className="rounded-xl bg-accent px-4 py-2 font-medium text-white shadow-lg shadow-accent/30 transition focus:ring-2 focus:ring-accent/50 outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted"
-                whileHover={{ scale: 1.03, y: -1 }}
+                className="flex h-8 items-center justify-center rounded-xl bg-accent px-4 font-medium text-white shadow-lg shadow-accent/30 transition focus:ring-2 focus:ring-accent/50 outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted disabled:shadow-none"
+                whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
                 transition={{ type: 'spring', stiffness: 400 }}
               >

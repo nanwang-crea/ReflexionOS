@@ -1,5 +1,6 @@
 import { memo } from 'react'
-import { MessageActions } from './MessageActions'
+import { Copy, Pencil } from 'lucide-react'
+import { useToastStore } from '@/stores/toastStore'
 
 interface UserMessageItemProps {
   messageId: string
@@ -27,9 +28,9 @@ export const UserMessageItem = memo(function UserMessageItem({
   showActions,
 }: UserMessageItemProps) {
   return (
-    <div className="mb-6 flex flex-col items-end group">
+    <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
       {isEditing ? (
-        <div className="max-w-[720px] w-full">
+        <div className="w-full max-w-[min(720px,calc(100%_-_16px))]">
           <textarea
             className="w-full rounded-2xl bg-surface-tertiary border border-edge px-5 py-4 text-[15px] leading-7 text-content-secondary resize-y min-h-[60px] focus:outline-none focus:border-edge-active"
             value={editContent}
@@ -54,18 +55,36 @@ export const UserMessageItem = memo(function UserMessageItem({
           </div>
         </div>
       ) : (
-        <div className="max-w-[720px] rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary">
+        <div className="max-w-[min(720px,calc(100%_-_16px))] whitespace-pre-wrap break-words rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary">
           {contentText}
         </div>
       )}
       {!isEditing && showActions && (
-        <MessageActions
-          messageId={messageId}
-          contentText={contentText}
-          messageType="user_message"
-          onEdit={onEdit}
-          onRegenerate={onRegenerate}
-        />
+        <div className="mt-1 flex w-full max-w-[min(720px,calc(100%_-_16px))] justify-end gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <button
+            type="button"
+            className="inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
+            title="复制"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(contentText)
+                useToastStore.getState().addToast('info', '已复制到剪贴板', 2000)
+              } catch {
+                useToastStore.getState().addToast('error', '复制失败')
+              }
+            }}
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
+            title="编辑"
+            onClick={() => onEdit(messageId, contentText)}
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+        </div>
       )}
     </div>
   )

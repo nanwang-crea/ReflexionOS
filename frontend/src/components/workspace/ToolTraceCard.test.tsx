@@ -285,6 +285,81 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).not.toContain('你说得对，我先看一下当前实现。')
   })
 
+  it('wraps long user messages inside the transcript instead of clipping on the right edge', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-user',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: 'a'.repeat(160),
+          }),
+        ]}
+      />
+    )
+
+    expect(html).toContain('max-w-[min(720px,calc(100%_-_16px))]')
+    expect(html).toContain('break-words')
+    expect(html).toContain('whitespace-pre-wrap')
+  })
+
+  it('does not replay the transcript enter animation while assistant output is streaming', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-assistant',
+            messageType: 'assistant_message',
+            contentText: '正在输出',
+            streamState: 'streaming',
+          }),
+        ]}
+      />
+    )
+
+    expect(html).toContain('正在输出')
+    expect(html).not.toContain('transcript-item-enter')
+  })
+
   it('renders tool_trace and system_notice messages', () => {
     const toolTrace = buildMessage({
       id: 'msg-tool',
@@ -715,33 +790,6 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect((latestVirtuosoProps?.followOutput as (isAtBottom: boolean) => boolean | 'smooth')(false)).toBe(false)
   })
 
-  it('autoscrolls streaming content growth only when the user was already at the bottom', async () => {
-    const module = await import('./WorkspaceTranscript') as unknown as {
-      shouldAutoscrollTranscriptChange?: (
-        previous: { sessionId: string | null; tailKey: string | null } | null,
-        next: { sessionId: string | null; tailKey: string | null },
-        wasAtBottom: boolean
-      ) => boolean
-    }
-
-    expect(typeof module.shouldAutoscrollTranscriptChange).toBe('function')
-    expect(module.shouldAutoscrollTranscriptChange?.(
-      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
-      { sessionId: 'session-1', tailKey: 'msg-2:streaming:longer' },
-      true
-    )).toBe(true)
-    expect(module.shouldAutoscrollTranscriptChange?.(
-      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
-      { sessionId: 'session-1', tailKey: 'msg-2:streaming:longer' },
-      false
-    )).toBe(false)
-    expect(module.shouldAutoscrollTranscriptChange?.(
-      { sessionId: 'session-1', tailKey: 'msg-2:streaming:short' },
-      { sessionId: 'session-2', tailKey: 'msg-2:streaming:longer' },
-      true
-    )).toBe(false)
-  })
-
   it('forwards Virtuoso scroller DOM attributes required for measurement', () => {
     const html = renderToStaticMarkup(
       <WorkspaceTranscript
@@ -776,6 +824,45 @@ describe('WorkspaceTranscript conversation rendering', () => {
     )
 
     expect(html).toContain('data-virtuoso-scroller="true"')
+    expect(html).toContain('box-sizing:border-box')
+  })
+
+  it('keeps transcript width on an inner frame so right-aligned user messages are not clipped by the scroller', () => {
+    const html = renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-user',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '一条很长的用户消息，应该在内容框内右对齐并自动换行，不应该被右侧滚动容器裁剪。',
+          }),
+        ]}
+      />
+    )
+
+    expect(html).toContain('data-transcript-frame="true"')
+    expect(html).toContain('max-width:1280px')
+    expect(html).not.toContain('overflow-x:hidden;max-width:1280px')
   })
 
   it('keeps the thinking block expanded while reasoning is still streaming', () => {

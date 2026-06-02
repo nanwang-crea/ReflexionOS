@@ -34,7 +34,7 @@ export function MessageActions({
     'inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors text-content-muted hover:bg-surface-tertiary hover:text-content-secondary'
 
   return (
-    <div className="mt-1 mx-auto flex w-full max-w-[920px] gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+    <div className="mt-1 flex w-full max-w-[920px] gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
       <button
         type="button"
         className={buttonBaseClass}

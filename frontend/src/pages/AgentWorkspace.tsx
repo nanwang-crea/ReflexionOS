@@ -149,13 +149,13 @@ export default function AgentWorkspace() {
           />
 
           <div className="border-t border-edge bg-surface-primary">
-            {plan && effectivePlanMinimized && (
-              <PlanMinimizedBar
-                plan={plan}
-                onExpand={() => setIsPlanMinimized(false)}
-              />
-            )}
-            <div className="p-4">
+            <div data-chat-input-frame className="mx-auto w-full max-w-[1280px] p-4">
+              {plan && effectivePlanMinimized && (
+                <PlanMinimizedBar
+                  plan={plan}
+                  onExpand={() => setIsPlanMinimized(false)}
+                />
+              )}
               <ChatInput
                 onSend={sendMessage}
                 onCancel={cancelRun}

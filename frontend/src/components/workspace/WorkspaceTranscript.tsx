@@ -34,11 +34,6 @@ interface VirtualListIndexSnapshot {
   firstItemIndex: number
 }
 
-interface TranscriptTailSnapshot {
-  sessionId: string | null
-  tailKey: string | null
-}
-
 export function getNextFirstItemIndex(
   previous: VirtualListIndexSnapshot | null,
   next: Omit<VirtualListIndexSnapshot, 'firstItemIndex'>
@@ -59,19 +54,6 @@ export function getNextFirstItemIndex(
   }
 
   return previous.firstItemIndex
-}
-
-export function shouldAutoscrollTranscriptChange(
-  previous: TranscriptTailSnapshot | null,
-  next: TranscriptTailSnapshot,
-  wasAtBottom: boolean
-) {
-  return Boolean(
-    wasAtBottom &&
-    previous &&
-    previous.sessionId === next.sessionId &&
-    previous.tailKey !== next.tailKey
-  )
 }
 
 export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
@@ -128,7 +110,6 @@ export function WorkspaceTranscript({
   const [isAtBottom, setIsAtBottom] = useState(false)
   const virtuosoRef = useRef<import('react-virtuoso').VirtuosoHandle>(null)
   const virtualListIndexSnapshotRef = useRef<VirtualListIndexSnapshot | null>(null)
-  const transcriptTailSnapshotRef = useRef<TranscriptTailSnapshot | null>(null)
   const isAtBottomRef = useRef(false)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
 
@@ -238,33 +219,6 @@ export function WorkspaceTranscript({
   const lastItemIndex = firstItemIndex + Math.max(0, transcriptItems.length - 1)
   const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
 
-  const lastTranscriptItem = transcriptItems[transcriptItems.length - 1] ?? null
-  const tailKey = lastTranscriptItem
-    ? lastTranscriptItem.kind === 'message'
-      ? [
-          lastTranscriptItem.id,
-          lastTranscriptItem.message.streamState,
-          lastTranscriptItem.message.contentText.length,
-          lastTranscriptItem.message.updatedAt,
-        ].join(':')
-      : [
-          lastTranscriptItem.id,
-          lastTranscriptItem.status,
-          lastTranscriptItem.messages[lastTranscriptItem.messages.length - 1]?.updatedAt ?? '',
-        ].join(':')
-    : null
-
-  useEffect(() => {
-    const nextSnapshot = {
-      sessionId: currentSession?.id ?? null,
-      tailKey,
-    }
-    if (shouldAutoscrollTranscriptChange(transcriptTailSnapshotRef.current, nextSnapshot, isAtBottomRef.current)) {
-      virtuosoRef.current?.autoscrollToBottom()
-    }
-    transcriptTailSnapshotRef.current = nextSnapshot
-  }, [currentSession?.id, tailKey])
-
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     isAtBottomRef.current = atBottom
     setIsAtBottom(atBottom)
@@ -280,10 +234,14 @@ export function WorkspaceTranscript({
 
   const itemContent = useCallback((index: number, item: TranscriptItem) => {
     const isLastItem = index === transcriptItems.length - 1
+    const isLiveItem = item.kind === 'message'
+      ? item.message.streamState === 'streaming' || item.message.streamState === 'idle'
+      : item.status === 'running' || item.status === 'waiting_for_approval'
+    const shouldAnimateEntry = isLastItem && !isLiveItem
 
     if (item.kind === 'tool_group') {
       return (
-        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
           <ToolGroupItem
             status={item.status}
             details={item.details}
@@ -299,7 +257,7 @@ export function WorkspaceTranscript({
     if (message.messageType === 'user_message') {
       const isEditing = editingMessageId === message.id
       return (
-        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
           <UserMessageItem
             messageId={message.id}
             contentText={message.contentText}
@@ -320,7 +278,7 @@ export function WorkspaceTranscript({
 
     if (message.messageType === 'system_notice') {
       return (
-        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
           <SystemNoticeItem contentText={message.contentText} />
         </div>
       )
@@ -328,7 +286,7 @@ export function WorkspaceTranscript({
 
     if (message.messageType === 'assistant_message') {
       return (
-        <div className={isLastItem ? 'transcript-item-enter' : ''}>
+        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
           <AssistantMessageItem
             messageId={message.id}
             contentText={message.contentText}
@@ -357,17 +315,26 @@ export function WorkspaceTranscript({
           style={{
             ...style,
             overflowX: 'hidden',
-            maxWidth: 1280,
-            marginLeft: 'auto',
-            marginRight: 'auto',
             width: '100%',
-            paddingLeft: 32,
-            paddingRight: 32,
-            paddingTop: 32,
-            paddingBottom: 32,
+            boxSizing: 'border-box',
           }}
         >
-          {children}
+          <div
+            data-transcript-frame
+            style={{
+              maxWidth: 1280,
+              marginLeft: 'auto',
+              marginRight: 'auto',
+              width: '100%',
+              boxSizing: 'border-box',
+              paddingLeft: 32,
+              paddingRight: 32,
+              paddingTop: 32,
+              paddingBottom: 32,
+            }}
+          >
+            {children}
+          </div>
         </div>
       )
     ),
