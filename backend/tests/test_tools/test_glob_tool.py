@@ -68,4 +68,4 @@ class TestGlobTool:
         result = await glob_tool.execute({"pattern": "*.py", "path": "/etc"})
 
         assert result.success is False
-        assert "不在允许范围内" in result.error
+        assert result.approval_required is True

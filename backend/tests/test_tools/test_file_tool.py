@@ -167,7 +167,7 @@ class TestFileTool:
     async def test_read_file_outside_workspace(self, file_tool):
         result = await file_tool.execute({"action": "read", "path": "/etc/passwd"})
         assert result.success is False
-        assert "不在允许范围内" in result.error
+        assert result.approval_required is True
 
 
 

@@ -4,8 +4,8 @@ from typing import Any
 
 import aiofiles
 
-from app.security.path_security import PathSecurity
-from app.tools.base import BaseTool, ToolResult
+from app.security.path_security import ExternalPathError, PathSecurity
+from app.tools.base import BaseTool, ToolResult, _external_path_approval
 
 logger = logging.getLogger(__name__)
 
@@ -173,8 +173,10 @@ class FileTool(BaseTool):
         self._read_cache[path] = (mtime, lines)
 
     async def _read_file(self, args: dict[str, Any]) -> ToolResult:
-        """读取文件内容 - 支持分块读取"""
-        path = self.security.validate_path(args["path"])
+        try:
+            path = self.security.validate_path(args["path"])
+        except ExternalPathError as exc:
+            return _external_path_approval("file", exc)
 
         if not os.path.exists(path):
             return ToolResult(success=False, error=f"文件不存在: {path}")
@@ -295,8 +297,10 @@ class FileTool(BaseTool):
         return max(self.min_read_limit, min(self.max_read_limit, parsed))
 
     async def _search_in_file(self, args: dict[str, Any]) -> ToolResult:
-        """在文件中搜索内容"""
-        path = self.security.validate_path(args["path"])
+        try:
+            path = self.security.validate_path(args["path"])
+        except ExternalPathError as exc:
+            return _external_path_approval("file", exc)
         query = args.get("query", "")
 
         if not query:
@@ -418,8 +422,10 @@ class FileTool(BaseTool):
 
 
     async def _list_directory(self, args: dict[str, Any]) -> ToolResult:
-        """列出目录内容"""
-        path = self.security.validate_path(args.get("path", "."))
+        try:
+            path = self.security.validate_path(args.get("path", "."))
+        except ExternalPathError as exc:
+            return _external_path_approval("file", exc)
 
         if not os.path.exists(path):
             return ToolResult(success=False, error=f"目录不存在: {path}")

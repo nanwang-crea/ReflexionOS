@@ -4,8 +4,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.security.path_security import PathSecurity
-from app.tools.base import BaseTool, ToolResult
+from app.security.path_security import ExternalPathError, PathSecurity
+from app.tools.base import BaseTool, ToolResult, _external_path_approval
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +66,8 @@ class GlobTool(BaseTool):
 
         try:
             validated_path = self.security.validate_path(raw_path)
+        except ExternalPathError as exc:
+            return _external_path_approval("glob", exc)
         except Exception as exc:
             return ToolResult(success=False, error=str(exc))
 

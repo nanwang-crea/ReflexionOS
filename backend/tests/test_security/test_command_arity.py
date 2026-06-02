@@ -1,41 +1,47 @@
 from app.security.command_arity import extract_prefix_rule
 
 
-def test_extract_prefix_rule_npm_run():
-    assert extract_prefix_rule("npm run dev") == "npm run *"
+def test_normal_command_uses_first_token():
+    assert extract_prefix_rule("npm run dev") == "npm *"
 
 
-def test_extract_prefix_rule_npm_run_with_flags():
-    assert extract_prefix_rule("npm run dev --flag") == "npm run *"
+def test_git_uses_first_token():
+    assert extract_prefix_rule("git push origin main") == "git *"
+    assert extract_prefix_rule("git commit -m 'msg'") == "git *"
 
 
-def test_extract_prefix_rule_git_push():
-    assert extract_prefix_rule("git push origin main") == "git push *"
-
-
-def test_extract_prefix_rule_curl():
+def test_simple_command():
+    assert extract_prefix_rule("pytest") == "pytest *"
     assert extract_prefix_rule("curl https://example.com") == "curl *"
 
 
-def test_extract_prefix_rule_simple_command():
-    assert extract_prefix_rule("pytest") == "pytest *"
-
-
-def test_extract_prefix_rule_python_script():
-    assert extract_prefix_rule("python script.py") == "python *"
-
-
-def test_extract_prefix_rule_unknown_command():
+def test_unknown_command_uses_first_token():
     assert extract_prefix_rule("mycustomtool --flag arg1") == "mycustomtool *"
 
 
-def test_extract_prefix_rule_docker_compose():
-    assert extract_prefix_rule("docker compose up -d") == "docker compose *"
+def test_docker_compose_uses_first_token():
+    assert extract_prefix_rule("docker compose up -d") == "docker *"
 
 
-def test_extract_prefix_rule_make_target():
-    assert extract_prefix_rule("make build") == "make *"
-
-
-def test_extract_prefix_rule_empty_string():
+def test_empty_string():
     assert extract_prefix_rule("") == "*"
+
+
+def test_rm_is_deny_trust():
+    assert extract_prefix_rule("rm file.txt") == "rm file.txt *"
+
+
+def test_rm_rf_is_deny_trust():
+    assert extract_prefix_rule("rm -rf dir") == "rm -rf dir *"
+
+
+def test_chmod_is_deny_trust():
+    assert extract_prefix_rule("chmod 755 file.sh") == "chmod 755 file.sh *"
+
+
+def test_dd_is_deny_trust():
+    assert extract_prefix_rule("dd if=/dev/zero of=/dev/sda") == "dd if=/dev/zero of=/dev/sda *"
+
+
+def test_normal_command_not_in_deny_list():
+    assert extract_prefix_rule("echo hello world") == "echo *"

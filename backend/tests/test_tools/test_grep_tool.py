@@ -76,7 +76,7 @@ class TestGrepTool:
         result = await grep_tool.execute({"pattern": "test", "path": "/etc/passwd"})
 
         assert result.success is False
-        assert "不在允许范围内" in result.error
+        assert result.approval_required is True
 
     @pytest.mark.asyncio
     async def test_grep_limits_results_globally_to_100_matches(self, grep_tool, temp_dir):

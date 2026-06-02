@@ -515,14 +515,20 @@ class TestFullPipelineIntegration:
 
 class TestCommandPolicyEvaluate:
     def test_argv_require_approval_has_suggested_prefix_rule(self, policy):
-        decision = policy.evaluate(command="rm file.txt", cwd=policy.path_security.base_dir)
+        decision = policy.evaluate(command="curl https://example.com", cwd=policy.path_security.base_dir)
         assert decision.action == CommandAction.REQUIRE_APPROVAL
         assert decision.suggested_prefix_rule is not None
         assert len(decision.suggested_prefix_rule) == 1
-        assert decision.suggested_prefix_rule[0] == "rm *"
+        assert decision.suggested_prefix_rule[0] == "curl *"
+
+    def test_argv_deny_trust_command_uses_full_command_prefix(self, policy):
+        decision = policy.evaluate(command="rm file.txt", cwd=policy.path_security.base_dir)
+        assert decision.action == CommandAction.REQUIRE_APPROVAL
+        assert decision.suggested_prefix_rule is not None
+        assert decision.suggested_prefix_rule[0] == "rm file.txt *"
 
     def test_shell_require_approval_has_suggested_prefix_rule(self, policy):
-        decision = policy.evaluate(command="rm -rf build/ && echo done", cwd=policy.path_security.base_dir)
+        decision = policy.evaluate(command="curl https://example.com && echo done", cwd=policy.path_security.base_dir)
         assert decision.action == CommandAction.REQUIRE_APPROVAL
         assert decision.suggested_prefix_rule is not None
         assert len(decision.suggested_prefix_rule) == 1
