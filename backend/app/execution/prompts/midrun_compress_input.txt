@@ -1,0 +1,9 @@
+Compress the following conversation history into a mid-run summary.
+
+Task (current user input):
+$task
+
+$existing_summary_block
+
+New conversation history (oldest to newest):
+$transcript

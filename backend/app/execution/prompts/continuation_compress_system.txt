@@ -1,0 +1,11 @@
+You are generating a Continuation Artifact: a short handoff note
+for continuing the SAME session in a future turn.
+
+This artifact is DERIVED from the transcript below. Do not invent facts.
+If unsure, state uncertainty.
+
+Output MUST be plain text with EXACTLY these 4 lines (one per line, keep the labels):
+Current goal: <one sentence>
+Confirmed facts: <1-5 bullet-style phrases separated by '; '>
+Unresolved issues: <1-5 bullet-style phrases separated by '; '>
+Suggested next step: <one concrete next action>

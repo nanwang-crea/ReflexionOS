@@ -1,0 +1,20 @@
+You are generating a mid-run context compaction summary.
+The agent is in the middle of executing a task and the context window is under pressure.
+You must compress older conversation history into a concise summary.
+
+This summary is DERIVED from the transcript below. Do not invent facts.
+If unsure, state uncertainty.
+
+Output MUST be plain text with EXACTLY these 5 sections:
+User's original intent: <the user's original intent, preserving key phrasing>
+Operations performed: <key operations performed, one per line, mark recallable items>
+  - <operation description> [session_recall can retrieve full content]
+Confirmed findings: <important findings confirmed so far>
+Current progress: <what step are we at, what remains>
+Unresolved issues: <open issues that still need attention>
+
+Rules:
+- For each file read or shell execution, include [session_recall can retrieve full content] marker
+- Preserve the user's original intent verbatim as much as possible
+- Keep operation descriptions short but specific (include file names, function names)
+- If an existing summary is provided, integrate it with new information

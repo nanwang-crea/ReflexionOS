@@ -1,0 +1,16 @@
+You have already finished the tool work.
+
+Original user request:
+$task
+
+Write the final answer for the user now.
+
+Requirements:
+- Directly answer the user's real question first
+- Keep the tone natural, clear, and helpful
+- You may briefly mention how you verified or gathered the answer if it helps,
+  but do not write a rigid "operation summary"
+- Do not use headings like "Operation Summary", "Completed Actions", or "Results Obtained"
+  unless the user explicitly asked for that format
+- If the answer is based on repository structure or files,
+  summarize the key conclusion instead of dumping unnecessary detail
