@@ -94,6 +94,18 @@ class ToolCallExecutor:
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
 
+            if tool_call.arguments.get("_parse_error"):
+                error_msg = tool_call.arguments["_parse_error"]
+                raw = tool_call.arguments.get("_raw_arguments", "")
+                if raw:
+                    error_msg += f" Raw fragment received: {raw}"
+                step.status = StepStatus.FAILED
+                step.error = error_msg
+                step.duration = 0.0
+                context.update_history(tool_call, error_msg)
+                context.add_message("tool", content=error_msg, tool_call_id=tool_call.id)
+                return step
+
             missing = self._validate_required_args(tool, tool_call.arguments)
             if missing:
                 raise ValueError(f"缺少必需参数: {', '.join(missing)}")

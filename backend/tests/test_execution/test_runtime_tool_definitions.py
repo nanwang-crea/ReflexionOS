@@ -62,6 +62,12 @@ class SessionRecallLikeTool(MockTool):
         return "session_recall"
 
 
+class SkillLikeTool(MockTool):
+    @property
+    def name(self) -> str:
+        return "skill"
+
+
 class ExploreLikeTool(MockTool):
     @property
     def name(self) -> str:
@@ -118,11 +124,12 @@ def test_context_definitions_start_with_exploration_tools_only():
     registry.register(EditLikeTool())
     registry.register(ShellLikeTool())
     registry.register(MemoryLikeTool())
+    registry.register(SkillLikeTool())
     context = LoopContext(task="先看看项目")
 
     definitions = RuntimeToolDefinitions(registry).for_context(context)
 
-    assert [definition.name for definition in definitions] == ["file", "grep", "glob", "memory"]
+    assert [definition.name for definition in definitions] == ["skill", "file", "grep", "glob", "memory"]
 
 
 def build_plan_mode_registry() -> ToolRegistry:
@@ -157,6 +164,16 @@ def test_plan_mode_definitions_only_include_plan_mode_tools():
     names = [definition.name for definition in definitions]
     assert "edit" not in names
     assert "shell" not in names
+
+
+def test_skill_tool_available_on_first_turn():
+    from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+    assert "skill" in DEFAULT_TOOL_SET_CONFIG.exploration_tools
+
+def test_skill_tool_in_tool_order():
+    from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+    assert "skill" in DEFAULT_TOOL_SET_CONFIG.tool_order
+    assert DEFAULT_TOOL_SET_CONFIG.tool_order.index("skill") == 0
 
 
 def test_context_definitions_expose_mutating_tools_after_exploration_started():

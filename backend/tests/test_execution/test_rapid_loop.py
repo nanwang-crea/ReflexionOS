@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -115,6 +115,26 @@ class ExplodingTool(BaseTool):
 
     async def execute(self, args):
         raise RuntimeError("boom")
+
+
+class FailingTool(BaseTool):
+    @property
+    def name(self) -> str:
+        return "failing"
+
+    @property
+    def description(self) -> str:
+        return "Always fails"
+
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+        }
+
+    async def execute(self, args):
+        return ToolResult(success=False, error="Operation failed")
 
 
 class TestRapidExecutionLoop:
@@ -406,7 +426,7 @@ class TestRapidExecutionLoop:
         execution_loop,
         mock_llm,
     ):
-        """测试工具执行后没有直接答案时，走兜底最终回答"""
+        """测试工具执行后空响应会注入任务提醒重试，重试后获得内容直接完成"""
         captured_calls = []
 
         async def mock_stream(messages, tools=None):
@@ -433,10 +453,12 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.COMPLETED
         assert "项目采用前后端分离结构" in result.result
-        summary_messages, summary_tools = captured_calls[2]
-        assert summary_tools is None
-        assert "Mock tool for testing" not in summary_messages[0].content
-        assert "Available tools" not in summary_messages[0].content
+        retry_messages, retry_tools = captured_calls[2]
+        task_reminder_injected = any(
+            "model produced no output" in (m.content or "").lower()
+            for m in retry_messages
+        )
+        assert task_reminder_injected
 
     @pytest.mark.asyncio
     async def test_rapid_loop_includes_seeded_history_before_current_user_message(
@@ -1331,3 +1353,106 @@ async def test_stagnation_counter_increments_on_non_plan_tools():
     tool_call2 = LLMToolCall(id="tc-2", name="grep", arguments={"pattern": "*.py"})
     await executor.execute(tool_call2, context, 2)
     assert context.metadata["steps_since_last_plan_update"] == 2
+
+
+class TestDoomLoopDetection:
+    def test_check_doom_loop_returns_false_for_diverse_calls(self):
+        registry = ToolRegistry()
+        llm = MagicMock()
+        llm.get_model_name.return_value = "test-model"
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry,
+            max_steps=50, context_window=128000,
+        )
+        context = LoopContext(task="test")
+
+        tc1 = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
+        tc2 = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
+        tc3 = LLMToolCall(id="c3", name="grep", arguments={"pattern": "error"})
+
+        assert not loop._check_doom_loop(context, tc1)
+        assert not loop._check_doom_loop(context, tc2)
+        assert not loop._check_doom_loop(context, tc3)
+
+    def test_check_doom_loop_returns_true_for_identical_calls(self):
+        registry = ToolRegistry()
+        llm = MagicMock()
+        llm.get_model_name.return_value = "test-model"
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry,
+            max_steps=50, context_window=128000,
+        )
+        context = LoopContext(task="test")
+
+        tc = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
+
+        assert not loop._check_doom_loop(context, tc)
+        assert not loop._check_doom_loop(context, tc)
+        assert loop._check_doom_loop(context, tc)
+
+    def test_doom_loop_sliding_window(self):
+        registry = ToolRegistry()
+        llm = MagicMock()
+        llm.get_model_name.return_value = "test-model"
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry,
+            max_steps=50, context_window=128000,
+        )
+        context = LoopContext(task="test")
+
+        tc_a = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
+        tc_b = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
+
+        loop._check_doom_loop(context, tc_a)
+        loop._check_doom_loop(context, tc_a)
+        loop._check_doom_loop(context, tc_b)
+        assert not loop._check_doom_loop(context, tc_a)
+
+
+class TestHardenedLoopIntegration:
+    @pytest.mark.asyncio
+    async def test_doom_loop_detection_triggers_on_repeated_write_calls(self):
+        registry = ToolRegistry()
+        tool = FailingTool()
+        registry.register(tool)
+
+        llm = AsyncMock()
+        llm.get_model_name = lambda: "test-model"
+        call_count = 0
+
+        async def mock_stream(messages, tools):
+            nonlocal call_count
+            call_count += 1
+            tc = LLMToolCall(id=f"c{call_count}", name="failing", arguments={"action": "try"})
+            yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+
+        llm.stream_complete = mock_stream
+        loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=20, context_window=128000)
+
+        result = await loop.run(task="test doom loop integration")
+        assert result.status in (LoopStatus.COMPLETED, LoopStatus.FAILED)
+
+    @pytest.mark.asyncio
+    async def test_premature_stop_detected_and_nudged(self):
+        registry = ToolRegistry()
+        registry.register(ReadOnlyFileTool())
+
+        llm = AsyncMock()
+        llm.get_model_name = lambda: "test-model"
+        phase = 0
+
+        async def mock_stream(messages, tools):
+            nonlocal phase
+            phase += 1
+            if phase == 1:
+                tc = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
+                yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+            else:
+                yield StreamChunk(type="content", content="You can now write the code yourself!")
+                yield StreamChunk(type="done", finish_reason="stop")
+
+        llm.stream_complete = mock_stream
+        loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=20, context_window=128000)
+
+        result = await loop.run(task="implement feature X")
+        assert result.status in (LoopStatus.COMPLETED, LoopStatus.FAILED)

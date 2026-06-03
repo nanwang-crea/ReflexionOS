@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -22,7 +23,7 @@ from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
-from app.llm.base import LLMResponse, UniversalLLMInterface
+from app.llm.base import LLMResponse, LLMToolCall, UniversalLLMInterface
 from app.llm.retry import LLMRetryExhaustedError
 from app.llm.token_counter import count_messages_tokens
 from app.tools.registry import ToolRegistry
@@ -46,8 +47,9 @@ class RapidExecutionLoop:
     MAX_ERROR_RETRIES = 2  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 3  # 空响应最大重试
-    MAX_READ_ONLY_PASSES = 10  # 允许更复杂任务继续探索，但保留绝对上限
-    MAX_STAGNANT_READ_ONLY_PASSES = 2  # 连续 1 次没有新事实就收束
+    MAX_READ_ONLY_PASSES = 10
+    MAX_STAGNANT_READ_ONLY_PASSES = 2
+    DOOM_LOOP_THRESHOLD = 3
 
     def __init__(
         self,
@@ -69,6 +71,7 @@ class RapidExecutionLoop:
             prompt_manager=self.prompt_manager,
             max_context_groups=self.MAX_CONTEXT_GROUPS,
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
+            task_anchor_interval=8,
         )
         self.initial_plan_bootstrapper = InitialPlanBootstrapper(
             llm=self.llm,
@@ -126,7 +129,24 @@ class RapidExecutionLoop:
         # 没有工具调用
         if rt.has_executed_tools:
             if rt.response.has_content:
-                # 已经有可直接返回给用户的答案，不再强制进入总结
+                content = rt.response.content or ""
+                premature_indicators = [
+                    "you can now", "you should now", "you can implement",
+                    "here is the code you need", "i'll leave the implementation",
+                    "you can write the code", "you should write",
+                    "请你编写", "你可以现在", "你可以自己实现", "你可以编写",
+                ]
+                is_premature = any(indicator in content.lower() for indicator in premature_indicators)
+
+                if is_premature and rt.consecutive_failures < self.MAX_ERROR_RETRIES:
+                    rt.consecutive_failures += 1
+                    context.add_message(
+                        "user",
+                        "You stopped before completing the task. Continue using tools to finish the work. "
+                        "Do NOT ask the user to write code — use your tools to do it yourself.",
+                    )
+                    return LoopPhase.PLANNING
+
                 result.status = LoopStatus.COMPLETED
                 result.result = rt.response.content
                 return LoopPhase.DONE
@@ -155,6 +175,18 @@ class RapidExecutionLoop:
                         "请检查模型配置或更换模型"
                     )
                 return LoopPhase.PLANNING
+
+    def _check_doom_loop(self, context: LoopContext, tool_call: LLMToolCall) -> bool:
+        sig = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
+        recent_sigs: list[str] = context.metadata.setdefault("_recent_tool_signatures", [])
+        recent_sigs.append(sig)
+        if len(recent_sigs) > self.DOOM_LOOP_THRESHOLD * 2:
+            recent_sigs[:] = recent_sigs[-self.DOOM_LOOP_THRESHOLD * 2:]
+        if len(recent_sigs) >= self.DOOM_LOOP_THRESHOLD:
+            tail = recent_sigs[-self.DOOM_LOOP_THRESHOLD:]
+            if len(set(tail)) == 1:
+                return True
+        return False
 
     async def _handle_tool_execution(
         self,
@@ -260,6 +292,25 @@ class RapidExecutionLoop:
             context.metadata["investigation_budget_exhausted"] = True
             return LoopPhase.FINAL_SUMMARY
 
+        if read_only_calls:
+            for _step_rc, tool_call in zip(
+                parallel_steps, read_only_calls, strict=True
+            ):
+                if self._check_doom_loop(context, tool_call):
+                    doom_prompt = (
+                        f"[Doom Loop Detected] You have called "
+                        f"{tool_call.name} with the same arguments "
+                        f"{self.DOOM_LOOP_THRESHOLD} times in a row "
+                        f"with no new information.\n"
+                        f"Arguments: {json.dumps(tool_call.arguments)}\n\n"
+                        f"You MUST change your approach. Try different "
+                        f"search terms, different files, or move on "
+                        f"to the next step."
+                    )
+                    context.add_message("user", doom_prompt)
+                    rt.consecutive_failures = 0
+                    return LoopPhase.PLANNING
+
         # Execute write tools serially
         for tool_call in write_calls:
             rt.step_num += 1
@@ -290,6 +341,25 @@ class RapidExecutionLoop:
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
+
+            if self._check_doom_loop(context, tool_call):
+                doom_prompt = (
+                    f"[Doom Loop Detected] You have called "
+                    f"{tool_call.name} with the same arguments "
+                    f"{self.DOOM_LOOP_THRESHOLD} times in a row, "
+                    f"and it keeps failing or producing no progress.\n"
+                    f"Arguments: {json.dumps(tool_call.arguments)}\n"
+                    f"Last error: {step.error or 'no error (success but no progress)'}\n\n"
+                    f"You MUST change your approach:\n"
+                    f"- If the tool keeps failing, try a different "
+                    f"tool or different arguments.\n"
+                    f"- If you are stuck, call plan.block to "
+                    f"report the blocker.\n"
+                    f"- Do NOT retry with the same parameters again."
+                )
+                context.add_message("user", doom_prompt)
+                rt.consecutive_failures = 0
+                return LoopPhase.PLANNING
 
         if error_recovery_needed:
             return LoopPhase.ERROR_RECOVERY
@@ -417,10 +487,21 @@ class RapidExecutionLoop:
         if not last_step:
             return LoopPhase.FINAL_SUMMARY
 
+        original_args = last_step.args if last_step.args else None
+        available_actions = None
+        if last_step.tool:
+            tool_instance = self._tool_registry.get(last_step.tool)
+            if tool_instance:
+                schema = tool_instance.get_schema()
+                action_prop = schema.get("parameters", {}).get("properties", {}).get("action", {})
+                if "enum" in action_prop:
+                    available_actions = action_prop["enum"]
+
         error_prompt = self.prompt_manager.get_error_prompt(
             error=last_step.error or "Unknown error",
             tool=last_step.tool,
-            code_snippet="",
+            original_args=original_args,
+            available_actions=available_actions,
         )
 
         # 添加错误信息到上下文
@@ -724,9 +805,23 @@ class RapidExecutionLoop:
                 return response
 
             if finish_reason == "stop":
+                if attempt == 0 and context.task:
+                    logger.warning(
+                        "LLM 返回空响应且 finish_reason=stop (attempt %d/%d), model=%s — "
+                        "注入任务提醒后重试一次",
+                        attempt + 1,
+                        self.MAX_EMPTY_RESPONSE_RETRIES,
+                        self.llm.get_model_name(),
+                    )
+                    context.add_message(
+                        "user",
+                        f"[System] The model produced no output. Please continue the task using tools. "
+                        f"Original task: {context.task}",
+                    )
+                    continue
                 logger.warning(
                     "LLM 返回空响应且 finish_reason=stop (attempt %d/%d), model=%s — "
-                    "可能是内容审核过滤或模型拒绝，不再重试",
+                    "重试后仍为空，放弃",
                     attempt + 1,
                     self.MAX_EMPTY_RESPONSE_RETRIES,
                     self.llm.get_model_name(),

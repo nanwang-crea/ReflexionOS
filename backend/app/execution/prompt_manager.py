@@ -359,13 +359,21 @@ $transcript
         # Error Prompt
         self.register_template(
             name="error",
-            template="""The previous tool call failed.
+            template="""A tool call failed. Read the error carefully and fix the specific issue.
 
-Tool: $tool
-Error: $error
+## Failed call details:
+- Tool: $tool
+- Error: $error
+$original_args_section
+$available_actions_section
 
-Please try a different approach or fix the issue.""",
-            variables=["tool", "error", "code_snippet"],
+## How to fix:
+1. Read the error message above — it tells you exactly what went wrong.
+2. If the error says "Unknown action" or "invalid action", check the tool schema for the list of valid actions.
+3. If the error says a parameter is missing or has the wrong name, check the tool schema for the correct parameter names.
+4. Do NOT retry with the same parameters — they will produce the same error.
+5. Fix the specific issue identified in the error, then retry.""",
+            variables=["tool", "error", "original_args_section", "available_actions_section"],
         )
 
     def register_template(self, name: str, template: str, variables: list[str]):
@@ -407,9 +415,31 @@ Please try a different approach or fix the issue.""",
             is_git_repo=str(is_git_repo),
         )
 
-    def get_error_prompt(self, error: str, tool: str, code_snippet: str = "") -> str:
-        """获取错误提示"""
-        return self.get_template("error").render(tool=tool, error=error, code_snippet=code_snippet)
+    def get_error_prompt(
+        self,
+        error: str,
+        tool: str,
+        code_snippet: str = "",
+        original_args: dict | None = None,
+        available_actions: list[str] | None = None,
+    ) -> str:
+        if original_args:
+            args_lines = [f"  - {k}: {v!r}" for k, v in original_args.items() if v is not None]
+            original_args_section = "- Arguments you used:\n" + "\n".join(args_lines) if args_lines else ""
+        else:
+            original_args_section = ""
+
+        if available_actions:
+            available_actions_section = f"- Available actions for {tool}: {', '.join(available_actions)}"
+        else:
+            available_actions_section = ""
+
+        return self.get_template("error").render(
+            tool=tool,
+            error=error,
+            original_args_section=original_args_section,
+            available_actions_section=available_actions_section,
+        )
 
     def get_final_response_prompt(self, task: str) -> str:
         """获取最终回答提示"""

@@ -29,6 +29,7 @@ class TestPromptManager:
 
         assert "File not found" in prompt
         assert "file" in prompt
+        assert "How to fix" in prompt
 
     def test_register_custom_template(self, manager):
         manager.register_template(name="custom", template="Custom: $content", variables=["content"])
@@ -43,6 +44,53 @@ class TestPromptManager:
             manager.get_template("nonexistent")
 
         assert "Template not found" in str(exc_info.value)
+
+
+class TestEnhancedErrorPrompt:
+    @pytest.fixture
+    def manager(self):
+        return PromptManager()
+
+    def test_error_prompt_includes_structured_guidance(self, manager):
+        prompt = manager.get_error_prompt(
+            error="Unknown action: load",
+            tool="file",
+            code_snippet="",
+        )
+        assert "Unknown action: load" in prompt
+        assert "How to fix" in prompt
+
+    def test_error_prompt_includes_original_arguments(self, manager):
+        prompt = manager.get_error_prompt(
+            error="Missing required parameter: path",
+            tool="file",
+            code_snippet="",
+            original_args={"action": "read", "name": "some_file"},
+        )
+        assert "action" in prompt
+        assert "read" in prompt
+        assert "name" in prompt
+        assert "path" in prompt
+
+    def test_error_prompt_includes_available_actions(self, manager):
+        prompt = manager.get_error_prompt(
+            error="Unknown action: load",
+            tool="file",
+            code_snippet="",
+            available_actions=["read", "search", "list"],
+        )
+        assert "read" in prompt
+        assert "search" in prompt
+        assert "list" in prompt
+        assert "Available actions for file" in prompt
+
+    def test_error_prompt_without_optional_fields(self, manager):
+        prompt = manager.get_error_prompt(
+            error="File not found",
+            tool="file",
+        )
+        assert "File not found" in prompt
+        assert "How to fix" in prompt
 
 
 class TestClassifyPromptFamily:

@@ -283,7 +283,16 @@ class OpenAIAdapter(UniversalLLMInterface):
             try:
                 args = json.loads(tc_data["arguments"])
             except json.JSONDecodeError:
-                args = {}
+                raw_fragment = tc_data["arguments"][:200] if tc_data["arguments"] else ""
+                logger.warning(
+                    "Streaming tool arguments JSON parse failed for tool=%s, raw fragment: %s",
+                    tc_data["name"], raw_fragment,
+                )
+                args = {
+                    "_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
+                                    "Please retry the tool call with valid parameters.",
+                    "_raw_arguments": raw_fragment,
+                }
 
             tool_calls.append(
                 LLMToolCall(
@@ -306,8 +315,16 @@ class OpenAIAdapter(UniversalLLMInterface):
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
-                    logger.warning("工具参数解析失败: %s", tc.function.arguments)
-                    args = {}
+                    raw_fragment = tc.function.arguments[:200] if tc.function.arguments else ""
+                    logger.warning(
+                        "Non-streaming tool arguments JSON parse failed for tool=%s, raw fragment: %s",
+                        tc.function.name, raw_fragment,
+                    )
+                    args = {
+                        "_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
+                                        "Please retry the tool call with valid parameters.",
+                        "_raw_arguments": raw_fragment,
+                    }
 
                 tool_calls.append(LLMToolCall(id=tc.id, name=tc.function.name, arguments=args))
 

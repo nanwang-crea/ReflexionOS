@@ -24,11 +24,12 @@ class LoopMessageBuilder:
         prompt_manager: PromptManager,
         max_context_groups: int,
         tool_output_max_chars: int = 2_400,
+        task_anchor_interval: int = 0,
     ):
         self.prompt_manager = prompt_manager
         self.max_context_groups = max_context_groups
-        # Tier 2 中 tool output 的最大字符数，超出部分 head+tail 截断
         self.tool_output_max_chars = tool_output_max_chars
+        self.task_anchor_interval = task_anchor_interval
 
     @staticmethod
     def _inject_context_sections(context: LoopContext, messages: list[LLMMessage]) -> None:
@@ -107,6 +108,17 @@ class LoopMessageBuilder:
                 )
             )
 
+        if context.compacted_summary and context.group_count > 1:
+            last_continue_group = context.metadata.get("_last_compaction_continue_group", 0)
+            if last_continue_group != context.group_count:
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.USER,
+                        content=f"Continue the task using tools. Original task: {context.task}",
+                    )
+                )
+                context.metadata["_last_compaction_continue_group"] = context.group_count
+
         # Tier 2: 超出窗口的旧消息，逐条截断但始终可见
         tier2_messages = self._build_tier2_messages(context)
         for msg in tier2_messages:
@@ -124,11 +136,19 @@ class LoopMessageBuilder:
                 )
             )
 
-        # Task Anchor: 仅在首轮（尚未执行工具）时注入原始任务，
-        # 避免中间执行轮次重复注入导致模型陷入循环。
+        # Task Anchor: 首轮注入，之后按 task_anchor_interval 周期性注入
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
+        should_inject_anchor = False
         if context.group_count <= 1:
-            messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+            should_inject_anchor = True
+        elif self.task_anchor_interval > 0 and context.group_count % self.task_anchor_interval == 0:
+            last_injected_group = context.metadata.get("_last_anchor_group", 0)
+            if last_injected_group != context.group_count:
+                should_inject_anchor = True
+                context.metadata["_last_anchor_group"] = context.group_count
+
+        if should_inject_anchor:
+            messages.append(LLMMessage(role=MessageRole.USER, content=f"[Task Reminder] {context.task}"))
 
         # Plan Focus: 当计划存在且当前步骤切换时注入一次焦点提示，
         # 后续轮次不重复注入，避免循环。用 _injected_focus_step_id 追踪。
@@ -279,7 +299,6 @@ class LoopMessageBuilder:
                         kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
                     tier2.append(LLMMessage(**kwargs))
                 elif msg["role"] == MessageRole.USER:
-                    # 仅在 anchor 会注入时（group_count <= 1）过滤重复 task
                     if content == context.task and context.group_count <= 1:
                         continue
                     tier2.append(LLMMessage(role=MessageRole.USER, content=content))

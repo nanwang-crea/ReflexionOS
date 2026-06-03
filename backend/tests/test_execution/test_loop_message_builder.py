@@ -48,7 +48,8 @@ def test_build_messages_does_not_duplicate_initial_user_task():
 
     user_contents = [message.content for message in messages if message.role == "user"]
 
-    assert user_contents.count("检查重复 user 消息") == 1
+    task_mentions = [c for c in user_contents if "检查重复 user 消息" in (c or "")]
+    assert len(task_mentions) == 1
 
 
 def test_build_messages_places_current_task_after_history():
@@ -162,7 +163,7 @@ def test_task_anchor_injected_only_on_first_round():
     context_first.add_message("user", "安装依赖")
     messages_first = builder.build(context_first)
     user_contents_first = [m.content for m in messages_first if m.role == "user"]
-    assert "安装依赖" in user_contents_first
+    assert any("安装依赖" in (c or "") for c in user_contents_first)
 
     # 中间轮次：已执行过工具，group_count > 1，不应注入 anchor
     context_mid = LoopContext(task="安装依赖")
@@ -176,7 +177,6 @@ def test_task_anchor_injected_only_on_first_round():
     context_mid.add_message("tool", content="mlx 0.31.1", tool_call_id=tool_call.id)
     messages_mid = builder.build(context_mid)
     user_contents_mid = [m.content for m in messages_mid if m.role == "user"]
-    # "安装依赖" 只出现 1 次（来自原始消息），不通过 anchor 重复注入
     assert user_contents_mid.count("安装依赖") == 1
 
 
@@ -229,3 +229,30 @@ def test_plan_focus_injected_once_per_step():
     user_4 = [m.content for m in messages_4 if m.role == "user"]
     focus_4 = [c for c in user_4 if c and "Plan Focus" in c]
     assert len(focus_4) == 0
+
+
+def test_task_anchor_injected_periodically():
+    builder = LoopMessageBuilder(prompt_manager=PromptManager(), max_context_groups=10, task_anchor_interval=5)
+    context = LoopContext(task="修复 bug")
+    for i in range(5):
+        tc = LLMToolCall(id=f"call_{i}", name="file", arguments={"action": "read", "path": f"f{i}.py"})
+        context.add_message("assistant", content=f"step {i}", tool_calls=[tc.model_dump()])
+        context.add_message("tool", content=f"output {i}", tool_call_id=tc.id)
+
+    messages = builder.build(context)
+    user_contents = [m.content for m in messages if m.role == "user"]
+    assert any("修复 bug" in (c or "") for c in user_contents)
+
+
+def test_compaction_continue_message_injected_after_tier3():
+    builder = LoopMessageBuilder(prompt_manager=PromptManager(), max_context_groups=10)
+    context = LoopContext(task="实现新功能")
+    context.compacted_summary = "User's original intent: implement new feature"
+    context.add_message("user", "实现新功能")
+    tc = LLMToolCall(id="call_1", name="file", arguments={"action": "read", "path": "a.py"})
+    context.add_message("assistant", content="step 1", tool_calls=[tc.model_dump()])
+    context.add_message("tool", content="output 1", tool_call_id=tc.id)
+
+    messages = builder.build(context)
+    user_contents = [m.content for m in messages if m.role == "user"]
+    assert any("Continue" in (c or "") for c in user_contents)

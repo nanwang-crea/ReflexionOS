@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ToolSetConfig:
     tool_order: list[str] = field(default_factory=lambda: [
-        "file", "grep", "glob", "session_recall", "memory", "edit", "shell",
+        "skill", "file", "grep", "glob", "session_recall", "memory", "edit", "shell",
     ])
     exploration_tools: frozenset[str] = field(default_factory=lambda: frozenset({
-        "file", "grep", "glob", "memory", "session_recall",
+        "file", "grep", "glob", "memory", "session_recall", "skill",
     }))
     plan_mode_tools: frozenset[str] = field(default_factory=lambda: frozenset({
         "file", "grep", "glob", "session_recall", "memory", "explore", "plan",
