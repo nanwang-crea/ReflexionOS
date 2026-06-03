@@ -741,8 +741,10 @@ class RapidExecutionLoop:
                     first_chunk_latency = time.perf_counter() - call_started_at
                 if chunk.type == "content" and chunk.content:
                     content_parts.append(chunk.content)
+                    await self._emit("llm:content", {"content": chunk.content})
                 elif chunk.type == "reasoning" and chunk.reasoning_content:
                     reasoning_parts.append(chunk.reasoning_content)
+                    await self._emit("llm:reasoning", {"reasoning_content": chunk.reasoning_content})
                 elif chunk.type == "tool_calls":
                     tool_calls = chunk.tool_calls
                     finish_reason = chunk.finish_reason or "tool_calls"
@@ -795,10 +797,6 @@ class RapidExecutionLoop:
             )
 
             if response.has_content or response.has_tool_calls:
-                for part in reasoning_parts:
-                    await self._emit("llm:reasoning", {"reasoning_content": part})
-                for part in content_parts:
-                    await self._emit("llm:content", {"content": part})
 
                 context.add_message(
                     "assistant",
