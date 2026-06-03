@@ -168,7 +168,7 @@ class MessageRepository(BaseRepository[Message]):
         current_turn_id: str | None = None,
         limit: int = 12,
         scan_limit: int = 200,
-        max_tool_traces: int = 4,
+        max_tool_traces: int = 20,
     ) -> list[Message]:
         resolved_limit = max(0, int(limit)) if limit else 0
         resolved_scan = max(50, int(scan_limit)) if scan_limit else 200

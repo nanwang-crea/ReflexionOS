@@ -24,8 +24,6 @@ def _message_to_seed_dict(message: Any) -> list[dict[str, Any]]:
 
 
 def _tool_trace_to_paired_seeds(message: Any) -> list[dict[str, Any]]:
-    from uuid import uuid4
-
     from app.memory.payload_utils import as_payload_dict
     from app.memory.text_compaction import truncate_head_tail
 
@@ -33,14 +31,14 @@ def _tool_trace_to_paired_seeds(message: Any) -> list[dict[str, Any]]:
 
     tool_name = payload.get("tool_name", "")
     arguments = payload.get("arguments", {})
-    tool_call_id = payload.get("tool_call_id") or f"prev_{uuid4().hex[:8]}"
+    tool_call_id = payload.get("tool_call_id") or f"prev_{str(getattr(message, 'id', 'unknown'))[:12]}"
     output = payload.get("output", "")
     error = payload.get("error", "")
     success = payload.get("success", True)
 
     assistant_msg: dict[str, Any] = {
         "role": "assistant",
-        "content": "",
+        "content": None,
         "tool_calls": [
             {
                 "id": tool_call_id,
@@ -79,7 +77,11 @@ def build_context_assembly(
         role = str(message.get("role") or "").strip()
         if not role:
             continue
-        content = str(message.get("content") or "")
+        raw_content = message.get("content")
+        if raw_content is None:
+            content = ""
+        else:
+            content = str(raw_content)
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
         has_content = content.strip() or tool_calls
@@ -127,7 +129,7 @@ class ContextAssembler:
         current_turn_id: str | None = None,
         current_user_input: str | None = None,
         max_seed_messages: int = 8,
-        max_tool_traces: int = 4,
+        max_tool_traces: int = 20,
         scan_limit: int = 200,
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []

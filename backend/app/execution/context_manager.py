@@ -63,6 +63,7 @@ class LoopContext:
             tool_call_id = seeded.get("tool_call_id")
 
             if role == "tool" and not tool_call_id:
+                logger.debug("Skipping tool seed message without tool_call_id")
                 continue
 
             if role == "assistant" and tool_calls:
