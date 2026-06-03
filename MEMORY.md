@@ -11,6 +11,102 @@
 - [2026-04-20] 记忆架构表达 -> 区分产品/治理层与运行时读取层，避免把复杂存储层直接暴露给模型 -> 验收标准：文档中明确 Storage/治理可以复杂，但 Runtime 读取协议必须极简，Candidate 不作为模型默认读取层。
 - [2026-04-20] 记忆所有权与冲突处理 -> AI 和用户都可以操作记忆，但用户优先级更高；当前系统按单实际用户假设设计；冲突时先回查历史文档，再由用户确认，确认后以用户最新意见为准，可覆盖旧记忆或标记失效 -> 验收标准：蓝图与后续协议明确“用户最高优先级、先查证据、后由用户裁决”。
 
+## 代码注释规范（强制）
+
+- [2026-06-01] 所有代码文件必须遵守以下注释规范，无例外 -> 验收标准：每个文件、每个函数、每段复杂逻辑都有符合规范的注释，缺少任何一项视为不合格。
+
+### 文件级注释
+
+每个源代码文件最顶部必须有文件级注释，说明：
+- 文件用途（一句话）
+- 核心职责（这个文件做什么）
+- 与其他文件的关系（依赖谁、被谁依赖）
+
+Python 示例：
+```python
+"""
+BrowserManager — Playwright 浏览器生命周期管理器。
+
+负责启动、关闭浏览器实例，管理多标签页，执行页面交互操作。
+被 BrowserTool 调用，通过 Playwright 控制 Chromium/Firefox/WebKit。
+
+依赖：playwright, app.browser.config, app.config.settings
+"""
+```
+
+TS/TSX 示例：
+```tsx
+/**
+ * BrowserPanel — 浏览器配置面板组件。
+ *
+ * 在 Settings 页面中提供浏览器相关配置项的展示和编辑。
+ * 通过 /api/ui-settings API 读写配置。
+ */
+```
+
+### 函数级注释
+
+每个函数/方法必须有注释，包含：
+- 功能说明（做什么）
+- 入参说明（每个参数的含义和类型）
+- 执行逻辑（关键步骤）
+- 出参/返回值说明
+
+Python 示例：
+```python
+async def navigate(self, url: str, wait_until: str | None = None) -> BrowserActionResult:
+    """导航到指定 URL。
+
+    入参：
+        url: 目标网址，必须以 http/https 开头
+        wait_until: 页面加载等待策略 (load/domcontentloaded/networkidle)，默认使用配置值
+
+    执行逻辑：
+        1. 获取锁，确保浏览器已启动
+        2. 校验 URL 安全性（协议、黑名单、私有 IP）
+        3. 调用 page.goto() 导航
+        4. 获取页面标题，重置导航深度计数器
+
+    出参：
+        BrowserActionResult: success=True 时 data 包含 url/title/status
+    """
+```
+
+TS/TSX 示例：
+```tsx
+/**
+ * 保存浏览器配置到后端。
+ *
+ * 执行逻辑：
+ *   1. 获取当前完整 ui-settings
+ *   2. 合并 browser 字段
+ *   3. PUT /api/ui-settings 提交
+ *
+ * @param settings - 待保存的浏览器配置对象
+ */
+const save = async (settings: BrowserSettings) => { ... }
+```
+
+### 复杂逻辑注释
+
+代码中以下情况必须额外加行内注释：
+- 状态机转换、并发控制（如 asyncio.Lock 使用）
+- 安全校验逻辑（如 URL 过滤、路径遍历防护）
+- 非直觉的业务逻辑（如"关闭最后一个标签时自动创建空白页"）
+- 错误处理和降级策略（如 PIL 不可用时的 fallback）
+- 正则表达式、位运算、算法关键步骤
+
+示例：
+```python
+# 关闭最后一个标签时，保持浏览器至少有一个可用页面
+if not self._tabs:
+    new_page = await self._context.new_page()
+    ...
+
+# SHA-256 哈希用于审计日志，不存完整脚本避免日志膨胀
+script_hash = hashlib.sha256(script.encode()).hexdigest()
+```
+
 ## 易错点与修正
 
 - [2026-04-19] 第二阶段记忆规划 -> 过早进入英文且过细的实施计划 -> 验收标准：先解释记忆体系的目标、层次、注入方式和阶段边界，再继续下一步。

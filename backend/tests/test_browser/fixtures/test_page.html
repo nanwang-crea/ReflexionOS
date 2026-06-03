@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Test Page</title></head>
+<body>
+  <h1 id="title">Hello ReflexionOS</h1>
+  <form id="test-form">
+    <input type="text" id="name-input" name="name" placeholder="Enter name" />
+    <select id="color-select" name="color">
+      <option value="red">Red</option>
+      <option value="blue">Blue</option>
+      <option value="green">Green</option>
+    </select>
+    <button type="button" id="submit-btn" onclick="handleSubmit()">Submit</button>
+  </form>
+  <div id="result" style="display:none;">Form submitted!</div>
+  <script>
+    function handleSubmit() {
+      document.getElementById('result').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

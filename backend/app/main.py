@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import (
+    browser_screenshot,
     files,
     git,
     llm,
@@ -87,6 +88,7 @@ app.include_router(ui_settings.router)
 app.include_router(websocket.router)
 app.include_router(files.router)
 app.include_router(git.router)
+app.include_router(browser_screenshot.router)
 
 
 @app.get("/")
