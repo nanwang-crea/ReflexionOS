@@ -11,14 +11,13 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 class PromptFamily(str, Enum):
     DEFAULT = "default"
-    CN_COMPATIBLE = "cn_compatible"
+    GLM = "glm"
 
 
 def classify_prompt_family(model_name: str) -> PromptFamily:
     lower = (model_name or "").lower()
-    cn_keywords = ["qwen", "deepseek", "glm-", "chatglm", "yi-", "baichuan", "minimax", "moonshot", "kimi"]
-    if any(kw in lower for kw in cn_keywords):
-        return PromptFamily.CN_COMPATIBLE
+    if any(kw in lower for kw in ["glm-", "chatglm"]):
+        return PromptFamily.GLM
     return PromptFamily.DEFAULT
 
 
@@ -38,48 +37,57 @@ class PromptTemplate:
 TEMPLATES_MANIFEST: list[dict] = [
     {
         "name": "system",
-        "file": "system_{family}.txt",
+        "file": "system.txt",
         "variables": ["working_directory", "platform", "date", "is_git_repo"],
+        "family_specific": True,
     },
     {
         "name": "plan_mode",
         "file": "plan_mode.txt",
         "variables": ["working_directory", "platform", "date", "is_git_repo"],
+        "family_specific": True,
     },
     {
         "name": "initial_plan",
         "file": "initial_plan.txt",
         "variables": [],
+        "family_specific": True,
     },
     {
         "name": "final_response",
         "file": "final_response.txt",
         "variables": ["task"],
+        "family_specific": True,
     },
     {
         "name": "error",
         "file": "error.txt",
         "variables": ["tool", "error", "original_args_section", "available_actions_section"],
+        "family_specific": True,
     },
     {
         "name": "continuation_compress_system",
         "file": "continuation_compress_system.txt",
         "variables": [],
+        "family_specific": True,
     },
     {
         "name": "continuation_compress_input",
         "file": "continuation_compress_input.txt",
         "variables": ["task", "transcript"],
+        "family_specific": True,
     },
     {
         "name": "midrun_compress_system",
         "file": "midrun_compress_system.txt",
         "variables": [],
+        "family_specific": True,
     },
     {
         "name": "midrun_compress_input",
         "file": "midrun_compress_input.txt",
         "variables": ["task", "transcript", "existing_summary_block"],
+        "family_specific": True,
     },
 ]
 
@@ -92,29 +100,32 @@ def _read_prompt_file(filename: str) -> str:
 
 
 class PromptManager:
-    """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件"""
+    """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件，支持模型族子目录"""
 
     def __init__(self, model_name: str = ""):
         self.templates: dict[str, PromptTemplate] = {}
         self.prompt_family = classify_prompt_family(model_name)
         self._load_templates()
 
-    def _load_templates(self) -> None:
-        family_value = self.prompt_family.value
-        for entry in TEMPLATES_MANIFEST:
-            filename = entry["file"].format(family=family_value)
+    def _resolve_file(self, entry: dict) -> str:
+        filename = entry["file"]
+        if entry.get("family_specific") and self.prompt_family != PromptFamily.DEFAULT:
+            family_dir = self.prompt_family.value
+            family_path = f"{family_dir}/{filename}"
             try:
-                content = _read_prompt_file(filename)
+                _read_prompt_file(family_path)
+                return family_path
             except FileNotFoundError:
-                if "{family}" in entry["file"]:
-                    fallback = entry["file"].format(family="default")
-                    logger.warning(
-                        "Prompt file %s not found, falling back to %s",
-                        filename, fallback,
-                    )
-                    content = _read_prompt_file(fallback)
-                else:
-                    raise
+                logger.warning(
+                    "Family-specific prompt %s not found, falling back to default",
+                    family_path,
+                )
+        return filename
+
+    def _load_templates(self) -> None:
+        for entry in TEMPLATES_MANIFEST:
+            resolved = self._resolve_file(entry)
+            content = _read_prompt_file(resolved)
             self.register_template(
                 name=entry["name"],
                 template=content,

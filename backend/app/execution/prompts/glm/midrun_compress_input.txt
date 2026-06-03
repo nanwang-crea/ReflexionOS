@@ -1,0 +1,9 @@
+将以下对话历史压缩为运行中摘要。
+
+任务（当前用户输入）：
+$task
+
+$existing_summary_block
+
+新对话历史（从旧到新）：
+$transcript

@@ -1,0 +1,14 @@
+工具调用失败。仔细阅读错误信息并修复具体问题。
+
+## 失败调用详情：
+- 工具：$tool
+- 错误：$error
+$original_args_section
+$available_actions_section
+
+## 修复方法：
+1. 阅读上面的错误信息——它告诉你具体哪里出了问题。
+2. 如果错误说"Unknown action"或"invalid action"，检查工具 schema 中的有效 action 列表。
+3. 如果错误说参数缺失或参数名错误，检查工具 schema 中的正确参数名。
+4. 绝不要用相同参数重试——相同参数会产生相同错误。
+5. 修复错误信息指出的具体问题，然后重试。
