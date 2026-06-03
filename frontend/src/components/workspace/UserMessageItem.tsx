@@ -6,7 +6,6 @@ interface UserMessageItemProps {
   messageId: string
   contentText: string
   onEdit: (messageId: string, contentText: string) => void
-  onRegenerate: (messageId: string) => void
   isEditing: boolean
   editContent: string
   onEditContentChange: (content: string) => void
@@ -19,7 +18,6 @@ export const UserMessageItem = memo(function UserMessageItem({
   messageId,
   contentText,
   onEdit,
-  onRegenerate,
   isEditing,
   editContent,
   onEditContentChange,

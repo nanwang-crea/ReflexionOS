@@ -570,7 +570,6 @@ export function WorkspaceTranscript({
             isEditing={isEditing}
             editContent={editContent}
             onEdit={handleEditStart}
-            onRegenerate={onRegenerateMessage ?? (() => {})}
             onEditContentChange={setEditContent}
             onEditCancel={handleEditCancel}
             onEditSubmit={handleEditSubmit}

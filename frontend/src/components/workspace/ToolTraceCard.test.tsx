@@ -868,7 +868,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).toContain('data-transcript-frame="true"')
     expect(html).toContain('max-width:1280px')
     expect(html).toContain('data-transcript-bottom-spacer="true"')
-    expect(html).toContain('height:268px')
+    expect(html).toContain('height:236px')
     expect(html).not.toContain('padding-bottom:268px')
     expect(html).not.toContain('overflow-x:hidden;max-width:1280px')
   })
@@ -1132,8 +1132,8 @@ describe('WorkspaceTranscript conversation rendering', () => {
     }
 
     expect(typeof module.getTranscriptBottomPadding).toBe('function')
-    expect(module.getTranscriptBottomPadding?.(220)).toBe(268)
-    expect(module.getTranscriptBottomPadding?.(80)).toBe(208)
+    expect(module.getTranscriptBottomPadding?.(220)).toBe(236)
+    expect(module.getTranscriptBottomPadding?.(80)).toBe(96)
   })
 
   it('distinguishes user scroll intent from streaming measurement jitter', async () => {
