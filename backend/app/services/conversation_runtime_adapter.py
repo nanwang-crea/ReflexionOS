@@ -175,7 +175,7 @@ class ConversationRuntimeAdapter:
                     "message_id": message_id,
                     "turn_id": self.turn_id,
                     "run_id": self.run_id,
-                    "role": MessageRole.ASSISTANT,
+                    "role": MessageRole.TOOL,
                     "message_type": "tool_trace",
                     "turn_message_index": self._reserve_turn_message_index(),
                     "display_mode": "default",
