@@ -5,8 +5,11 @@
 测试时可通过 `app.app_services._agent_service = mock` 注入替换。
 """
 
+import asyncio
+
 _agent_service = None
 _conversation_broadcaster = None
+_init_lock = asyncio.Lock()
 
 
 def _get_conversation_broadcaster():
@@ -17,6 +20,19 @@ def _get_conversation_broadcaster():
         from app.services.conversation_broadcaster import WebSocketConversationBroadcaster
         _conversation_broadcaster = WebSocketConversationBroadcaster(ws_manager)
     return _conversation_broadcaster
+
+
+async def _get_agent_service_async():
+    global _agent_service
+
+    if _agent_service is not None:
+        return _agent_service
+
+    async with _init_lock:
+        if _agent_service is None:
+            from app.services.agent_service import AgentService
+            _agent_service = AgentService(conversation_broadcaster=_get_conversation_broadcaster())
+        return _agent_service
 
 
 def __getattr__(name):

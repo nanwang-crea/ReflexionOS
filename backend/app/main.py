@@ -23,31 +23,30 @@ from app.errors import AppError
 async def lifespan(_app: FastAPI):
     agent_service.start_background_tasks()
 
-
-    from app.config.settings import config_manager
-    from app.orchestration.skill_registry import skill_registry
-
-    plugin_settings = config_manager.settings.plugin
-    skill_settings = config_manager.settings.skill
-
-    plugin_skill_dirs = []
-
-    if plugin_settings.plugins:
-        from app.api.routes.plugins import _get_resolver_and_loader
-
-        resolver, loader = _get_resolver_and_loader()
-        try:
-            packages = resolver.resolve_all(plugin_settings.plugins)
-            loader.load_all(packages)
-            plugin_skill_dirs = loader.get_all_skill_dirs()
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
-
-    if skill_settings.auto_scan:
-        skill_registry.scan_all(plugin_skill_dirs=plugin_skill_dirs)
-
     try:
+        from app.config.settings import config_manager
+        from app.orchestration.skill_registry import skill_registry
+
+        plugin_settings = config_manager.settings.plugin
+        skill_settings = config_manager.settings.skill
+
+        plugin_skill_dirs = []
+
+        if plugin_settings.plugins:
+            from app.api.routes.plugins import _get_resolver_and_loader
+
+            resolver, loader = _get_resolver_and_loader()
+            try:
+                packages = resolver.resolve_all(plugin_settings.plugins)
+                loader.load_all(packages)
+                plugin_skill_dirs = loader.get_all_skill_dirs()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
+
+        if skill_settings.auto_scan:
+            skill_registry.scan_all(plugin_skill_dirs=plugin_skill_dirs)
+
         yield
     finally:
         await agent_service.stop_background_tasks()
@@ -74,7 +73,7 @@ async def app_error_handler(_request: Request, exc: AppError):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

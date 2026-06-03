@@ -233,12 +233,12 @@ class RapidExecutionLoop:
                 self.tool_executor._read_only_signature(tool_call)
                 for tool_call in read_only_calls
             }
-            seen_signatures = context.metadata.setdefault("seen_read_only_signatures", set())
-            new_signatures = read_only_signatures - seen_signatures
+            seen_signatures = context.metadata.setdefault("seen_read_only_signatures", [])
+            new_signatures = read_only_signatures - set(seen_signatures)
             if new_signatures:
                 batch_produced_new_facts = True
                 rt.stagnant_read_only_passes = 0
-                seen_signatures.update(new_signatures)
+                seen_signatures.extend(new_signatures)
             else:
                 rt.stagnant_read_only_passes += 1
 
@@ -276,6 +276,7 @@ class RapidExecutionLoop:
                 else:
                     rt.consecutive_failures = 0
                     rt.has_executed_tools = True
+                    rt.premature_stop_count = 0
 
             for step in parallel_steps:
                 if step.status == StepStatus.WAITING_FOR_APPROVAL:
@@ -346,6 +347,8 @@ class RapidExecutionLoop:
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
+                rt.premature_stop_count = 0
+                rt.stagnant_read_only_passes = 0
 
             if self._is_doom_loop(context):
                 doom_prompt = (

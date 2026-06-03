@@ -46,7 +46,7 @@ class ConnectionManager:
 
         disconnected = []
 
-        for connection in self.active_connections[session_id]:
+        for connection in list(self.active_connections[session_id]):
             try:
                 await connection.send_text(message)
             except Exception as e:
