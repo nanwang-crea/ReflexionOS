@@ -108,3 +108,30 @@ class TestLoopContext:
 
         assert len(context.messages) == 1
         assert context.messages[0]["role"] == "user"
+
+    def test_from_run_input_deduplicates_task_with_last_user_seed(self):
+        context = LoopContext.from_run_input(
+            task="继续",
+            seed_messages=[
+                {"role": "assistant", "content": "正在分析..."},
+                {"role": "user", "content": "继续"},
+            ],
+        )
+
+        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        assert len(user_msgs) == 1
+        assert user_msgs[0]["content"] == "继续"
+
+    def test_from_run_input_appends_task_when_last_user_seed_differs(self):
+        context = LoopContext.from_run_input(
+            task="新任务",
+            seed_messages=[
+                {"role": "user", "content": "旧任务"},
+                {"role": "assistant", "content": "完成了"},
+            ],
+        )
+
+        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        assert len(user_msgs) == 2
+        assert user_msgs[0]["content"] == "旧任务"
+        assert user_msgs[1]["content"] == "新任务"

@@ -89,7 +89,12 @@ class LoopContext:
 
         context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []
-        context.add_message("user", task)
+        last_user_msg = next(
+            (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
+            None,
+        )
+        if not (last_user_msg and last_user_msg.get("content") == task):
+            context.add_message("user", task)
         return context
 
     def update_history(self, action: Any, result: str) -> None:
