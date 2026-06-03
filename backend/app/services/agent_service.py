@@ -153,10 +153,13 @@ class AgentService:
         from app.config.settings import config_manager as _cfg_mgr
         _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
         registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
-        from app.tools.browser_tool import BrowserTool
-        from app.config.settings import config_manager as _cfg_browser
-        _browser_settings = _cfg_browser.settings.browser
-        registry.register(BrowserTool(config=_browser_settings))
+        try:
+            from app.tools.browser_tool import BrowserTool
+            from app.config.settings import config_manager as _cfg_browser
+            _browser_settings = _cfg_browser.settings.browser
+            registry.register(BrowserTool(config=_browser_settings))
+        except ImportError:
+            logger.warning("playwright 未安装，BrowserTool 不可用，跳过注册")
 
         logger.info(
             "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
