@@ -94,9 +94,9 @@ class ToolCallExecutor:
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
 
-            if tool_call.arguments.get("_parse_error"):
-                error_msg = tool_call.arguments["_parse_error"]
-                raw = tool_call.arguments.get("_raw_arguments", "")
+            if tool_call.arguments.get("__reflexion_parse_error"):
+                error_msg = tool_call.arguments["__reflexion_parse_error"]
+                raw = tool_call.arguments.get("__reflexion_raw_arguments", "")
                 if raw:
                     error_msg += f" Raw fragment received: {raw}"
                 step.status = StepStatus.FAILED

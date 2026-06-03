@@ -419,7 +419,6 @@ $available_actions_section
         self,
         error: str,
         tool: str,
-        code_snippet: str = "",
         original_args: dict | None = None,
         available_actions: list[str] | None = None,
     ) -> str:

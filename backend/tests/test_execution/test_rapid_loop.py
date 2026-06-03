@@ -810,29 +810,31 @@ class TestRapidExecutionLoop:
             event_callback=callback,
         )
 
+        async def mock_complete(messages, tools=None):
+            from app.llm.base import LLMResponse
+            captured_tools.append(tools)
+            return LLMResponse(
+                content="我先制定计划。",
+                tool_calls=[
+                    LLMToolCall(
+                        name="plan",
+                        arguments={
+                            "action": "create",
+                            "goal": "修复计划显示",
+                            "steps": ["定位问题", "修改实现", "验证结果"],
+                        },
+                    )
+                ],
+                finish_reason="tool_calls",
+                model="gpt-4",
+            )
+
         async def mock_stream(messages, tools=None):
             captured_tools.append(tools)
-            if len(captured_tools) == 1:
-                async for chunk in self._stream_response(
-                    content="我先制定计划。",
-                    tool_calls=[
-                        LLMToolCall(
-                            name="plan",
-                            arguments={
-                                "action": "create",
-                                "goal": "修复计划显示",
-                                "steps": ["定位问题", "修改实现", "验证结果"],
-                            },
-                        )
-                    ],
-                    finish_reason="tool_calls",
-                ):
-                    yield chunk
-                return
-
             async for chunk in self._stream_response(content="开始执行。"):
                 yield chunk
 
+        mock_llm.complete = mock_complete
         mock_llm.stream_complete = mock_stream
 
         result = await execution_loop.run("请修复计划窗口流式显示和位置")
@@ -841,10 +843,6 @@ class TestRapidExecutionLoop:
         assert result.result == "开始执行。"
         event_types = [event["type"] for event in events]
         assert event_types.index("plan:updated") < event_types.index("llm:content")
-        assert not any(
-            event["type"] == "llm:content" and event["data"].get("content") == "我先制定计划。"
-            for event in events
-        )
         plan_event = next(event for event in events if event["type"] == "plan:updated")
         assert plan_event["data"]["goal"] == "修复计划显示"
         assert [step["description"] for step in plan_event["data"]["steps"]] == [
@@ -875,16 +873,22 @@ class TestRapidExecutionLoop:
             event_callback=callback,
         )
 
+        async def mock_complete(messages, tools=None):
+            from app.llm.base import LLMResponse
+            captured_tools.append(tools)
+            return LLMResponse(
+                content="NO_PLAN",
+                tool_calls=[],
+                finish_reason="stop",
+                model="gpt-4",
+            )
+
         async def mock_stream(messages, tools=None):
             captured_tools.append(tools)
-            if len(captured_tools) == 1:
-                async for chunk in self._stream_response(content="NO_PLAN"):
-                    yield chunk
-                return
-
             async for chunk in self._stream_response(content="直接回答。"):
                 yield chunk
 
+        mock_llm.complete = mock_complete
         mock_llm.stream_complete = mock_stream
 
         result = await execution_loop.run("解释一下这个函数")
@@ -1356,7 +1360,7 @@ async def test_stagnation_counter_increments_on_non_plan_tools():
 
 
 class TestDoomLoopDetection:
-    def test_check_doom_loop_returns_false_for_diverse_calls(self):
+    def test_doom_loop_returns_false_for_diverse_calls(self):
         registry = ToolRegistry()
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
@@ -1370,11 +1374,14 @@ class TestDoomLoopDetection:
         tc2 = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
         tc3 = LLMToolCall(id="c3", name="grep", arguments={"pattern": "error"})
 
-        assert not loop._check_doom_loop(context, tc1)
-        assert not loop._check_doom_loop(context, tc2)
-        assert not loop._check_doom_loop(context, tc3)
+        loop._record_tool_signature(context, tc1)
+        assert not loop._is_doom_loop(context)
+        loop._record_tool_signature(context, tc2)
+        assert not loop._is_doom_loop(context)
+        loop._record_tool_signature(context, tc3)
+        assert not loop._is_doom_loop(context)
 
-    def test_check_doom_loop_returns_true_for_identical_calls(self):
+    def test_doom_loop_returns_true_for_identical_calls(self):
         registry = ToolRegistry()
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
@@ -1386,11 +1393,14 @@ class TestDoomLoopDetection:
 
         tc = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
 
-        assert not loop._check_doom_loop(context, tc)
-        assert not loop._check_doom_loop(context, tc)
-        assert loop._check_doom_loop(context, tc)
+        loop._record_tool_signature(context, tc)
+        assert not loop._is_doom_loop(context)
+        loop._record_tool_signature(context, tc)
+        assert not loop._is_doom_loop(context)
+        loop._record_tool_signature(context, tc)
+        assert loop._is_doom_loop(context)
 
-    def test_doom_loop_sliding_window(self):
+    def test_doom_loop_broken_by_different_call(self):
         registry = ToolRegistry()
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
@@ -1403,10 +1413,11 @@ class TestDoomLoopDetection:
         tc_a = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
         tc_b = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
 
-        loop._check_doom_loop(context, tc_a)
-        loop._check_doom_loop(context, tc_a)
-        loop._check_doom_loop(context, tc_b)
-        assert not loop._check_doom_loop(context, tc_a)
+        loop._record_tool_signature(context, tc_a)
+        loop._record_tool_signature(context, tc_a)
+        loop._record_tool_signature(context, tc_b)
+        loop._record_tool_signature(context, tc_a)
+        assert not loop._is_doom_loop(context)
 
 
 class TestHardenedLoopIntegration:

@@ -24,7 +24,7 @@ class TestPromptManager:
 
     def test_get_error_prompt(self, manager):
         prompt = manager.get_error_prompt(
-            error="File not found", tool="file", code_snippet="def test(): pass"
+            error="File not found", tool="file"
         )
 
         assert "File not found" in prompt
@@ -55,7 +55,6 @@ class TestEnhancedErrorPrompt:
         prompt = manager.get_error_prompt(
             error="Unknown action: load",
             tool="file",
-            code_snippet="",
         )
         assert "Unknown action: load" in prompt
         assert "How to fix" in prompt
@@ -64,7 +63,6 @@ class TestEnhancedErrorPrompt:
         prompt = manager.get_error_prompt(
             error="Missing required parameter: path",
             tool="file",
-            code_snippet="",
             original_args={"action": "read", "name": "some_file"},
         )
         assert "action" in prompt
@@ -76,7 +74,6 @@ class TestEnhancedErrorPrompt:
         prompt = manager.get_error_prompt(
             error="Unknown action: load",
             tool="file",
-            code_snippet="",
             available_actions=["read", "search", "list"],
         )
         assert "read" in prompt

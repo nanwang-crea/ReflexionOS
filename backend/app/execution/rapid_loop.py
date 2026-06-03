@@ -131,15 +131,15 @@ class RapidExecutionLoop:
             if rt.response.has_content:
                 content = rt.response.content or ""
                 premature_indicators = [
-                    "you can now", "you should now", "you can implement",
-                    "here is the code you need", "i'll leave the implementation",
-                    "you can write the code", "you should write",
-                    "请你编写", "你可以现在", "你可以自己实现", "你可以编写",
+                    "you can now write the code", "you should now write the code",
+                    "i'll leave the implementation", "you can implement this yourself",
+                    "you should implement this yourself", "you can write the code yourself",
+                    "请你编写代码", "请你实现这部分", "你可以自己编写代码", "你可以自己实现",
                 ]
                 is_premature = any(indicator in content.lower() for indicator in premature_indicators)
 
-                if is_premature and rt.consecutive_failures < self.MAX_ERROR_RETRIES:
-                    rt.consecutive_failures += 1
+                if is_premature and rt.premature_stop_count < self.MAX_ERROR_RETRIES:
+                    rt.premature_stop_count += 1
                     context.add_message(
                         "user",
                         "You stopped before completing the task. Continue using tools to finish the work. "
@@ -176,12 +176,15 @@ class RapidExecutionLoop:
                     )
                 return LoopPhase.PLANNING
 
-    def _check_doom_loop(self, context: LoopContext, tool_call: LLMToolCall) -> bool:
+    def _record_tool_signature(self, context: LoopContext, tool_call: LLMToolCall) -> None:
         sig = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
         recent_sigs: list[str] = context.metadata.setdefault("_recent_tool_signatures", [])
         recent_sigs.append(sig)
         if len(recent_sigs) > self.DOOM_LOOP_THRESHOLD * 2:
             recent_sigs[:] = recent_sigs[-self.DOOM_LOOP_THRESHOLD * 2:]
+
+    def _is_doom_loop(self, context: LoopContext) -> bool:
+        recent_sigs: list[str] = context.metadata.get("_recent_tool_signatures", [])
         if len(recent_sigs) >= self.DOOM_LOOP_THRESHOLD:
             tail = recent_sigs[-self.DOOM_LOOP_THRESHOLD:]
             if len(set(tail)) == 1:
@@ -293,10 +296,12 @@ class RapidExecutionLoop:
             return LoopPhase.FINAL_SUMMARY
 
         if read_only_calls:
+            for tool_call in read_only_calls:
+                self._record_tool_signature(context, tool_call)
             for _step_rc, tool_call in zip(
                 parallel_steps, read_only_calls, strict=True
             ):
-                if self._check_doom_loop(context, tool_call):
+                if self._is_doom_loop(context):
                     doom_prompt = (
                         f"[Doom Loop Detected] You have called "
                         f"{tool_call.name} with the same arguments "
@@ -309,10 +314,10 @@ class RapidExecutionLoop:
                     )
                     context.add_message("user", doom_prompt)
                     rt.consecutive_failures = 0
+                    context.metadata.setdefault("_recent_tool_signatures", []).clear()
                     return LoopPhase.PLANNING
-
-        # Execute write tools serially
         for tool_call in write_calls:
+            self._record_tool_signature(context, tool_call)
             rt.step_num += 1
             step = await self.tool_executor.execute(tool_call, context, rt.step_num)
             result.steps.append(step)
@@ -342,7 +347,7 @@ class RapidExecutionLoop:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
 
-            if self._check_doom_loop(context, tool_call):
+            if self._is_doom_loop(context):
                 doom_prompt = (
                     f"[Doom Loop Detected] You have called "
                     f"{tool_call.name} with the same arguments "
@@ -359,6 +364,7 @@ class RapidExecutionLoop:
                 )
                 context.add_message("user", doom_prompt)
                 rt.consecutive_failures = 0
+                context.metadata.setdefault("_recent_tool_signatures", []).clear()
                 return LoopPhase.PLANNING
 
         if error_recovery_needed:

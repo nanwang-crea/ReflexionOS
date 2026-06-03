@@ -289,9 +289,9 @@ class OpenAIAdapter(UniversalLLMInterface):
                     tc_data["name"], raw_fragment,
                 )
                 args = {
-                    "_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
+                    "__reflexion_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
                                     "Please retry the tool call with valid parameters.",
-                    "_raw_arguments": raw_fragment,
+                    "__reflexion_raw_arguments": raw_fragment,
                 }
 
             tool_calls.append(
