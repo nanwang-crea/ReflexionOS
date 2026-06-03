@@ -60,7 +60,7 @@ class RapidExecutionLoop:
         self.llm = llm
         self._tool_registry = tool_registry
         self.max_steps = max_steps or config_manager.settings.execution.max_steps
-        self.prompt_manager = PromptManager()
+        self.prompt_manager = PromptManager(model_name=self.llm.get_model_name())
         self.event_callback = event_callback
         self.context_window = context_window
         self._overflow_retry_count = 0
