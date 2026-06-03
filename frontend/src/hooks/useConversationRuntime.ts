@@ -20,8 +20,9 @@ interface StartTurnPayload {
   modelId?: string | null
 }
 
-const INCREMENTAL_EVENT_TYPES = new Set([
+const SNAPSHOT_SKIP_EVENT_TYPES = new Set([
   'message.payload_updated',
+  'message.content_committed',
 ])
 
 const RECONNECT_BASE_DELAY_MS = 1000
@@ -29,7 +30,7 @@ const RECONNECT_MAX_DELAY_MS = 30000
 const RECONNECT_MAX_ATTEMPTS = 10
 const LIVE_EVENT_FLUSH_INTERVAL_MS = 50
 
-export function createSnapshotRefreshQueue(
+function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
   const queuedSessionIds: string[] = []
@@ -86,15 +87,24 @@ function toConversationEvent(event: SessionConversationEventDto): ConversationEv
   }
 }
 
+const VALID_MESSAGE_TYPES = new Set(['assistant_message', 'tool_trace'])
+const VALID_STREAM_STATES = new Set(['idle', 'streaming', 'completed', 'failed', 'cancelled'])
+
 function toConversationLiveMessage(message: SessionConversationLiveMessageDto): ConversationLiveMessage {
+  const messageType = VALID_MESSAGE_TYPES.has(message.message_type)
+    ? message.message_type as ConversationLiveMessage['messageType']
+    : 'assistant_message'
+  const streamState = VALID_STREAM_STATES.has(message.stream_state)
+    ? message.stream_state as ConversationLiveMessage['streamState']
+    : 'streaming'
   return {
     sessionId: message.session_id,
     turnId: message.turn_id,
     runId: message.run_id,
     messageId: message.message_id,
-    messageType: message.message_type as ConversationLiveMessage['messageType'],
+    messageType,
     contentText: message.content_text,
-    streamState: message.stream_state as ConversationLiveMessage['streamState'],
+    streamState,
     delta: message.delta,
     payloadJson: message.payload_json,
   }
@@ -243,7 +253,7 @@ export function useConversationRuntime(
       const event = toConversationEvent(rawEvent)
       useConversationStore.getState().applyEvent(sessionId, event)
 
-      if (!INCREMENTAL_EVENT_TYPES.has(event.eventType)) {
+      if (!SNAPSHOT_SKIP_EVENT_TYPES.has(event.eventType)) {
         queueSnapshotRefresh(sessionId)
       }
 
@@ -476,3 +486,5 @@ export function useConversationRuntime(
     loadMore,
   }
 }
+
+export { createSnapshotRefreshQueue }

@@ -82,6 +82,12 @@ function nextTurnMessageIndex(state: ConversationState, turnId: string): number 
   return current + 1
 }
 
+const TERMINAL_STREAM_STATES = new Set<ConversationStreamState>(['completed', 'failed', 'cancelled'])
+
+function isTerminalStreamState(state: ConversationStreamState): boolean {
+  return TERMINAL_STREAM_STATES.has(state)
+}
+
 function upsertLiveAssistantMessage(
   state: ConversationState,
   liveMessage: ConversationLiveMessage
@@ -100,6 +106,9 @@ function upsertLiveAssistantMessage(
               ...liveMessage.payloadJson,
             }
           : currentMessage.payloadJson,
+        completedAt: isTerminalStreamState(liveMessage.streamState)
+          ? timestamp
+          : currentMessage.completedAt,
         updatedAt: timestamp,
       }
     : {
@@ -116,7 +125,7 @@ function upsertLiveAssistantMessage(
         payloadJson: liveMessage.payloadJson ?? {},
         createdAt: timestamp,
         updatedAt: timestamp,
-        completedAt: null,
+        completedAt: isTerminalStreamState(liveMessage.streamState) ? timestamp : null,
       }
 
   return {
@@ -126,6 +135,25 @@ function upsertLiveAssistantMessage(
       ...state.messagesById,
       [liveMessage.messageId]: nextMessage,
     },
+  }
+}
+
+function removePlaceholderAssistantMessage(
+  state: ConversationState,
+  liveMessage: ConversationLiveMessage
+): ConversationState {
+  const existing = state.messagesById[liveMessage.messageId]
+  if (!existing) {
+    return state
+  }
+  if (existing.streamState !== 'idle' && existing.streamState !== 'streaming') {
+    return state
+  }
+  const { [liveMessage.messageId]: _, ...restMessagesById } = state.messagesById
+  return {
+    ...state,
+    messageOrder: state.messageOrder.filter((id) => id !== liveMessage.messageId),
+    messagesById: restMessagesById,
   }
 }
 
@@ -555,5 +583,8 @@ export function applyConversationLiveState(
   state: ConversationState,
   liveMessage: ConversationLiveMessage
 ): ConversationState {
+  if (liveMessage.streamState === 'idle') {
+    return removePlaceholderAssistantMessage(state, liveMessage)
+  }
   return upsertLiveAssistantMessage(state, liveMessage)
 }

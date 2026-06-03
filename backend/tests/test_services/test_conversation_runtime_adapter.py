@@ -531,3 +531,23 @@ def test_build_live_event_ignores_incremental_after_terminal(tmp_path):
 
     live = adapter.build_live_event("llm:content", {"content": "多余"})
     assert live is None
+
+
+def test_build_live_event_terminal_is_idempotent(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "完成"})
+    adapter.handle_event("run:complete", {})
+
+    first = adapter.build_live_event("run:complete", {})
+    assert first is not None
+    assert first["stream_state"] == "completed"
+
+    second = adapter.build_live_event("run:complete", {})
+    assert second is None

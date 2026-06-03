@@ -36,6 +36,8 @@ class ConversationRuntimeAdapter:
         self._latest_tool_key: str | None = None
         self._reserved_turn_message_index: int | None = None
         self._run_terminal = False
+        self._incremental_live_blocked = False
+        self._terminal_live_emitted = False
 
     def handle_event(self, event_type: str, data: dict) -> list[ConversationEvent]:
         """消费一条 runtime 事件并追加 conversation 事件。"""
@@ -122,13 +124,14 @@ class ConversationRuntimeAdapter:
         return None
 
     def _build_terminal_live_event(self, event_type: str) -> dict | None:
-        if self.assistant_message_id is None:
+        if self.assistant_message_id is None or self._terminal_live_emitted:
             return None
         stream_state = {
             "run:complete": "completed",
             "run:error": "failed",
             "run:cancelled": "cancelled",
         }[event_type]
+        self._terminal_live_emitted = True
         return {
             "session_id": self.session_id,
             "turn_id": self.turn_id,
@@ -142,7 +145,7 @@ class ConversationRuntimeAdapter:
         }
 
     def _build_incremental_live_event(self, event_type: str, data: dict) -> dict | None:
-        if self.assistant_message_id is None or self._run_terminal:
+        if self.assistant_message_id is None or self._incremental_live_blocked:
             return None
         if event_type == "llm:reasoning":
             delta = data.get("reasoning_content")
@@ -163,7 +166,7 @@ class ConversationRuntimeAdapter:
         }
 
     def get_live_state(self) -> dict | None:
-        if self.assistant_message_id is None or self._run_terminal:
+        if self.assistant_message_id is None or self._incremental_live_blocked:
             return None
         return {
             "session_id": self.session_id,
@@ -501,24 +504,19 @@ class ConversationRuntimeAdapter:
                 "error_message": error_message,
             },
         )
-        open_ids: set[str] = {
-            message.id
-            for message in self.conversation_service.list_turn_messages(self.turn_id)
-            if message.run_id == self.run_id
-            and message.message_type in {MessageType.ASSISTANT_MESSAGE, MessageType.TOOL_TRACE}
-            and message.stream_state in {StreamState.IDLE, StreamState.STREAMING}
-        }
-
-        if self.assistant_message_id:
-            open_ids.discard(self.assistant_message_id)
-
+        candidate_ids: set[str] = set()
+        for message in self.conversation_service.list_turn_messages(self.turn_id):
+            if (
+                message.run_id == self.run_id
+                and message.message_type == MessageType.TOOL_TRACE
+                and message.stream_state in {StreamState.IDLE, StreamState.STREAMING}
+            ):
+                candidate_ids.add(message.id)
         for message_id in self.tool_message_ids.values():
-            if not self._message_is_terminal(message_id):
-                open_ids.add(message_id)
-
-        for message_id in sorted(open_ids):
             if self._message_is_terminal(message_id) or message_id in self._terminal_tool_message_ids:
-                continue
+                candidate_ids.discard(message_id)
+
+        for message_id in sorted(candidate_ids):
             events.append(
                 self._new_event(
                     event_type=EventType.MESSAGE_PAYLOAD_UPDATED,
@@ -678,9 +676,11 @@ class ConversationRuntimeAdapter:
     ) -> ConversationEvent | None:
         if self._run_terminal or self._run_is_terminal():
             self._run_terminal = True
+            self._incremental_live_blocked = True
             return None
 
         self._run_terminal = True
+        self._incremental_live_blocked = True
         return self._new_event(
             event_type=event_type,
             run_id=self.run_id,
