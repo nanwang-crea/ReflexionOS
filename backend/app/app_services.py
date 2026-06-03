@@ -36,6 +36,8 @@ async def _get_agent_service_async():
 
 
 def __getattr__(name):
+    """仅限模块级导入使用（如 `from app.app_services import agent_service`），
+    运行时动态访问请走 _get_agent_service_async()，以避免异步竞态。"""
     global _agent_service, _conversation_broadcaster
 
     if name == "conversation_broadcaster":
