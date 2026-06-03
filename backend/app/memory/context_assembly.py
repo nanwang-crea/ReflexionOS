@@ -6,7 +6,6 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.memory.curated_store import CuratedMemoryStore
-from app.memory.message_normalizer import normalize_message_text_for_seed
 from app.models.conversation import MessageType
 from app.orchestration.skill_registry import SkillRegistry
 from app.services.conversation_service import ConversationService
@@ -14,15 +13,59 @@ from app.services.conversation_service import ConversationService
 
 class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
-    recent_messages: list[dict[str, str]]
+    recent_messages: list[dict[str, Any]]
     supplemental_block: str | None = None
 
 
-def _message_to_seed_dict(message: Any) -> dict[str, str]:
+def _message_to_seed_dict(message: Any) -> list[dict[str, Any]]:
     if message.message_type == MessageType.TOOL_TRACE:
-        content = normalize_message_text_for_seed(message)
-        return {"role": "assistant", "content": f"[tool_trace] {content}"}
-    return {"role": str(message.role), "content": str(message.content_text)}
+        return _tool_trace_to_paired_seeds(message)
+    return [{"role": str(message.role), "content": str(message.content_text)}]
+
+
+def _tool_trace_to_paired_seeds(message: Any) -> list[dict[str, Any]]:
+    from uuid import uuid4
+
+    from app.memory.payload_utils import as_payload_dict
+    from app.memory.text_compaction import truncate_head_tail
+
+    payload = as_payload_dict(message.payload_json)
+
+    tool_name = payload.get("tool_name", "")
+    arguments = payload.get("arguments", {})
+    tool_call_id = payload.get("tool_call_id") or f"prev_{uuid4().hex[:8]}"
+    output = payload.get("output", "")
+    error = payload.get("error", "")
+    success = payload.get("success", True)
+
+    assistant_msg: dict[str, Any] = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": tool_call_id,
+                "name": tool_name,
+                "arguments": arguments,
+            }
+        ],
+    }
+
+    tool_content = output if success else (error or "Tool execution failed")
+    tool_content = truncate_head_tail(
+        str(tool_content),
+        max_chars=800,
+        head_chars=500,
+        tail_chars=200,
+        reason="seed context",
+    )
+
+    tool_msg: dict[str, Any] = {
+        "role": "tool",
+        "content": tool_content,
+        "tool_call_id": tool_call_id,
+    }
+
+    return [assistant_msg, tool_msg]
 
 
 def build_context_assembly(
@@ -31,16 +74,27 @@ def build_context_assembly(
     recent_messages: list[dict[str, Any]],
     supplemental_block: str | None,
 ) -> ContextAssemblyResult:
+    result_messages: list[dict[str, Any]] = []
+    for message in recent_messages:
+        role = str(message.get("role") or "").strip()
+        if not role:
+            continue
+        content = str(message.get("content") or "")
+        tool_calls = message.get("tool_calls")
+        tool_call_id = message.get("tool_call_id")
+        has_content = content.strip() or tool_calls
+        if not has_content:
+            continue
+        entry: dict[str, Any] = {"role": role, "content": content}
+        if tool_calls is not None:
+            entry["tool_calls"] = tool_calls
+        if tool_call_id is not None:
+            entry["tool_call_id"] = tool_call_id
+        result_messages.append(entry)
+
     return ContextAssemblyResult(
         system_sections=[block for block in static_blocks if str(block or "").strip()],
-        recent_messages=[
-            {
-                "role": str(message.get("role") or ""),
-                "content": str(message.get("content") or ""),
-            }
-            for message in recent_messages
-            if str(message.get("role") or "").strip() and str(message.get("content") or "").strip()
-        ],
+        recent_messages=result_messages,
         supplemental_block=supplemental_block.strip() if supplemental_block else None,
     )
 
@@ -136,9 +190,9 @@ When a skill clearly matches your current task, load it first using the 'skill' 
             scan_limit=scan_limit,
             max_tool_traces=max_tool_traces,
         )
-        recent_messages = [
-            _message_to_seed_dict(msg) for msg in candidates
-        ]
+        recent_messages: list[dict[str, Any]] = []
+        for msg in candidates:
+            recent_messages.extend(_message_to_seed_dict(msg))
 
         return build_context_assembly(
             static_blocks=static_blocks,

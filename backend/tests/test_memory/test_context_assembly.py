@@ -83,7 +83,7 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
             turn_id="turn-1",
             run_id="run-1",
             turn_message_index=2,
-            role="assistant",
+            role="tool",
             message_type=MessageType.TOOL_TRACE,
             stream_state=StreamState.COMPLETED,
             display_mode="default",
@@ -91,6 +91,7 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
             payload_json={
                 "tool_name": "shell",
                 "arguments": {"cmd": "pytest"},
+                "tool_call_id": "call_abc12345",
                 "success": True,
                 "output": "2 passed",
             },
@@ -120,14 +121,22 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
         current_turn_id="turn-2",
     )
 
-    seeded_contents = [msg["content"] for msg in result.recent_messages]
-    assert any("tool_name=shell" in c for c in seeded_contents)
-    assert any("2 passed" in c for c in seeded_contents)
-    assert "帮我修 bug" in seeded_contents
-    assert "测试通过了" in seeded_contents
+    seeded = result.recent_messages
 
-    tool_seed = next(msg for msg in result.recent_messages if "[tool_trace]" in msg["content"])
-    assert tool_seed["role"] == "assistant"
+    user_msg = next(m for m in seeded if m["role"] == "user")
+    assert "帮我修 bug" in user_msg["content"]
+
+    assistant_tool_msg = next(m for m in seeded if m["role"] == "assistant" and m.get("tool_calls"))
+    assert assistant_tool_msg["tool_calls"][0]["name"] == "shell"
+    assert assistant_tool_msg["tool_calls"][0]["arguments"] == {"cmd": "pytest"}
+    assert assistant_tool_msg["tool_calls"][0]["id"] == "call_abc12345"
+
+    tool_result_msg = next(m for m in seeded if m["role"] == "tool")
+    assert tool_result_msg["tool_call_id"] == "call_abc12345"
+    assert "2 passed" in tool_result_msg["content"]
+
+    assistant_text_msg = next(m for m in seeded if m["role"] == "assistant" and not m.get("tool_calls"))
+    assert "测试通过了" in assistant_text_msg["content"]
 
 
 def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
@@ -169,7 +178,7 @@ def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
             turn_id="turn-1",
             run_id="run-1",
             turn_message_index=1,
-            role="assistant",
+            role="tool",
             message_type=MessageType.TOOL_TRACE,
             stream_state=StreamState.STREAMING,
             display_mode="default",
@@ -188,7 +197,7 @@ def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
             turn_id="turn-1",
             run_id="run-1",
             turn_message_index=2,
-            role="assistant",
+            role="tool",
             message_type=MessageType.TOOL_TRACE,
             stream_state=StreamState.FAILED,
             display_mode="default",

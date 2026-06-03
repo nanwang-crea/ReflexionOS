@@ -166,7 +166,7 @@ class MessageRepository(BaseRepository[Message]):
         session_id: str,
         *,
         current_turn_id: str | None = None,
-        limit: int = 8,
+        limit: int = 12,
         scan_limit: int = 200,
         max_tool_traces: int = 4,
     ) -> list[Message]:
@@ -176,7 +176,7 @@ class MessageRepository(BaseRepository[Message]):
             return []
 
         with self.db.get_session() as db_session:
-            query = db_session.query(MessageModel).filter(
+            text_query = db_session.query(MessageModel).filter(
                 MessageModel.session_id == session_id,
                 MessageModel.message_type.in_(
                     [
@@ -192,13 +192,11 @@ class MessageRepository(BaseRepository[Message]):
                 != "continuation_artifact",
             )
             if current_turn_id:
-                query = query.filter(MessageModel.turn_id != current_turn_id)
+                text_query = text_query.filter(MessageModel.turn_id != current_turn_id)
 
-            models = query.order_by(MessageModel.created_at.desc()).limit(resolved_scan).all()
+            text_models = text_query.order_by(MessageModel.created_at.desc()).limit(resolved_scan).all()
 
-            text_candidates = self._to_domain_list(list(reversed(models)))[-resolved_limit:]
-
-            tool_trace_models = (
+            tool_trace_query = (
                 db_session.query(MessageModel)
                 .filter(
                     MessageModel.session_id == session_id,
@@ -207,17 +205,20 @@ class MessageRepository(BaseRepository[Message]):
                 )
             )
             if current_turn_id:
-                tool_trace_models = tool_trace_models.filter(
+                tool_trace_query = tool_trace_query.filter(
                     MessageModel.turn_id != current_turn_id
                 )
             tool_trace_models = (
-                tool_trace_models.order_by(MessageModel.created_at.desc())
+                tool_trace_query.order_by(MessageModel.created_at.desc())
                 .limit(max_tool_traces)
                 .all()
             )
-            tool_traces = list(reversed(self._to_domain_list(tool_trace_models)))
 
-            return text_candidates + tool_traces
+            all_models = list(text_models) + list(tool_trace_models)
+            all_models.sort(key=lambda m: m.created_at)
+            all_models = all_models[-resolved_limit:]
+
+            return self._to_domain_list(all_models)
 
     def get_latest_continuation_artifact(
         self,
