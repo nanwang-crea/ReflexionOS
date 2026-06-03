@@ -139,6 +139,16 @@ export function useConversationRuntime(
     sessionId: string,
     liveMessage: ConversationLiveMessage
   ) => {
+    const isTerminal = liveMessage.streamState === 'completed'
+      || liveMessage.streamState === 'failed'
+      || liveMessage.streamState === 'cancelled'
+
+    if (isTerminal) {
+      flushPendingLiveEvent()
+      useConversationStore.getState().applyLiveEvent(sessionId, liveMessage)
+      return
+    }
+
     if (!liveEventFlushTimerRef.current && !pendingLiveEventRef.current) {
       useConversationStore.getState().applyLiveEvent(sessionId, liveMessage)
       liveEventFlushTimerRef.current = setTimeout(() => {

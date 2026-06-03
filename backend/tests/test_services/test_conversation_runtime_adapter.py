@@ -445,3 +445,89 @@ def test_tool_start_skips_if_tool_key_already_registered(tmp_path):
     snapshot = service.get_snapshot("session-1")
     traces = [m for m in snapshot.messages if m.message_type == MessageType.TOOL_TRACE]
     assert len(traces) == 1
+
+
+def test_build_live_event_emits_terminal_on_run_complete(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "你好"})
+    adapter.handle_event("llm:content", {"content": "世界"})
+    adapter.handle_event("run:complete", {})
+
+    live = adapter.build_live_event("run:complete", {})
+    assert live is not None
+    assert live["stream_state"] == "completed"
+    assert live["delta"] == ""
+    assert live["content_text"] == "你好世界"
+
+
+def test_build_live_event_emits_terminal_on_run_error(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "出错了"})
+    adapter.handle_event("run:error", {"error": "boom"})
+
+    live = adapter.build_live_event("run:error", {})
+    assert live is not None
+    assert live["stream_state"] == "failed"
+    assert live["content_text"] == "出错了"
+
+
+def test_build_live_event_emits_terminal_on_run_cancelled(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "取消中"})
+    adapter.handle_event("run:cancelled", {})
+
+    live = adapter.build_live_event("run:cancelled", {})
+    assert live is not None
+    assert live["stream_state"] == "cancelled"
+
+
+def test_build_live_event_returns_none_for_terminal_without_assistant_content(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("run:complete", {})
+
+    live = adapter.build_live_event("run:complete", {})
+    assert live is None
+
+
+def test_build_live_event_ignores_incremental_after_terminal(tmp_path):
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event("llm:content", {"content": "完成"})
+    adapter.handle_event("run:complete", {})
+
+    live = adapter.build_live_event("llm:content", {"content": "多余"})
+    assert live is None

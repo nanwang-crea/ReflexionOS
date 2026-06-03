@@ -111,16 +111,44 @@ class ConversationRuntimeAdapter:
 
         return []
 
+    _TERMINAL_LIVE_EVENTS = {"run:complete", "run:error", "run:cancelled"}
+    _INCREMENTAL_LIVE_EVENTS = {"llm:content", "summary:token", "llm:reasoning"}
+
     def build_live_event(self, event_type: str, data: dict) -> dict | None:
-        if event_type not in {"llm:content", "summary:token", "llm:reasoning"}:
+        if event_type in self._TERMINAL_LIVE_EVENTS:
+            return self._build_terminal_live_event(event_type)
+        if event_type in self._INCREMENTAL_LIVE_EVENTS:
+            return self._build_incremental_live_event(event_type, data)
+        return None
+
+    def _build_terminal_live_event(self, event_type: str) -> dict | None:
+        if self.assistant_message_id is None:
+            return None
+        stream_state = {
+            "run:complete": "completed",
+            "run:error": "failed",
+            "run:cancelled": "cancelled",
+        }[event_type]
+        return {
+            "session_id": self.session_id,
+            "turn_id": self.turn_id,
+            "run_id": self.run_id,
+            "message_id": self.assistant_message_id,
+            "message_type": "assistant_message",
+            "delta": "",
+            "content_text": self._assistant_content,
+            "payload_json": {"reasoning_text": self._assistant_reasoning},
+            "stream_state": stream_state,
+        }
+
+    def _build_incremental_live_event(self, event_type: str, data: dict) -> dict | None:
+        if self.assistant_message_id is None or self._run_terminal:
             return None
         if event_type == "llm:reasoning":
             delta = data.get("reasoning_content")
         else:
             delta = data.get("content") if event_type == "llm:content" else data.get("token")
         if not delta:
-            return None
-        if self.assistant_message_id is None or self._run_terminal:
             return None
         return {
             "session_id": self.session_id,
