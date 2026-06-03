@@ -45,7 +45,7 @@ class LoopContext:
         project_path: str | None = None,
         run_id: str | None = None,
         agent_mode: str = "build",
-        seed_messages: list[dict[str, str]] | None = None,
+        seed_messages: list[dict[str, Any]] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
     ) -> "LoopContext":
@@ -58,13 +58,33 @@ class LoopContext:
             role = str(seeded.get("role") or "").strip().lower()
             if role not in allowed_seed_roles:
                 continue
+
+            tool_calls = seeded.get("tool_calls")
+            tool_call_id = seeded.get("tool_call_id")
+
+            if role == "tool" and not tool_call_id:
+                continue
+
+            if role == "assistant" and tool_calls:
+                content_str = None
+                content = seeded.get("content")
+                if isinstance(content, str) and content.strip():
+                    content_str = content
+                context.add_message(
+                    role,
+                    content=content_str,
+                    tool_calls=tool_calls,
+                )
+                continue
+
             content = seeded.get("content")
             if not isinstance(content, str):
                 continue
             content = content.strip()
             if not content:
                 continue
-            context.add_message(role, content)
+
+            context.add_message(role, content, tool_call_id=tool_call_id)
 
         context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []

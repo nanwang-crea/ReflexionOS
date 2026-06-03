@@ -52,7 +52,7 @@ class TestLoopContext:
                 {"role": "assistant", "content": "  上一轮结论  "},
                 {"role": "system", "content": "should be ignored"},
                 {"role": "tool", "content": ""},
-                {"role": "tool", "content": "tool output"},
+                {"role": "tool", "content": "tool output", "tool_call_id": "call_001"},
                 "bad seed",
             ],
             supplemental_context="当前目标: 修 memory",
@@ -70,3 +70,41 @@ class TestLoopContext:
             ("tool", "tool output"),
             ("user", "继续处理"),
         ]
+
+    def test_from_run_input_supports_tool_calls_in_seed_messages(self):
+        context = LoopContext.from_run_input(
+            task="继续",
+            seed_messages=[
+                {"role": "assistant", "content": "", "tool_calls": [
+                    {"id": "call_001", "name": "file", "arguments": {"action": "read", "path": "a.py"}},
+                ]},
+                {"role": "tool", "content": "file content here", "tool_call_id": "call_001"},
+                {"role": "assistant", "content": "已读取文件"},
+            ],
+        )
+
+        msgs = context.messages
+        assert msgs[0]["role"] == "assistant"
+        assert msgs[0]["tool_calls"][0]["name"] == "file"
+        assert msgs[0].get("content") is None
+
+        assert msgs[1]["role"] == "tool"
+        assert msgs[1]["content"] == "file content here"
+        assert msgs[1]["tool_call_id"] == "call_001"
+
+        assert msgs[2]["role"] == "assistant"
+        assert msgs[2]["content"] == "已读取文件"
+
+        assert msgs[3]["role"] == "user"
+        assert msgs[3]["content"] == "继续"
+
+    def test_from_run_input_skips_tool_message_without_tool_call_id(self):
+        context = LoopContext.from_run_input(
+            task="继续",
+            seed_messages=[
+                {"role": "tool", "content": "orphan tool result"},
+            ],
+        )
+
+        assert len(context.messages) == 1
+        assert context.messages[0]["role"] == "user"
