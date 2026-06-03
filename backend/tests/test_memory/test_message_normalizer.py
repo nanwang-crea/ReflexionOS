@@ -3,14 +3,16 @@ from app.models.conversation import Message, MessageType, StreamState
 
 
 def build_message(**overrides):
+    message_type = overrides.get("message_type", MessageType.ASSISTANT_MESSAGE)
+    role = overrides.get("role", ("tool" if message_type == MessageType.TOOL_TRACE else "assistant"))
     payload = {
         "id": "msg-1",
         "session_id": "session-1",
         "turn_id": "turn-1",
         "run_id": "run-1",
         "turn_message_index": 1,
-        "role": "assistant",
-        "message_type": MessageType.ASSISTANT_MESSAGE,
+        "role": role,
+        "message_type": message_type,
         "stream_state": StreamState.COMPLETED,
         "display_mode": "default",
         "content_text": "hello",

@@ -119,7 +119,7 @@ def append_waiting_for_approval(conversation_service, *, session_id, turn_id, ru
                     "message_id": message_id,
                     "turn_id": turn_id,
                     "run_id": run_id,
-                    "role": "assistant",
+                    "role": "tool",
                     "message_type": "tool_trace",
                     "turn_message_index": conversation_service.next_message_index(
                         turn_id

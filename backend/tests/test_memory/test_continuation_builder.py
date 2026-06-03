@@ -3,14 +3,16 @@ from app.models.conversation import Message, MessageType, StreamState
 
 
 def build_message(**overrides):
+    message_type = overrides.get("message_type", MessageType.ASSISTANT_MESSAGE)
+    role = overrides.get("role", ("tool" if message_type == MessageType.TOOL_TRACE else "assistant"))
     payload = {
         "id": "msg-1",
         "session_id": "session-1",
         "turn_id": "turn-1",
         "run_id": "run-1",
         "turn_message_index": 1,
-        "role": "assistant",
-        "message_type": MessageType.ASSISTANT_MESSAGE,
+        "role": role,
+        "message_type": message_type,
         "stream_state": StreamState.COMPLETED,
         "display_mode": "default",
         "content_text": "hello",
@@ -47,7 +49,6 @@ def test_continuation_builder_compresses_tool_output_with_head_and_tail():
             ),
             build_message(
                 id="msg-tool",
-                role="assistant",
                 message_type=MessageType.TOOL_TRACE,
                 payload_json={
                     "tool_name": "shell",

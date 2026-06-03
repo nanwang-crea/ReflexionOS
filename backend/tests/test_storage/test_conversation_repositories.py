@@ -656,7 +656,7 @@ def test_message_repo_from_payload_normalizes_payload_json_shapes():
         "message_id": "msg-1",
         "turn_id": "turn-1",
         "turn_message_index": 1,
-        "role": "assistant",
+        "role": "tool",
         "message_type": MessageType.TOOL_TRACE.value,
         "display_mode": "default",
         "content_text": "",
