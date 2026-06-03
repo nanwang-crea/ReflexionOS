@@ -1,4 +1,5 @@
 import logging
+import sys
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -6,7 +7,12 @@ from string import Template
 
 logger = logging.getLogger(__name__)
 
-PROMPTS_DIR = Path(__file__).parent / "prompts"
+if getattr(sys, "frozen", False):
+    _BASE_DIR = Path(sys._MEIPASS)
+else:
+    _BASE_DIR = Path(__file__).parent
+
+PROMPTS_DIR = _BASE_DIR / "app" / "execution" / "prompts" if getattr(sys, "frozen", False) else Path(__file__).parent / "prompts"
 
 
 class PromptFamily(str, Enum):

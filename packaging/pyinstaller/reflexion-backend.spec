@@ -24,6 +24,7 @@ a = Analysis(
     datas=[
         (tiktoken_ext_path, "tiktoken_ext"),
         (tiktoken_so, "tiktoken"),
+        (str(backend_root / "app" / "execution" / "prompts"), "app/execution/prompts"),
     ],
     hiddenimports=[
         "tiktoken_ext",
