@@ -9,6 +9,12 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
+_GITHUB_SHORT_RE = re.compile(
+    r"^(?P<owner>[a-zA-Z0-9_.-]+)/(?P<repo>[a-zA-Z0-9_.-]+?)(?:@(?P<ref>.+))?$"
+)
+_GITHUB_URL_RE = re.compile(
+    r"^https?://github\.com/(?P<owner>[a-zA-Z0-9_.-]+)/(?P<repo>[a-zA-Z0-9_.-]+?)(?:\.git)?(?:#(?P<ref>.+))?(?:/)?$"
+)
 _GIT_SPEC_RE = re.compile(
     r"^(?P<name>[^@]+)@git\+(?P<url>https?://.+?)(?:#(?P<ref>.+))?$"
 )
@@ -29,6 +35,20 @@ class PackageSpecifier(BaseModel):
 
     @classmethod
     def parse(cls, raw: str) -> "PackageSpecifier":
+        m = _GITHUB_URL_RE.match(raw)
+        if m:
+            name = m.group("repo")
+            url = f"https://github.com/{m.group('owner')}/{name}"
+            ref = m.group("ref") or "main"
+            return cls(raw=raw, name=name, spec_type="git", url=url, ref=ref)
+
+        m = _GITHUB_SHORT_RE.match(raw)
+        if m:
+            name = m.group("repo")
+            url = f"https://github.com/{m.group('owner')}/{name}"
+            ref = m.group("ref") or "main"
+            return cls(raw=raw, name=name, spec_type="git", url=url, ref=ref)
+
         m = _GIT_SPEC_RE.match(raw)
         if m:
             return cls(

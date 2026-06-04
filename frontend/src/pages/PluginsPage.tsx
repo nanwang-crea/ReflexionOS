@@ -212,12 +212,19 @@ export default function PluginsPage() {
           <div className="mb-6 rounded-3xl border border-edge bg-surface-tertiary p-4 sm:p-6">
             <h3 className="mb-3 text-sm font-medium text-content-primary">安装新插件</h3>
             <p className="mb-4 text-sm text-content-muted">
-              输入插件标识符（如 GitHub 仓库路径 <code className="rounded bg-surface-primary px-1.5 py-0.5 text-xs">owner/repo</code> 或带版本 <code className="rounded bg-surface-primary px-1.5 py-0.5 text-xs">owner/repo@v1.0</code>）
+              输入插件标识符，支持以下格式：
             </p>
+            <ul className="mb-4 space-y-1 text-xs text-content-muted">
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo</code> — GitHub 短格式</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo@v1.0</code> — GitHub 带版本/分支</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">https://github.com/owner/repo</code> — GitHub URL</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@git+https://...</code> — Git 完整格式</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@file:///path</code> — 本地路径</li>
+            </ul>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="text"
-                placeholder="例如: owner/repo 或 owner/repo@v1.0"
+                placeholder="例如: obra/superpowers 或 obra/superpowers@main"
                 value={installSpecifier}
                 onChange={(e) => setInstallSpecifier(e.target.value)}
                 onKeyDown={(e) => {

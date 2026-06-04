@@ -1,8 +1,20 @@
-from fastapi import APIRouter, HTTPException
+import logging
+from pathlib import Path
 
-from app.orchestration.skill_registry import skill_registry
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from app.orchestration.package_resolver import PackageResolver, PackageSpecifier
+from app.orchestration.skill_parser import parse_skill_md
+from app.orchestration.skill_registry import SkillMetadata, SkillSource, skill_registry
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
+
+
+class InstallSkillRequest(BaseModel):
+    specifier: str
 
 
 @router.get("/")
@@ -42,6 +54,66 @@ async def list_categories():
 async def refresh_skills():
     count = skill_registry.refresh()
     return {"total_skills": count}
+
+
+@router.post("/install")
+async def install_skill(req: InstallSkillRequest):
+    try:
+        spec = PackageSpecifier.parse(req.specifier)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    if spec.spec_type == "pypi":
+        raise HTTPException(status_code=400, detail="PyPI packages not yet supported")
+
+    from app.config.settings import config_manager
+    cache_dir = Path(config_manager.settings.skill.install_dir) / ".packages"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    resolver = PackageResolver(cache_dir)
+    try:
+        package = resolver.resolve(spec)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from None
+
+    count = 0
+    skill_dirs = package.skill_dirs
+    if not skill_dirs:
+        skill_dirs = [str(package.install_path)]
+
+    for d in skill_dirs:
+        count += skill_registry.scan_recursive(d, source_type=SkillSource.GLOBAL, plugin_name="")
+
+    if count == 0:
+        raise HTTPException(status_code=400, detail=f"未在 {req.specifier} 中发现技能（缺少 SKILL.md）")
+
+    return {"specifier": req.specifier, "installed_skills": count}
+
+
+@router.delete("/{skill_name}")
+async def delete_skill(skill_name: str):
+    skill = skill_registry.get_skill(skill_name)
+    if skill is None:
+        raise HTTPException(status_code=404, detail="技能不存在")
+
+    install_path = skill.install_path
+    source_type = skill.source_type
+
+    skill_registry.unregister_skill(skill_name)
+
+    if source_type == SkillSource.GLOBAL and install_path:
+        from app.config.settings import config_manager
+        skill_root = Path(config_manager.settings.skill.install_dir) / ".packages"
+        for child in skill_root.iterdir():
+            if child.is_dir() and (child / "SKILL.md").exists():
+                pass
+            elif child.is_dir():
+                if install_path.startswith(str(child)):
+                    import shutil
+                    shutil.rmtree(child, ignore_errors=True)
+                    break
+
+    return {"name": skill_name, "deleted": True}
 
 
 @router.get("/{skill_name}")

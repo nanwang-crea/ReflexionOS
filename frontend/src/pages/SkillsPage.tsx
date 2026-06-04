@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
-import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe } from 'lucide-react'
+import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe, Plus, Trash2 } from 'lucide-react'
 import { skillApi } from '@/features/skills/skillApi'
+import type { InstallSkillRequest } from '@/features/skills/skillApi'
 import { useToastStore } from '@/stores/toastStore'
 import { useCodeTabStore } from '@/features/code/codeTabStore'
 import type { Skill, SkillCategories } from '@/types/skill'
@@ -28,6 +29,10 @@ export default function SkillsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [toggling, setToggling] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [showInstallDialog, setShowInstallDialog] = useState(false)
+  const [installSpecifier, setInstallSpecifier] = useState('')
+  const [installing, setInstalling] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   const openFile = useCodeTabStore((s) => s.openFile)
 
@@ -113,6 +118,38 @@ export default function SkillsPage() {
     }
   }
 
+  const handleInstall = async () => {
+    const specifier = installSpecifier.trim()
+    if (!specifier) return
+    setInstalling(true)
+    try {
+      await skillApi.install({ specifier } as InstallSkillRequest)
+      useToastStore.getState().addToast('info', `技能 ${specifier} 安装成功`)
+      setInstallSpecifier('')
+      setShowInstallDialog(false)
+      await loadSkills()
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '安装失败'
+      useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
+    } finally {
+      setInstalling(false)
+    }
+  }
+
+  const handleDelete = async (name: string) => {
+    setDeleting(name)
+    try {
+      await skillApi.remove(name)
+      useToastStore.getState().addToast('info', `技能 ${name} 已删除`)
+      await loadSkills()
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '删除失败'
+      useToastStore.getState().addToast('warning', `删除失败: ${msg}`)
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
@@ -165,8 +202,57 @@ export default function SkillsPage() {
             >
               <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
             </button>
+            <button
+              onClick={() => setShowInstallDialog(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-content-primary px-3 py-2 text-sm font-medium text-surface-primary transition-colors hover:bg-content-primary/90"
+            >
+              <Plus className="h-4 w-4" />
+              安装技能
+            </button>
           </div>
         </div>
+
+        {showInstallDialog && (
+          <div className="mb-6 rounded-3xl border border-edge bg-surface-tertiary p-4 sm:p-6">
+            <h3 className="mb-3 text-sm font-medium text-content-primary">安装新技能</h3>
+            <ul className="mb-4 space-y-1 text-xs text-content-muted">
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo</code> — GitHub 短格式</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo@v1.0</code> — GitHub 带版本/分支</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">https://github.com/owner/repo</code> — GitHub URL</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@git+https://...</code> — Git 完整格式</li>
+              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@file:///path</code> — 本地路径</li>
+            </ul>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                type="text"
+                placeholder="例如: obra/superpowers 或 obra/superpowers@main"
+                value={installSpecifier}
+                onChange={(e) => setInstallSpecifier(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleInstall()
+                }}
+                className="min-w-0 flex-1 rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
+                autoFocus
+              />
+              <button
+                onClick={handleInstall}
+                disabled={installing || !installSpecifier.trim()}
+                className="rounded-xl bg-content-primary px-4 py-2 text-sm font-medium text-surface-primary transition-colors hover:bg-content-primary/90 disabled:opacity-50"
+              >
+                {installing ? '安装中...' : '安装'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowInstallDialog(false)
+                  setInstallSpecifier('')
+                }}
+                className="rounded-xl border border-edge bg-surface-tertiary px-4 py-2 text-sm text-content-secondary transition-colors hover:bg-surface-secondary"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
@@ -225,6 +311,14 @@ export default function SkillsPage() {
                           title="在编辑器中查看"
                         >
                           <Code2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(skill.name)}
+                          disabled={deleting === skill.name}
+                          className="rounded-lg p-1 text-content-muted transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                          title="删除技能"
+                        >
+                          <Trash2 className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => {
