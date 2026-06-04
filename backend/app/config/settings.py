@@ -68,7 +68,7 @@ class UISettings(BaseModel):
 class BrowserSettings(BaseModel):
     """浏览器配置"""
 
-    headless: bool = True
+    headless: bool = False
     browser_engine: str = "chromium"
     default_timeout: int = 30000
     default_wait_until: str = "load"
