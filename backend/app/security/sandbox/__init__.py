@@ -3,6 +3,7 @@ from app.security.sandbox.factory import NullSandbox, create_sandbox
 from app.security.sandbox.landlock_profile import LandlockProfileBuilder
 from app.security.sandbox.profile_builder import ProfileBuilder
 from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
+from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.seatbelt_profile import SeatbeltProfileBuilder
 
 __all__ = [
@@ -10,6 +11,9 @@ __all__ = [
     "LandlockProfileBuilder",
     "NullSandbox",
     "ProfileBuilder",
+    "SandboxErrorDetector",
+    "SandboxErrorInfo",
+    "SandboxErrorType",
     "SeatbeltProfileBuilder",
     "SandboxLevel",
     "SandboxPolicy",
