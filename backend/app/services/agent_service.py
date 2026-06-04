@@ -905,6 +905,10 @@ class AgentService:
                 error="审批缺少存储的决策数据，无法执行",
             )
 
+        elevation_request = pending.approval_payload.get("payload", {}).get("elevation_request")
+        if elevation_request and isinstance(approved_decision_data, dict):
+            approved_decision_data["elevation_request"] = elevation_request
+
         project_path = approved_decision_data.get("cwd") if isinstance(approved_decision_data, dict) else None
         loop = self._execution_loops.get(run_id)
         tool_registry = getattr(loop, "tool_registry", None) or self._build_run_tool_registry(project_path)
