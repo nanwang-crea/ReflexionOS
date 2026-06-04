@@ -84,11 +84,11 @@ class ShellTool(BaseTool):
         self.trust_store = trust_store
         self.sandbox_error_detector = SandboxErrorDetector()
 
-    def _build_env(self) -> dict[str, str] | None:
+    def _build_env(self) -> dict[str, str]:
         conda_env = _get_conda_base_env()
         if conda_env:
             return conda_env
-        return None
+        return dict(os.environ)
 
     @property
     def name(self) -> str:
@@ -99,11 +99,14 @@ class ShellTool(BaseTool):
         return (
             f"Execute safe commands (current platform: {self.security.platform_label}). "
             "Low-risk commands execute directly; high-risk commands and commands containing shell metacharacters require user approval. "
+            "Commands run inside an OS-level sandbox that blocks network access by default. "
+            "If a command needs network (e.g. pip install, npm install, curl, wget, requests, API calls), "
+            "it will fail with a network error and the user will be asked to approve network access. "
+            "You should inform the user when a command requires network and they need to approve the elevation. "
             f"{self.security.command_hint}"
         )
 
     def get_schema(self) -> dict[str, Any]:
-        """返回工具的 JSON Schema"""
         return {
             "name": self.name,
             "description": self.description,
@@ -112,7 +115,12 @@ class ShellTool(BaseTool):
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": f"Command to execute. {self.security.command_hint}",
+                        "description": (
+                            f"Command to execute. {self.security.command_hint} "
+                            "NOTE: The sandbox blocks network by default. Commands that need internet access "
+                            "(pip install, npm install, cargo build, go mod download, curl, wget, API calls, etc.) "
+                            "will trigger a network approval request — do NOT retry, wait for user approval."
+                        ),
                     },
                     "cwd": {"type": "string", "description": "Working directory for command execution, optional"},
                     "timeout": {"type": "integer", "description": "Command timeout in seconds, optional"},
