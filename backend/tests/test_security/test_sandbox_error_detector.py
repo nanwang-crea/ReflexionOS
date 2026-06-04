@@ -88,8 +88,6 @@ class TestNoDetection:
 
 
 class TestRegistryAuxiliary:
-    # NOTE: Skipped until Task 2 adds `often_needs_network` to CommandEffectEntry
-    @pytest.mark.skip(reason="often_needs_network field not yet added to CommandEffectEntry (Task 2)")
     def test_network_error_with_often_needs_network(self, detector):
         from app.security.command_effect_registry import CommandEffectRegistry
         registry = CommandEffectRegistry()

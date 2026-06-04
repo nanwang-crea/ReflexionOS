@@ -16,6 +16,7 @@ class CommandEffectEntry(BaseModel):
     subcommand_overrides: dict[str, EffectCategory] = {}  # Subcommand effect overrides
     flag_overrides: dict[str, EffectCategory] = {}        # Specific flag overrides
     platform_overrides: dict[str, str | EffectCategory] = {}  # Platform-specific overrides
+    often_needs_network: bool = False
 
 
 def _normalize_command_name(command: str) -> str:
@@ -62,6 +63,7 @@ class CommandEffectRegistry:
         self.register("git", CommandEffectEntry(
             category=EffectCategory.READ_ONLY,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "add": EffectCategory.WRITE_PROJECT,
                 "commit": EffectCategory.WRITE_PROJECT,
@@ -84,10 +86,15 @@ class CommandEffectRegistry:
         # ── WRITE_PROJECT ──────────────────────────────────────────
         write_project_commands = [
             "mkdir", "touch", "cp", "mv", "ln", "tar", "unzip",
-            "make", "cmake", "pre-commit", "pytest",
+            "make", "cmake", "pytest",
         ]
         for cmd in write_project_commands:
             self.register(cmd, CommandEffectEntry(category=EffectCategory.WRITE_PROJECT))
+
+        self.register("pre-commit", CommandEffectEntry(
+            category=EffectCategory.WRITE_PROJECT,
+            often_needs_network=True,
+        ))
 
         # python / python3 — WRITE_PROJECT base, -c → CODE_GEN
         for cmd in ["python", "python3"]:
@@ -114,6 +121,7 @@ class CommandEffectRegistry:
         self.register("npm", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "install": EffectCategory.WRITE_PROJECT,
                 "run": EffectCategory.WRITE_PROJECT,
@@ -132,6 +140,7 @@ class CommandEffectRegistry:
         self.register("pip", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "install": EffectCategory.WRITE_PROJECT,
                 "list": EffectCategory.READ_ONLY,
@@ -147,6 +156,7 @@ class CommandEffectRegistry:
         self.register("pip3", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "install": EffectCategory.WRITE_PROJECT,
                 "list": EffectCategory.READ_ONLY,
@@ -161,6 +171,7 @@ class CommandEffectRegistry:
         self.register("cargo", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "build": EffectCategory.WRITE_PROJECT,
                 "test": EffectCategory.WRITE_PROJECT,
@@ -176,6 +187,7 @@ class CommandEffectRegistry:
         self.register("go", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "build": EffectCategory.WRITE_PROJECT,
                 "test": EffectCategory.WRITE_PROJECT,
@@ -190,6 +202,7 @@ class CommandEffectRegistry:
         self.register("dotnet", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "build": EffectCategory.WRITE_PROJECT,
                 "test": EffectCategory.WRITE_PROJECT,
@@ -201,6 +214,7 @@ class CommandEffectRegistry:
         self.register("docker", CommandEffectEntry(
             category=EffectCategory.WRITE_PROJECT,
             allow_subcommands=True,
+            often_needs_network=True,
             subcommand_overrides={
                 "build": EffectCategory.WRITE_PROJECT,
                 "compose": EffectCategory.WRITE_PROJECT,
