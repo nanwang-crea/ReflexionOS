@@ -110,3 +110,45 @@ class TestRegistryAuxiliary:
             platform="darwin",
         )
         assert result is None
+
+
+class TestPythonNetworkErrors:
+    def test_socket_gaierror_errno8(self, detector):
+        stderr = 'socket.gaierror: [Errno 8] nodename nor servname provided, or not known'
+        result = detector.detect(returncode=1, stderr=stderr, platform="darwin")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED
+        assert result.confidence == "high"
+
+    def test_urlopen_error_errno8(self, detector):
+        stderr = 'urllib.error.URLError: <urlopen error [Errno 8] nodename nor servname provided>'
+        result = detector.detect(returncode=1, stderr=stderr, platform="darwin")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED
+        assert result.confidence == "high"
+
+    def test_requests_connection_error(self, detector):
+        stderr = 'requests.exceptions.ConnectionError: HTTPSConnectionPool(host=\'pypi.org\'): Max retries exceeded'
+        result = detector.detect(returncode=1, stderr=stderr, platform="darwin")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED
+        assert result.confidence == "high"
+
+    def test_new_connection_error(self, detector):
+        stderr = 'urllib3.exceptions.NewConnectionError: Failed to establish a new connection'
+        result = detector.detect(returncode=1, stderr=stderr, platform="darwin")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED
+        assert result.confidence == "high"
+
+    def test_getaddrinfo_failed(self, detector):
+        stderr = 'socket.gaierror: getaddrinfo failed'
+        result = detector.detect(returncode=1, stderr=stderr, platform="linux")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED
+
+    def test_python_network_error_on_linux(self, detector):
+        stderr = 'requests.exceptions.ConnectionError: Failed to establish a new connection'
+        result = detector.detect(returncode=1, stderr=stderr, platform="linux")
+        assert result is not None
+        assert result.error_type == SandboxErrorType.NETWORK_DENIED

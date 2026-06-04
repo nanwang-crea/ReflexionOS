@@ -54,4 +54,5 @@ class SeatbeltSandbox(SandboxProvider):
             read_only_paths=read_only_paths,
         )
         profile = SeatbeltProfileBuilder(policy).build()
-        return f"/usr/bin/sandbox-exec -p {shlex.quote(profile)} -- {command}"
+        shell = "/bin/zsh" if sys.platform == "darwin" else "/bin/bash"
+        return f"/usr/bin/sandbox-exec -p {shlex.quote(profile)} -- {shell} -c {shlex.quote(command)}"

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 from typing import Any
 
@@ -16,6 +17,50 @@ from app.security.shell_security import ShellSecurity
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 
 logger = logging.getLogger(__name__)
+
+_CONDA_BASE_ENV: dict[str, str] | None = None
+
+
+def _get_conda_base_env() -> dict[str, str] | None:
+    global _CONDA_BASE_ENV
+    if _CONDA_BASE_ENV is not None:
+        return _CONDA_BASE_ENV
+    try:
+        import subprocess
+        conda_exe = os.environ.get("CONDA_EXE") or os.environ.get("MAMBA_EXE")
+        if not conda_exe:
+            for candidate in ("conda", "mamba"):
+                import shutil
+                found = shutil.which(candidate)
+                if found:
+                    conda_exe = found
+                    break
+        if not conda_exe:
+            _CONDA_BASE_ENV = {}
+            return None
+        result = subprocess.run(
+            [conda_exe, "shell.bash", "hook"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            _CONDA_BASE_ENV = {}
+            return None
+        env_lines = []
+        for line in result.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("export ") and "=" in stripped:
+                env_lines.append(stripped[len("export "):])
+        env = dict(os.environ)
+        for assignment in env_lines:
+            key, _, value = assignment.partition("=")
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+            env[key] = value
+        _CONDA_BASE_ENV = env
+        return _CONDA_BASE_ENV
+    except Exception:
+        _CONDA_BASE_ENV = {}
+        return None
 
 
 class ShellTool(BaseTool):
@@ -38,6 +83,12 @@ class ShellTool(BaseTool):
         self._session_id = session_id
         self.trust_store = trust_store
         self.sandbox_error_detector = SandboxErrorDetector()
+
+    def _build_env(self) -> dict[str, str] | None:
+        conda_env = _get_conda_base_env()
+        if conda_env:
+            return conda_env
+        return None
 
     @property
     def name(self) -> str:
@@ -165,7 +216,8 @@ class ShellTool(BaseTool):
             )
 
         process = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
+            env=self._build_env(),
         )
 
         try:
@@ -221,7 +273,6 @@ class ShellTool(BaseTool):
             )
 
         executable = "/bin/zsh" if sys.platform == "darwin" else "/bin/bash"
-        import os
         if not os.path.exists(executable):
             executable = "/bin/sh"
 
@@ -231,6 +282,7 @@ class ShellTool(BaseTool):
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             executable=executable,
+            env=self._build_env(),
         )
 
         try:

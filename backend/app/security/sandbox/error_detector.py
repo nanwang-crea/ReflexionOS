@@ -37,6 +37,18 @@ class SandboxErrorDetector:
         re.compile(r"Could not resolve host", re.IGNORECASE),
         re.compile(r"Temporary failure in name resolution", re.IGNORECASE),
     ]
+    PYTHON_NETWORK_ERROR_PATTERNS = [
+        re.compile(r"socket\.gaierror.*Errno\s+8", re.IGNORECASE),
+        re.compile(r"nodename nor servname provided", re.IGNORECASE),
+        re.compile(r"urlopen error.*Errno\s+8", re.IGNORECASE),
+        re.compile(r"URLError.*nodename nor servname", re.IGNORECASE),
+        re.compile(r"NewConnectionError", re.IGNORECASE),
+        re.compile(r"MaxRetryError.*ConnectionError", re.IGNORECASE),
+        re.compile(r"requests\.exceptions\.ConnectionError", re.IGNORECASE),
+        re.compile(r"Failed to establish a new connection", re.IGNORECASE),
+        re.compile(r"Name or service not known", re.IGNORECASE),
+        re.compile(r"getaddrinfo\s+failed", re.IGNORECASE),
+    ]
     GENERIC_NETWORK_ERROR_PATTERNS = [
         re.compile(r"Connection refused", re.IGNORECASE),
         re.compile(r"Connection timed? ?out", re.IGNORECASE),
@@ -82,6 +94,14 @@ class SandboxErrorDetector:
                     confidence="high",
                 )
 
+        for pattern in self.PYTHON_NETWORK_ERROR_PATTERNS:
+            if pattern.search(stderr):
+                return SandboxErrorInfo(
+                    error_type=SandboxErrorType.NETWORK_DENIED,
+                    original_stderr=stderr,
+                    confidence="high",
+                )
+
         denied_paths = []
         for pattern in self.SEATBELT_PATH_PATTERNS:
             for match in pattern.finditer(stderr):
@@ -109,6 +129,14 @@ class SandboxErrorDetector:
                     error_type=SandboxErrorType.NETWORK_DENIED,
                     original_stderr=stderr,
                     confidence="medium",
+                )
+
+        for pattern in self.PYTHON_NETWORK_ERROR_PATTERNS:
+            if pattern.search(stderr):
+                return SandboxErrorInfo(
+                    error_type=SandboxErrorType.NETWORK_DENIED,
+                    original_stderr=stderr,
+                    confidence="high",
                 )
 
         return self._detect_generic_network(stderr, returncode, command_argv, registry)

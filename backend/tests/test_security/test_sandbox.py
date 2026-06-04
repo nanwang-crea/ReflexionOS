@@ -443,7 +443,8 @@ class TestSeatbeltSandbox:
             allowed_paths=["/project"],
         )
         assert result.startswith("/usr/bin/sandbox-exec -p ")
-        assert result.endswith(" -- echo hello")
+        assert " -- /bin/zsh -c " in result
+        assert result.endswith("'echo hello'")
 
     def test_wrap_shell_command_profile_is_quoted(self):
         sandbox = self._make_sandbox()
@@ -516,7 +517,7 @@ class TestLandlockSandbox:
                 allowed_paths=["/project"],
             )
             assert result.startswith("bwrap ")
-            assert result.endswith(" -- echo hello")
+        assert result.endswith(" -- /bin/bash -c 'echo hello'")
 
     def test_check_bwrap_support_returns_false_on_error(self):
         sandbox = self._make_sandbox()

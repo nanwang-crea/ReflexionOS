@@ -72,4 +72,5 @@ class LandlockSandbox(SandboxProvider):
         )
         bwrap_args = LandlockProfileBuilder(policy, cwd=cwd).build()
         args_str = " ".join(shlex.quote(a) for a in bwrap_args)
-        return f"bwrap {args_str} -- {command}"
+        shell = "/bin/bash"
+        return f"bwrap {args_str} -- {shell} -c {shlex.quote(command)}"
