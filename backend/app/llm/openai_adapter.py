@@ -123,6 +123,7 @@ class OpenAIAdapter(UniversalLLMInterface):
             )
 
             current_tool_calls: dict[int, dict] = {}
+            _next_tc_index = 0
             _dsml_prefix = "<|DSML|"
             _content_buf = ""
             _dsml_detected = False
@@ -169,20 +170,42 @@ class OpenAIAdapter(UniversalLLMInterface):
 
                     if delta.tool_calls:
                         for tc in delta.tool_calls:
-                            idx = tc.index
-                            if idx not in current_tool_calls:
-                                current_tool_calls[idx] = {
+                            tc_index = tc.index
+
+                            if tc_index not in current_tool_calls:
+                                if tc.id and tc_index != _next_tc_index:
+                                    pass
+                                elif not tc.id and tc_index in current_tool_calls and current_tool_calls[tc_index]["arguments"].rstrip().endswith("}"):
+                                    _next_tc_index += 1
+                                    tc_index = _next_tc_index
+                                else:
+                                    _next_tc_index = max(_next_tc_index, tc_index)
+
+                                current_tool_calls[tc_index] = {
                                     "id": tc.id or "",
                                     "name": "",
                                     "arguments": "",
                                 }
+                                _next_tc_index = max(_next_tc_index, tc_index)
                             elif tc.id:
-                                current_tool_calls[idx]["id"] = tc.id
+                                current_tool_calls[tc_index]["id"] = tc.id
+
                             if tc.function:
                                 if tc.function.name:
-                                    current_tool_calls[idx]["name"] = tc.function.name
+                                    current_tool_calls[tc_index]["name"] = tc.function.name
                                 if tc.function.arguments:
-                                    current_tool_calls[idx]["arguments"] += tc.function.arguments
+                                    existing = current_tool_calls[tc_index]["arguments"]
+                                    if existing.rstrip().endswith("}") and tc.function.arguments.lstrip().startswith("{"):
+                                        _next_tc_index += 1
+                                        new_idx = _next_tc_index
+                                        current_tool_calls[new_idx] = {
+                                            "id": tc.id or "",
+                                            "name": tc.function.name or current_tool_calls[tc_index]["name"],
+                                            "arguments": tc.function.arguments,
+                                        }
+                                        tc_index = new_idx
+                                    else:
+                                        current_tool_calls[tc_index]["arguments"] += tc.function.arguments
 
                     if finish_reason:
                         has_structured_tc = bool(current_tool_calls)
@@ -273,26 +296,104 @@ class OpenAIAdapter(UniversalLLMInterface):
             for tool in tools
         ]
 
+    @staticmethod
+    def _split_concatenated_json(raw: str) -> list[str]:
+        """Split concatenated JSON objects like }{ or }\\s*{ that some LLM
+        providers emit when multiple tool_calls share the same streaming index.
+
+        Uses a simple brace-depth scanner so it works even when inner strings
+        contain nested braces (as long as they are properly quoted/escaped).
+        """
+        results: list[str] = []
+        depth = 0
+        start = -1
+        in_string = False
+        escape = False
+
+        for i, ch in enumerate(raw):
+            if escape:
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                if depth == 0:
+                    start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    results.append(raw[start:i + 1])
+                    start = -1
+
+        if depth != 0:
+            results.append(raw)
+
+        return results or [raw]
+
     def _build_structured_tool_calls(
         self, current_tool_calls: dict[int, dict]
     ) -> list[LLMToolCall]:
         """Aggregate streaming tool_call deltas into LLMToolCall list."""
         tool_calls = []
+        next_idx = max(current_tool_calls.keys()) + 1 if current_tool_calls else 0
+
         for idx in sorted(current_tool_calls.keys()):
             tc_data = current_tool_calls[idx]
+            raw_args = tc_data["arguments"]
+
             try:
-                args = json.loads(tc_data["arguments"])
+                args = json.loads(raw_args)
             except json.JSONDecodeError:
-                raw_fragment = tc_data["arguments"][:200] if tc_data["arguments"] else ""
-                logger.warning(
-                    "Streaming tool arguments JSON parse failed for tool=%s, raw fragment: %s",
-                    tc_data["name"], raw_fragment,
-                )
-                args = {
-                    "__reflexion_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
-                                    "Please retry the tool call with valid parameters.",
-                    "__reflexion_raw_arguments": raw_fragment,
-                }
+                fragments = self._split_concatenated_json(raw_args)
+                if len(fragments) > 1:
+                    parsed = []
+                    for frag in fragments:
+                        try:
+                            parsed.append(json.loads(frag))
+                        except json.JSONDecodeError:
+                            parsed.append(None)
+
+                    if parsed[0] is not None:
+                        args = parsed[0]
+                        for extra_idx, extra_args in enumerate(parsed[1:], start=1):
+                            if extra_args is not None:
+                                tool_calls.append(
+                                    LLMToolCall(
+                                        id=tc_data["id"] or f"call_{next_idx}",
+                                        name=tc_data["name"],
+                                        arguments=extra_args,
+                                    )
+                                )
+                                next_idx += 1
+                    else:
+                        raw_fragment = raw_args[:200] if raw_args else ""
+                        logger.warning(
+                            "Streaming tool arguments JSON parse failed for tool=%s, raw fragment: %s",
+                            tc_data["name"], raw_fragment,
+                        )
+                        args = {
+                            "__reflexion_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
+                                            "Please retry the tool call with valid parameters.",
+                            "__reflexion_raw_arguments": raw_fragment,
+                        }
+                else:
+                    raw_fragment = raw_args[:200] if raw_args else ""
+                    logger.warning(
+                        "Streaming tool arguments JSON parse failed for tool=%s, raw fragment: %s",
+                        tc_data["name"], raw_fragment,
+                    )
+                    args = {
+                        "__reflexion_parse_error": "Tool arguments JSON parse failed — the model output was malformed. "
+                                        "Please retry the tool call with valid parameters.",
+                        "__reflexion_raw_arguments": raw_fragment,
+                    }
 
             tool_calls.append(
                 LLMToolCall(

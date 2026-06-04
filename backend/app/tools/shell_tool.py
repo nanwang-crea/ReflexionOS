@@ -270,6 +270,17 @@ class ShellTool(BaseTool):
                     sandbox_allow_network=sandbox_allow_network,
                     sandbox_extra_paths=sandbox_extra_paths,
                 )
+        except FileNotFoundError:
+            cmd_name = decision.command.split()[0] if decision.command else "command"
+            logger.error("命令不存在: %s", decision.command)
+            return ToolResult(success=False, error=f"命令未找到: {cmd_name} (exit code 127)", data={"return_code": 127})
+        except OSError as e:
+            cmd_name = decision.command.split()[0] if decision.command else "command"
+            if e.errno == 2 or "not found" in str(e).lower():
+                logger.error("命令不存在: %s", decision.command)
+                return ToolResult(success=False, error=f"命令未找到: {cmd_name} (exit code 127)", data={"return_code": 127})
+            logger.error("Shell 执行系统错误: %s", e)
+            return ToolResult(success=False, error=f"执行错误: {e} (errno={e.errno})", data={"return_code": -1})
         except Exception as e:
             logger.error("Shell 执行异常: %s", e)
             return ToolResult(success=False, error=str(e))
@@ -326,7 +337,8 @@ class ShellTool(BaseTool):
                     effect_category=effect_category,
                 )
                 return self._create_approval_result(decision, elevation=error_info)
-            return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
+            friendly_error = self._friendly_error(process.returncode, error, output, argv[0] if argv else "")
+            return ToolResult(success=False, output=output, error=friendly_error, data={"return_code": process.returncode})
 
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
@@ -389,7 +401,23 @@ class ShellTool(BaseTool):
                     effect_category=effect_category,
                 )
                 return self._create_approval_result(decision, elevation=error_info)
-            return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
+            cmd_name = command.split()[0] if command.split() else ""
+            friendly_error = self._friendly_error(process.returncode, error, output, cmd_name)
+            return ToolResult(success=False, output=output, error=friendly_error, data={"return_code": process.returncode})
+
+    @staticmethod
+    def _friendly_error(returncode: int, stderr: str, stdout: str, cmd_name: str) -> str:
+        if returncode == 127:
+            return f"命令未找到: {cmd_name}" if cmd_name else "命令未找到 (exit code 127)"
+        if returncode == 126:
+            return f"命令不可执行: {cmd_name}" if cmd_name else "命令不可执行 (exit code 126)"
+        if returncode == 1 and not stderr.strip() and "not found" in stdout.lower():
+            return f"命令未找到: {cmd_name}" if cmd_name else "命令未找到"
+        if stderr.strip():
+            return stderr.strip()
+        if returncode != 0:
+            return f"命令失败 (exit code {returncode})"
+        return "Unknown error"
 
     def _create_approval_result(
         self,

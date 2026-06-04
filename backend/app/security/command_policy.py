@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shlex
 import subprocess
 
@@ -456,18 +457,24 @@ class CommandPolicy:
 
         return current_effect
 
+    _REDIRECT_PATTERN = re.compile(r'(?:2>&1|2>>?|>>?>)\s*(\S+)')
+    _APPEND_REDIRECT_PATTERN = re.compile(r'>>\s*(\S+)')
+
     def _classify_shell_command(self, command: str) -> EffectCategory:
         """Classify a shell command containing pipes, &&/||, ;, and redirects.
 
         Splits by |, &&, ||, and ; — classifies each segment independently,
         then returns the most dangerous effect category.
         Redirects (>, >>, 2>) add WRITE_PROJECT to the effect list.
+        Redirect targets outside allowed paths upgrade to WRITE_SYSTEM.
         """
         effects: list[EffectCategory] = []
 
-        # Detect redirects → WRITE_PROJECT
-        if ">" in command or ">>" in command or "2>" in command:
-            effects.append(EffectCategory.WRITE_PROJECT)
+        has_redirect = ">" in command or ">>" in command or "2>" in command
+
+        if has_redirect:
+            redirect_effect = self._classify_redirect_target(command)
+            effects.append(redirect_effect)
 
         # Split by all shell operators (|, &&, ||, ;) and classify each segment
         segments = self._split_shell_chain(command)
@@ -487,6 +494,20 @@ class CommandPolicy:
             return EffectCategory.UNKNOWN
 
         return most_dangerous(effects)
+
+    def _classify_redirect_target(self, command: str) -> EffectCategory:
+        """Classify redirect targets: paths within allowed_paths → WRITE_PROJECT,
+        paths outside → WRITE_SYSTEM. 2>&1 (no target file) → WRITE_PROJECT."""
+        for m in self._REDIRECT_PATTERN.finditer(command):
+            target = m.group(1)
+            if target == "&1":
+                continue
+            try:
+                resolved = os.path.expanduser(target)
+                self.path_security.validate_path(resolved)
+            except SecurityError:
+                return EffectCategory.WRITE_SYSTEM
+        return EffectCategory.WRITE_PROJECT
 
     def _split_shell_chain(self, command: str) -> list[str]:
         """Split a shell command by |, &&, ||, and ; respecting basic quoting.

@@ -507,7 +507,7 @@ class RapidExecutionLoop:
                     available_actions = action_prop["enum"]
 
         error_prompt = self.prompt_manager.get_error_prompt(
-            error=last_step.error or "Unknown error",
+            error=last_step.error or "工具执行失败（无错误详情）",
             tool=last_step.tool,
             original_args=original_args,
             available_actions=available_actions,
