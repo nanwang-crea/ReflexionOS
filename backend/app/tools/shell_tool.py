@@ -9,6 +9,7 @@ from app.security.command_policy import CommandAction, CommandDecision, CommandP
 from app.security.effect_category import EffectCategory
 from app.security.path_security import PathSecurity
 from app.security.sandbox.base import SandboxProvider
+from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.factory import NullSandbox
 from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
@@ -36,6 +37,7 @@ class ShellTool(BaseTool):
         self.policy = CommandPolicy(security, path_security, self.registry)
         self._session_id = session_id
         self.trust_store = trust_store
+        self.sandbox_error_detector = SandboxErrorDetector()
 
     @property
     def name(self) -> str:
@@ -103,22 +105,46 @@ class ShellTool(BaseTool):
         self, decision_data: dict, default_timeout: int
     ) -> ToolResult:
         decision = CommandDecision.model_validate(decision_data)
+        elevation = decision_data.get("elevation_request")
+
+        if elevation:
+            if elevation["type"] == "network":
+                decision._sandbox_allow_network = True
+            elif elevation["type"] == "path":
+                decision._sandbox_extra_paths = elevation["denied_paths"]
+
         return await self._execute_decision(decision)
 
     async def _execute_decision(self, decision: CommandDecision) -> ToolResult:
         cwd = decision.cwd or self.path_security.base_dir
         timeout = decision.timeout
 
+        sandbox_allow_network = getattr(decision, '_sandbox_allow_network', False)
+        sandbox_extra_paths = getattr(decision, '_sandbox_extra_paths', [])
+
+        if self._session_id and self.trust_store:
+            if self.trust_store.matches(self._session_id, "sandbox_network", "*"):
+                sandbox_allow_network = True
+            for rule in self.trust_store.get_rules(self._session_id):
+                if rule.permission == "sandbox_path":
+                    sandbox_extra_paths.append(rule.pattern.rstrip("/*"))
+
         try:
             if decision.execution_mode == "shell":
                 return await self._execute_shell(
-                    decision.command, cwd, timeout, decision.effect_category
+                    decision.command, cwd, timeout, decision.effect_category,
+                    sandbox_allow_network=sandbox_allow_network,
+                    sandbox_extra_paths=sandbox_extra_paths,
                 )
             else:
                 argv = decision.argv
                 if argv is None:
                     return ToolResult(success=False, error="argv 模式决策缺少 argv")
-                return await self._execute_argv(argv, cwd, timeout, decision.effect_category)
+                return await self._execute_argv(
+                    argv, cwd, timeout, decision.effect_category,
+                    sandbox_allow_network=sandbox_allow_network,
+                    sandbox_extra_paths=sandbox_extra_paths,
+                )
         except Exception as e:
             logger.error("Shell 执行异常: %s", e)
             return ToolResult(success=False, error=str(e))
@@ -126,15 +152,16 @@ class ShellTool(BaseTool):
     async def _execute_argv(
         self, argv: list[str], cwd: str, timeout: int,
         effect_category: EffectCategory | None = None,
+        sandbox_allow_network: bool = False,
+        sandbox_extra_paths: list[str] | None = None,
     ) -> ToolResult:
-        # Wrap in sandbox if available (confinement, not authorization)
         if self.sandbox.is_available():
-            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
+            allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
+            allowed_paths = list(self.path_security.allowed_base_paths)
+            if sandbox_extra_paths:
+                allowed_paths.extend(sandbox_extra_paths)
             argv = self.sandbox.wrap_command(
-                argv,
-                cwd=cwd,
-                allowed_paths=self.path_security.allowed_base_paths,
-                allow_network=allow_network,
+                argv, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
 
         process = await asyncio.create_subprocess_exec(
@@ -156,23 +183,41 @@ class ShellTool(BaseTool):
             return ToolResult(success=True, output=output, data={"return_code": process.returncode})
         else:
             logger.warning("argv 命令执行失败: %s, 返回码: %s", " ".join(argv), process.returncode)
+            error_info = self.sandbox_error_detector.detect(
+                returncode=process.returncode,
+                stderr=error,
+                command_argv=argv,
+                registry=self.registry,
+            )
+            if error_info is not None:
+                decision = CommandDecision(
+                    action=CommandAction.ALLOW,
+                    execution_mode="argv",
+                    command=" ".join(argv),
+                    argv=argv,
+                    cwd=cwd,
+                    timeout=timeout,
+                    effect_category=effect_category,
+                )
+                return self._create_approval_result(decision, elevation=error_info)
             return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
 
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
         effect_category: EffectCategory | None = None,
+        sandbox_allow_network: bool = False,
+        sandbox_extra_paths: list[str] | None = None,
     ) -> ToolResult:
         if sys.platform == "win32":
             return ToolResult(success=False, error="Windows shell 模式尚未支持")
 
-        # Wrap in sandbox if available (confinement, not authorization)
         if self.sandbox.is_available():
-            allow_network = (effect_category == EffectCategory.NETWORK_OUT)
+            allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
+            allowed_paths = list(self.path_security.allowed_base_paths)
+            if sandbox_extra_paths:
+                allowed_paths.extend(sandbox_extra_paths)
             command = self.sandbox.wrap_shell_command(
-                command,
-                cwd=cwd,
-                allowed_paths=self.path_security.allowed_base_paths,
-                allow_network=allow_network,
+                command, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
 
         executable = "/bin/zsh" if sys.platform == "darwin" else "/bin/bash"
@@ -203,45 +248,90 @@ class ShellTool(BaseTool):
             return ToolResult(success=True, output=output, data={"return_code": process.returncode})
         else:
             logger.warning("Shell 命令执行失败: %s, 返回码: %s", command, process.returncode)
+            error_info = self.sandbox_error_detector.detect(
+                returncode=process.returncode,
+                stderr=error,
+                registry=self.registry,
+            )
+            if error_info is not None:
+                decision = CommandDecision(
+                    action=CommandAction.ALLOW,
+                    execution_mode="shell",
+                    command=command,
+                    cwd=cwd,
+                    timeout=timeout,
+                    effect_category=effect_category,
+                )
+                return self._create_approval_result(decision, elevation=error_info)
             return ToolResult(success=False, output=output, error=error, data={"return_code": process.returncode})
 
-    def _create_approval_result(self, decision: CommandDecision) -> ToolResult:
+    def _create_approval_result(
+        self,
+        decision: CommandDecision,
+        elevation: SandboxErrorInfo | None = None,
+    ) -> ToolResult:
         import uuid
 
         approval_id = f"approval-{uuid.uuid4().hex[:12]}"
 
-        summary_parts = []
-        if decision.execution_mode == "shell":
-            summary_parts.append("使用 shell 执行命令")
-        else:
-            summary_parts.append("需要审批的命令")
-        if decision.reasons:
-            summary_parts.append("; ".join(decision.reasons))
-        if decision.effect_category:
-            summary_parts.append(f"效果分类: {decision.effect_category.value}")
+        if elevation is not None:
+            if elevation.error_type == SandboxErrorType.NETWORK_DENIED:
+                approval_kind = "sandbox_network_elevation"
+                summary = f"沙箱阻止了网络访问: {decision.command}"
+                reasons = ["命令需要网络访问，但沙箱默认禁止网络"]
+                risks = ["允许网络访问可能导致数据外传"]
+                elevation_request = {"type": "network", "denied_paths": []}
+            else:
+                approval_kind = "sandbox_path_elevation"
+                paths_str = ", ".join(elevation.denied_paths)
+                summary = f"沙箱阻止了路径访问: {decision.command} — {paths_str}"
+                reasons = [f"命令需要访问沙箱外路径: {paths_str}"]
+                risks = ["访问项目外路径可能暴露敏感文件"]
+                elevation_request = {"type": "path", "denied_paths": elevation.denied_paths}
 
-        summary = " — ".join(summary_parts)
+            suggested_trust = None
+            if elevation.error_type == SandboxErrorType.NETWORK_DENIED:
+                suggested_trust = {"permission": "sandbox_network", "pattern": "*"}
+            elif elevation.denied_paths:
+                suggested_trust = {"permission": "sandbox_path", "pattern": elevation.denied_paths[0] + "/*"}
+        else:
+            approval_kind = decision.approval_kind
+            summary_parts = []
+            if decision.execution_mode == "shell":
+                summary_parts.append("使用 shell 执行命令")
+            else:
+                summary_parts.append("需要审批的命令")
+            if decision.reasons:
+                summary_parts.append("; ".join(decision.reasons))
+            if decision.effect_category:
+                summary_parts.append(f"效果分类: {decision.effect_category.value}")
+            summary = " — ".join(summary_parts)
+            reasons = decision.reasons
+            risks = decision.risks
+            elevation_request = None
+            suggested_trust = {"prefix": decision.suggested_prefix_rule} if decision.suggested_prefix_rule else None
 
         approval = ToolApprovalRequest(
             approval_id=approval_id,
             tool_name="shell",
             summary=summary,
-            reasons=decision.reasons,
-            risks=decision.risks,
+            reasons=reasons,
+            risks=risks,
             payload={
                 "command": decision.command,
                 "execution_mode": decision.execution_mode,
                 "argv": decision.argv,
                 "cwd": decision.cwd,
                 "timeout": decision.timeout,
-                "approval_kind": decision.approval_kind,
+                "approval_kind": approval_kind,
                 "suggested_prefix_rule": decision.suggested_prefix_rule,
                 "effect_category": decision.effect_category.value if decision.effect_category else None,
+                "elevation_request": elevation_request,
                 "environment_snapshot": decision.environment_snapshot.model_dump() if decision.environment_snapshot else None,
                 "approved_decision": decision.model_dump(),
             },
             suggested_action="allow_once",
-            suggested_trust={"prefix": decision.suggested_prefix_rule} if decision.suggested_prefix_rule else None,
+            suggested_trust=suggested_trust,
         )
 
         return ToolResult(
