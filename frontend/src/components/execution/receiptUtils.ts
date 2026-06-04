@@ -9,6 +9,23 @@ export interface ShellApprovalPayload {
   risks?: string[]
 }
 
+export interface SandboxNetworkPayload {
+  approval_kind: "sandbox_network_elevation"
+  command: string
+  execution_mode: string
+  reasons: string[]
+  risks: string[]
+}
+
+export interface SandboxPathPayload {
+  approval_kind: "sandbox_path_elevation"
+  command: string
+  execution_mode: string
+  denied_paths: string[]
+  reasons: string[]
+  risks: string[]
+}
+
 export interface ActionReceiptDetail {
   id: string
   toolName: string
@@ -18,8 +35,10 @@ export interface ActionReceiptDetail {
   approval?: {
     runId: string
     approvalId: string
-    suggestedTrust?: { prefix?: string[] }
+    suggestedTrust?: { prefix?: string[]; permission?: string; pattern?: string }
     shell?: ShellApprovalPayload
+    sandboxNetwork?: SandboxNetworkPayload
+    sandboxPath?: SandboxPathPayload
   }
   output?: string
   error?: string

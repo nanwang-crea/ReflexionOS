@@ -1,8 +1,8 @@
 import { memo, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, Loader2, ShieldAlert, ShieldCheck, Terminal, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, FolderLock, Globe, Loader2, ShieldAlert, ShieldCheck, Terminal, X } from 'lucide-react'
 import { type ApprovalActionHandler, type ApprovalActionPayload, type ApprovalActionType, sendApprovalAction } from './approvalActions'
-import { type ActionReceiptDetail, type ActionReceiptStatus, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
+import { type ActionReceiptDetail, type ActionReceiptStatus, type SandboxNetworkPayload, type SandboxPathPayload, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
 
 interface ActionReceiptProps {
   status: ActionReceiptStatus
@@ -39,6 +39,54 @@ const ShellApprovalDetail = memo(function ShellApprovalDetail({ shell }: { shell
       {shell.risks && shell.risks.length > 0 && (
         <div className="text-xs text-status-warning pl-6">
           <span className="font-medium">风险:</span> {shell.risks.join('；')}
+        </div>
+      )}
+    </div>
+  )
+})
+
+const SandboxNetworkDetail = memo(function SandboxNetworkDetail({ payload }: { payload: SandboxNetworkPayload }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
+        <Globe className="h-4 w-4 shrink-0 text-content-muted" />
+        <code className="font-mono text-sm break-all">{payload.command}</code>
+      </div>
+      <div className="text-xs text-status-warning pl-6">
+        沙箱阻止了网络访问
+      </div>
+      {payload.reasons && payload.reasons.length > 0 && (
+        <div className="text-xs text-content-secondary pl-6">
+          <span className="font-medium">原因:</span> {payload.reasons.join('；')}
+        </div>
+      )}
+      {payload.risks && payload.risks.length > 0 && (
+        <div className="text-xs text-status-warning pl-6">
+          <span className="font-medium">风险:</span> {payload.risks.join('；')}
+        </div>
+      )}
+    </div>
+  )
+})
+
+const SandboxPathDetail = memo(function SandboxPathDetail({ payload }: { payload: SandboxPathPayload }) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
+        <FolderLock className="h-4 w-4 shrink-0 text-content-muted" />
+        <code className="font-mono text-sm break-all">{payload.command}</code>
+      </div>
+      <div className="text-xs text-status-warning pl-6">
+        沙箱阻止了路径访问: {payload.denied_paths.join(', ')}
+      </div>
+      {payload.reasons && payload.reasons.length > 0 && (
+        <div className="text-xs text-content-secondary pl-6">
+          <span className="font-medium">原因:</span> {payload.reasons.join('；')}
+        </div>
+      )}
+      {payload.risks && payload.risks.length > 0 && (
+        <div className="text-xs text-status-warning pl-6">
+          <span className="font-medium">风险:</span> {payload.risks.join('；')}
         </div>
       )}
     </div>
@@ -173,11 +221,40 @@ const ApprovalCard = memo(function ApprovalCard({
       .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
         detail.status === 'waiting_for_approval' && hasApproval(detail)
       ))
-      .map((detail) => ({
-        id: detail.id,
-        approval: detail.approval,
-        shell: detail.approval.shell,
-      })),
+      .map((detail) => {
+        const payload = detail.data as Record<string, unknown> | undefined
+        const approvalKind = (payload?.approval_kind ?? detail.approval?.shell ? 'shell_command' : undefined) as string | undefined
+        let sandboxNetwork: SandboxNetworkPayload | undefined
+        let sandboxPath: SandboxPathPayload | undefined
+
+        if (approvalKind === 'sandbox_network_elevation' && payload) {
+          sandboxNetwork = {
+            approval_kind: 'sandbox_network_elevation',
+            command: (payload.command as string) || '',
+            execution_mode: (payload.execution_mode as string) || '',
+            reasons: (payload.reasons as string[]) || [],
+            risks: (payload.risks as string[]) || [],
+          }
+        } else if (approvalKind === 'sandbox_path_elevation' && payload) {
+          sandboxPath = {
+            approval_kind: 'sandbox_path_elevation',
+            command: (payload.command as string) || '',
+            execution_mode: (payload.execution_mode as string) || '',
+            denied_paths: ((payload.elevation_request as Record<string, unknown>)?.denied_paths as string[]) || [],
+            reasons: (payload.reasons as string[]) || [],
+            risks: (payload.risks as string[]) || [],
+          }
+        }
+
+        return {
+          id: detail.id,
+          approval: detail.approval,
+          shell: detail.approval.shell,
+          sandboxNetwork,
+          sandboxPath,
+          approvalKind,
+        }
+      }),
     [details]
   )
 
@@ -195,44 +272,58 @@ const ApprovalCard = memo(function ApprovalCard({
         {approvalDetails.map((detail) => (
           <div key={detail.id} className="rounded-lg border border-edge bg-surface-secondary px-3 py-2">
             {detail.shell && <ShellApprovalDetail shell={detail.shell} />}
+            {detail.sandboxNetwork && <SandboxNetworkDetail payload={detail.sandboxNetwork} />}
+            {detail.sandboxPath && <SandboxPathDetail payload={detail.sandboxPath} />}
           </div>
         ))}
       </div>
 
       <div className="border-t border-edge bg-surface-secondary px-4 py-3">
-        {approvalDetails.map((detail) => (
-          <div key={detail.id} className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent/40"
-            >
-              <Check className="h-3.5 w-3.5" />
-              允许一次
-            </button>
-            <button
-              type="button"
-              onClick={() => sendApprovalAction(onApprovalAction, 'trust', detail.approval)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-accent bg-surface-primary px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/30"
-            >
-              <ShieldCheck className="h-3.5 w-3.5" />
-              此会话允许
-            </button>
-            {detail.shell && detail.approval.suggestedTrust?.prefix && (
-              <span className="text-xs text-content-muted">
-                将信任: {detail.approval.suggestedTrust.prefix.join(', ')}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-md border border-edge bg-surface-primary px-3 py-1.5 text-sm font-medium text-content-secondary transition-colors hover:bg-surface-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30"
-            >
-              <X className="h-3.5 w-3.5" />
-              拒绝
-            </button>
-          </div>
-        ))}
+        {approvalDetails.map((detail) => {
+          const isNetworkElevation = detail.approvalKind === 'sandbox_network_elevation'
+          const isPathElevation = detail.approvalKind === 'sandbox_path_elevation'
+          const allowLabel = isNetworkElevation ? '允许网络一次' : isPathElevation ? '允许访问一次' : '允许一次'
+          const trustLabel = isNetworkElevation ? '此会话允许网络' : isPathElevation ? '此会话允许访问' : '此会话允许'
+
+          return (
+            <div key={detail.id} className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => sendApprovalAction(onApprovalAction, 'approve', detail.approval)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent/40"
+              >
+                <Check className="h-3.5 w-3.5" />
+                {allowLabel}
+              </button>
+              <button
+                type="button"
+                onClick={() => sendApprovalAction(onApprovalAction, 'trust', detail.approval)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-accent bg-surface-primary px-3 py-1.5 text-sm font-medium text-accent transition-colors hover:bg-accent/10 focus:outline-none focus:ring-2 focus:ring-accent/30"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                {trustLabel}
+              </button>
+              {detail.shell && detail.approval.suggestedTrust?.prefix && (
+                <span className="text-xs text-content-muted">
+                  将信任: {detail.approval.suggestedTrust.prefix.join(', ')}
+                </span>
+              )}
+              {(isNetworkElevation || isPathElevation) && detail.approval.suggestedTrust && (
+                <span className="text-xs text-content-muted">
+                  {isNetworkElevation ? '将信任: 网络访问' : `将信任: ${detail.approval.suggestedTrust.pattern || ''}`}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => sendApprovalAction(onApprovalAction, 'deny', detail.approval)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-edge bg-surface-primary px-3 py-1.5 text-sm font-medium text-content-secondary transition-colors hover:bg-surface-tertiary focus:outline-none focus:ring-2 focus:ring-accent/30"
+              >
+                <X className="h-3.5 w-3.5" />
+                拒绝
+              </button>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
