@@ -9,7 +9,7 @@ export function GitLogPanel() {
 
   useEffect(() => {
     fetchLog()
-  }, [])
+  }, [fetchLog])
 
   return (
     <div className="flex flex-col">

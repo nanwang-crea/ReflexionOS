@@ -27,7 +27,7 @@ export function GitBranchBar() {
       document.addEventListener('mousedown', handleClickOutside)
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
-  }, [showBranchPicker])
+  }, [showBranchPicker, setShowBranchPicker])
 
   if (!branchInfo) return null
 

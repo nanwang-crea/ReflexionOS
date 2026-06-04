@@ -100,6 +100,7 @@ export function CodeTab() {
 
     load()
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFileId, activeFile?.path, activeFile?.viewMode, projectId])
 
   const handleEditChange = useCallback(

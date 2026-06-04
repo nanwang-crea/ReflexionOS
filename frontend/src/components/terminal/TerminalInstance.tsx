@@ -84,7 +84,7 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
         fitAddonRef.current.fit()
         const { cols, rows } = termRef.current
         terminalIpc.resize(terminalId, cols, rows)
-      } catch {}
+      } catch (_e) { /* resize may fail during unmount */ }
     }
   }, [terminalId])
 
@@ -170,6 +170,7 @@ export function TerminalInstance({ terminalId }: TerminalInstanceProps) {
       termRef.current = null
       fitAddonRef.current = null
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [terminalId])
 
   return (

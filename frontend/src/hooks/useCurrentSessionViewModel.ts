@@ -56,6 +56,7 @@ export function useCurrentSessionViewModel(options: {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.hasMore, options.onLoadMore])
 
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {
@@ -66,6 +67,7 @@ export function useCurrentSessionViewModel(options: {
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
   const handleRegenerateMessage = useCallback((messageId: string) => {
@@ -77,6 +79,7 @@ export function useCurrentSessionViewModel(options: {
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
   const runtimeStatus = getRuntimeStatusDescriptor({

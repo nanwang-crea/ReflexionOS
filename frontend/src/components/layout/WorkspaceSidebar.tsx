@@ -204,6 +204,7 @@ export function WorkspaceSidebar() {
     setCurrentProject,
     loading
   } = useProjectStore()
+  const theme = useThemeStore((s) => s.theme)
   const { defaultProviderId, defaultModelId } = useSettingsStore()
   const {
     currentSessionId,
@@ -565,12 +566,7 @@ export function WorkspaceSidebar() {
               className="rounded-lg p-1.5 text-content-muted transition hover:bg-surface-tertiary hover:text-content-secondary"
               title={`切换主题`}
             >
-              {(() => {
-                const theme = useThemeStore((s) => s.theme)
-                if (theme === 'dark') return <Moon className="h-4 w-4" />
-                if (theme === 'system') return <Monitor className="h-4 w-4" />
-                return <Sun className="h-4 w-4" />
-              })()}
+              {theme === 'dark' ? <Moon className="h-4 w-4" /> : theme === 'system' ? <Monitor className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </button>
           </div>
         </div>
