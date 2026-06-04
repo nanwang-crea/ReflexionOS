@@ -961,11 +961,26 @@ class AgentService:
                             self.trust_store.add_rule(session_id, TrustRule(permission="external_path", pattern=prefix))
             return
 
+        suggested_trust = pending.approval_payload.get("suggested_trust")
+        if isinstance(suggested_trust, dict):
+            permission = suggested_trust.get("permission")
+            pattern = suggested_trust.get("pattern")
+            if permission and pattern:
+                self.trust_store.add_rule(session_id, TrustRule(permission=permission, pattern=pattern))
+                return
+
         suggested_prefixes = inner_payload.get("suggested_prefix_rule")
         if suggested_prefixes and isinstance(suggested_prefixes, list):
             for prefix in suggested_prefixes:
                 if isinstance(prefix, str) and prefix:
                     self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
+
+        if isinstance(suggested_trust, dict):
+            trust_prefixes = suggested_trust.get("prefix")
+            if trust_prefixes and isinstance(trust_prefixes, list):
+                for prefix in trust_prefixes:
+                    if isinstance(prefix, str) and prefix:
+                        self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
 
         suggested_trust = pending.approval_payload.get("suggested_trust")
         if isinstance(suggested_trust, dict):
@@ -981,7 +996,10 @@ class AgentService:
             if pending is None or pending.status != "pending":
                 continue
             inner_payload = pending.approval_payload.get("payload", {})
-            if inner_payload.get("access_type") == "external_path_read":
+            access_type = inner_payload.get("access_type")
+            approval_kind = inner_payload.get("approval_kind")
+
+            if access_type == "external_path_read":
                 path = inner_payload.get("path")
                 if path and self.trust_store.matches(session_id, "external_path", path):
                     await self.approve_tool_call(
@@ -990,6 +1008,28 @@ class AgentService:
                         approval_id=pending.id,
                         decision="allow_once",
                     )
+            elif approval_kind == "sandbox_network_elevation":
+                if self.trust_store.matches(session_id, "sandbox_network", "*"):
+                    await self.approve_tool_call(
+                        session_id=session_id,
+                        run_id=pending.run_id,
+                        approval_id=pending.id,
+                        decision="allow_once",
+                    )
+            elif approval_kind == "sandbox_path_elevation":
+                elevation_request = inner_payload.get("elevation_request")
+                if elevation_request and elevation_request.get("denied_paths"):
+                    all_matched = all(
+                        self.trust_store.matches(session_id, "sandbox_path", p + "/*")
+                        for p in elevation_request["denied_paths"]
+                    )
+                    if all_matched:
+                        await self.approve_tool_call(
+                            session_id=session_id,
+                            run_id=pending.run_id,
+                            approval_id=pending.id,
+                            decision="allow_once",
+                        )
             else:
                 command = inner_payload.get("command") or pending.tool_arguments.get("command")
                 if command and self.trust_store.matches(session_id, "shell", command):
