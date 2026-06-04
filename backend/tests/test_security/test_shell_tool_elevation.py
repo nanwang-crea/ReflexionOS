@@ -1,5 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from app.security.command_effect_registry import CommandEffectRegistry
+from app.security.command_policy import CommandAction, CommandDecision
 from app.security.sandbox.error_detector import SandboxErrorInfo, SandboxErrorType
 from app.security.effect_category import EffectCategory
 from app.tools.base import ToolResult
@@ -18,9 +20,11 @@ def shell_tool():
     security.platform_label = "darwin"
     security._is_windows.return_value = False
     security._command_name = lambda x: x.replace("\\", "/").split("/")[-1].lower()
+    security.validate_command = MagicMock()
     path_security = MagicMock(spec=PathSecurity)
     path_security.base_dir = "/project"
     path_security.allowed_base_paths = ["/project"]
+    path_security.validate_path = MagicMock(return_value="/project")
     registry = CommandEffectRegistry()
     trust_store = SessionTrustStore()
 
@@ -158,3 +162,93 @@ class TestSessionTrustElevation:
         )
         assert shell_tool.trust_store.matches("test-session", "sandbox_path", "/etc/hosts")
         assert not shell_tool.trust_store.matches("test-session", "sandbox_path", "/var/log")
+
+
+class TestRequiresNetworkParam:
+    @pytest.mark.asyncio
+    async def test_requires_network_creates_proactive_approval(self, shell_tool):
+        from app.security.sandbox.base import SandboxProvider
+
+        class AvailableSandbox(SandboxProvider):
+            def is_available(self):
+                return True
+            def wrap_command(self, argv, **kw):
+                return argv
+            def wrap_shell_command(self, command, **kw):
+                return command
+
+        shell_tool.sandbox = AvailableSandbox()
+        result = await shell_tool.execute({
+            "command": "pip install requests",
+            "requires_network": True,
+        })
+        assert result.approval_required is True
+        assert result.approval.payload["approval_kind"] == "sandbox_network_elevation"
+        assert result.approval.summary.startswith("命令需要网络访问")
+
+    @pytest.mark.asyncio
+    async def test_often_needs_network_auto_triggers_approval(self, shell_tool):
+        decision = CommandDecision(
+            action=CommandAction.ALLOW,
+            execution_mode="argv",
+            command="pip install requests",
+            argv=["pip", "install", "requests"],
+            effect_category=EffectCategory.WRITE_PROJECT,
+        )
+        from app.security.sandbox.base import SandboxProvider
+
+        class AvailableSandbox(SandboxProvider):
+            def is_available(self):
+                return True
+            def wrap_command(self, argv, **kw):
+                return argv
+            def wrap_shell_command(self, command, **kw):
+                return command
+
+        shell_tool.sandbox = AvailableSandbox()
+        assert shell_tool._needs_network_approval(decision, requires_network=False) is True
+
+    @pytest.mark.asyncio
+    async def test_non_network_command_no_approval(self, shell_tool):
+        decision = CommandDecision(
+            action=CommandAction.ALLOW,
+            execution_mode="argv",
+            command="echo hello",
+            argv=["echo", "hello"],
+            effect_category=EffectCategory.READ_ONLY,
+        )
+        from app.security.sandbox.base import SandboxProvider
+
+        class AvailableSandbox(SandboxProvider):
+            def is_available(self):
+                return True
+            def wrap_command(self, argv, **kw):
+                return argv
+            def wrap_shell_command(self, command, **kw):
+                return command
+
+        shell_tool.sandbox = AvailableSandbox()
+        assert shell_tool._needs_network_approval(decision, requires_network=False) is False
+
+    @pytest.mark.asyncio
+    async def test_network_out_category_no_duplicate_approval(self, shell_tool):
+        decision = CommandDecision(
+            action=CommandAction.REQUIRE_APPROVAL,
+            execution_mode="argv",
+            command="curl https://example.com",
+            argv=["curl", "https://example.com"],
+            approval_kind="shell_command",
+            effect_category=EffectCategory.NETWORK_OUT,
+        )
+        from app.security.sandbox.base import SandboxProvider
+
+        class AvailableSandbox(SandboxProvider):
+            def is_available(self):
+                return True
+            def wrap_command(self, argv, **kw):
+                return argv
+            def wrap_shell_command(self, command, **kw):
+                return command
+
+        shell_tool.sandbox = AvailableSandbox()
+        assert shell_tool._needs_network_approval(decision, requires_network=False) is False

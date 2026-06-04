@@ -100,9 +100,8 @@ class ShellTool(BaseTool):
             f"Execute safe commands (current platform: {self.security.platform_label}). "
             "Low-risk commands execute directly; high-risk commands and commands containing shell metacharacters require user approval. "
             "Commands run inside an OS-level sandbox that blocks network access by default. "
-            "If a command needs network (e.g. pip install, npm install, curl, wget, requests, API calls), "
-            "it will fail with a network error and the user will be asked to approve network access. "
-            "You should inform the user when a command requires network and they need to approve the elevation. "
+            "Set requires_network=true when the command needs internet access — this will prompt the user for network approval "
+            "before execution, avoiding a guaranteed failure. "
             f"{self.security.command_hint}"
         )
 
@@ -117,9 +116,15 @@ class ShellTool(BaseTool):
                         "type": "string",
                         "description": (
                             f"Command to execute. {self.security.command_hint} "
-                            "NOTE: The sandbox blocks network by default. Commands that need internet access "
-                            "(pip install, npm install, cargo build, go mod download, curl, wget, API calls, etc.) "
-                            "will trigger a network approval request — do NOT retry, wait for user approval."
+                            "The sandbox blocks network by default. If the command needs internet, set requires_network=true."
+                        ),
+                    },
+                    "requires_network": {
+                        "type": "boolean",
+                        "description": (
+                            "Set to true if this command needs internet access (e.g. pip install, npm install, "
+                            "cargo build, go mod download, curl, wget, API calls, git clone/push/fetch). "
+                            "This triggers a network approval before execution instead of running and failing."
                         ),
                     },
                     "cwd": {"type": "string", "description": "Working directory for command execution, optional"},
@@ -133,6 +138,7 @@ class ShellTool(BaseTool):
         command = args.get("command")
         cwd = args.get("cwd")
         timeout = args.get("timeout", config_manager.settings.execution.max_execution_time)
+        requires_network = args.get("requires_network", False)
 
         if not command:
             return ToolResult(success=False, error="缺少 command 参数")
@@ -141,24 +147,84 @@ class ShellTool(BaseTool):
         if approved_decision_data:
             return await self._execute_approved_decision(approved_decision_data, timeout)
 
-        if self._session_id and self.trust_store:
-            if self.trust_store.matches(self._session_id, "shell", command):
-                decision = self.policy.evaluate(command=command, cwd=cwd, timeout=timeout)
-                if decision.action == CommandAction.DENY:
-                    reason_str = "; ".join(decision.reasons) if decision.reasons else "命令被拒绝"
-                    return ToolResult(success=False, error=reason_str)
-                return await self._execute_decision(decision)
-
         decision = self.policy.evaluate(command=command, cwd=cwd, timeout=timeout)
 
         if decision.action == CommandAction.DENY:
             reason_str = "; ".join(decision.reasons) if decision.reasons else "命令被拒绝"
             return ToolResult(success=False, error=reason_str)
 
+        needs_network_approval = self._needs_network_approval(decision, requires_network)
+        if needs_network_approval:
+            return self._create_network_approval_result(decision, proactive=True)
+
         if decision.action == CommandAction.REQUIRE_APPROVAL:
             return self._create_approval_result(decision)
 
-        return await self._execute_decision(decision)
+        return await self._execute_decision(decision, requires_network=requires_network)
+
+    def _needs_network_approval(self, decision: CommandDecision, requires_network: bool) -> bool:
+        if not self.sandbox.is_available():
+            return False
+        if decision.effect_category == EffectCategory.NETWORK_OUT:
+            return False
+        if self._session_id and self.trust_store:
+            if self.trust_store.matches(self._session_id, "sandbox_network", "*"):
+                return False
+
+        if requires_network:
+            return True
+
+        if decision.argv and len(decision.argv) > 0:
+            entry = self.registry.lookup(decision.argv[0])
+            if entry and entry.often_needs_network:
+                return True
+
+        return False
+
+    def _create_network_approval_result(
+        self, decision: CommandDecision, proactive: bool = False,
+    ) -> ToolResult:
+        import uuid
+
+        approval_id = f"approval-{uuid.uuid4().hex[:12]}"
+
+        if proactive:
+            summary = f"命令需要网络访问: {decision.command}"
+            reasons = ["此命令需要网络访问（如下载依赖、API 调用等），沙箱默认禁止网络"]
+            risks = ["允许网络访问可能导致数据外传"]
+        else:
+            summary = f"沙箱阻止了网络访问: {decision.command}"
+            reasons = ["命令需要网络访问，但沙箱默认禁止网络"]
+            risks = ["允许网络访问可能导致数据外传"]
+
+        approval = ToolApprovalRequest(
+            approval_id=approval_id,
+            tool_name="shell",
+            summary=summary,
+            reasons=reasons,
+            risks=risks,
+            payload={
+                "command": decision.command,
+                "execution_mode": decision.execution_mode,
+                "argv": decision.argv,
+                "cwd": decision.cwd,
+                "timeout": decision.timeout,
+                "approval_kind": "sandbox_network_elevation",
+                "suggested_prefix_rule": decision.suggested_prefix_rule,
+                "effect_category": decision.effect_category.value if decision.effect_category else None,
+                "elevation_request": {"type": "network", "denied_paths": []},
+                "environment_snapshot": decision.environment_snapshot.model_dump() if decision.environment_snapshot else None,
+                "approved_decision": decision.model_dump(),
+            },
+            suggested_action="allow_once",
+            suggested_trust={"permission": "sandbox_network", "pattern": "*"},
+        )
+
+        return ToolResult(
+            success=False,
+            approval_required=True,
+            approval=approval,
+        )
 
     async def _execute_approved_decision(
         self, decision_data: dict, default_timeout: int
@@ -174,11 +240,11 @@ class ShellTool(BaseTool):
 
         return await self._execute_decision(decision)
 
-    async def _execute_decision(self, decision: CommandDecision) -> ToolResult:
+    async def _execute_decision(self, decision: CommandDecision, requires_network: bool = False) -> ToolResult:
         cwd = decision.cwd or self.path_security.base_dir
         timeout = decision.timeout
 
-        sandbox_allow_network = getattr(decision, '_sandbox_allow_network', False)
+        sandbox_allow_network = getattr(decision, '_sandbox_allow_network', False) or requires_network
         sandbox_extra_paths = getattr(decision, '_sandbox_extra_paths', [])
 
         if self._session_id and self.trust_store:
@@ -338,7 +404,7 @@ class ShellTool(BaseTool):
             if elevation.error_type == SandboxErrorType.NETWORK_DENIED:
                 approval_kind = "sandbox_network_elevation"
                 summary = f"沙箱阻止了网络访问: {decision.command}"
-                reasons = ["命令需要网络访问，但沙箱默认禁止网络"]
+                reasons = ["命令尝试了网络访问，被沙箱拦截"]
                 risks = ["允许网络访问可能导致数据外传"]
                 elevation_request = {"type": "network", "denied_paths": []}
             else:
