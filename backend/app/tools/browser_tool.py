@@ -15,7 +15,11 @@ TOOL_EXECUTION 阶段调用。
 
 from __future__ import annotations
 
+import asyncio
+import atexit
 import logging
+import os
+import subprocess
 from typing import Any
 
 from app.browser.manager import BrowserManager
@@ -24,6 +28,62 @@ from app.config.settings import BrowserSettings
 from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
+
+
+# ------------------------------------------------------------------
+# 兜底清理：进程退出时杀掉残留的 chromium 僵尸进程
+# ------------------------------------------------------------------
+
+def _force_kill_browser_processes() -> None:
+    """暴力清理：杀掉所有 chromium/chrome 子进程（仅作 atexit 兜底）。
+
+    在正常清理路径无法执行时（进程崩溃、异常退出），
+    通过系统命令强制终止残留的浏览器进程，防止资源泄漏。
+    """
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "chromium.exe"],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "chrome.exe"],
+                capture_output=True, timeout=5,
+            )
+        else:
+            subprocess.run(
+                ["pkill", "-f", "chromium"],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["pkill", "-f", "chrome.*--remote-debugging"],
+                capture_output=True, timeout=5,
+            )
+    except Exception:
+        logger.debug("Force-kill browser processes failed (may be no processes)")
+
+
+def _register_atexit_cleanup(tool_ref: BrowserTool) -> None:
+    """注册进程退出时的兜底清理回调。
+
+    atexit 回调是同步的，尝试用事件循环关闭 BrowserManager；
+    如果没有可用的事件循环，则降级为强制杀进程。
+    """
+    def _sync_cleanup() -> None:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # 事件循环还在运行（不太可能在 atexit 时），创建 task
+                loop.create_task(tool_ref._manager.close())
+            else:
+                loop.run_until_complete(tool_ref._manager.close())
+        except RuntimeError:
+            # 没有事件循环，降级为强制杀进程
+            _force_kill_browser_processes()
+        except Exception:
+            logger.debug("Atexit browser cleanup failed")
+
+    atexit.register(_sync_cleanup)
 
 
 class BrowserTool(BaseTool):
@@ -54,10 +114,15 @@ class BrowserTool(BaseTool):
             config: 浏览器配置，为 None 时使用默认配置
 
         执行逻辑：
-            保存配置并创建 BrowserManager 实例（惰性，不立即启动浏览器）
+            保存配置并创建 BrowserManager 实例（惰性，不立即启动浏览器）。
+            创建 asyncio.Lock 用于串行化并发操作，注册 atexit 兜底清理。
         """
         self._config = config or BrowserSettings()
         self._manager = BrowserManager(self._config)
+        # 工具级并发锁：防止多个 Agent 同时操作浏览器导致状态混乱
+        self._lock = asyncio.Lock()
+        # 注册进程退出时的兜底清理，防止异常退出留下僵尸 chromium 进程
+        _register_atexit_cleanup(self)
 
     @property
     def name(self) -> str:
@@ -181,9 +246,10 @@ class BrowserTool(BaseTool):
 
         执行逻辑：
             1. 校验 action 参数存在且合法
-            2. 通过 getattr 查找对应的 _action_{name} 处理方法
-            3. 调用处理方法获取 BrowserActionResult
-            4. 转换为 ToolResult（message → output, error → error, data → data）
+            2. 获取工具级并发锁，串行化所有浏览器操作
+            3. 通过 getattr 查找对应的 _action_{name} 处理方法
+            4. 调用处理方法获取 BrowserActionResult
+            5. 转换为 ToolResult（message → output, error → error, data → data）
 
         出参：
             ToolResult: Agent 执行循环期望的统一结果格式
@@ -201,26 +267,29 @@ class BrowserTool(BaseTool):
                 error=f"Unknown action: '{action}'. Valid: {valid}",
             )
 
-        try:
-            # 动态分发到对应的 _action_{name} 方法
-            handler = getattr(self, f"_action_{action}", None)
-            if handler is None:
+        # 工具级锁：同一时刻只有一个 action 在执行，
+        # 防止多个 Agent 并发操作导致浏览器状态混乱
+        async with self._lock:
+            try:
+                # 动态分发到对应的 _action_{name} 方法
+                handler = getattr(self, f"_action_{action}", None)
+                if handler is None:
+                    return ToolResult(
+                        success=False,
+                        error=f"Handler not implemented: {action}",
+                    )
+                result = await handler(args)
+                # BrowserActionResult → ToolResult 转换
                 return ToolResult(
-                    success=False,
-                    error=f"Handler not implemented: {action}",
+                    success=result.success,
+                    output=result.message,
+                    error=result.error,
+                    data=result.data,
                 )
-            result = await handler(args)
-            # BrowserActionResult → ToolResult 转换
-            return ToolResult(
-                success=result.success,
-                output=result.message,
-                error=result.error,
-                data=result.data,
-            )
-        except Exception as e:
-            logger.exception(f"Browser action '{action}' failed")
-            err = f"Browser error: {type(e).__name__}: {e}"
-            return ToolResult(success=False, error=err)
+            except Exception as e:
+                logger.exception(f"Browser action '{action}' failed")
+                err = f"Browser error: {type(e).__name__}: {e}"
+                return ToolResult(success=False, error=err)
 
     # ------------------------------------------------------------------
     # Action Handlers — 每个 action 对应一个处理方法
@@ -356,5 +425,7 @@ class BrowserTool(BaseTool):
         """清理资源，在 Run 结束时由 AgentService 调用。
 
         委托给 BrowserManager.close() 关闭浏览器并清理临时文件。
+        加锁确保不会与正在执行的操作冲突。
         """
-        await self._manager.close()
+        async with self._lock:
+            await self._manager.close()

@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import ipaddress
 import logging
+import os
 import re
 import tempfile
 import uuid
@@ -209,6 +210,8 @@ class BrowserManager:
             )
         except Exception as exc:
             logger.exception("Failed to start browser")
+            # 启动失败时清理已分配的 playwright 资源，防止半初始化状态残留
+            await self._cleanup_on_failure()
             return BrowserActionResult(
                 success=False, action="start", error=str(exc)
             )
@@ -280,12 +283,59 @@ class BrowserManager:
 
     @staticmethod
     def kill_orphan_browsers() -> None:
-        """清理孤儿浏览器进程的占位方法。
+        """清理孤儿浏览器进程。
 
-        未来实现可以扫描因异常退出残留的 chromium/firefox 进程并终止。
-        当前为空实现（no-op）。
+        扫描因异常退出残留的 chromium/firefox 进程并终止，
+        防止僵尸进程占用系统资源。
         """
-        logger.debug("kill_orphan_browsers called (no-op placeholder)")
+        import subprocess
+
+        try:
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "chromium.exe"],
+                    capture_output=True, timeout=5,
+                )
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", "chrome.exe"],
+                    capture_output=True, timeout=5,
+                )
+            else:
+                subprocess.run(
+                    ["pkill", "-f", "chromium"],
+                    capture_output=True, timeout=5,
+                )
+                subprocess.run(
+                    ["pkill", "-f", "chrome.*--remote-debugging"],
+                    capture_output=True, timeout=5,
+                )
+            logger.debug("kill_orphan_browsers completed")
+        except Exception:
+            logger.debug("kill_orphan_browsers failed (may be no processes)")
+
+    async def _cleanup_on_failure(self) -> None:
+        """启动或操作失败时，清理已分配的 Playwright 资源。
+
+        在 _start_impl 的 except 块中调用，确保启动失败不会残留
+        半初始化的 _playwright / _browser 对象。
+        """
+        try:
+            if self._browser and self._browser.is_connected():
+                await self._browser.close()
+        except Exception:
+            pass
+        try:
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception:
+            pass
+        finally:
+            self._browser = None
+            self._playwright = None
+            self._context = None
+            self._tabs.clear()
+            self._active_tab_id = None
+            self._is_disconnected = False
 
     # ------------------------------------------------------------------
     # Navigation & Interaction
@@ -472,11 +522,20 @@ class BrowserManager:
                 filename = f"{uuid.uuid4().hex}.png"
                 path = self._screenshot_dir / filename  # type: ignore[operator]
 
+                # 截图超时保护：大页面或复杂元素截图可能耗时很长，
+                # 使用 2 倍 default_timeout 作为上限，防止卡死不释放资源
+                screenshot_timeout = self._config.default_timeout / 1000 * 2
                 if selector:
                     element = page.locator(selector)
-                    await element.screenshot(path=str(path))
+                    await asyncio.wait_for(
+                        element.screenshot(path=str(path)),
+                        timeout=screenshot_timeout,
+                    )
                 else:
-                    await page.screenshot(path=str(path), full_page=full_page)
+                    await asyncio.wait_for(
+                        page.screenshot(path=str(path), full_page=full_page),
+                        timeout=screenshot_timeout,
+                    )
 
                 data: dict[str, Any] = {"path": str(path)}
 
@@ -491,6 +550,12 @@ class BrowserManager:
                     action="screenshot",
                     message="Screenshot captured",
                     data=data,
+                )
+            except asyncio.TimeoutError:
+                return BrowserActionResult(
+                    success=False,
+                    action="screenshot",
+                    error=f"Screenshot timed out after {self._config.default_timeout * 2}ms",
                 )
             except Exception as exc:
                 return BrowserActionResult(
@@ -596,12 +661,23 @@ class BrowserManager:
                 logger.info("Executing JS (sha256=%s)", script_hash)
 
                 page = await self._get_active_page()
-                result = await page.evaluate(script)
+                # JS 执行超时保护：防止死循环脚本卡死浏览器资源
+                js_timeout = self._config.default_timeout / 1000
+                result = await asyncio.wait_for(
+                    page.evaluate(script),
+                    timeout=js_timeout,
+                )
                 return BrowserActionResult(
                     success=True,
                     action="execute_js",
                     message="Script executed",
                     data={"result": result, "script_hash": script_hash},
+                )
+            except asyncio.TimeoutError:
+                return BrowserActionResult(
+                    success=False,
+                    action="execute_js",
+                    error=f"JavaScript execution timed out after {self._config.default_timeout}ms",
                 )
             except Exception as exc:
                 return BrowserActionResult(
