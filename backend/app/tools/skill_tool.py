@@ -71,6 +71,8 @@ class SkillTool(BaseTool):
                 return ToolResult(success=False, error=f"Skill not found: {skill_name}")
             skill = self._registry.get_skill(skill_name)
             header = f"# {skill.name}\n\n> {skill.description}\n\n"
+            if skill.install_path:
+                header = f"**Skill directory:** `{skill.install_path}`\n\n{header}"
             return ToolResult(success=True, output=header + content)
 
         if action == "search":

@@ -130,6 +130,14 @@ class AgentService:
                 + ([resolved_project_path] if resolved_project_path else [])
             )
         )
+
+        from app.config.settings import config_manager as _cfg_paths
+        skill_install_dir = str(Path(_cfg_paths.settings.skill.install_dir).resolve())
+        if skill_install_dir not in allowed_paths:
+            allowed_paths.append(skill_install_dir)
+        plugin_cache_dir = str(Path(_cfg_paths.settings.plugin.package_cache_dir).resolve())
+        if plugin_cache_dir not in allowed_paths:
+            allowed_paths.append(plugin_cache_dir)
         base_dir = resolved_project_path or str(Path.cwd().resolve())
         path_security = PathSecurity(
             allowed_paths, base_dir=base_dir,

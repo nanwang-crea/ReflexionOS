@@ -67,10 +67,11 @@ async def install_skill(req: InstallSkillRequest):
         raise HTTPException(status_code=400, detail="PyPI packages not yet supported")
 
     from app.config.settings import config_manager
-    cache_dir = Path(config_manager.settings.skill.install_dir) / ".packages"
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    skill_install_dir = Path(config_manager.settings.skill.install_dir)
+    target_dir = skill_install_dir / spec.name
+    target_dir.mkdir(parents=True, exist_ok=True)
 
-    resolver = PackageResolver(cache_dir)
+    resolver = PackageResolver(skill_install_dir)
     try:
         package = resolver.resolve(spec)
     except Exception as e:
@@ -87,7 +88,7 @@ async def install_skill(req: InstallSkillRequest):
     if count == 0:
         raise HTTPException(status_code=400, detail=f"未在 {req.specifier} 中发现技能（缺少 SKILL.md）")
 
-    return {"specifier": req.specifier, "installed_skills": count}
+    return {"specifier": req.specifier, "installed_skills": count, "install_path": str(target_dir)}
 
 
 @router.delete("/{skill_name}")
@@ -103,15 +104,12 @@ async def delete_skill(skill_name: str):
 
     if source_type == SkillSource.GLOBAL and install_path:
         from app.config.settings import config_manager
-        skill_root = Path(config_manager.settings.skill.install_dir) / ".packages"
-        for child in skill_root.iterdir():
-            if child.is_dir() and (child / "SKILL.md").exists():
-                pass
-            elif child.is_dir():
-                if install_path.startswith(str(child)):
-                    import shutil
-                    shutil.rmtree(child, ignore_errors=True)
-                    break
+        skill_install_dir = Path(config_manager.settings.skill.install_dir)
+        for child in skill_install_dir.iterdir():
+            if child.is_dir() and install_path.startswith(str(child)):
+                import shutil
+                shutil.rmtree(child, ignore_errors=True)
+                break
 
     return {"name": skill_name, "deleted": True}
 

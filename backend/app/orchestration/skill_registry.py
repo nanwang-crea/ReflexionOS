@@ -112,7 +112,7 @@ class SkillRegistry:
 
         return count
 
-    def scan_all(self, plugin_skill_dirs: list[str] | None = None) -> int:
+    def scan_all(self, plugin_skill_dirs: list[str] | None = None, project_path: str | None = None) -> int:
         self.skills.clear()
         self._content_cache.clear()
         from app.config.settings import config_manager
@@ -120,17 +120,19 @@ class SkillRegistry:
         skill_settings = config_manager.settings.skill
         total = 0
 
-        project_skills = Path.cwd() / "skills"
+        proj = Path(project_path) if project_path else Path.cwd()
+
+        project_skills = proj / "skills"
         if project_skills.exists():
             total += self.scan_directory(project_skills, SkillSource.PROJECT)
 
-        project_reflexion_skills = Path.cwd() / ".reflexion" / "skills"
+        project_reflexion_skills = proj / ".reflexion" / "skills"
         if project_reflexion_skills.exists():
             total += self.scan_directory(project_reflexion_skills, SkillSource.PROJECT_REFLEXION)
 
         global_skills = Path(skill_settings.install_dir)
         if global_skills.exists():
-            total += self.scan_directory(global_skills, SkillSource.GLOBAL)
+            total += self.scan_recursive(global_skills, SkillSource.GLOBAL)
 
         if plugin_skill_dirs:
             for d in plugin_skill_dirs:
@@ -210,8 +212,8 @@ class SkillRegistry:
             return True
         return False
 
-    def refresh(self, plugin_skill_dirs: list[str] | None = None) -> int:
-        return self.scan_all(plugin_skill_dirs=plugin_skill_dirs)
+    def refresh(self, plugin_skill_dirs: list[str] | None = None, project_path: str | None = None) -> int:
+        return self.scan_all(plugin_skill_dirs=plugin_skill_dirs, project_path=project_path)
 
 
 skill_registry = SkillRegistry()

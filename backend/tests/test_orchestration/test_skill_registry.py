@@ -97,8 +97,9 @@ class TestSkillRegistryScan:
         assert count == 1
 
     def test_scan_all_with_plugin_dirs(self, tmp_path: Path):
+        project_skills = tmp_path / "skills"
         _create_skill_dir(
-            tmp_path, "local-skill",
+            project_skills, "local-skill",
             ["name: LocalSkill", "description: Local"],
         )
         plugin_dir = tmp_path / "plugin-skills"
@@ -107,15 +108,23 @@ class TestSkillRegistryScan:
         (nested / "SKILL.md").write_text(
             "---\nname: plugged\ndescription: From plugin\n---\n\n# Plug\n"
         )
+        global_dir = tmp_path / "global-skills"
+        _create_skill_dir(global_dir, "global1", ["name: Global1", "description: Global skill"])
+
         mock_settings = MagicMock()
-        mock_settings.skill.install_dir = "/nonexistent"
+        mock_settings.skill.install_dir = str(global_dir)
         mock_settings.skill.compat_dirs = []
         mock_settings.skill.scan_dirs = []
         with patch(
             "app.config.settings.config_manager",
             MagicMock(settings=mock_settings),
         ):
-            pass
+            registry = SkillRegistry()
+            count = registry.scan_all(
+                plugin_skill_dirs=[str(plugin_dir)],
+                project_path=str(tmp_path),
+            )
+        assert count == 3
 
     def test_get_skill_content_lazy(self, tmp_path: Path):
         skill_file = _create_skill_dir(tmp_path, "lazy-skill", ["name: LazySkill", "description: Lazy\n"])
