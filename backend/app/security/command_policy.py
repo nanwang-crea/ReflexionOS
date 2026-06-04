@@ -7,7 +7,7 @@ import subprocess
 from pydantic import BaseModel, Field
 
 from app.errors import SecurityError
-from app.security.command_arity import extract_prefix_rule
+from app.security.command_arity import extract_prefix_rules
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.effect_category import (
     EFFECT_ACTION_MAP,
@@ -17,6 +17,7 @@ from app.security.effect_category import (
     most_dangerous,
 )
 from app.security.path_security import PathSecurity
+from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 
 logger = logging.getLogger(__name__)
@@ -112,10 +113,14 @@ class CommandPolicy:
     """Evaluates shell commands and returns structured decisions based on effect classification."""
 
     def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity,
-                 registry: CommandEffectRegistry | None = None):
+                 registry: CommandEffectRegistry | None = None,
+                 trust_store: SessionTrustStore | None = None,
+                 session_id: str | None = None):
         self.shell_security = shell_security
         self.path_security = path_security
         self.registry = registry or CommandEffectRegistry()
+        self.trust_store = trust_store
+        self._session_id = session_id
 
     def evaluate(
         self,
@@ -241,19 +246,20 @@ class CommandPolicy:
             # All other shell commands use effect-based action map
             action = EFFECT_ACTION_MAP[effect]
 
-        # 3. Build reasons and risks
+        # 3. Build reasons and risks (using quote-aware operator detection)
         reasons = []
-        if "|" in command:
+        operators = self._detect_shell_operators(command)
+        if operators.get("pipe"):
             reasons.append("使用管道: |")
-        if "&&" in command or "||" in command:
+        if operators.get("chain"):
             reasons.append("使用链式操作: &&或||")
-        if ";" in command:
+        if operators.get("semicolon"):
             reasons.append("使用分号: ;")
-        if ">" in command or ">>" in command:
+        if operators.get("redirect") or operators.get("append_redirect"):
             reasons.append("使用重定向: >或>>")
-        if "$(" in command or "`" in command:
+        if has_unvalidated_meta:
             reasons.append("使用命令替换")
-        if "2>" in command:
+        if operators.get("stderr_redirect"):
             reasons.append("使用错误重定向: 2>")
 
         risks = []
@@ -265,7 +271,12 @@ class CommandPolicy:
             risks.append("命令会交给本地 shell 解释执行，无法完全静态校验路径安全")
 
         approval_kind = "shell_command"
-        suggested_prefix_rule = [extract_prefix_rule(command)] if action == CommandAction.REQUIRE_APPROVAL else None
+        suggested_prefix_rule = extract_prefix_rules(command) if action == CommandAction.REQUIRE_APPROVAL else None
+
+        # Trust store: if command matches a trusted pattern, downgrade REQUIRE_APPROVAL → ALLOW
+        if action == CommandAction.REQUIRE_APPROVAL and self._is_trusted(command):
+            action = CommandAction.ALLOW
+            suggested_prefix_rule = None
 
         return CommandDecision(
             action=action,
@@ -378,7 +389,12 @@ class CommandPolicy:
                         environment_snapshot=snapshot,
                     )
 
-        suggested_prefix_rule = [extract_prefix_rule(command)] if action == CommandAction.REQUIRE_APPROVAL else None
+        suggested_prefix_rule = extract_prefix_rules(command) if action == CommandAction.REQUIRE_APPROVAL else None
+
+        # Trust store: if command matches a trusted pattern, downgrade REQUIRE_APPROVAL → ALLOW
+        if action == CommandAction.REQUIRE_APPROVAL and self._is_trusted(command):
+            action = CommandAction.ALLOW
+            suggested_prefix_rule = None
 
         return CommandDecision(
             action=action,
@@ -565,9 +581,82 @@ class CommandPolicy:
 
         return segments
 
+    def _detect_shell_operators(self, command: str) -> dict[str, bool]:
+        """Detect which shell operators are present outside quotes.
+
+        Returns a dict of operator presence flags. This avoids false positives
+        from operators inside quoted strings (e.g. ``;`` in ``python3 -c "a; b"``).
+        """
+        result: dict[str, bool] = {
+            "pipe": False,
+            "chain": False,
+            "semicolon": False,
+            "redirect": False,
+            "append_redirect": False,
+            "stderr_redirect": False,
+        }
+        in_single = False
+        in_double = False
+
+        i = 0
+        while i < len(command):
+            ch = command[i]
+
+            if ch == "'" and not in_double:
+                in_single = not in_single
+                i += 1
+                continue
+            elif ch == '"' and not in_single:
+                in_double = not in_double
+                i += 1
+                continue
+
+            if not in_single and not in_double:
+                if ch == '&' and i + 1 < len(command) and command[i + 1] == '&':
+                    result["chain"] = True
+                    i += 2
+                    continue
+                if ch == '|' and i + 1 < len(command) and command[i + 1] == '|':
+                    result["chain"] = True
+                    i += 2
+                    continue
+                if ch == '|':
+                    result["pipe"] = True
+                    i += 1
+                    continue
+                if ch == ';':
+                    result["semicolon"] = True
+                    i += 1
+                    continue
+                if ch == '2' and i + 1 < len(command) and command[i + 1] == '>':
+                    if i + 2 < len(command) and command[i + 2] == '>':
+                        result["stderr_redirect"] = True
+                        i += 3
+                    else:
+                        result["stderr_redirect"] = True
+                        i += 2
+                    continue
+                if ch == '>' and (i == 0 or command[i - 1] != '2'):
+                    if i + 1 < len(command) and command[i + 1] == '>':
+                        result["append_redirect"] = True
+                        i += 2
+                    else:
+                        result["redirect"] = True
+                        i += 1
+                    continue
+
+            i += 1
+
+        return result
+
     def _validate_argv_paths(self, args: list[str], command_name: str) -> str | None:
         try:
             self.shell_security._validate_path_arguments(args, self.path_security)
             return None
         except Exception as e:
             return str(e)
+
+    def _is_trusted(self, command: str) -> bool:
+        if not self.trust_store or not self._session_id:
+            return False
+        return self.trust_store.matches(self._session_id, "shell", command)

@@ -79,9 +79,9 @@ class ShellTool(BaseTool):
         self.path_security = path_security
         self.registry = registry or CommandEffectRegistry()
         self.sandbox = sandbox or NullSandbox()
-        self.policy = CommandPolicy(security, path_security, self.registry)
         self._session_id = session_id
         self.trust_store = trust_store
+        self.policy = CommandPolicy(security, path_security, self.registry, trust_store=trust_store, session_id=session_id)
         self.sandbox_error_detector = SandboxErrorDetector()
 
     def _build_env(self) -> dict[str, str]:
