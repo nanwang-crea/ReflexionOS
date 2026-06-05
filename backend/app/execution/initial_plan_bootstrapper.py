@@ -86,6 +86,7 @@ class InitialPlanBootstrapper:
                 is_relevant = await self._check_plan_relevance(context, recovered_plan.goal, recovered_plan)
                 if is_relevant:
                     context.plan = recovered_plan
+                    plan_tool.set_plan(recovered_plan)
                     context.plan_file_path = recovery_path
                     context.metadata["plan_update_required"] = False
                     context.metadata["steps_since_last_plan_update"] = 0

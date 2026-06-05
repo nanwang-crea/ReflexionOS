@@ -82,6 +82,10 @@ class RuntimeToolDefinitions:
                     definitions.append(
                         self.tool_registry.definition_from_schema(tool.get_progress_schema())
                     )
+                else:
+                    definitions.append(
+                        self.tool_registry.definition_from_schema(tool.get_create_schema())
+                    )
                 continue
             definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
         return definitions

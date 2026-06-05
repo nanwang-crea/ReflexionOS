@@ -90,12 +90,17 @@ def test_initial_plan_definitions_expose_only_plan_create():
     assert "step_done" not in parameters_text
 
 
-def test_normal_definitions_hide_plan_until_context_has_plan():
+def test_normal_definitions_expose_plan_create_when_no_plan_exists():
     context = LoopContext(task="解释函数")
 
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
 
-    assert [definition.name for definition in definitions] == ["mock"]
+    names = [definition.name for definition in definitions]
+    assert "plan" in names
+    plan_definition = next(d for d in definitions if d.name == "plan")
+    parameters_text = str(plan_definition.parameters)
+    assert "create" in parameters_text
+    assert "step_done" not in parameters_text
 
 
 def test_normal_definitions_expose_plan_progress_without_create_when_plan_exists():

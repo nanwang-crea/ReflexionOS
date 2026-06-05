@@ -7,6 +7,7 @@ from typing import Any
 
 from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
+from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
 from app.tools.registry import ToolRegistry
 
@@ -201,6 +202,9 @@ class ToolCallExecutor:
                 context.metadata["plan_update_required"] = False
                 context.metadata["steps_since_last_plan_update"] = 0
                 await self.emit("plan:updated", context.plan.to_dict())
+                # Persist plan progress to disk so recovery sees up-to-date step status
+                if context.plan_file_path:
+                    PlanFileSync().sync(context.plan, context.plan_file_path, project_path=context.project_path)
             elif context.plan is not None and tool_call.name not in ("plan", "plan_exit"):
                 context.metadata["plan_update_required"] = True
                 prev = context.metadata.get("steps_since_last_plan_update", 0)
