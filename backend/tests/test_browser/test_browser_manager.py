@@ -291,6 +291,24 @@ async def test_list_tabs(manager):
     assert result.data["active_tab_id"] == manager._active_tab_id
 
 
+async def test_start_missing_engine_friendly_error():
+    """When browser binary is missing, return friendly install instruction."""
+    browser = _mock_browser(_mock_context(_mock_page()))
+    pw = _mock_playwright(browser)
+    pw.firefox = MagicMock()
+    pw.firefox.launch = AsyncMock(side_effect=Exception("Executable doesn't exist at /usr/bin/firefox"))
+
+    async_pw_cm = MagicMock()
+    async_pw_cm.start = AsyncMock(return_value=pw)
+
+    mgr = BrowserManager(BrowserSettings(browser_engine="firefox"))
+    with patch("app.browser.manager.async_playwright", return_value=async_pw_cm):
+        result = await mgr.start()
+
+    assert result.success is False
+    assert "playwright install firefox" in result.error
+
+
 async def test_close_kills_disconnected_browser_process():
     """When browser is disconnected, _close_impl should still kill the process."""
     page = _mock_page()

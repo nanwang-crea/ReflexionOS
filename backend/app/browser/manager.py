@@ -210,8 +210,14 @@ class BrowserManager:
             )
         except Exception as exc:
             logger.exception("Failed to start browser")
-            # 启动失败时清理已分配的 playwright 资源，防止半初始化状态残留
             await self._cleanup_on_failure()
+            err_msg = str(exc)
+            if "Executable doesn't exist" in err_msg or "not found" in err_msg.lower():
+                return BrowserActionResult(
+                    success=False,
+                    action="start",
+                    error=f"Browser engine '{_engine}' is not installed. Run: playwright install {_engine}",
+                )
             return BrowserActionResult(
                 success=False, action="start", error=str(exc)
             )
