@@ -267,7 +267,7 @@ def test_compaction_continue_message_injected_after_tier3():
     assert any("Continue" in (c or "") for c in user_contents)
 
 
-def test_per_turn_plan_status_reminder_injected_when_plan_active():
+def test_per_turn_plan_status_reminder_not_injected_by_message_builder():
     """Per-turn plan status reminder injected when plan is active and Plan Focus was already injected."""
     builder = build_message_builder()
 
