@@ -26,7 +26,14 @@ class PlanTool(BaseTool):
             "(2) When a step is fully done, call step_done BEFORE doing work for the next step. "
             "(3) When a step is blocked, call block with the reason. "
             "(4) Keep exactly one step in_progress at a time. "
-            "(5) Only use for tasks that need 3+ distinct steps."
+            "(5) Only use for tasks that need 3+ distinct steps. "
+            "(6) Do NOT start work for a later step while the current step is still in_progress. "
+            "Complete and call step_done first. "
+            "A step is fully done ONLY when you can verify the step's specific deliverable "
+            "exists and works (file confirmed, test passes, command succeeds). "
+            "Do not mark a step complete based on intent, partial progress, "
+            "or assumption without verification. "
+            "If uncertain, keep the step in_progress and continue working."
         )
 
     def get_schema(self) -> dict[str, Any]:
@@ -41,7 +48,7 @@ class PlanTool(BaseTool):
                 "steps": self._steps_property("For create: list of high-level step descriptions"),
                 "findings": {
                     "type": "string",
-                    "description": "For step_done: key information obtained in this step (required, cannot be empty)",
+                    "description": "For step_done: key information and verification evidence obtained in this step (required, cannot be empty). Include what was done and how it was verified.",
                 },
                 "reason": {
                     "type": "string",
@@ -72,15 +79,19 @@ class PlanTool(BaseTool):
         return self._build_schema(
             description=(
                 "Update the current plan step. "
-                "Call step_done immediately when a step is complete — do not wait or batch. "
-                "Call block when a step cannot proceed. "
-                "Call adjust to replace remaining steps if the plan needs replanning."
+                "Call step_done when the step's deliverable is verified — "
+                "not just 'I did some work', but concrete evidence it works "
+                "(file confirmed, test passes, command succeeds). "
+                "Call block when a step cannot proceed due to a specific blocker. "
+                "Call adjust to replace remaining steps if the plan needs replanning. "
+                "Do not mark complete based on intent or partial progress. "
+                "Do NOT start work for a later step while the current step is still in_progress."
             ),
             actions=["step_done", "block", "adjust"],
             properties={
                 "findings": {
                     "type": "string",
-                    "description": "For step_done: key information obtained in this step (required, cannot be empty)",
+                    "description": "For step_done: key information and verification evidence obtained in this step (required, cannot be empty). Include what was done and how it was verified.",
                 },
                 "reason": {
                     "type": "string",

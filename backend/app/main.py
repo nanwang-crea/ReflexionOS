@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -18,6 +20,31 @@ from app.api.routes import (
 )
 from app.app_services import agent_service
 from app.errors import AppError
+
+logger = logging.getLogger(__name__)
+
+
+class RequestLoggingMiddleware:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "?")
+        path = scope.get("path", "?")
+        start = time.perf_counter()
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                status_code = message.get("status", "?")
+                elapsed_ms = int((time.perf_counter() - start) * 1000)
+                logger.info("%s %s → %s (%dms)", method, path, status_code, elapsed_ms)
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 @asynccontextmanager
@@ -71,6 +98,8 @@ async def app_error_handler(_request: Request, exc: AppError):
         status_code=status_code,
         content=exc.to_dict(),
     )
+
+app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

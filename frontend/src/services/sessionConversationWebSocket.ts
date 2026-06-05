@@ -90,6 +90,8 @@ interface SessionConversationEvents {
   'conversation:error': ConversationErrorDto
   'llm:retry': LlmRetryDto
   'plan:updated': PlanDto
+  'plan:discarded': { path: string; goal: string }
+  'plan:recovered': { path: string; goal: string }
   'session:title_updated': SessionTitleUpdatedDto
   'session:mode_changed': SessionModeChangedDto
 }
@@ -258,6 +260,14 @@ class SessionConversationWebSocket {
 
     if (message.type === 'plan:updated') {
       this.emit('plan:updated', message.data as PlanDto)
+    }
+
+    if (message.type === 'plan:discarded') {
+      this.emit('plan:discarded', message.data as { path: string; goal: string })
+    }
+
+    if (message.type === 'plan:recovered') {
+      this.emit('plan:recovered', message.data as { path: string; goal: string })
     }
 
     if (message.type === 'session:title_updated') {

@@ -66,25 +66,10 @@ class LoopMessageBuilder:
         if context.plan:
             plan_parts = [context.plan.render_for_context()]
             current_step = context.plan.current_step
+            stagnant = 0
             if context.metadata.get("plan_update_required"):
                 stagnant = context.metadata.get("steps_since_last_plan_update", 0)
-                if stagnant >= 15:
-                    plan_parts.append(
-                        "🔴 CRITICAL: 当前步骤已执行 15+ 轮工具调用但未更新计划状态。"
-                        "必须立即调用 plan.step_done 或 plan.block。"
-                        "忽略计划更新会导致执行效率严重下降。"
-                    )
-                elif stagnant >= 10:
-                    plan_parts.append(
-                        "🚨 Plan WARNING: 当前步骤已执行 10+ 轮工具调用但未更新计划状态。"
-                        "请立即评估当前步骤是否已完成，如果是，调用 plan.step_done。"
-                    )
-                elif stagnant >= 5:
-                    plan_parts.append(
-                        "⚠️ Plan reminder: 当前步骤已执行 5 轮工具调用但未更新计划状态。"
-                        "一个步骤可以需要多次工具调用，但如果步骤已完成，请调用 plan.step_done。"
-                    )
-                else:
+                if stagnant < 5:
                     plan_parts.append(
                         "Plan update reminder: a single plan step may require multiple tool calls. "
                         "Continue using tools while the current step is still in progress. "
@@ -98,6 +83,47 @@ class LoopMessageBuilder:
             messages.append(
                 LLMMessage(role=MessageRole.SYSTEM, content="\n\n".join(plan_parts))
             )
+
+            if stagnant >= 5 and current_step is not None:
+                step_desc = current_step.description
+                if stagnant >= 15:
+                    audit = (
+                        f"[Plan Progress Audit — CRITICAL] {stagnant} tool calls since last plan update.\n"
+                        f"Current step: {step_desc}\n"
+                        f"Before doing anything else, answer:\n"
+                        f"1. Are you currently working on THIS step's objective, "
+                        f"or have you drifted to work on a later step?\n"
+                        f"2. Is the CORE OBJECTIVE of this step achieved — not just 'I did some work', "
+                        f"but can you point to concrete evidence (file exists, test passes, command succeeds)?\n"
+                        f"3. If YES → call plan.step_done with your findings NOW.\n"
+                        f"4. If the step is stuck and you cannot proceed → call plan.block with the specific blocker.\n"
+                        f"5. If neither → you MUST explain what specific work remains before calling step_done.\n"
+                        f"Ignoring this will cause severe execution degradation."
+                    )
+                elif stagnant >= 10:
+                    audit = (
+                        f"[Plan Progress Audit — WARNING] {stagnant} tool calls since last plan update.\n"
+                        f"Current step: {step_desc}\n"
+                        f"Verify completion and step alignment before continuing:\n"
+                        f"- Are you working on THIS step, or have you drifted to a later step?\n"
+                        f"- Is the specific deliverable of this step done and verified?\n"
+                        f"  (e.g., file confirmed written, test output checked, command result validated)\n"
+                        f"- If YES → call plan.step_done with findings immediately.\n"
+                        f"- If STUCK → call plan.block with the reason.\n"
+                        f"- If INCOMPLETE → keep working on THIS step, do NOT start work for later steps."
+                    )
+                else:
+                    audit = (
+                        f"[Plan Progress Check] {stagnant} tool calls since last plan update.\n"
+                        f"Current step: {step_desc}\n"
+                        f"A step may need multiple tool calls. However, before continuing, verify:\n"
+                        f"- Are you working on THIS step's objective, or have you moved to a later step?\n"
+                        f"- Is the step's core objective achieved with concrete evidence?\n"
+                        f"- If YES → call plan.step_done with your findings.\n"
+                        f"- If NO → continue working on THIS step only.\n"
+                        f"- If BLOCKED → call plan.block with the specific blocker."
+                    )
+                messages.append(LLMMessage(role=MessageRole.USER, content=audit))
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:
@@ -162,7 +188,9 @@ class LoopMessageBuilder:
                     f"[Plan Focus] Now executing step {current_step_id}/{total} "
                     f"({completed} completed): {context.plan.current_step.description}\n"
                     f"Goal: {context.plan.goal}\n"
-                    "When done, call plan.step_done with findings. "
+                    "Focus ONLY on this step's objective. Do NOT start work for later steps. "
+                    "When this step's deliverable is verified (not just 'I did work' but confirmed it works), "
+                    "call plan.step_done with your findings and evidence. "
                     "If blocked, call plan.block with the reason."
                 )
                 messages.append(LLMMessage(role=MessageRole.USER, content=focus_text))

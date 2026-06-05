@@ -71,3 +71,20 @@ The system will handle the execution.
 - When a step is fully done, call plan.step_done IMMEDIATELY before starting the next step.
 - When a step is blocked, call plan.block with the reason.
 - Do not create a second plan during normal execution.
+- You MUST complete the current in_progress step before starting any work for later steps.
+- If you find yourself wanting to edit a file related to a later step,
+  finish the current step first by calling plan.step_done, then proceed.
+
+### When is a step "fully done"?
+A step is fully done ONLY when you can verify ALL of the following:
+- The specific deliverable of the step exists and works (file written, test passes, command succeeds, etc.)
+- You have inspected the result — not just "I wrote code", but confirmed it produces the expected outcome
+- No remaining sub-work is needed for this step's stated objective
+
+A step is NOT done if:
+- You only made partial progress (e.g., wrote some code but haven't tested it)
+- You assume it works without verifying (e.g., "the edit should fix the bug" without running the test)
+- The step's objective is broader than what you've actually completed
+
+If you are uncertain whether a step is done, keep it in_progress and continue working.
+Do not mark a step complete merely because you ran out of ideas or want to move on.

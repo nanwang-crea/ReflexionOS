@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import time
 from datetime import datetime
 
 from app.execution.plan_engine import Plan
@@ -64,16 +65,26 @@ class PlanFileSync:
             os.remove(resolved)
             logger.info("计划文件已删除: %s", resolved)
 
-    def find_recovery_plan(self, project_path: str | None = None) -> str | None:
+    def find_recovery_plan(
+        self,
+        project_path: str | None = None,
+        max_age_hours: int = 24,
+    ) -> str | None:
         base = self._resolve_base_dir(project_path)
         if not os.path.isdir(base):
             return None
+        max_age_seconds = max_age_hours * 3600
+        now = time.time()
         md_files = sorted(
             [os.path.join(base, f) for f in os.listdir(base) if f.endswith(".md")],
             key=lambda p: os.path.getmtime(p),
             reverse=True,
         )
         for path in md_files:
+            file_age = now - os.path.getmtime(path)
+            if file_age > max_age_seconds:
+                logger.debug("跳过过期计划文件 (%.1fh > %dh): %s", file_age / 3600, max_age_hours, path)
+                continue
             plan = self.read(path)
             if plan and not plan.is_complete:
                 return path

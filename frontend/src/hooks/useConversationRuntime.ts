@@ -287,6 +287,12 @@ export function useConversationRuntime(
         currentStepIndex: data.current_step_index,
       })
     })
+    ws.on('plan:discarded', () => {
+      useConversationStore.getState().setPlan(sessionId, null)
+    })
+    ws.on('plan:recovered', () => {
+      useConversationStore.getState().setPlan(sessionId, null)
+    })
     ws.on('session:mode_changed', (data: { session_id: string; mode: string }) => {
       useConversationStore.getState().setAgentMode(sessionId, data.mode as import('@/types/conversation').AgentMode)
     })
