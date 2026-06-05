@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -105,7 +106,7 @@ class AgentService:
         self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
         self._browser_tools: dict[str, _BrowserTool] = {}
-        self._browser_tools_lock = asyncio.Lock()
+        self._browser_tools_lock = threading.Lock()
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
@@ -171,15 +172,16 @@ class AgentService:
         registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
 
         if _BrowserTool is not None and session_id is not None:
-            browser_tool = self._browser_tools.get(session_id)
-            if browser_tool is None:
-                from app.config.settings import config_manager as _cfg_browser
-                _browser_settings = _cfg_browser.settings.browser
-                browser_tool = _BrowserTool(config=_browser_settings)
-                self._browser_tools[session_id] = browser_tool
-                logger.info("为 session=%s 创建新 BrowserTool 实例", session_id)
-            else:
-                logger.info("复用 session=%s 的已有 BrowserTool 实例", session_id)
+            with self._browser_tools_lock:
+                browser_tool = self._browser_tools.get(session_id)
+                if browser_tool is None:
+                    from app.config.settings import config_manager as _cfg_browser
+                    _browser_settings = _cfg_browser.settings.browser
+                    browser_tool = _BrowserTool(config=_browser_settings)
+                    self._browser_tools[session_id] = browser_tool
+                    logger.info("为 session=%s 创建新 BrowserTool 实例", session_id)
+                else:
+                    logger.info("复用 session=%s 的已有 BrowserTool 实例", session_id)
             registry.register(browser_tool)
         elif _BrowserTool is not None:
             from app.config.settings import config_manager as _cfg_browser
@@ -340,7 +342,7 @@ class AgentService:
         在 session 被删除或销毁时调用，确保浏览器进程被正确关闭，
         不会留下僵尸 chromium 进程。
         """
-        async with self._browser_tools_lock:
+        with self._browser_tools_lock:
             browser_tool = self._browser_tools.pop(session_id, None)
         if browser_tool is not None:
             logger.info("清理 session=%s 的 BrowserTool", session_id)
@@ -348,7 +350,7 @@ class AgentService:
 
     async def shutdown(self) -> None:
         """服务关闭时清理所有资源，包括所有 session 的浏览器实例。"""
-        async with self._browser_tools_lock:
+        with self._browser_tools_lock:
             tools_to_cleanup = list(self._browser_tools.items())
             self._browser_tools.clear()
 

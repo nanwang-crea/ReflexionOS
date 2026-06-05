@@ -45,7 +45,10 @@ async def update_session(session_id: str, payload: SessionUpdate):
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     try:
-        await agent_service.cleanup_browser_for_session(session_id)
+        try:
+            await agent_service.cleanup_browser_for_session(session_id)
+        except Exception:
+            pass
         session_service.delete_session(session_id)
         return {"message": "会话已删除"}
     except ValueError as exc:
