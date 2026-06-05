@@ -187,24 +187,27 @@ const ActionReceiptDetailRow = memo(function ActionReceiptDetailRow({
         )}
       </AnimatePresence>
 
-      {detail.data?.screenshot_path && (
-        <div className="mt-2">
-          <img
-            src={`/api/browser/screenshot?path=${encodeURIComponent(String(detail.data.screenshot_path))}`}
-            alt="Browser screenshot"
-            className="max-w-sm rounded border border-edge cursor-pointer hover:opacity-80"
-            onClick={() => {
-              const sp = detail.data?.screenshot_path
-              if (sp) window.open(`/api/browser/screenshot?path=${encodeURIComponent(String(sp))}`, '_blank')
-            }}
-          />
-          {detail.data.width != null && detail.data.height != null && (
-            <p className="mt-1 text-xs text-content-tertiary">
-              {Number(detail.data.width)}x{Number(detail.data.height)} — 点击查看原图
-            </p>
-          )}
-        </div>
-      )}
+      {(() => {
+        const d = detail.data as Record<string, unknown> | null
+        if (!d?.screenshot_path) return null
+        return (
+          <div className="mt-2">
+            <img
+              src={`/api/browser/screenshot?path=${encodeURIComponent(String(d.screenshot_path))}`}
+              alt="Browser screenshot"
+              className="max-w-sm rounded border border-edge cursor-pointer hover:opacity-80"
+              onClick={() => {
+                if (d.screenshot_path) window.open(`/api/browser/screenshot?path=${encodeURIComponent(String(d.screenshot_path))}`, '_blank')
+              }}
+            />
+            {d.width != null && d.height != null && (
+              <p className="mt-1 text-xs text-content-tertiary">
+                {Number(d.width)}x{Number(d.height)} — 点击查看原图
+              </p>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 })
