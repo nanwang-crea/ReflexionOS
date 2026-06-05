@@ -20,7 +20,8 @@ class TestPromptManager:
         assert "/project" in prompt
         assert "darwin" in prompt
         assert "True" in prompt
-        assert "Never restart investigation from scratch unless a concrete prior finding was disproven." in prompt
+        assert "Execution plan" in prompt
+        assert "Plan overrides stopping" in prompt
 
     def test_get_error_prompt(self, manager):
         prompt = manager.get_error_prompt(

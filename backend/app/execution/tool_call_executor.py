@@ -167,6 +167,15 @@ class ToolCallExecutor:
                     visible["content"] = visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
                 if visible:
                     tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+            # P2: Plan status hook — append plan step anchor to every non-plan tool result
+            if (
+                context.plan is not None
+                and context.plan.current_step is not None
+                and tool_call.name not in ("plan", "plan_exit")
+            ):
+                ps = context.plan.current_step
+                total = len(context.plan.steps)
+                tool_output += f"\n[Plan ► Step {ps.id}/{total}: {ps.description}]"
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",

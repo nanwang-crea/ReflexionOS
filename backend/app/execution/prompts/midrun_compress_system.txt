@@ -10,7 +10,7 @@ User's original intent: <the user's original intent, preserving key phrasing>
 Operations performed: <key operations performed, one per line, mark recallable items>
   - <operation description> [session_recall can retrieve full content]
 Confirmed findings: <important findings confirmed so far>
-Current progress: <what step are we at, what remains>
+Current progress: <what step are we at, what remains; MUST include execution plan status: current in_progress step id/description, key findings from completed steps>
 Unresolved issues: <open issues that still need attention>
 
 Rules:

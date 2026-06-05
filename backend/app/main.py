@@ -21,7 +21,13 @@ from app.api.routes import (
 from app.app_services import agent_service
 from app.errors import AppError
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("app")
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    logger.addHandler(_handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
 
 
 class RequestLoggingMiddleware:
@@ -69,7 +75,6 @@ async def lifespan(_app: FastAPI):
                 loader.load_all(packages)
                 plugin_skill_dirs = loader.get_all_skill_dirs()
             except Exception as e:
-                import logging
                 logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
 
         if skill_settings.auto_scan:

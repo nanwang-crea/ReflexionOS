@@ -111,13 +111,16 @@ class Database:
         """运行 Alembic 增量迁移，替代 Base.metadata.create_all 的粗暴方式"""
         alembic_cfg_path = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
         if not alembic_cfg_path.exists():
-            # 没有 alembic.ini 时回退到 create_all（兼容无 Alembic 的部署）
             logger.info("未找到 alembic.ini，使用 create_all 初始化表结构")
             Base.metadata.create_all(self.engine)
             return
 
         alembic_cfg = AlembicConfig(str(alembic_cfg_path))
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
+
+        root_logger = logging.getLogger()
+        saved_level = root_logger.level
+        saved_handlers = list(root_logger.handlers)
 
         try:
             inspector = inspect(self.engine)
@@ -133,12 +136,13 @@ class Database:
                 command.stamp(alembic_cfg, "d3185a24f1c8")
                 logger.info("旧数据库已标记为 Alembic initial_schema 版本")
 
-            # upgrade head：空数据库会执行全部迁移建表；已有版本则增量迁移
             command.upgrade(alembic_cfg, "head")
-            logger.info("Alembic 迁移完成")
         except Exception as exc:
             logger.warning("Alembic 迁移失败，回退到 create_all: %s", exc)
             Base.metadata.create_all(self.engine)
+        finally:
+            root_logger.handlers = saved_handlers
+            root_logger.setLevel(saved_level)
 
     def _has_turn_message_index_schema(self) -> bool:
         with self.engine.connect() as connection:

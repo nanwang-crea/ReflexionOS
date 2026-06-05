@@ -102,7 +102,8 @@ def test_system_prompt_uses_runtime_tool_definitions():
     assert len(system_messages) >= 1
     assert "autonomous coding agent" in system_messages[0].content
     assert "Tool and shell rules" in system_messages[0].content
-    assert "Never restart investigation from scratch" in system_messages[0].content
+    assert "Execution plan" in system_messages[0].content
+    assert "Plan overrides stopping" in system_messages[0].content
 
 
 def test_build_messages_injects_current_plan_step_and_update_requirement():
@@ -202,7 +203,7 @@ def test_plan_focus_injected_once_per_step():
     assert len(focus_1) == 1
     assert "定位 bug" in focus_1[0]
 
-    # 同一步骤内第二次 build：不应重复注入
+    # 同一步骤内第二次 build：不应重复注入 Plan Focus，但 per-turn reminder 应注入
     context.add_message("assistant", "检查代码", tool_calls=[
         {"id": "c1", "name": "shell", "arguments": {"command": "grep bug auth.py"}},
     ])
@@ -211,6 +212,9 @@ def test_plan_focus_injected_once_per_step():
     user_2 = [m.content for m in messages_2 if m.role == "user"]
     focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
     assert len(focus_2) == 0
+    reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
+    assert len(reminder_2) == 1
+    assert "定位 bug" in reminder_2[0]
 
     # 步骤切换到步骤 2：应注入新的 Plan Focus
     context.plan.advance("已定位 bug 在 auth.py")
@@ -220,7 +224,7 @@ def test_plan_focus_injected_once_per_step():
     assert len(focus_3) == 1
     assert "修复代码" in focus_3[0]
 
-    # 步骤 2 内再次 build：不应重复注入
+    # 步骤 2 内再次 build：不应重复注入 Plan Focus，但 per-turn reminder 应注入
     context.add_message("assistant", "修复中", tool_calls=[
         {"id": "c2", "name": "edit", "arguments": {"path": "auth.py"}},
     ])
@@ -229,6 +233,9 @@ def test_plan_focus_injected_once_per_step():
     user_4 = [m.content for m in messages_4 if m.role == "user"]
     focus_4 = [c for c in user_4 if c and "Plan Focus" in c]
     assert len(focus_4) == 0
+    reminder_4 = [c for c in user_4 if c and "Plan ►" in c]
+    assert len(reminder_4) == 1
+    assert "修复代码" in reminder_4[0]
 
 
 def test_task_anchor_injected_periodically():
@@ -256,3 +263,74 @@ def test_compaction_continue_message_injected_after_tier3():
     messages = builder.build(context)
     user_contents = [m.content for m in messages if m.role == "user"]
     assert any("Continue" in (c or "") for c in user_contents)
+
+
+def test_per_turn_plan_status_reminder_injected_when_plan_active():
+    """Per-turn plan status reminder injected when plan is active and Plan Focus was already injected."""
+    builder = build_message_builder()
+
+    context = LoopContext(task="实现认证")
+    context.plan = Plan(
+        goal="实现认证",
+        steps=[
+            PlanStep(id=1, description="写认证模块", status="in_progress"),
+            PlanStep(id=2, description="测试认证", status="pending"),
+        ],
+        current_step_index=0,
+    )
+    context.add_message("user", "实现认证")
+
+    # First build: Plan Focus injected (step first appears), no per-turn reminder
+    messages_1 = builder.build(context)
+    user_1 = [m.content for m in messages_1 if m.role == "user"]
+    focus_1 = [c for c in user_1 if c and "Plan Focus" in c]
+    reminder_1 = [c for c in user_1 if c and "Plan ►" in c]
+    assert len(focus_1) == 1
+    assert len(reminder_1) == 0
+
+    # Second build: Plan Focus NOT re-injected, per-turn reminder IS injected
+    context.add_message("assistant", "writing auth", tool_calls=[
+        {"id": "c1", "name": "edit", "arguments": {"path": "auth.py"}},
+    ])
+    context.add_message("tool", content="edit ok", tool_call_id="c1")
+    messages_2 = builder.build(context)
+    user_2 = [m.content for m in messages_2 if m.role == "user"]
+    focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
+    reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
+    assert len(focus_2) == 0
+    assert len(reminder_2) == 1
+    assert "写认证模块" in reminder_2[0]
+    assert "plan.step_done" in reminder_2[0]
+
+
+def test_per_turn_plan_status_not_injected_when_no_plan():
+    """No plan status reminder when plan is None."""
+    builder = build_message_builder()
+    context = LoopContext(task="简单查询")
+    context.add_message("user", "简单查询")
+
+    messages = builder.build(context)
+    user_contents = [m.content for m in messages if m.role == "user"]
+    assert not any("Plan ►" in (c or "") for c in user_contents)
+
+
+def test_plan_status_injected_in_plan_context_system_message():
+    """Plan context (render_for_context + findings) is injected as system message when plan exists."""
+    builder = build_message_builder()
+
+    context = LoopContext(task="修 bug")
+    context.plan = Plan(
+        goal="修 bug",
+        steps=[
+            PlanStep(id=1, description="定位问题", status="completed", findings="问题在 main.py"),
+            PlanStep(id=2, description="修复代码", status="in_progress"),
+        ],
+        current_step_index=1,
+    )
+    context.metadata["plan_update_required"] = True
+    context.add_message("user", "修 bug")
+
+    messages = builder.build(context)
+    system_contents = [m.content for m in messages if m.role == "system" and m.content]
+    assert any("执行计划" in c or "修 bug" in c for c in system_contents)
+    assert any("问题在 main.py" in c for c in system_contents)
