@@ -50,6 +50,7 @@ async def lifespan(_app: FastAPI):
 
         yield
     finally:
+        await agent_service.shutdown()
         await agent_service.stop_background_tasks()
 
 

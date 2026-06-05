@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.app_services import agent_service
 from app.errors import value_error_to_app_error
 from app.models.conversation_snapshot import ConversationSnapshot
 from app.models.session import Session, SessionCreate, SessionUpdate
@@ -44,6 +45,7 @@ async def update_session(session_id: str, payload: SessionUpdate):
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     try:
+        await agent_service.cleanup_browser_for_session(session_id)
         session_service.delete_session(session_id)
         return {"message": "会话已删除"}
     except ValueError as exc:

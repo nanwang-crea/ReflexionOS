@@ -52,6 +52,12 @@ from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
 
+try:
+    from app.tools.browser_tool import BrowserTool as _BrowserTool
+except ImportError:
+    _BrowserTool = None  # type: ignore[assignment,misc]
+    logger.warning("playwright 未安装，BrowserTool 不可用")
+
 from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
 from .conversation_service import ConversationService
@@ -98,6 +104,8 @@ class AgentService:
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
+        self._browser_tools: dict[str, _BrowserTool] = {}
+        self._browser_tools_lock = asyncio.Lock()
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
@@ -113,8 +121,8 @@ class AgentService:
         self.continuation_builder = ContinuationArtifactBuilder()
         self.trust_store = SessionTrustStore()
 
-    @staticmethod
     def _build_run_tool_registry(
+        self,
         project_path: str | None,
         session_id: str | None = None,
         trust_store: SessionTrustStore | None = None,
@@ -161,13 +169,22 @@ class AgentService:
         from app.config.settings import config_manager as _cfg_mgr
         _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
         registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
-        try:
-            from app.tools.browser_tool import BrowserTool
+
+        if _BrowserTool is not None and session_id is not None:
+            browser_tool = self._browser_tools.get(session_id)
+            if browser_tool is None:
+                from app.config.settings import config_manager as _cfg_browser
+                _browser_settings = _cfg_browser.settings.browser
+                browser_tool = _BrowserTool(config=_browser_settings)
+                self._browser_tools[session_id] = browser_tool
+                logger.info("为 session=%s 创建新 BrowserTool 实例", session_id)
+            else:
+                logger.info("复用 session=%s 的已有 BrowserTool 实例", session_id)
+            registry.register(browser_tool)
+        elif _BrowserTool is not None:
             from app.config.settings import config_manager as _cfg_browser
             _browser_settings = _cfg_browser.settings.browser
-            registry.register(BrowserTool(config=_browser_settings))
-        except ImportError:
-            logger.warning("playwright 未安装，BrowserTool 不可用，跳过注册")
+            registry.register(_BrowserTool(config=_browser_settings))
 
         logger.info(
             "构建运行时工具注册中心, run_base_dir=%s, allowed_paths=%s", base_dir, allowed_paths
@@ -316,6 +333,31 @@ class AgentService:
         cleanup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cleanup_task
+
+    async def cleanup_browser_for_session(self, session_id: str) -> None:
+        """清理指定 session 的 BrowserTool 资源。
+
+        在 session 被删除或销毁时调用，确保浏览器进程被正确关闭，
+        不会留下僵尸 chromium 进程。
+        """
+        async with self._browser_tools_lock:
+            browser_tool = self._browser_tools.pop(session_id, None)
+        if browser_tool is not None:
+            logger.info("清理 session=%s 的 BrowserTool", session_id)
+            await browser_tool.cleanup()
+
+    async def shutdown(self) -> None:
+        """服务关闭时清理所有资源，包括所有 session 的浏览器实例。"""
+        async with self._browser_tools_lock:
+            tools_to_cleanup = list(self._browser_tools.items())
+            self._browser_tools.clear()
+
+        for session_id, browser_tool in tools_to_cleanup:
+            try:
+                await browser_tool.cleanup()
+                logger.info("关闭 session=%s 的浏览器实例", session_id)
+            except Exception:
+                logger.warning("关闭 session=%s 的浏览器实例失败", session_id, exc_info=True)
 
     async def _event_cleanup_loop(self, cleanup_interval_seconds: int) -> None:
         while True:
