@@ -212,7 +212,7 @@ class BrowserManager:
             logger.exception("Failed to start browser")
             await self._cleanup_on_failure()
             err_msg = str(exc)
-            if "Executable doesn't exist" in err_msg or "not found" in err_msg.lower():
+            if "Executable doesn't exist" in err_msg:
                 return BrowserActionResult(
                     success=False,
                     action="start",

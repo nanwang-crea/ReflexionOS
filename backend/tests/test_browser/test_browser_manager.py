@@ -342,3 +342,46 @@ async def test_action_read_default_selector():
     result = await tool._action_read({})
     assert result.success is True
     page.locator.assert_called_with("body")
+
+
+def test_tool_output_includes_visible_data_keys():
+    """tool_call_executor 应将 result.data 中的可见字段序列化到 tool_output。"""
+    import json
+    from app.tools.base import ToolResult
+
+    result = ToolResult(
+        success=True,
+        output="Content read",
+        data={"content": "Hello World", "other_internal_key": "should not appear"},
+    )
+
+    tool_output = result.output or result.error or ""
+    if result.success and result.data:
+        _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+        visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
+        if visible:
+            tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+
+    assert "Hello World" in tool_output
+    assert "other_internal_key" not in tool_output
+    assert tool_output.startswith("Content read\n{")
+
+
+def test_tool_output_no_data_stays_simple():
+    """当 result.data 为空或无可见 key 时，tool_output 保持原始 output。"""
+    from app.tools.base import ToolResult
+
+    result = ToolResult(
+        success=True,
+        output="Clicked element",
+        data={},
+    )
+
+    tool_output = result.output or result.error or ""
+    if result.success and result.data:
+        _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+        visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
+        if visible:
+            tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+
+    assert tool_output == "Clicked element"
