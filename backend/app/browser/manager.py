@@ -834,6 +834,35 @@ class BrowserManager:
                     success=False, action="close_tab", error=str(exc)
                 )
 
+    async def list_tabs(self) -> BrowserActionResult:
+        """列出所有打开的标签页。
+
+        执行逻辑：
+            1. 获取锁，确保浏览器已启动
+            2. 遍历 _tabs 构建标签页列表
+            3. 返回标签页信息及当前活跃标签 ID
+
+        出参：
+            BrowserActionResult: data 包含 tabs 列表和 active_tab_id
+        """
+        try:
+            async with self._lock:
+                await self._ensure_browser()
+                tabs = [
+                    {"tab_id": tid, "url": page.url}
+                    for tid, page in self._tabs.items()
+                ]
+                return BrowserActionResult(
+                    success=True,
+                    action="list_tabs",
+                    message=f"{len(tabs)} tab(s) open",
+                    data={"tabs": tabs, "active_tab_id": self._active_tab_id},
+                )
+        except Exception as exc:
+            return BrowserActionResult(
+                success=False, action="list_tabs", error=str(exc)
+            )
+
     # ------------------------------------------------------------------
     # Internal Helpers
     # ------------------------------------------------------------------

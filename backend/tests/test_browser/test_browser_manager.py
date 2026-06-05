@@ -277,6 +277,20 @@ async def test_max_tabs_limit(manager):
     assert "Maximum" in result.error
 
 
+async def test_list_tabs(manager):
+    """list_tabs 应返回所有标签页的 ID 和 URL。"""
+    page = _mock_page()
+    page.url = "https://example.com"
+    _inject_running(manager, page)
+
+    result = await manager.list_tabs()
+    assert result.success is True
+    assert len(result.data["tabs"]) == 1
+    assert result.data["tabs"][0]["tab_id"] == manager._active_tab_id
+    assert result.data["tabs"][0]["url"] == "https://example.com"
+    assert result.data["active_tab_id"] == manager._active_tab_id
+
+
 async def test_close_kills_disconnected_browser_process():
     """When browser is disconnected, _close_impl should still kill the process."""
     page = _mock_page()

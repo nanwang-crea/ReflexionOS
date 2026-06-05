@@ -104,7 +104,7 @@ class BrowserTool(BaseTool):
     VALID_ACTIONS = frozenset({
         "launch", "navigate", "click", "fill", "select",
         "screenshot", "read", "wait", "execute_js",
-        "new_tab", "switch_tab", "close_tab", "close",
+        "new_tab", "switch_tab", "close_tab", "list_tabs", "close",
     })
 
     def __init__(self, config: BrowserSettings | None = None):
@@ -138,8 +138,9 @@ class BrowserTool(BaseTool):
             "fill (fill input field), select (select dropdown option), "
             "screenshot (capture image), read (get text/HTML), "
             "wait (wait for element), execute_js (run JavaScript), "
-            "new_tab (open new tab), switch_tab (switch to tab), "
-            "close_tab (close a tab), close (shut down browser)."
+            "new_tab (open new tab), list_tabs (list all open tabs), "
+            "switch_tab (switch to tab), close_tab (close a tab), "
+            "close (shut down browser)."
         )
 
     def get_schema(self) -> dict[str, Any]:
@@ -411,6 +412,10 @@ class BrowserTool(BaseTool):
                 error="close_tab requires 'tab_id'",
             )
         return await self._manager.close_tab(tab_id)
+
+    async def _action_list_tabs(self, args: dict[str, Any]) -> BrowserActionResult:
+        """列出所有标签页。无参数。"""
+        return await self._manager.list_tabs()
 
     async def _action_close(self, args: dict[str, Any]) -> BrowserActionResult:
         """关闭浏览器。无参数。"""
