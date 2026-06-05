@@ -159,9 +159,12 @@ class ToolCallExecutor:
                     tool_output = tool_output + rc_info
                 else:
                     tool_output = tool_output + rc_info if not tool_output.endswith(rc_info) else tool_output
-            if result.success and result.data:
-                _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+            _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+            _MAX_CONTENT_LEN = 8000
+            if result.data:
                 visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
+                if "content" in visible and isinstance(visible["content"], str) and len(visible["content"]) > _MAX_CONTENT_LEN:
+                    visible["content"] = visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
                 if visible:
                     tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
             context.update_history(tool_call, tool_output)

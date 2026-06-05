@@ -344,9 +344,26 @@ async def test_action_read_default_selector():
     page.locator.assert_called_with("body")
 
 
+def _build_tool_output(result):
+    """模拟 tool_call_executor 构建 tool_output 的逻辑。"""
+    import json as _json
+    from app.tools.base import ToolResult
+
+    _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+    _MAX_CONTENT_LEN = 8000
+
+    tool_output = result.output or result.error or ""
+    if result.data:
+        visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
+        if "content" in visible and isinstance(visible["content"], str) and len(visible["content"]) > _MAX_CONTENT_LEN:
+            visible["content"] = visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
+        if visible:
+            tool_output = tool_output + "\n" + _json.dumps(visible, ensure_ascii=False)
+    return tool_output
+
+
 def test_tool_output_includes_visible_data_keys():
     """tool_call_executor 应将 result.data 中的可见字段序列化到 tool_output。"""
-    import json
     from app.tools.base import ToolResult
 
     result = ToolResult(
@@ -355,12 +372,7 @@ def test_tool_output_includes_visible_data_keys():
         data={"content": "Hello World", "other_internal_key": "should not appear"},
     )
 
-    tool_output = result.output or result.error or ""
-    if result.success and result.data:
-        _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
-        visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
-        if visible:
-            tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+    tool_output = _build_tool_output(result)
 
     assert "Hello World" in tool_output
     assert "other_internal_key" not in tool_output
@@ -377,11 +389,41 @@ def test_tool_output_no_data_stays_simple():
         data={},
     )
 
-    tool_output = result.output or result.error or ""
-    if result.success and result.data:
-        _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
-        visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
-        if visible:
-            tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+    tool_output = _build_tool_output(result)
 
     assert tool_output == "Clicked element"
+
+
+def test_tool_output_truncates_long_content():
+    """content 超过 8000 字符时应截断并加 [truncated] 标记。"""
+    from app.tools.base import ToolResult
+
+    long_text = "x" * 10000
+    result = ToolResult(
+        success=True,
+        output="Content read",
+        data={"content": long_text},
+    )
+
+    tool_output = _build_tool_output(result)
+
+    assert "x" * 8000 in tool_output
+    assert "[truncated]" in tool_output
+    assert long_text not in tool_output
+
+
+def test_tool_output_failure_path_includes_data():
+    """失败场景的 result.data 也应被序列化到 tool_output。"""
+    from app.tools.base import ToolResult
+
+    result = ToolResult(
+        success=False,
+        error="Timeout",
+        data={"url": "https://example.com", "internal_debug": "trace"},
+    )
+
+    tool_output = _build_tool_output(result)
+
+    assert "Timeout" in tool_output
+    assert "https://example.com" in tool_output
+    assert "internal_debug" not in tool_output
