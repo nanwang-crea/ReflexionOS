@@ -181,7 +181,7 @@ class BrowserTool(BaseTool):
                     },
                     "script": {
                         "type": "string",
-                        "description": "JavaScript to execute",
+                        "description": "JavaScript to execute. Use arrow function to return values, e.g. `() => document.title`. Do NOT use top-level `return`.",
                     },
                     "format": {
                         "type": "string",

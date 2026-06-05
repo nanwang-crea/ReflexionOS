@@ -642,7 +642,9 @@ class BrowserManager:
         """在当前页面执行 JavaScript 脚本。
 
         入参：
-            script: JavaScript 代码。使用 "return" 返回值。
+            script: JavaScript 表达式或函数体。用箭头函数返回值，例如：
+                    `() => document.title` 或 `() => { return 1 + 1 }`。
+                    直接写 `return ...` 会导致语法错误。
 
         执行逻辑：
             1. 获取并发锁
