@@ -203,7 +203,8 @@ def test_plan_focus_injected_once_per_step():
     assert len(focus_1) == 1
     assert "定位 bug" in focus_1[0]
 
-    # 同一步骤内第二次 build：不应重复注入 Plan Focus，但 per-turn reminder 应注入
+    # 同一步骤内第二次 build：不应重复注入 Plan Focus；per-turn "Plan ►" reminder
+    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "检查代码", tool_calls=[
         {"id": "c1", "name": "shell", "arguments": {"command": "grep bug auth.py"}},
     ])
@@ -212,9 +213,9 @@ def test_plan_focus_injected_once_per_step():
     user_2 = [m.content for m in messages_2 if m.role == "user"]
     focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
     assert len(focus_2) == 0
+    # Per-turn "Plan ►" reminder is no longer injected by message builder
     reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
-    assert len(reminder_2) == 1
-    assert "定位 bug" in reminder_2[0]
+    assert len(reminder_2) == 0
 
     # 步骤切换到步骤 2：应注入新的 Plan Focus
     context.plan.advance("已定位 bug 在 auth.py")
@@ -224,7 +225,8 @@ def test_plan_focus_injected_once_per_step():
     assert len(focus_3) == 1
     assert "修复代码" in focus_3[0]
 
-    # 步骤 2 内再次 build：不应重复注入 Plan Focus，但 per-turn reminder 应注入
+    # 步骤 2 内再次 build：不应重复注入 Plan Focus；per-turn "Plan ►" reminder
+    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "修复中", tool_calls=[
         {"id": "c2", "name": "edit", "arguments": {"path": "auth.py"}},
     ])
@@ -233,9 +235,9 @@ def test_plan_focus_injected_once_per_step():
     user_4 = [m.content for m in messages_4 if m.role == "user"]
     focus_4 = [c for c in user_4 if c and "Plan Focus" in c]
     assert len(focus_4) == 0
+    # Per-turn "Plan ►" reminder is no longer injected by message builder
     reminder_4 = [c for c in user_4 if c and "Plan ►" in c]
-    assert len(reminder_4) == 1
-    assert "修复代码" in reminder_4[0]
+    assert len(reminder_4) == 0
 
 
 def test_task_anchor_injected_periodically():
@@ -288,7 +290,8 @@ def test_per_turn_plan_status_reminder_injected_when_plan_active():
     assert len(focus_1) == 1
     assert len(reminder_1) == 0
 
-    # Second build: Plan Focus NOT re-injected, per-turn reminder IS injected
+    # Second build: Plan Focus NOT re-injected; per-turn "Plan ►" reminder
+    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "writing auth", tool_calls=[
         {"id": "c1", "name": "edit", "arguments": {"path": "auth.py"}},
     ])
@@ -298,9 +301,8 @@ def test_per_turn_plan_status_reminder_injected_when_plan_active():
     focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
     reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
     assert len(focus_2) == 0
-    assert len(reminder_2) == 1
-    assert "写认证模块" in reminder_2[0]
-    assert "plan.step_done" in reminder_2[0]
+    # Per-turn "Plan ►" reminder is no longer injected by message builder
+    assert len(reminder_2) == 0
 
 
 def test_per_turn_plan_status_not_injected_when_no_plan():

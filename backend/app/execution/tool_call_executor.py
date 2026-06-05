@@ -175,7 +175,7 @@ class ToolCallExecutor:
             ):
                 ps = context.plan.current_step
                 total = len(context.plan.steps)
-                tool_output += f"\n[Plan ► Step {ps.id}/{total}: {ps.description}]"
+                tool_output += f"\n[Plan ► Step {ps.id}/{total}: {ps.description}] → complete → plan.step_done"
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",

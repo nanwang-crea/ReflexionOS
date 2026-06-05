@@ -195,16 +195,6 @@ class LoopMessageBuilder:
                 )
                 messages.append(LLMMessage(role=MessageRole.USER, content=focus_text))
                 context.metadata["_injected_focus_step_id"] = current_step_id
-            else:
-                # Per-turn plan status reminder: lightweight persistent anchor
-                # so the model always sees plan state, even when immersed in tool operations.
-                total = len(context.plan.steps)
-                step = context.plan.current_step
-                status_text = (
-                    f"[Plan ► Step {step.id}/{total}: {step.description}] "
-                    f"→ complete → plan.step_done"
-                )
-                messages.append(LLMMessage(role=MessageRole.USER, content=status_text))
 
         return messages
 
