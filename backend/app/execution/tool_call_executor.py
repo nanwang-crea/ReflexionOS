@@ -1,3 +1,4 @@
+import json
 import logging
 import time
 import uuid
@@ -158,6 +159,11 @@ class ToolCallExecutor:
                     tool_output = tool_output + rc_info
                 else:
                     tool_output = tool_output + rc_info if not tool_output.endswith(rc_info) else tool_output
+            if result.success and result.data:
+                _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+                visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
+                if visible:
+                    tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",
