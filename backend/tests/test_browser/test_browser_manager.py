@@ -275,3 +275,25 @@ async def test_max_tabs_limit(manager):
     result = await manager.new_tab()
     assert result.success is False
     assert "Maximum" in result.error
+
+
+async def test_close_kills_disconnected_browser_process():
+    """When browser is disconnected, _close_impl should still kill the process."""
+    page = _mock_page()
+    ctx = _mock_context(page)
+    browser = _mock_browser(ctx)
+    browser.is_connected = MagicMock(return_value=False)
+    browser.process = MagicMock()
+    browser.process.kill = MagicMock()
+
+    mgr = BrowserManager(BrowserSettings(headless=True))
+    mgr._playwright = MagicMock()
+    mgr._browser = browser
+    mgr._context = ctx
+    tab_id = mgr._new_tab_id()
+    mgr._tabs[tab_id] = page
+    mgr._active_tab_id = tab_id
+
+    result = await mgr.close()
+    assert result.success is True
+    browser.process.kill.assert_called_once()

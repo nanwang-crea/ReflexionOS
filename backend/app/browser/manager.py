@@ -239,8 +239,11 @@ class BrowserManager:
             4. 清理截图临时目录
         """
         try:
-            if self._browser and self._browser.is_connected():
-                await self._browser.close()
+            if self._browser:
+                if self._browser.is_connected():
+                    await self._browser.close()
+                elif hasattr(self._browser, "process") and self._browser.process is not None:
+                    self._browser.process.kill()
             if self._playwright:
                 await self._playwright.stop()
         except Exception:
