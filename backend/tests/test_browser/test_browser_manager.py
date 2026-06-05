@@ -329,3 +329,16 @@ async def test_close_kills_disconnected_browser_process():
     result = await mgr.close()
     assert result.success is True
     browser.process.kill.assert_called_once()
+
+
+async def test_action_read_default_selector():
+    """_action_read 不传 selector 时应传 'body' 给 manager。"""
+    from app.tools.browser_tool import BrowserTool
+
+    tool = BrowserTool(BrowserSettings(headless=True))
+    page = _mock_page()
+    _inject_running(tool._manager, page)
+
+    result = await tool._action_read({})
+    assert result.success is True
+    page.locator.assert_called_with("body")

@@ -357,7 +357,7 @@ class BrowserTool(BaseTool):
     async def _action_read(self, args: dict[str, Any]) -> BrowserActionResult:
         """读取内容。可选：selector, format (text/html)。"""
         return await self._manager.read(
-            selector=args.get("selector"),
+            selector=args.get("selector") or "body",
             fmt=args.get("format", "text"),
         )
 
