@@ -200,7 +200,7 @@ async def test_click_selector(manager):
     page = _inject_running(manager)
     result = await manager.click(selector="button#submit")
     assert result.success is True
-    page.click.assert_awaited_once_with("button#submit")
+    page.click.assert_awaited_once_with("button#submit", timeout=manager._config.action_timeout)
 
 
 # 8. fill 调用 page.fill
@@ -209,7 +209,7 @@ async def test_fill(manager):
     page = _inject_running(manager)
     result = await manager.fill("input[name=email]", "test@example.com")
     assert result.success is True
-    page.fill.assert_awaited_once_with("input[name=email]", "test@example.com")
+    page.fill.assert_awaited_once_with("input[name=email]", "test@example.com", timeout=manager._config.action_timeout)
 
 
 # 9. read 返回内容

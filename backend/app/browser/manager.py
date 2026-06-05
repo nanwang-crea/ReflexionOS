@@ -420,9 +420,9 @@ class BrowserManager:
             try:
                 page = await self._get_active_page()
                 if text:
-                    await page.get_by_text(text).click()
+                    await page.get_by_text(text).click(timeout=self._config.action_timeout)
                 elif selector:
-                    await page.click(selector)
+                    await page.click(selector, timeout=self._config.action_timeout)
                 else:
                     return BrowserActionResult(
                         success=False,
@@ -459,7 +459,7 @@ class BrowserManager:
         async with self._lock:
             try:
                 page = await self._get_active_page()
-                await page.fill(selector, value)
+                await page.fill(selector, value, timeout=self._config.action_timeout)
                 return BrowserActionResult(
                     success=True, action="fill", message=f"Filled {selector}"
                 )
@@ -489,7 +489,7 @@ class BrowserManager:
         async with self._lock:
             try:
                 page = await self._get_active_page()
-                await page.select_option(selector, value)
+                await page.select_option(selector, value, timeout=self._config.action_timeout)
                 return BrowserActionResult(
                     success=True,
                     action="select",
