@@ -671,15 +671,23 @@ class RapidExecutionLoop:
                 loop_result.compacted_summary = context.compacted_summary
 
                 if context.plan is not None:
+                    was_plan_complete = context.plan.is_complete
                     if loop_result.status == LoopStatus.COMPLETED:
-                        context.plan.finalize_for_completion()
-                        if context.plan_file_path:
+                        if context.plan_file_path and was_plan_complete:
+                            context.plan.finalize_for_completion()
                             self.plan_file_sync.delete(context.plan_file_path, project_path=context.project_path)
                             await self._emit("plan:file_deleted", {"path": context.plan_file_path})
+                        elif context.plan_file_path and not was_plan_complete:
+                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
+                            logger.info("计划未完成，保留计划文件供恢复: %s", context.plan_file_path)
                     elif loop_result.status == LoopStatus.FAILED:
                         context.plan.finalize_for_failure()
+                        if context.plan_file_path:
+                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
                     elif loop_result.status == LoopStatus.CANCELLED:
                         context.plan.finalize_for_cancellation()
+                        if context.plan_file_path:
+                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
                     await self._emit("plan:updated", context.plan.to_dict())
 
             self._runtime = None
