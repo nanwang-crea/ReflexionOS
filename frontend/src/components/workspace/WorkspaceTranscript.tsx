@@ -552,6 +552,7 @@ export function WorkspaceTranscript({
             runId={item.runId}
             subItems={item.subItems}
             isStreaming={isStreaming}
+            isRunActive={isRunning}
             defaultExpanded={showProcessExpanded}
             autoCollapse={autoCollapseProcess}
             onApprovalAction={onApprovalAction}
@@ -621,7 +622,7 @@ export function WorkspaceTranscript({
     }
 
     return null
-  }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length, showProcessExpanded, autoCollapseProcess])
+  }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length, showProcessExpanded, autoCollapseProcess, isRunning])
 
   const scrollerContextValue = useMemo(() => ({
     bottomPadding: transcriptBottomPadding,
