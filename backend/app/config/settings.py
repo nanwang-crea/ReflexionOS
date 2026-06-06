@@ -63,6 +63,8 @@ class UISettings(BaseModel):
     """UI 偏好配置"""
 
     show_continuation_notices: bool = False
+    show_process_expanded: bool = True
+    auto_collapse_process: bool = True
 
 
 class BrowserSettings(BaseModel):

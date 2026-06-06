@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationMessage } from '@/types/conversation'
-import { buildTranscriptItems } from './transcriptItems'
+import { buildTranscriptItems, isProcessGroupStreaming } from './transcriptItems'
 
 function buildMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
   return {
@@ -22,8 +22,20 @@ function buildMessage(overrides: Partial<ConversationMessage> = {}): Conversatio
   }
 }
 
+function getProcessGroup(items: ReturnType<typeof buildTranscriptItems>, index: number) {
+  const item = items[index]
+  if (item?.kind !== 'process_group') return null
+  return item
+}
+
+function getToolGroupFromProcess(processGroup: { kind: 'process_group'; subItems: import('./transcriptItems').ProcessSubItem[] }, toolGroupIndex: number) {
+  const sub = processGroup.subItems[toolGroupIndex]
+  if (sub?.kind !== 'tool_group') return null
+  return sub
+}
+
 describe('buildTranscriptItems', () => {
-  it('groups contiguous tool traces while preserving assistant messages in the timeline', () => {
+  it('wraps tool traces in process_group, separates assistant answers as answer_message', () => {
     const items = buildTranscriptItems([
       buildMessage({
         id: 'msg-tool-read',
@@ -54,6 +66,7 @@ describe('buildTranscriptItems', () => {
       buildMessage({
         id: 'msg-tool-search',
         turnMessageIndex: 4,
+        runId: 'run-2',
         createdAt: '2026-04-24T10:00:25Z',
         payloadJson: {
           tool_name: 'file',
@@ -62,18 +75,27 @@ describe('buildTranscriptItems', () => {
       }),
     ])
 
-    expect(items.map((item) => item.kind)).toEqual(['tool_group', 'message', 'tool_group'])
-    expect(items[0]).toMatchObject({
-      kind: 'tool_group',
-      id: 'tools-msg-tool-read',
-      status: 'completed',
-    })
-    expect(items[0].kind === 'tool_group' ? items[0].details : []).toHaveLength(2)
-    expect(items[1].kind === 'message' ? items[1].message.id : null).toBe('msg-assistant')
-    expect(items[2].kind === 'tool_group' ? items[2].details : []).toHaveLength(1)
+    expect(items.map((item) => item.kind)).toEqual(['process_group', 'answer_message', 'process_group'])
+
+    const pg0 = getProcessGroup(items, 0)!
+    expect(pg0.runId).toBe('run-1')
+    const tg0 = getToolGroupFromProcess(pg0, 0)!
+    expect(tg0.id).toBe('tools-msg-tool-read')
+    expect(tg0.status).toBe('completed')
+    expect(tg0.details).toHaveLength(2)
+
+    expect(items[1].kind).toBe('answer_message')
+    if (items[1].kind === 'answer_message') {
+      expect(items[1].message.id).toBe('msg-assistant')
+    }
+
+    const pg2 = getProcessGroup(items, 2)!
+    expect(pg2.runId).toBe('run-2')
+    const tg2 = getToolGroupFromProcess(pg2, 0)!
+    expect(tg2.details).toHaveLength(1)
   })
 
-  it('splits tool trace groups when the time gap is large', () => {
+  it('splits tool trace sub-groups when the time gap is large within same run', () => {
     const items = buildTranscriptItems([
       buildMessage({
         id: 'msg-tool-1',
@@ -94,12 +116,19 @@ describe('buildTranscriptItems', () => {
       }),
     ])
 
-    expect(items.map((item) => item.kind)).toEqual(['tool_group', 'tool_group'])
-    expect(items[0].kind === 'tool_group' ? items[0].details[0].target : null).toBe('src/app.ts')
-    expect(items[1].kind === 'tool_group' ? items[1].details[0].target : null).toBe('src/main.ts')
+    expect(items.map((item) => item.kind)).toEqual(['process_group'])
+    const pg = getProcessGroup(items, 0)!
+    expect(pg.subItems.filter((s) => s.kind === 'tool_group')).toHaveLength(2)
+    const toolGroups = pg.subItems.filter((s) => s.kind === 'tool_group')
+    if (toolGroups[0].kind === 'tool_group') {
+      expect(toolGroups[0].details[0].target).toBe('src/app.ts')
+    }
+    if (toolGroups[1].kind === 'tool_group') {
+      expect(toolGroups[1].details[0].target).toBe('src/main.ts')
+    }
   })
 
-  it('never merges tool traces across assistant replies', () => {
+  it('separates process groups when assistant answer appears between tool runs', () => {
     const items = buildTranscriptItems([
       buildMessage({
         id: 'msg-tool-before',
@@ -121,6 +150,7 @@ describe('buildTranscriptItems', () => {
       buildMessage({
         id: 'msg-tool-after',
         turnMessageIndex: 3,
+        runId: 'run-2',
         createdAt: '2026-04-24T10:00:20Z',
         payloadJson: {
           tool_name: 'file',
@@ -129,13 +159,15 @@ describe('buildTranscriptItems', () => {
       }),
     ])
 
-    expect(items.map((item) => item.kind)).toEqual(['tool_group', 'message', 'tool_group'])
-    expect(items[0].kind === 'tool_group' ? items[0].messages.map((message) => message.id) : []).toEqual([
-      'msg-tool-before',
-    ])
-    expect(items[2].kind === 'tool_group' ? items[2].messages.map((message) => message.id) : []).toEqual([
-      'msg-tool-after',
-    ])
+    expect(items.map((item) => item.kind)).toEqual(['process_group', 'answer_message', 'process_group'])
+
+    const pg0 = getProcessGroup(items, 0)!
+    const tg0 = getToolGroupFromProcess(pg0, 0)!
+    expect(tg0.messages.map((m) => m.id)).toEqual(['msg-tool-before'])
+
+    const pg2 = getProcessGroup(items, 2)!
+    const tg2 = getToolGroupFromProcess(pg2, 0)!
+    expect(tg2.messages.map((m) => m.id)).toEqual(['msg-tool-after'])
   })
 
   it('keeps approval-required shell traces in a waiting receipt state', () => {
@@ -151,11 +183,10 @@ describe('buildTranscriptItems', () => {
       }),
     ])
 
-    expect(items[0]).toMatchObject({
-      kind: 'tool_group',
-      status: 'waiting_for_approval',
-    })
-    expect(items[0].kind === 'tool_group' ? items[0].details[0] : null).toMatchObject({
+    const pg = getProcessGroup(items, 0)!
+    const tg = getToolGroupFromProcess(pg, 0)!
+    expect(tg.status).toBe('waiting_for_approval')
+    expect(tg.details[0]).toMatchObject({
       status: 'waiting_for_approval',
       summary: '运行 git push origin feature/approveRunTime',
     })
@@ -180,13 +211,65 @@ describe('buildTranscriptItems', () => {
         }),
       ])
 
-      expect(items[0]).toMatchObject({
-        kind: 'tool_group',
-        status: expectedGroupStatus,
-      })
-      const detail = items[0].kind === 'tool_group' ? items[0].details[0] : null
-      expect(detail?.status).toBe(expectedDetailStatus)
-      expect(detail?.approval).toBeUndefined()
+      const pg = getProcessGroup(items, 0)!
+      const tg = getToolGroupFromProcess(pg, 0)!
+      expect(tg.status).toBe(expectedGroupStatus)
+      expect(tg.details[0].status).toBe(expectedDetailStatus)
+      expect(tg.details[0].approval).toBeUndefined()
     }
   )
+
+  it('places thinking into process_group subItems', () => {
+    const items = buildTranscriptItems([
+      buildMessage({
+        id: 'msg-thinking',
+        messageType: 'assistant_message',
+        streamState: 'completed',
+        contentText: '最终回答',
+        payloadJson: { reasoning_text: '我在思考这个问题...' },
+        createdAt: '2026-04-24T10:00:00Z',
+      }),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['process_group', 'answer_message'])
+    const pg = getProcessGroup(items, 0)!
+    expect(pg.subItems[0].kind).toBe('thinking')
+    if (pg.subItems[0].kind === 'thinking') {
+      expect(pg.subItems[0].text).toBe('我在思考这个问题...')
+    }
+    if (items[1].kind === 'answer_message') {
+      expect(items[1].message.contentText).toBe('最终回答')
+    }
+  })
+
+  it('places working_note into process_group subItems', () => {
+    const items = buildTranscriptItems([
+      buildMessage({
+        id: 'msg-wn',
+        messageType: 'assistant_message',
+        displayMode: 'working_note',
+        contentText: '正在搜索文件...',
+        payloadJson: {},
+        createdAt: '2026-04-24T10:00:00Z',
+      }),
+    ])
+
+    expect(items.map((item) => item.kind)).toEqual(['process_group'])
+    const pg = getProcessGroup(items, 0)!
+    expect(pg.subItems[0].kind).toBe('working_note')
+    if (pg.subItems[0].kind === 'working_note') {
+      expect(pg.subItems[0].text).toBe('正在搜索文件...')
+    }
+  })
+
+  it('detects streaming state in isProcessGroupStreaming', () => {
+    const streamingSubItems = [
+      { kind: 'thinking' as const, id: 't1', text: '思考', streamState: 'streaming' as const },
+    ]
+    const completedSubItems = [
+      { kind: 'thinking' as const, id: 't1', text: '思考', streamState: 'completed' as const },
+    ]
+    expect(isProcessGroupStreaming(streamingSubItems)).toBe(true)
+    expect(isProcessGroupStreaming(completedSubItems)).toBe(false)
+  })
 })

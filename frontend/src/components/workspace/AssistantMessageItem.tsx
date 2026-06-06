@@ -1,11 +1,8 @@
 import { memo } from 'react'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { MessageActions } from './MessageActions'
-import { ThinkingBlock } from './ThinkingBlock'
-import { WorkingNoteBlock } from './WorkingNoteBlock'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
-import { getAssistantReasoningText } from './runtimeStatus'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -43,7 +40,6 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   messageId,
   contentText,
   streamState,
-  displayMode,
   payloadJson,
   runId,
   runsById,
@@ -55,28 +51,10 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const run = runId != null ? runsById?.[runId] : undefined
   const errorCode = (payloadJson?.error_code as string | undefined) ?? run?.errorCode ?? undefined
   const errorMessage = (payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
-  const reasoningText = getAssistantReasoningText({
-    contentText,
-    streamState,
-    displayMode,
-    payloadJson,
-    runId,
-  } as ConversationMessage)
-  const shouldCollapseThinking = streamState !== 'streaming'
-  const isWorkingNote = displayMode === 'working_note'
 
   return (
     <div className="mb-6 group">
-      {reasoningText && (
-        <ThinkingBlock
-          text={reasoningText}
-          isStreaming={!shouldCollapseThinking}
-        />
-      )}
-      {isWorkingNote && contentText && (
-        <WorkingNoteBlock text={contentText} />
-      )}
-      {!isWorkingNote && contentText && (
+      {contentText && (
         <MarkdownRenderer
           content={contentText}
           variant="plain"

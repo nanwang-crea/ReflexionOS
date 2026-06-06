@@ -2,6 +2,8 @@ import { apiClient } from '@/services/apiClient'
 
 interface UISettingsResponse {
   show_continuation_notices: boolean
+  show_process_expanded: boolean
+  auto_collapse_process: boolean
 }
 
 export const uiSettingsApi = {

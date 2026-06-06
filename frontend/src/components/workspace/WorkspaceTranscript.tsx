@@ -18,11 +18,11 @@ import {
   getLatestAssistantMessage,
   type RuntimeStatusDescriptor,
 } from './runtimeStatus'
-import { buildTranscriptItems, type TranscriptItem } from './transcriptItems'
+import { buildTranscriptItems, isProcessGroupStreaming, type TranscriptItem } from './transcriptItems'
 import { UserMessageItem } from './UserMessageItem'
 import { AssistantMessageItem } from './AssistantMessageItem'
 import { SystemNoticeItem } from './SystemNoticeItem'
-import { ToolGroupItem } from './ToolGroupItem'
+import { ProcessGroupBlock } from './ProcessGroupBlock'
 
 const VIRTUOSO_INDEX_OFFSET = 1_000_000
 const MIN_TRANSCRIPT_BOTTOM_INSET_PX = 20
@@ -347,6 +347,8 @@ export function WorkspaceTranscript({
   const userScrolledAwayRef = useRef(false)
   const userScrollIntentRef = useRef(false)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
+  const showProcessExpanded = useSettingsStore((s) => s.showProcessExpanded)
+  const autoCollapseProcess = useSettingsStore((s) => s.autoCollapseProcess)
   const transcriptBottomPadding = getTranscriptBottomPadding(bottomInset)
 
   const filteredMessages = useMemo(() => {
@@ -540,17 +542,18 @@ export function WorkspaceTranscript({
 
   const itemContent = useCallback((index: number, item: TranscriptItem) => {
     const isLastItem = index === transcriptItems.length - 1
-    const isLiveItem = item.kind === 'message'
-      ? item.message.streamState === 'streaming' || item.message.streamState === 'idle'
-      : item.status === 'running' || item.status === 'waiting_for_approval'
-    const shouldAnimateEntry = isLastItem && !isLiveItem
 
-    if (item.kind === 'tool_group') {
+    if (item.kind === 'process_group') {
+      const isStreaming = isProcessGroupStreaming(item.subItems)
+      const shouldAnimateEntry = isLastItem && !isStreaming
       return (
         <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
-          <ToolGroupItem
-            status={item.status}
-            details={item.details}
+          <ProcessGroupBlock
+            runId={item.runId}
+            subItems={item.subItems}
+            isStreaming={isStreaming}
+            defaultExpanded={showProcessExpanded}
+            autoCollapse={autoCollapseProcess}
             onApprovalAction={onApprovalAction}
             onDetailClick={onDetailClick}
           />
@@ -558,38 +561,10 @@ export function WorkspaceTranscript({
       )
     }
 
-    const { message } = item
-
-    if (message.messageType === 'user_message') {
-      const isEditing = editingMessageId === message.id
-      return (
-        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
-          <UserMessageItem
-            messageId={message.id}
-            contentText={message.contentText}
-            isEditing={isEditing}
-            editContent={editContent}
-            onEdit={handleEditStart}
-            onEditContentChange={setEditContent}
-            onEditCancel={handleEditCancel}
-            onEditSubmit={handleEditSubmit}
-            showActions={!!onEditMessage}
-          />
-        </div>
-      )
-    }
-
-    if (message.messageType === 'tool_trace') return null
-
-    if (message.messageType === 'system_notice') {
-      return (
-        <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
-          <SystemNoticeItem contentText={message.contentText} />
-        </div>
-      )
-    }
-
-    if (message.messageType === 'assistant_message') {
+    if (item.kind === 'answer_message') {
+      const { message } = item
+      const isLiveItem = message.streamState === 'streaming' || message.streamState === 'idle'
+      const shouldAnimateEntry = isLastItem && !isLiveItem
       return (
         <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
           <AssistantMessageItem
@@ -608,8 +583,45 @@ export function WorkspaceTranscript({
       )
     }
 
+    if (item.kind === 'message') {
+      const { message } = item
+      const isLiveItem = message.streamState === 'streaming' || message.streamState === 'idle'
+      const shouldAnimateEntry = isLastItem && !isLiveItem
+
+      if (message.messageType === 'user_message') {
+        const isEditing = editingMessageId === message.id
+        return (
+          <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
+            <UserMessageItem
+              messageId={message.id}
+              contentText={message.contentText}
+              isEditing={isEditing}
+              editContent={editContent}
+              onEdit={handleEditStart}
+              onEditContentChange={setEditContent}
+              onEditCancel={handleEditCancel}
+              onEditSubmit={handleEditSubmit}
+              showActions={!!onEditMessage}
+            />
+          </div>
+        )
+      }
+
+      if (message.messageType === 'system_notice') {
+        return (
+          <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
+            <SystemNoticeItem contentText={message.contentText} />
+          </div>
+        )
+      }
+
+      if (message.messageType === 'tool_trace') return null
+
+      if (message.messageType === 'assistant_message') return null
+    }
+
     return null
-  }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length])
+  }, [editingMessageId, editContent, onApprovalAction, onDetailClick, onEditMessage, onRegenerateMessage, runsById, handleEditStart, handleEditCancel, handleEditSubmit, transcriptItems.length, showProcessExpanded, autoCollapseProcess])
 
   const scrollerContextValue = useMemo(() => ({
     bottomPadding: transcriptBottomPadding,

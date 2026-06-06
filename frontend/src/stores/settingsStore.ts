@@ -10,12 +10,18 @@ interface SettingsState {
   configured: boolean
   loaded: boolean
   showContinuationNotices: boolean
+  showProcessExpanded: boolean
+  autoCollapseProcess: boolean
   uiSettingsLoaded: boolean
   setLLMState: (payload: {
     providers: ProviderInstance[]
     selection: DefaultLLMSelection
   }) => void
-  setUISetting: (payload: { showContinuationNotices: boolean }) => void
+  setUISetting: (payload: {
+    showContinuationNotices: boolean
+    showProcessExpanded: boolean
+    autoCollapseProcess: boolean
+  }) => void
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
@@ -26,6 +32,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   configured: false,
   loaded: false,
   showContinuationNotices: false,
+  showProcessExpanded: true,
+  autoCollapseProcess: true,
   uiSettingsLoaded: false,
 
   setLLMState: ({ providers, selection }) => set({
@@ -37,8 +45,10 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     loaded: true,
   }),
 
-  setUISetting: ({ showContinuationNotices }) => set({
+  setUISetting: ({ showContinuationNotices, showProcessExpanded, autoCollapseProcess }) => set({
     showContinuationNotices,
+    showProcessExpanded,
+    autoCollapseProcess,
     uiSettingsLoaded: true,
   }),
 }))

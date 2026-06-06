@@ -1,8 +1,14 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
-export function WorkingNoteBlock({ text }: { text: string }) {
-  const [isExpanded, setIsExpanded] = useState(false)
+export function WorkingNoteBlock({
+  text,
+  defaultExpanded = false,
+}: {
+  text: string
+  defaultExpanded?: boolean
+}) {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded)
 
   return (
     <div className="mb-4 max-w-[920px] mx-auto w-full rounded-lg border border-edge bg-surface-secondary/50 px-3 py-2 text-sm leading-6 text-content-muted">
