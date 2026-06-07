@@ -81,16 +81,16 @@ def build_registry() -> ToolRegistry:
     return registry
 
 
-def test_initial_plan_definitions_expose_only_plan_create():
+def test_initial_plan_definitions_expose_only_plan_schema():
     definitions = RuntimeToolDefinitions(build_registry()).for_initial_plan()
 
     assert [definition.name for definition in definitions] == ["plan"]
-    parameters_text = str(definitions[0].parameters)
-    assert "create" in parameters_text
-    assert "step_done" not in parameters_text
+    parameters = definitions[0].parameters
+    assert "steps" in parameters.get("properties", {})
+    assert "goal" in parameters.get("properties", {})
 
 
-def test_normal_definitions_expose_plan_create_when_no_plan_exists():
+def test_normal_definitions_expose_plan_schema_when_no_plan_exists():
     context = LoopContext(task="解释函数")
 
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
@@ -98,27 +98,25 @@ def test_normal_definitions_expose_plan_create_when_no_plan_exists():
     names = [definition.name for definition in definitions]
     assert "plan" in names
     plan_definition = next(d for d in definitions if d.name == "plan")
-    parameters_text = str(plan_definition.parameters)
-    assert "create" in parameters_text
-    assert "step_done" not in parameters_text
+    parameters = plan_definition.parameters
+    assert "steps" in parameters.get("properties", {})
+    assert "goal" in parameters.get("properties", {})
 
 
-def test_normal_definitions_expose_plan_progress_without_create_when_plan_exists():
+def test_normal_definitions_expose_plan_schema_when_plan_exists():
     context = LoopContext(task="修复 bug")
     context.plan = Plan(
         goal="修复 bug",
-        steps=[PlanStep(id=1, description="定位问题")],
+        steps=[PlanStep(content="定位问题", status="in_progress")],
     )
 
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
 
     assert [definition.name for definition in definitions] == ["mock", "plan"]
     plan_definition = next(definition for definition in definitions if definition.name == "plan")
-    parameters_text = str(plan_definition.parameters)
-    assert "step_done" in parameters_text
-    assert "block" in parameters_text
-    assert "adjust" in parameters_text
-    assert "create" not in parameters_text
+    parameters = plan_definition.parameters
+    assert "steps" in parameters.get("properties", {})
+    assert "goal" in parameters.get("properties", {})
 
 
 def test_context_definitions_start_with_exploration_tools_only():
@@ -150,7 +148,7 @@ def build_plan_mode_registry() -> ToolRegistry:
     return registry
 
 
-def test_plan_mode_definitions_expose_plan_create_and_plan_exit():
+def test_plan_mode_definitions_expose_plan_schema_and_plan_exit():
     definitions = RuntimeToolDefinitions(build_plan_mode_registry()).for_plan_mode()
 
     names = [definition.name for definition in definitions]
@@ -158,9 +156,9 @@ def test_plan_mode_definitions_expose_plan_create_and_plan_exit():
     assert "plan_exit" in names
 
     plan_definition = next(d for d in definitions if d.name == "plan")
-    parameters_text = str(plan_definition.parameters)
-    assert "create" in parameters_text
-    assert "step_done" not in parameters_text
+    parameters = plan_definition.parameters
+    assert "steps" in parameters.get("properties", {})
+    assert "goal" in parameters.get("properties", {})
 
 
 def test_plan_mode_definitions_only_include_plan_mode_tools():

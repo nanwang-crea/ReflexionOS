@@ -1,8 +1,6 @@
 import logging
 import os
-import re
 import time
-from datetime import datetime
 
 from app.execution.plan_engine import Plan
 
@@ -21,15 +19,10 @@ class PlanFileSync:
         root = project_path or os.getcwd()
         return os.path.join(root, ".reflexion", "plans")
 
-    def _make_filename(self, slug: str) -> str:
-        date_str = datetime.now().strftime("%Y-%m-%d")
-        safe_slug = re.sub(r'[^\w-]', '', slug.replace(" ", "-").lower())[:40]
-        return f"{date_str}-{safe_slug}.md"
-
-    def write(self, plan: Plan, slug: str = "task", project_path: str | None = None) -> str:
+    def write(self, plan: Plan, session_id: str, project_path: str | None = None) -> str:
         base = self._resolve_base_dir(project_path)
         os.makedirs(base, exist_ok=True)
-        filename = self._make_filename(slug)
+        filename = f"{session_id}.md"
         path = os.path.join(base, filename)
         content = plan.render_to_markdown()
         with open(path, "w", encoding="utf-8") as f:

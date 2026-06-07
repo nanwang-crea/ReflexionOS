@@ -1,4 +1,3 @@
-import json
 import logging
 from typing import Any
 
@@ -9,7 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 class PlanTool(BaseTool):
-    """执行计划管理工具 — 仅复杂任务需要"""
 
     def __init__(self):
         self._plan: Plan | None = None
@@ -21,122 +19,51 @@ class PlanTool(BaseTool):
     @property
     def description(self) -> str:
         return (
-            "Manage execution plans for complex multi-step tasks. "
-            "Rules: (1) Update plan status in real time, do not batch completions. "
-            "(2) When a step is fully done, call step_done BEFORE doing work for the next step. "
-            "(3) When a step is blocked, call block with the reason. "
-            "(4) Keep exactly one step in_progress at a time. "
-            "(5) Only use for tasks that need 3+ distinct steps. "
-            "(6) Do NOT start work for a later step while the current step is still in_progress. "
-            "Complete and call step_done first. "
-            "A step is fully done ONLY when you can verify the step's specific deliverable "
-            "exists and works (file confirmed, test passes, command succeeds). "
-            "Do not mark a step complete based on intent, partial progress, "
-            "or assumption without verification. "
-            "If uncertain, keep the step in_progress and continue working."
+            "Manage execution plans for multi-step tasks. "
+            "Send the full step list each call. Keep exactly one step in_progress at a time. "
+            "Skip for simple tasks that need fewer than 3 steps."
         )
 
     def get_schema(self) -> dict[str, Any]:
-        return self._build_schema(
-            description=self.description,
-            actions=["create", "step_done", "block", "adjust"],
-            properties={
-                "goal": {
-                    "type": "string",
-                    "description": "For create: overall goal description",
-                },
-                "steps": self._steps_property("For create: list of high-level step descriptions"),
-                "findings": {
-                    "type": "string",
-                    "description": "For step_done: key information and verification evidence obtained in this step (required, cannot be empty). Include what was done and how it was verified.",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "For block: reason for being blocked",
-                },
-                "remaining_steps": self._steps_property(
-                    "For adjust: replace all remaining steps after the current one"
-                ),
-            },
-            required=["action"],
-        )
-
-    def get_create_schema(self) -> dict[str, Any]:
-        return self._build_schema(
-            description="Create an execution plan (only before task starts)",
-            actions=["create"],
-            properties={
-                "goal": {
-                    "type": "string",
-                    "description": "Overall goal description",
-                },
-                "steps": self._steps_property("List of high-level step descriptions"),
-            },
-            required=["action", "goal", "steps"],
-        )
-
-    def get_progress_schema(self) -> dict[str, Any]:
-        return self._build_schema(
-            description=(
-                "Update the current plan step. "
-                "Call step_done when the step's deliverable is verified — "
-                "not just 'I did some work', but concrete evidence it works "
-                "(file confirmed, test passes, command succeeds). "
-                "Call block when a step cannot proceed due to a specific blocker. "
-                "Call adjust to replace remaining steps if the plan needs replanning. "
-                "Do not mark complete based on intent or partial progress. "
-                "Do NOT start work for a later step while the current step is still in_progress."
-            ),
-            actions=["step_done", "block", "adjust"],
-            properties={
-                "findings": {
-                    "type": "string",
-                    "description": "For step_done: key information and verification evidence obtained in this step (required, cannot be empty). Include what was done and how it was verified.",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "For block: reason for being blocked",
-                },
-                "remaining_steps": self._steps_property(
-                    "For adjust: replace all remaining steps after the current one"
-                ),
-            },
-            required=["action"],
-        )
-
-    def _build_schema(
-        self,
-        *,
-        description: str,
-        actions: list[str],
-        properties: dict[str, Any],
-        required: list[str],
-    ) -> dict[str, Any]:
         return {
             "name": self.name,
-            "description": description,
+            "description": self.description,
             "parameters": {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "action": {
+                    "goal": {
                         "type": "string",
-                        "enum": actions,
-                        "description": "Plan action type",
+                        "description": "Overall goal (required on first call, optional after)",
                     },
-                    **properties,
+                    "steps": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "content": {
+                                    "type": "string",
+                                    "description": "What needs to be done (imperative form)",
+                                },
+                                "status": {
+                                    "type": "string",
+                                    "enum": ["pending", "in_progress", "completed", "blocked"],
+                                    "description": "Step status",
+                                },
+                                "findings": {
+                                    "type": "string",
+                                    "description": "Key results when completed (required when status=completed)",
+                                },
+                            },
+                            "required": ["content", "status"],
+                        },
+                        "minItems": 1,
+                        "maxItems": 12,
+                        "description": "The complete step list. Send ALL steps every time, including already completed ones.",
+                    },
                 },
-                "required": required,
+                "required": ["steps"],
             },
-        }
-
-    def _steps_property(self, description: str) -> dict[str, Any]:
-        return {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-            "maxItems": 12,
-            "description": description,
         }
 
     def set_plan(self, plan: Plan | None):
@@ -146,140 +73,86 @@ class PlanTool(BaseTool):
         return self._plan
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
-        action = args.get("action")
-
-        if action == "create":
-            return self._create(args)
-        elif action == "step_done":
-            return self._step_done(args)
-        elif action == "block":
-            return self._block(args)
-        elif action == "adjust":
-            return self._adjust(args)
-        else:
-            return ToolResult(success=False, error=f"未知操作: {action}")
-
-    def _create(self, args: dict[str, Any]) -> ToolResult:
-        goal = args.get("goal", "")
         steps_raw = args.get("steps", [])
-        steps = self._normalize_steps(steps_raw)
+        goal = args.get("goal", "")
 
-        if not goal or not steps:
-            return ToolResult(success=False, error="需要 goal 和 steps 参数")
-        if isinstance(steps, str):
-            return ToolResult(success=False, error=steps)
+        steps_result = self._parse_steps(steps_raw)
+        if isinstance(steps_result, str):
+            return ToolResult(success=False, error=steps_result)
+        steps = steps_result
 
-        self._plan = Plan(
-            goal=goal,
-            steps=[PlanStep(id=i + 1, description=desc) for i, desc in enumerate(steps)],
-        )
-        self._plan.start()
+        if not steps:
+            return ToolResult(success=False, error="steps cannot be empty")
 
-        logger.info("创建执行计划: %s, %d 步骤", goal, len(self._plan.steps))
-        return ToolResult(
-            success=True,
-            output=f"计划已创建: {goal}，共 {len(self._plan.steps)} 步",
-            data=self._plan.to_dict(),
-        )
+        in_progress_count = sum(1 for s in steps if s.status == "in_progress")
+        if in_progress_count > 1:
+            return ToolResult(success=False, error="Only one step can be in_progress at a time")
 
-    def _normalize_steps(self, steps_raw: Any) -> list[str] | str:
-        if isinstance(steps_raw, str):
-            stripped = steps_raw.strip()
-            try:
-                decoded = json.loads(stripped)
-            except json.JSONDecodeError:
-                return "steps 必须是字符串数组"
-            steps_raw = decoded
+        for s in steps:
+            if s.status == "completed" and not s.findings:
+                return ToolResult(
+                    success=False,
+                    error=f"Completed step requires findings: {s.content}",
+                )
 
-        if not isinstance(steps_raw, list):
-            return "steps 必须是字符串数组"
-
-        steps: list[str] = []
-        for step in steps_raw:
-            if not isinstance(step, str):
-                return "steps 必须是字符串数组"
-            description = step.strip()
-            if description:
-                steps.append(description)
-
-        if len(steps) > 12:
-            return "steps 最多只能包含 12 个高层步骤"
-
-        return steps
-
-    def _required_string(self, args: dict[str, Any], key: str) -> str | ToolResult:
-        value = args.get(key)
-        if key not in args or not isinstance(value, str):
-            return ToolResult(success=False, error=f"需要 {key} 参数")
-        return value
-
-    def _step_done(self, args: dict[str, Any]) -> ToolResult:
-        if not self._plan:
-            return ToolResult(success=False, error="尚未创建计划")
-        if not self._plan.current_step:
-            return ToolResult(success=False, error="没有正在执行的步骤")
-
-        findings = self._required_string(args, "findings")
-        if isinstance(findings, ToolResult):
-            return findings
-
-        step_desc = self._plan.current_step.description
-        self._plan.advance(findings)
-
-        if self._plan.current_step:
-            logger.info(
-                "步骤完成: %s → 推进到: %s",
-                step_desc,
-                self._plan.current_step.description,
-            )
-            return ToolResult(
-                success=True,
-                output=f"步骤完成: {step_desc}，推进到: {self._plan.current_step.description}",
-                data=self._plan.to_dict(),
-            )
+        is_new = self._plan is None
+        if is_new:
+            if not goal:
+                return ToolResult(success=False, error="Goal is required on first call")
+            self._plan = Plan(goal=goal, steps=steps)
+            changes = {"just_completed": [], "just_started": None}
+            if self._plan.current_step:
+                changes["just_started"] = self._plan.current_step.content
         else:
-            logger.info("所有计划步骤已完成")
-            return ToolResult(
-                success=True,
-                output="所有计划步骤已完成",
-                data=self._plan.to_dict(),
-            )
+            changes = self._plan.replace_from(steps, goal=goal or None)
 
-    def _block(self, args: dict[str, Any]) -> ToolResult:
-        if not self._plan or not self._plan.current_step:
-            return ToolResult(success=False, error="没有正在执行的步骤")
+        plan = self._plan
+        current = plan.current_step
+        pending = sum(1 for s in plan.steps if s.status == "pending")
+        in_prog = sum(1 for s in plan.steps if s.status == "in_progress")
+        completed = sum(1 for s in plan.steps if s.status == "completed")
+        blocked = sum(1 for s in plan.steps if s.status == "blocked")
 
-        reason = self._required_string(args, "reason")
-        if isinstance(reason, ToolResult):
-            return reason
+        output_parts = [
+            f"Plan updated. {pending} pending, {in_prog} in_progress, {completed} completed, {blocked} blocked.",
+        ]
+        if current:
+            output_parts.append(f"[Current] {current.content}")
+        output_parts.append("Ensure you use the plan to track your progress. Proceed with the current step.")
 
-        step_desc = self._plan.current_step.description
-        self._plan.block(reason)
+        logger.info("Plan updated: %s (%d/%d done)", plan.goal, completed, len(plan.steps))
 
-        logger.warning("步骤阻塞: %s, 原因: %s", step_desc, reason)
         return ToolResult(
             success=True,
-            output=f"步骤阻塞: {step_desc}",
-            data=self._plan.to_dict(),
+            output="\n".join(output_parts),
+            data={
+                "is_new": is_new,
+                "just_completed": changes.get("just_completed", []),
+                "just_started": changes.get("just_started"),
+                "completed": completed,
+                "total": len(plan.steps),
+                **plan.to_dict(),
+            },
         )
 
-    def _adjust(self, args: dict[str, Any]) -> ToolResult:
-        if not self._plan:
-            return ToolResult(success=False, error="尚未创建计划")
-
-        if "remaining_steps" not in args:
-            return ToolResult(success=False, error="需要 remaining_steps 参数")
-        remaining = self._normalize_steps(args["remaining_steps"])
-        if isinstance(remaining, str):
-            return ToolResult(success=False, error=remaining.replace("steps", "remaining_steps", 1))
-        if not remaining:
-            return ToolResult(success=False, error="需要 remaining_steps 参数")
-
-        self._plan.adjust_remaining(remaining)
-
-        logger.info("调整计划，剩余 %d 步骤", len(remaining))
-        return ToolResult(
-            success=True,
-            output=f"计划已调整，剩余 {len(remaining)} 步骤",
-            data=self._plan.to_dict(),
-        )
+    def _parse_steps(self, steps_raw: Any) -> list[PlanStep] | str:
+        if not isinstance(steps_raw, list):
+            return "steps must be an array"
+        steps: list[PlanStep] = []
+        for item in steps_raw:
+            if not isinstance(item, dict):
+                return "Each step must be an object with content and status"
+            content = item.get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                return "Each step requires a non-empty content"
+            status = item.get("status", "")
+            valid = {"pending", "in_progress", "completed", "blocked"}
+            if status not in valid:
+                return f"Invalid status '{status}', must be one of {valid}"
+            findings = item.get("findings", "")
+            if not isinstance(findings, str):
+                findings = str(findings)
+            steps.append(PlanStep(content=content.strip(), status=status, findings=findings))
+        if len(steps) > 12:
+            return "steps cannot exceed 12"
+        return steps

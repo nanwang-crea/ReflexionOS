@@ -12,10 +12,9 @@ def test_write_creates_file():
         sync = PlanFileSync(base_dir=tmpdir)
         plan = Plan(
             goal="Test goal",
-            steps=[PlanStep(id=1, description="Step 1", status="in_progress")],
-            current_step_index=0,
+            steps=[PlanStep(content="Step 1", status="in_progress")],
         )
-        path = sync.write(plan, slug="test-goal")
+        path = sync.write(plan, session_id="sess-123")
         assert os.path.exists(path)
         content = open(path).read()
         assert "goal: Test goal" in content
@@ -27,12 +26,11 @@ def test_read_recovers_plan():
         plan = Plan(
             goal="Test goal",
             steps=[
-                PlanStep(id=1, description="Step 1", status="completed", findings="done"),
-                PlanStep(id=2, description="Step 2", status="in_progress"),
+                PlanStep(content="Step 1", status="completed", findings="done"),
+                PlanStep(content="Step 2", status="in_progress"),
             ],
-            current_step_index=1,
         )
-        path = sync.write(plan, slug="test-goal")
+        path = sync.write(plan, session_id="sess-456")
         recovered = sync.read(path)
         assert recovered is not None
         assert recovered.goal == "Test goal"
@@ -43,8 +41,8 @@ def test_read_recovers_plan():
 def test_delete_removes_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
-        path = sync.write(plan, slug="test")
+        plan = Plan(goal="Test", steps=[PlanStep(content="S1", status="in_progress")])
+        path = sync.write(plan, session_id="sess-del")
         assert os.path.exists(path)
         sync.delete(path)
         assert not os.path.exists(path)
@@ -53,11 +51,11 @@ def test_delete_removes_file():
 def test_find_recovery_plan():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Recover me", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
-        sync.write(plan, slug="recover-test")
+        plan = Plan(goal="Recover me", steps=[PlanStep(content="S1", status="in_progress")])
+        sync.write(plan, session_id="sess-recover")
         found = sync.find_recovery_plan()
         assert found is not None
-        assert "recover-test" in found
+        assert "sess-recover" in found
 
 
 def test_find_recovery_plan_no_files():
@@ -69,9 +67,12 @@ def test_find_recovery_plan_no_files():
 def test_sync_updates_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress"), PlanStep(id=2, description="S2", status="pending")], current_step_index=0)
-        path = sync.write(plan, slug="test")
-        plan.advance(findings="completed step 1")
+        plan = Plan(goal="Test", steps=[PlanStep(content="S1", status="in_progress"), PlanStep(content="S2", status="pending")])
+        path = sync.write(plan, session_id="sess-sync")
+        plan.replace_from([
+            PlanStep(content="S1", status="completed", findings="completed step 1"),
+            PlanStep(content="S2", status="in_progress"),
+        ])
         sync.sync(plan, path)
         recovered = sync.read(path)
         assert recovered is not None
@@ -96,16 +97,16 @@ def test_delete_rejects_relative_traversal():
 def test_sync_rejects_path_traversal():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
+        plan = Plan(goal="Test", steps=[PlanStep(content="S1", status="in_progress")])
         with pytest.raises(ValueError, match="路径超出计划目录"):
             sync.sync(plan, "/tmp/evil.md")
 
 
-def test_slug_sanitized_on_write():
+def test_session_id_used_as_filename():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Test", steps=[PlanStep(id=1, description="S1", status="in_progress")], current_step_index=0)
-        path = sync.write(plan, slug="../../etc/cron.d-evil")
+        plan = Plan(goal="Test", steps=[PlanStep(content="S1", status="in_progress")])
+        path = sync.write(plan, session_id="sess-abc123")
         assert os.path.exists(path)
-        assert ".." not in os.path.basename(path)
+        assert os.path.basename(path) == "sess-abc123.md"
         assert os.path.dirname(path) == tmpdir

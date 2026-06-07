@@ -50,9 +50,12 @@ async def test_initial_plan_bootstrapper_uses_non_streaming_complete(tmp_path):
             LLMToolCall(
                 name="plan",
                 arguments={
-                    "action": "create",
                     "goal": "修复初始计划调用",
-                    "steps": ["定位调用路径", "改为非流式", "验证行为"],
+                    "steps": [
+                        {"content": "定位调用路径", "status": "pending"},
+                        {"content": "改为非流式", "status": "pending"},
+                        {"content": "验证行为", "status": "in_progress"},
+                    ],
                 },
             )
         ]

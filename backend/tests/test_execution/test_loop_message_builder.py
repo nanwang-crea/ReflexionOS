@@ -1,6 +1,5 @@
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
-from app.execution.plan_engine import Plan, PlanStep
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMToolCall, MessageRole
 
@@ -106,28 +105,6 @@ def test_system_prompt_uses_runtime_tool_definitions():
     assert "Plan overrides stopping" in system_messages[0].content
 
 
-def test_build_messages_injects_current_plan_step_and_update_requirement():
-    builder = build_message_builder()
-    context = LoopContext(task="继续当前修复")
-    context.plan = Plan(
-        goal="修复循环执行",
-        steps=[
-            PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
-            PlanStep(id=2, description="修改执行循环", status="in_progress"),
-            PlanStep(id=3, description="验证行为", status="pending"),
-        ],
-        current_step_index=1,
-    )
-    context.metadata["plan_update_required"] = True
-
-    messages = builder.build(context)
-
-    system_contents = [message.content for message in messages if message.role == "system" and message.content]
-    assert any("修改执行循环" in (c or "") for c in system_contents)
-    assert any("plan.step_done" in (c or "") for c in system_contents)
-    assert any("call plan.step_done, plan.block, or plan.adjust" in content for content in system_contents)
-
-
 def test_final_summary_messages_flatten_tool_protocol_history():
     builder = build_message_builder()
     context = LoopContext(task="总结工具结果")
@@ -178,47 +155,6 @@ def test_task_anchor_injected_only_on_first_round():
     assert user_contents_mid.count("安装依赖") == 1
 
 
-def test_plan_focus_injected_once_per_step():
-    """Plan Focus merged into SYSTEM plan message; [Focus] tag appears only when step first seen."""
-    builder = build_message_builder()
-
-    context = LoopContext(task="修复登录问题")
-    context.plan = Plan(
-        goal="修复登录",
-        steps=[
-            PlanStep(id=1, description="定位 bug", status="in_progress"),
-            PlanStep(id=2, description="修复代码", status="pending"),
-        ],
-        current_step_index=0,
-    )
-    context.add_message("user", "修复登录问题")
-
-    messages_1 = builder.build(context)
-    system_1 = [m.content for m in messages_1 if m.role == "system" and m.content]
-    assert any("[Focus]" in c and "定位 bug" in c for c in system_1)
-
-    context.add_message("assistant", "检查代码", tool_calls=[
-        {"id": "c1", "name": "shell", "arguments": {"command": "grep bug auth.py"}},
-    ])
-    context.add_message("tool", content="found bug", tool_call_id="c1")
-    messages_2 = builder.build(context)
-    system_2 = [m.content for m in messages_2 if m.role == "system" and m.content]
-    assert not any("[Focus]" in c for c in system_2)
-
-    context.plan.advance("已定位 bug 在 auth.py")
-    messages_3 = builder.build(context)
-    system_3 = [m.content for m in messages_3 if m.role == "system" and m.content]
-    assert any("[Focus]" in c and "修复代码" in c for c in system_3)
-
-    context.add_message("assistant", "修复中", tool_calls=[
-        {"id": "c2", "name": "edit", "arguments": {"path": "auth.py"}},
-    ])
-    context.add_message("tool", content="edit done", tool_call_id="c2")
-    messages_4 = builder.build(context)
-    system_4 = [m.content for m in messages_4 if m.role == "system" and m.content]
-    assert not any("[Focus]" in c for c in system_4)
-
-
 def test_task_anchor_injected_periodically():
     builder = LoopMessageBuilder(prompt_manager=PromptManager(), max_context_groups=10, task_anchor_interval=5)
     context = LoopContext(task="修复 bug")
@@ -246,62 +182,4 @@ def test_compaction_continue_message_injected_after_tier3():
     assert any("Continue" in (c or "") for c in user_contents)
 
 
-def test_per_turn_plan_status_reminder_not_injected_by_message_builder():
-    """Plan status is in system messages only; no per-turn user message injection."""
-    builder = build_message_builder()
 
-    context = LoopContext(task="实现认证")
-    context.plan = Plan(
-        goal="实现认证",
-        steps=[
-            PlanStep(id=1, description="写认证模块", status="in_progress"),
-            PlanStep(id=2, description="测试认证", status="pending"),
-        ],
-        current_step_index=0,
-    )
-    context.add_message("user", "实现认证")
-
-    messages_1 = builder.build(context)
-    system_1 = [m.content for m in messages_1 if m.role == "system" and m.content]
-    assert any("[Focus]" in c for c in system_1)
-
-    context.add_message("assistant", "writing auth", tool_calls=[
-        {"id": "c1", "name": "edit", "arguments": {"path": "auth.py"}},
-    ])
-    context.add_message("tool", content="edit ok", tool_call_id="c1")
-    messages_2 = builder.build(context)
-    system_2 = [m.content for m in messages_2 if m.role == "system" and m.content]
-    assert not any("[Focus]" in c for c in system_2)
-
-
-def test_per_turn_plan_status_not_injected_when_no_plan():
-    """No plan status when plan is None."""
-    builder = build_message_builder()
-    context = LoopContext(task="简单查询")
-    context.add_message("user", "简单查询")
-
-    messages = builder.build(context)
-    system_contents = [m.content for m in messages if m.role == "system" and m.content]
-    assert not any("[Focus]" in (c or "") for c in system_contents)
-
-
-def test_plan_status_injected_in_plan_context_system_message():
-    """Plan context (render_for_context) is injected as system message when plan exists; findings are inside render."""
-    builder = build_message_builder()
-
-    context = LoopContext(task="修 bug")
-    context.plan = Plan(
-        goal="修 bug",
-        steps=[
-            PlanStep(id=1, description="定位问题", status="completed", findings="问题在 main.py"),
-            PlanStep(id=2, description="修复代码", status="in_progress"),
-        ],
-        current_step_index=1,
-    )
-    context.metadata["plan_update_required"] = True
-    context.add_message("user", "修 bug")
-
-    messages = builder.build(context)
-    system_contents = [m.content for m in messages if m.role == "system" and m.content]
-    assert any("执行计划" in c or "修 bug" in c for c in system_contents)
-    assert any("问题在 main.py" in c for c in system_contents)

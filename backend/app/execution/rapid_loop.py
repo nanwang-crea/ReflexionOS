@@ -361,8 +361,7 @@ class RapidExecutionLoop:
                     f"You MUST change your approach:\n"
                     f"- If the tool keeps failing, try a different "
                     f"tool or different arguments.\n"
-                    f"- If you are stuck, call plan.block to "
-                    f"report the blocker.\n"
+                    f"- If you are stuck, mark the step as blocked in the plan tool.\n"
                     f"- Do NOT retry with the same parameters again."
                 )
                 context.add_message("user", doom_prompt)
@@ -529,15 +528,12 @@ class RapidExecutionLoop:
     async def _confirm_plan_exit(self, context: LoopContext, rt: RuntimeState) -> None:
         """Handle user confirmation of plan_exit — switch to build mode."""
         context.agent_mode = "build"
-        rt.steps_since_last_plan_update = 0
         context.metadata.pop("plan_exit_requested", None)
         summary = context.metadata.pop("plan_exit_summary", "")
         injection = f"计划已批准，开始执行。{summary}"
         if context.plan_file_path:
             injection += f"\n计划文件: {context.plan_file_path}"
         context.add_message("user", injection)
-        if context.plan and context.plan_file_path:
-            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
 
     async def confirm_plan_exit_from_external(self, run_id: str) -> None:
         """Called externally when user confirms plan_exit via WebSocket."""
@@ -671,24 +667,8 @@ class RapidExecutionLoop:
                 loop_result.compacted_summary = context.compacted_summary
 
                 if context.plan is not None:
-                    was_plan_complete = context.plan.is_complete
-                    if loop_result.status == LoopStatus.COMPLETED:
-                        if context.plan_file_path and was_plan_complete:
-                            context.plan.finalize_for_completion()
-                            self.plan_file_sync.delete(context.plan_file_path, project_path=context.project_path)
-                            await self._emit("plan:file_deleted", {"path": context.plan_file_path})
-                        elif context.plan_file_path and not was_plan_complete:
-                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
-                            logger.info("计划未完成，保留计划文件供恢复: %s", context.plan_file_path)
-                    elif loop_result.status == LoopStatus.FAILED:
-                        context.plan.finalize_for_failure()
-                        if context.plan_file_path:
-                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
-                    elif loop_result.status == LoopStatus.CANCELLED:
-                        # 在取消时不能直接将其变为取消状态
-                        # context.plan.finalize_for_cancellation()
-                        if context.plan_file_path:
-                            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
+                    if context.plan_file_path:
+                        self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
                     await self._emit("plan:updated", context.plan.to_dict())
 
             self._runtime = None

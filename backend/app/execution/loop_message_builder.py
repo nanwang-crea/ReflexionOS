@@ -14,7 +14,7 @@ class LoopMessageBuilder:
     - Tier 2: 截断但可见 —— 超出窗口的旧消息逐条截断，每条仍在 context 中
     - Tier 3: LLM 摘要 —— 极端压力时旧消息压缩为摘要，细节可 session_recall 回溯
 
-    最终消息顺序：system prompt → context sections → plan → Tier 3 compacted summary(system)
+    最终消息顺序：system prompt → context sections → Tier 3 compacted summary(system)
                    → Tier 2 截断消息(system) → Tier 1 recent context messages(user/assistant/tool)
                    → Task Anchor(user)
     """
@@ -62,47 +62,6 @@ class LoopMessageBuilder:
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
         self._inject_context_sections(context, messages)
-
-        if context.plan:
-            plan_parts = [context.plan.render_for_context()]
-            current_step = context.plan.current_step
-            stagnant = 0
-            if context.metadata.get("plan_update_required"):
-                stagnant = context.metadata.get("steps_since_last_plan_update", 0)
-                if stagnant < 5:
-                    plan_parts.append(
-                        "Plan update reminder: a single plan step may require multiple tool calls. "
-                        "Continue using tools while the current step is still in progress. "
-                        "When the current step is complete, blocked, or needs replanning, "
-                        "call plan.step_done, plan.block, or plan.adjust."
-                    )
-
-            if current_step is not None:
-                current_step_id = current_step.id
-                injected_id = context.metadata.get("_injected_focus_step_id")
-                total = len(context.plan.steps)
-                completed = sum(1 for s in context.plan.steps if s.status == "completed")
-                if injected_id != current_step_id:
-                    plan_parts.append(
-                        f"[Focus] Step {current_step_id}/{total} ({completed} done): "
-                        f"{current_step.description}\n"
-                        f"Focus on THIS step only. When deliverable is verified, "
-                        f"call plan.step_done. If blocked, call plan.block."
-                    )
-                    context.metadata["_injected_focus_step_id"] = current_step_id
-
-            if stagnant >= 5 and current_step is not None:
-                level = "CRITICAL" if stagnant >= 10 else "CHECK"
-                plan_parts.append(
-                    f"[Progress {level}] {stagnant} calls since last plan update on step: "
-                    f"{current_step.description}\n"
-                    f"Verify: Is THIS step's deliverable done with concrete evidence? "
-                    f"If YES → plan.step_done | If STUCK → plan.block | If INCOMPLETE → continue"
-                )
-
-            messages.append(
-                LLMMessage(role=MessageRole.SYSTEM, content="\n\n".join(plan_parts))
-            )
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:
@@ -190,12 +149,6 @@ class LoopMessageBuilder:
         ]
 
         self._inject_context_sections(context, messages)
-
-        if context.plan:
-            messages.append(
-                LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
-            )
-
 
         if context.compacted_summary:
             messages.append(

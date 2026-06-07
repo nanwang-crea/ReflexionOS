@@ -1,4 +1,5 @@
 import asyncio
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -284,11 +285,10 @@ class TestRapidExecutionLoop:
         seeded_plan = Plan(
             goal="修复循环执行",
             steps=[
-                PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
-                PlanStep(id=2, description="修改执行循环", status="in_progress"),
-                PlanStep(id=3, description="验证结果", status="pending"),
+                PlanStep(content="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(content="修改执行循环", status="in_progress"),
+                PlanStep(content="验证结果", status="pending"),
             ],
-            current_step_index=1,
         )
         plan_tool = registry.get("plan")
 
@@ -320,7 +320,13 @@ class TestRapidExecutionLoop:
                     tool_calls=[
                         LLMToolCall(
                             name="plan",
-                            arguments={"action": "step_done", "findings": "已完成修改并验证关键文件"}
+                            arguments={
+                                "steps": [
+                                    {"content": "定位根因", "status": "completed", "findings": "已确认状态问题"},
+                                    {"content": "修改执行循环", "status": "completed", "findings": "已完成修改并验证关键文件"},
+                                    {"content": "验证结果", "status": "in_progress"},
+                                ],
+                            }
                         )
                     ],
                     finish_reason="tool_calls",
@@ -353,11 +359,10 @@ class TestRapidExecutionLoop:
         seeded_plan = Plan(
             goal="修复循环执行",
             steps=[
-                PlanStep(id=1, description="定位根因", status="completed", findings="已确认状态问题"),
-                PlanStep(id=2, description="修改执行循环", status="in_progress"),
-                PlanStep(id=3, description="验证结果", status="pending"),
+                PlanStep(content="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(content="修改执行循环", status="in_progress"),
+                PlanStep(content="验证结果", status="pending"),
             ],
-            current_step_index=1,
         )
         plan_tool = registry.get("plan")
 
@@ -383,7 +388,13 @@ class TestRapidExecutionLoop:
                     tool_calls=[
                         LLMToolCall(
                             name="plan",
-                            arguments={"action": "step_done", "findings": "修改已完成"}
+                            arguments={
+                                "steps": [
+                                    {"content": "定位根因", "status": "completed", "findings": "已确认状态问题"},
+                                    {"content": "修改执行循环", "status": "completed", "findings": "修改已完成"},
+                                    {"content": "验证结果", "status": "in_progress"},
+                                ],
+                            }
                         )
                     ],
                     finish_reason="tool_calls",
@@ -794,6 +805,13 @@ class TestRapidExecutionLoop:
 
     @pytest.mark.asyncio
     async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):
+        import shutil
+        from app.execution.plan_file_sync import PlanFileSync
+
+        plan_dir = PlanFileSync()._resolve_base_dir()
+        if os.path.isdir(plan_dir):
+            shutil.rmtree(plan_dir)
+
         registry = ToolRegistry()
         registry.register(MockTool())
         registry.register(PlanTool())
@@ -819,9 +837,12 @@ class TestRapidExecutionLoop:
                     LLMToolCall(
                         name="plan",
                         arguments={
-                            "action": "create",
                             "goal": "修复计划显示",
-                            "steps": ["定位问题", "修改实现", "验证结果"],
+                            "steps": [
+                                {"content": "定位问题", "status": "in_progress"},
+                                {"content": "修改实现", "status": "pending"},
+                                {"content": "验证结果", "status": "pending"},
+                            ],
                         },
                     )
                 ],
@@ -845,7 +866,8 @@ class TestRapidExecutionLoop:
         assert event_types.index("plan:updated") < event_types.index("llm:content")
         plan_event = next(event for event in events if event["type"] == "plan:updated")
         assert plan_event["data"]["goal"] == "修复计划显示"
-        assert [step["description"] for step in plan_event["data"]["steps"]] == [
+        step_contents = [step["content"] for step in plan_event["data"]["steps"]]
+        assert step_contents == [
             "定位问题",
             "修改实现",
             "验证结果",
@@ -853,10 +875,16 @@ class TestRapidExecutionLoop:
         main_tool_names = [tool.name for tool in captured_tools[1]]
         assert "plan" in main_tool_names
         main_plan_tool = next(tool for tool in captured_tools[1] if tool.name == "plan")
-        assert "create" not in str(main_plan_tool.parameters)
 
     @pytest.mark.asyncio
     async def test_initial_plan_preflight_can_decline_and_keep_normal_streaming(self, mock_llm):
+        import shutil
+        from app.execution.plan_file_sync import PlanFileSync
+
+        plan_dir = PlanFileSync()._resolve_base_dir()
+        if os.path.isdir(plan_dir):
+            shutil.rmtree(plan_dir)
+
         registry = ToolRegistry()
         registry.register(MockTool())
         registry.register(PlanTool())
@@ -900,7 +928,8 @@ class TestRapidExecutionLoop:
             event["type"] == "llm:content" and event["data"].get("content") == "直接回答。"
             for event in events
         )
-        assert [tool.name for tool in captured_tools[1]] == ["mock"]
+        main_tool_names = [tool.name for tool in captured_tools[1]]
+        assert "mock" in main_tool_names
 
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):
@@ -1320,43 +1349,6 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("测试失败任务")
 
         assert result.steps[0].status.value == "failed"
-
-
-@pytest.mark.asyncio
-async def test_stagnation_counter_increments_on_non_plan_tools():
-    """Verify that steps_since_last_plan_update increments when non-plan tools execute."""
-    from app.execution.tool_call_executor import ToolCallExecutor
-
-    mock_registry = ToolRegistry()
-    mock_registry.register(PlanTool())
-
-    class FakeGrepTool(BaseTool):
-        @property
-        def name(self): return "grep"
-        @property
-        def description(self): return "search"
-        async def execute(self, args): return ToolResult(success=True, output="found")
-        def get_schema(self): return {"name": "grep", "description": "search", "parameters": {"type": "object", "properties": {}, "required": []}}
-
-    mock_registry.register(FakeGrepTool())
-
-    context = LoopContext(task="test task", project_path="/tmp")
-    context.plan = Plan(
-        goal="test goal",
-        steps=[PlanStep(id=1, description="Step 1", status="in_progress")],
-        current_step_index=0,
-    )
-    context.metadata["steps_since_last_plan_update"] = 0
-
-    executor = ToolCallExecutor(tool_registry=mock_registry, emit=AsyncMock())
-
-    tool_call = LLMToolCall(id="tc-1", name="grep", arguments={"pattern": "test"})
-    await executor.execute(tool_call, context, 1)
-    assert context.metadata["steps_since_last_plan_update"] == 1
-
-    tool_call2 = LLMToolCall(id="tc-2", name="grep", arguments={"pattern": "*.py"})
-    await executor.execute(tool_call2, context, 2)
-    assert context.metadata["steps_since_last_plan_update"] == 2
 
 
 class TestDoomLoopDetection:

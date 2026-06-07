@@ -1,5 +1,4 @@
 import logging
-import re
 from collections.abc import Awaitable, Callable
 
 from app.execution.context_manager import LoopContext
@@ -46,7 +45,7 @@ class InitialPlanBootstrapper:
         """Ask LLM whether the new task is related to the recovered plan's goal."""
         completed = sum(1 for s in plan.steps if s.status == "completed")
         total = len(plan.steps)
-        current_step_desc = plan.current_step.description if plan.current_step else "N/A"
+        current_step_desc = plan.current_step.content if plan.current_step else "N/A"
         prompt = _PLAN_RELEVANCE_PROMPT.format(
             goal=plan_goal,
             completed=completed,
@@ -88,8 +87,6 @@ class InitialPlanBootstrapper:
                     context.plan = recovered_plan
                     plan_tool.set_plan(recovered_plan)
                     context.plan_file_path = recovery_path
-                    context.metadata["plan_update_required"] = False
-                    context.metadata["steps_since_last_plan_update"] = 0
                     await self.emit("plan:updated", context.plan.to_dict())
                     await self.emit("plan:recovered", {"path": recovery_path, "goal": recovered_plan.goal})
                     return
@@ -113,18 +110,13 @@ class InitialPlanBootstrapper:
         for tool_call in tool_calls:
             if tool_call.name != plan_tool.name:
                 continue
-            if tool_call.arguments.get("action") != "create":
-                continue
 
             result = await plan_tool.execute(tool_call.arguments)
             if result.success and plan_tool.get_plan() is not None:
                 context.plan = plan_tool.get_plan()
-                context.metadata["plan_update_required"] = False
-                context.metadata["steps_since_last_plan_update"] = 0
                 # Write plan file for persistence
-                slug = re.sub(r'[^\w-]', '', context.task[:40].replace(" ", "-").lower())
                 plan_file_sync = PlanFileSync()
-                plan_path = plan_file_sync.write(context.plan, slug=slug, project_path=context.project_path)
+                plan_path = plan_file_sync.write(context.plan, session_id=context.run_id, project_path=context.project_path)
                 context.plan_file_path = plan_path
                 await self.emit("plan:updated", context.plan.to_dict())
             elif result.error:

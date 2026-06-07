@@ -1,63 +1,129 @@
 from app.execution.plan_engine import Plan, PlanStep
 
 
-def test_render_to_markdown_full_plan():
+def test_plan_step_has_content_not_id():
+    step = PlanStep(content="Fix auth", status="in_progress")
+    assert step.content == "Fix auth"
+    assert not hasattr(step, "id")
+    assert not hasattr(step, "description")
+
+
+def test_plan_current_step_derived_from_status():
     plan = Plan(
-        goal="Implement X feature",
+        goal="Fix bug",
         steps=[
-            PlanStep(id=1, description="Analyze plan_tool.py", status="completed", findings="plan_update_required is a toggle"),
-            PlanStep(id=2, description="Modify plan_engine.py", status="in_progress"),
-            PlanStep(id=3, description="Add step type detection", status="pending"),
-            PlanStep(id=4, description="Test the changes", status="blocked", findings="Missing test fixture"),
+            PlanStep(content="Analyze", status="completed", findings="Found bug"),
+            PlanStep(content="Fix", status="in_progress"),
+            PlanStep(content="Test", status="pending"),
         ],
-        current_step_index=1,
+    )
+    assert plan.current_step is not None
+    assert plan.current_step.content == "Fix"
+    assert not hasattr(plan, "current_step_index")
+
+
+def test_plan_replace_from():
+    plan = Plan(
+        goal="Fix bug",
+        steps=[
+            PlanStep(content="Analyze", status="completed", findings="Found bug"),
+            PlanStep(content="Fix", status="in_progress"),
+        ],
+    )
+    new_steps = [
+        PlanStep(content="Analyze", status="completed", findings="Found bug"),
+        PlanStep(content="Fix", status="completed", findings="Fixed"),
+        PlanStep(content="Test", status="in_progress"),
+    ]
+    changes = plan.replace_from(new_steps)
+    assert changes["just_completed"] == ["Fix"]
+    assert changes["just_started"] == "Test"
+    assert plan.current_step.content == "Test"
+    assert plan.steps[0].findings == "Found bug"
+
+
+def test_plan_replace_from_updates_goal():
+    plan = Plan(goal="Old goal", steps=[PlanStep(content="S1", status="pending")])
+    plan.replace_from([PlanStep(content="S1", status="pending")], goal="New goal")
+    assert plan.goal == "New goal"
+
+
+def test_plan_is_complete():
+    plan = Plan(
+        goal="Done",
+        steps=[
+            PlanStep(content="A", status="completed"),
+            PlanStep(content="B", status="completed"),
+        ],
+    )
+    assert plan.is_complete is True
+
+
+def test_plan_no_in_progress_means_no_current_step():
+    plan = Plan(
+        goal="Test",
+        steps=[
+            PlanStep(content="A", status="completed"),
+            PlanStep(content="B", status="pending"),
+        ],
+    )
+    assert plan.current_step is None
+
+
+def test_plan_render_to_markdown_new_format():
+    plan = Plan(
+        goal="Fix auth",
+        steps=[
+            PlanStep(content="Analyze", status="completed", findings="Found bug"),
+            PlanStep(content="Fix", status="in_progress"),
+        ],
     )
     md = plan.render_to_markdown()
-    assert "goal: Implement X feature" in md
-    assert "[completed] Analyze plan_tool.py" in md
-    assert "[in_progress] Modify plan_engine.py" in md
-    assert "[pending] Add step type detection" in md
-    assert "[blocked] Test the changes" in md
-    assert "findings: plan_update_required is a toggle" in md
-    assert "findings: Missing test fixture" in md
+    assert "goal: Fix auth" in md
+    assert "[completed] Analyze" in md
+    assert "[in_progress] Fix" in md
+    assert "findings: Found bug" in md
 
 
-def test_parse_from_markdown_round_trip():
-    plan = Plan(
-        goal="Implement X feature",
-        steps=[
-            PlanStep(id=1, description="Analyze plan_tool.py", status="completed", findings="found toggle"),
-            PlanStep(id=2, description="Modify plan_engine.py", status="in_progress"),
-            PlanStep(id=3, description="Test changes", status="pending"),
-        ],
-        current_step_index=1,
-    )
-    md = plan.render_to_markdown()
-    restored = Plan.parse_from_markdown(md)
-    assert restored.goal == plan.goal
-    assert len(restored.steps) == len(plan.steps)
-    assert restored.steps[0].status == "completed"
-    assert restored.steps[0].findings == "found toggle"
-    assert restored.steps[1].status == "in_progress"
-    assert restored.steps[2].status == "pending"
-    assert restored.current_step_index == 1
+def test_plan_parse_from_markdown_new_format():
+    md = """# Execution Plan
+goal: Fix auth
 
-
-def test_parse_from_markdown_empty_findings():
-    md = """# 执行计划
-goal: Simple task
-
-## 步骤
-1. [in_progress] Do something
+## Steps
+- [completed] Analyze
+  findings: Found bug
+- [in_progress] Fix
+- [pending] Test
 """
     plan = Plan.parse_from_markdown(md)
-    assert plan.goal == "Simple task"
-    assert len(plan.steps) == 1
-    assert plan.steps[0].status == "in_progress"
-    assert plan.steps[0].findings == ""
+    assert plan.goal == "Fix auth"
+    assert len(plan.steps) == 3
+    assert plan.steps[0].content == "Analyze"
+    assert plan.steps[0].status == "completed"
+    assert plan.steps[0].findings == "Found bug"
+    assert plan.steps[1].content == "Fix"
+    assert plan.steps[1].status == "in_progress"
+    assert plan.current_step.content == "Fix"
 
 
-def test_step_to_dict_includes_findings():
-    step = PlanStep(id=1, description="Test", findings="important discovery")
-    d = step.to_dict()
-    assert d["findings"] == "important discovery"
+def test_plan_to_dict():
+    plan = Plan(
+        goal="Test",
+        steps=[PlanStep(content="S1", status="pending")],
+    )
+    d = plan.to_dict()
+    assert d["goal"] == "Test"
+    assert len(d["steps"]) == 1
+    assert d["steps"][0]["content"] == "S1"
+    assert "current_step_index" not in d
+
+
+def test_plan_completed_findings():
+    plan = Plan(
+        goal="Test",
+        steps=[
+            PlanStep(content="A", status="completed", findings="Found X"),
+            PlanStep(content="B", status="in_progress"),
+        ],
+    )
+    assert plan.completed_findings() == ["Found X"]

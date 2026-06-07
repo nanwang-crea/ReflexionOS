@@ -38,11 +38,10 @@ class RuntimeToolDefinitions:
         plan_tool = self.get_plan_tool()
         if plan_tool is None:
             return []
-        return [self.tool_registry.definition_from_schema(plan_tool.get_create_schema())]
+        return [self.tool_registry.definition_from_schema(plan_tool.get_schema())]
 
     def for_plan_mode(self) -> list[LLMToolDefinition]:
         from app.tools.plan_exit_tool import PlanExitTool
-        from app.tools.plan_tool import PlanTool
 
         definitions: list[LLMToolDefinition] = []
         for name in self._ordered_tool_names():
@@ -50,11 +49,6 @@ class RuntimeToolDefinitions:
                 continue
             tool = self.tool_registry.get(name)
             if tool is None:
-                continue
-            if isinstance(tool, PlanTool):
-                definitions.append(
-                    self.tool_registry.definition_from_schema(tool.get_create_schema())
-                )
                 continue
             definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
 
@@ -67,7 +61,6 @@ class RuntimeToolDefinitions:
         return definitions
 
     def for_context(self, context: LoopContext) -> list[LLMToolDefinition]:
-        from app.tools.plan_tool import PlanTool
 
         definitions: list[LLMToolDefinition] = []
         allowed_tool_names = self._allowed_tool_names(context)
@@ -76,16 +69,6 @@ class RuntimeToolDefinitions:
                 continue
             tool = self.tool_registry.get(name)
             if tool is None:
-                continue
-            if isinstance(tool, PlanTool):
-                if context.plan is not None:
-                    definitions.append(
-                        self.tool_registry.definition_from_schema(tool.get_progress_schema())
-                    )
-                else:
-                    definitions.append(
-                        self.tool_registry.definition_from_schema(tool.get_create_schema())
-                    )
                 continue
             definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
         return definitions
