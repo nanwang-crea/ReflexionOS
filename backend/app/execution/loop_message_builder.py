@@ -76,54 +76,33 @@ class LoopMessageBuilder:
                         "When the current step is complete, blocked, or needs replanning, "
                         "call plan.step_done, plan.block, or plan.adjust."
                     )
-            completed_findings = context.plan.completed_findings()
-            if completed_findings:
-                findings_text = "\n".join(f"- {f}" for f in completed_findings)
-                plan_parts.append(f"Findings from completed steps:\n{findings_text}")
+
+            if current_step is not None:
+                current_step_id = current_step.id
+                injected_id = context.metadata.get("_injected_focus_step_id")
+                total = len(context.plan.steps)
+                completed = sum(1 for s in context.plan.steps if s.status == "completed")
+                if injected_id != current_step_id:
+                    plan_parts.append(
+                        f"[Focus] Step {current_step_id}/{total} ({completed} done): "
+                        f"{current_step.description}\n"
+                        f"Focus on THIS step only. When deliverable is verified, "
+                        f"call plan.step_done. If blocked, call plan.block."
+                    )
+                    context.metadata["_injected_focus_step_id"] = current_step_id
+
+            if stagnant >= 5 and current_step is not None:
+                level = "CRITICAL" if stagnant >= 10 else "CHECK"
+                plan_parts.append(
+                    f"[Progress {level}] {stagnant} calls since last plan update on step: "
+                    f"{current_step.description}\n"
+                    f"Verify: Is THIS step's deliverable done with concrete evidence? "
+                    f"If YES → plan.step_done | If STUCK → plan.block | If INCOMPLETE → continue"
+                )
+
             messages.append(
                 LLMMessage(role=MessageRole.SYSTEM, content="\n\n".join(plan_parts))
             )
-
-            if stagnant >= 5 and current_step is not None:
-                step_desc = current_step.description
-                if stagnant >= 15:
-                    audit = (
-                        f"[Plan Progress Audit — CRITICAL] {stagnant} tool calls since last plan update.\n"
-                        f"Current step: {step_desc}\n"
-                        f"Before doing anything else, answer:\n"
-                        f"1. Are you currently working on THIS step's objective, "
-                        f"or have you drifted to work on a later step?\n"
-                        f"2. Is the CORE OBJECTIVE of this step achieved — not just 'I did some work', "
-                        f"but can you point to concrete evidence (file exists, test passes, command succeeds)?\n"
-                        f"3. If YES → call plan.step_done with your findings NOW.\n"
-                        f"4. If the step is stuck and you cannot proceed → call plan.block with the specific blocker.\n"
-                        f"5. If neither → you MUST explain what specific work remains before calling step_done.\n"
-                        f"Ignoring this will cause severe execution degradation."
-                    )
-                elif stagnant >= 10:
-                    audit = (
-                        f"[Plan Progress Audit — WARNING] {stagnant} tool calls since last plan update.\n"
-                        f"Current step: {step_desc}\n"
-                        f"Verify completion and step alignment before continuing:\n"
-                        f"- Are you working on THIS step, or have you drifted to a later step?\n"
-                        f"- Is the specific deliverable of this step done and verified?\n"
-                        f"  (e.g., file confirmed written, test output checked, command result validated)\n"
-                        f"- If YES → call plan.step_done with findings immediately.\n"
-                        f"- If STUCK → call plan.block with the reason.\n"
-                        f"- If INCOMPLETE → keep working on THIS step, do NOT start work for later steps."
-                    )
-                else:
-                    audit = (
-                        f"[Plan Progress Check] {stagnant} tool calls since last plan update.\n"
-                        f"Current step: {step_desc}\n"
-                        f"A step may need multiple tool calls. However, before continuing, verify:\n"
-                        f"- Are you working on THIS step's objective, or have you moved to a later step?\n"
-                        f"- Is the step's core objective achieved with concrete evidence?\n"
-                        f"- If YES → call plan.step_done with your findings.\n"
-                        f"- If NO → continue working on THIS step only.\n"
-                        f"- If BLOCKED → call plan.block with the specific blocker."
-                    )
-                messages.append(LLMMessage(role=MessageRole.USER, content=audit))
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compacted_summary:
@@ -176,26 +155,6 @@ class LoopMessageBuilder:
         if should_inject_anchor:
             messages.append(LLMMessage(role=MessageRole.USER, content=f"[Task Reminder] {context.task}"))
 
-        # Plan Focus: 当计划存在且当前步骤切换时注入一次焦点提示，
-        # 后续轮次不重复注入，避免循环。用 _injected_focus_step_id 追踪。
-        if context.plan and context.plan.current_step is not None:
-            current_step_id = context.plan.current_step.id
-            injected_id = context.metadata.get("_injected_focus_step_id")
-            if injected_id != current_step_id:
-                completed = sum(1 for s in context.plan.steps if s.status == "completed")
-                total = len(context.plan.steps)
-                focus_text = (
-                    f"[Plan Focus] Now executing step {current_step_id}/{total} "
-                    f"({completed} completed): {context.plan.current_step.description}\n"
-                    f"Goal: {context.plan.goal}\n"
-                    "Focus ONLY on this step's objective. Do NOT start work for later steps. "
-                    "When this step's deliverable is verified (not just 'I did work' but confirmed it works), "
-                    "call plan.step_done with your findings and evidence. "
-                    "If blocked, call plan.block with the reason."
-                )
-                messages.append(LLMMessage(role=MessageRole.USER, content=focus_text))
-                context.metadata["_injected_focus_step_id"] = current_step_id
-
         return messages
 
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
@@ -236,15 +195,7 @@ class LoopMessageBuilder:
             messages.append(
                 LLMMessage(role=MessageRole.SYSTEM, content=context.plan.render_for_context())
             )
-            completed_findings = context.plan.completed_findings()
-            if completed_findings:
-                findings_text = "\n".join(f"- {f}" for f in completed_findings)
-                messages.append(
-                    LLMMessage(
-                        role=MessageRole.SYSTEM,
-                        content=f"Findings from completed steps:\n{findings_text}",
-                    )
-                )
+
 
         if context.compacted_summary:
             messages.append(

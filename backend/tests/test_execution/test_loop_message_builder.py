@@ -122,12 +122,9 @@ def test_build_messages_injects_current_plan_step_and_update_requirement():
 
     messages = builder.build(context)
 
-    # Plan Focus 作为 user 消息注入在末尾，包含当前步骤描述
-    user_contents = [message.content for message in messages if message.role == "user"]
-    assert any("修改执行循环" in (c or "") for c in user_contents)
-    assert any("plan.step_done" in (c or "") for c in user_contents)
-    # plan_update_required 的 reminder 仍在 system 消息中
     system_contents = [message.content for message in messages if message.role == "system" and message.content]
+    assert any("修改执行循环" in (c or "") for c in system_contents)
+    assert any("plan.step_done" in (c or "") for c in system_contents)
     assert any("call plan.step_done, plan.block, or plan.adjust" in content for content in system_contents)
 
 
@@ -182,7 +179,7 @@ def test_task_anchor_injected_only_on_first_round():
 
 
 def test_plan_focus_injected_once_per_step():
-    """Plan Focus 仅在当前步骤首次出现时注入一次，同一步骤内不重复注入。"""
+    """Plan Focus merged into SYSTEM plan message; [Focus] tag appears only when step first seen."""
     builder = build_message_builder()
 
     context = LoopContext(task="修复登录问题")
@@ -196,48 +193,30 @@ def test_plan_focus_injected_once_per_step():
     )
     context.add_message("user", "修复登录问题")
 
-    # 首次 build：步骤 1 首次出现，应注入 Plan Focus
     messages_1 = builder.build(context)
-    user_1 = [m.content for m in messages_1 if m.role == "user"]
-    focus_1 = [c for c in user_1 if c and "Plan Focus" in c]
-    assert len(focus_1) == 1
-    assert "定位 bug" in focus_1[0]
+    system_1 = [m.content for m in messages_1 if m.role == "system" and m.content]
+    assert any("[Focus]" in c and "定位 bug" in c for c in system_1)
 
-    # 同一步骤内第二次 build：不应重复注入 Plan Focus；per-turn "Plan ►" reminder
-    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "检查代码", tool_calls=[
         {"id": "c1", "name": "shell", "arguments": {"command": "grep bug auth.py"}},
     ])
     context.add_message("tool", content="found bug", tool_call_id="c1")
     messages_2 = builder.build(context)
-    user_2 = [m.content for m in messages_2 if m.role == "user"]
-    focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
-    assert len(focus_2) == 0
-    # Per-turn "Plan ►" reminder is no longer injected by message builder
-    reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
-    assert len(reminder_2) == 0
+    system_2 = [m.content for m in messages_2 if m.role == "system" and m.content]
+    assert not any("[Focus]" in c for c in system_2)
 
-    # 步骤切换到步骤 2：应注入新的 Plan Focus
     context.plan.advance("已定位 bug 在 auth.py")
     messages_3 = builder.build(context)
-    user_3 = [m.content for m in messages_3 if m.role == "user"]
-    focus_3 = [c for c in user_3 if c and "Plan Focus" in c]
-    assert len(focus_3) == 1
-    assert "修复代码" in focus_3[0]
+    system_3 = [m.content for m in messages_3 if m.role == "system" and m.content]
+    assert any("[Focus]" in c and "修复代码" in c for c in system_3)
 
-    # 步骤 2 内再次 build：不应重复注入 Plan Focus；per-turn "Plan ►" reminder
-    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "修复中", tool_calls=[
         {"id": "c2", "name": "edit", "arguments": {"path": "auth.py"}},
     ])
     context.add_message("tool", content="edit done", tool_call_id="c2")
     messages_4 = builder.build(context)
-    user_4 = [m.content for m in messages_4 if m.role == "user"]
-    focus_4 = [c for c in user_4 if c and "Plan Focus" in c]
-    assert len(focus_4) == 0
-    # Per-turn "Plan ►" reminder is no longer injected by message builder
-    reminder_4 = [c for c in user_4 if c and "Plan ►" in c]
-    assert len(reminder_4) == 0
+    system_4 = [m.content for m in messages_4 if m.role == "system" and m.content]
+    assert not any("[Focus]" in c for c in system_4)
 
 
 def test_task_anchor_injected_periodically():
@@ -268,7 +247,7 @@ def test_compaction_continue_message_injected_after_tier3():
 
 
 def test_per_turn_plan_status_reminder_not_injected_by_message_builder():
-    """Per-turn plan status reminder injected when plan is active and Plan Focus was already injected."""
+    """Plan status is in system messages only; no per-turn user message injection."""
     builder = build_message_builder()
 
     context = LoopContext(task="实现认证")
@@ -282,42 +261,32 @@ def test_per_turn_plan_status_reminder_not_injected_by_message_builder():
     )
     context.add_message("user", "实现认证")
 
-    # First build: Plan Focus injected (step first appears), no per-turn reminder
     messages_1 = builder.build(context)
-    user_1 = [m.content for m in messages_1 if m.role == "user"]
-    focus_1 = [c for c in user_1 if c and "Plan Focus" in c]
-    reminder_1 = [c for c in user_1 if c and "Plan ►" in c]
-    assert len(focus_1) == 1
-    assert len(reminder_1) == 0
+    system_1 = [m.content for m in messages_1 if m.role == "system" and m.content]
+    assert any("[Focus]" in c for c in system_1)
 
-    # Second build: Plan Focus NOT re-injected; per-turn "Plan ►" reminder
-    # 已移至 tool_call_executor.py 的 hook suffix，message builder 不再注入
     context.add_message("assistant", "writing auth", tool_calls=[
         {"id": "c1", "name": "edit", "arguments": {"path": "auth.py"}},
     ])
     context.add_message("tool", content="edit ok", tool_call_id="c1")
     messages_2 = builder.build(context)
-    user_2 = [m.content for m in messages_2 if m.role == "user"]
-    focus_2 = [c for c in user_2 if c and "Plan Focus" in c]
-    reminder_2 = [c for c in user_2 if c and "Plan ►" in c]
-    assert len(focus_2) == 0
-    # Per-turn "Plan ►" reminder is no longer injected by message builder
-    assert len(reminder_2) == 0
+    system_2 = [m.content for m in messages_2 if m.role == "system" and m.content]
+    assert not any("[Focus]" in c for c in system_2)
 
 
 def test_per_turn_plan_status_not_injected_when_no_plan():
-    """No plan status reminder when plan is None."""
+    """No plan status when plan is None."""
     builder = build_message_builder()
     context = LoopContext(task="简单查询")
     context.add_message("user", "简单查询")
 
     messages = builder.build(context)
-    user_contents = [m.content for m in messages if m.role == "user"]
-    assert not any("Plan ►" in (c or "") for c in user_contents)
+    system_contents = [m.content for m in messages if m.role == "system" and m.content]
+    assert not any("[Focus]" in (c or "") for c in system_contents)
 
 
 def test_plan_status_injected_in_plan_context_system_message():
-    """Plan context (render_for_context + findings) is injected as system message when plan exists."""
+    """Plan context (render_for_context) is injected as system message when plan exists; findings are inside render."""
     builder = build_message_builder()
 
     context = LoopContext(task="修 bug")
