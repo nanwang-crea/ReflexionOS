@@ -685,7 +685,8 @@ class RapidExecutionLoop:
                         if context.plan_file_path:
                             self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
                     elif loop_result.status == LoopStatus.CANCELLED:
-                        context.plan.finalize_for_cancellation()
+                        # 在取消时不能直接将其变为取消状态
+                        # context.plan.finalize_for_cancellation()
                         if context.plan_file_path:
                             self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
                     await self._emit("plan:updated", context.plan.to_dict())
