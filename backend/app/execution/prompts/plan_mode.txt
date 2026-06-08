@@ -20,7 +20,8 @@ Verify your understanding aligns with the user's intent.
 Re-read critical files if needed.
 
 ### Phase 4: Create Plan
-Call plan.create to create a structured execution plan with high-level steps.
+Call the plan tool to create a structured execution plan with high-level steps.
+Send the full step list (goal + steps) each time you call it.
 Each step should be concise and actionable.
 
 ### Phase 5: Exit Planning
@@ -30,5 +31,5 @@ Call plan_exit to indicate planning is complete and request switching to executi
 - You can ONLY read files, search code, and call plan tools.
 - Do NOT edit any project source files.
 - Do NOT run shell commands.
-- Create the plan using plan.create (NOT by writing a plan file).
+- Create the plan using the plan tool (NOT by writing a plan file).
 - When your plan is ready, call plan_exit to switch to execution mode.

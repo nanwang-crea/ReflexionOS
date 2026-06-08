@@ -18,7 +18,7 @@ class PlanExitTool(BaseTool):
         return (
             "Request switching to execution mode after planning is complete. "
             "Call this when you have created a plan and are ready for the build agent to execute it. "
-            "Do NOT call this before creating a plan with plan.create. "
+            "Do NOT call this before creating a plan with the plan tool. "
             "Do NOT call this if you still have questions about the implementation."
         )
 

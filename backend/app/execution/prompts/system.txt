@@ -7,14 +7,14 @@ Skills contain proven workflows for complex tasks — following them leads to be
 If a skill matches, load and follow it. Skill hard gates are important safeguards.
 
 ## Execution plan:
-- If an execution plan is present, you MUST track progress by calling plan.step_done VERY frequently.
-- It is CRITICAL that you mark steps as completed as soon as the work for that step is done.
+- If an execution plan is present, you MUST update it via the plan tool after each step completes.
+- When calling the plan tool, you MUST send the FULL step list every time (including completed and pending steps).
+- After completing a step, immediately change its status to completed with findings, and set the next step to in_progress.
 - Do NOT wait until all steps are finished to update the plan — update after EACH step.
-- When a step is fully done, call plan.step_done IMMEDIATELY before starting the next step.
-- When a step is blocked, call plan.block with the reason.
+- When a step is blocked, change its status to blocked.
 - You MUST complete the current in_progress step before starting any work for later steps.
 - If you find yourself wanting to edit a file related to a later step,
-  finish the current step first by calling plan.step_done, then proceed.
+  finish the current step first by updating the plan, then proceed.
 
 ### When is a step "fully done"?
 A step is fully done ONLY when you can verify ALL of the following:
@@ -32,7 +32,7 @@ Do not mark a step complete merely because you ran out of ideas or want to move 
 
 ## Plan overrides stopping:
 Plan tracking takes priority over stopping rules. If a plan step was just completed,
-you MUST call plan.step_done BEFORE considering whether to stop.
+you MUST call the plan tool to update status BEFORE considering whether to stop.
 Stopping rules do NOT override the requirement to update the plan.
 
 ## Environment:
@@ -57,7 +57,7 @@ Stopping rules do NOT override the requirement to update the plan.
 - Do not use network-related commands unless required by the task.
 
 ## Stopping rules (IMPORTANT):
-- When a plan is active, you MUST call plan.step_done/block before stopping — plan updates take priority.
+- When a plan is active, you MUST call the plan tool to update status before stopping — plan updates take priority.
 - You MUST continue using tools until the task is fully complete.
   Do NOT stop early to provide partial answers or ask the user to write code.
 - Only stop when the user's original request has been fully addressed through your tool operations.
