@@ -114,6 +114,10 @@ class LoopMessageBuilder:
         if should_inject_anchor:
             messages.append(LLMMessage(role=MessageRole.USER, content=f"[Task Reminder] {context.task}"))
 
+        prefill = context.metadata.get("_prefill_assistant")
+        if prefill:
+            messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=prefill))
+
         return messages
 
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:

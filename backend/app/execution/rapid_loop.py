@@ -45,6 +45,7 @@ class RapidExecutionLoop:
     MAX_TURN_RETRIES = 5  # 每轮最大重试
     MAX_SUMMARY_RETRIES = 5  # 总结最大重试
     MAX_ERROR_RETRIES = 5  # 错误恢复最大重试
+    MAX_PREMATURE_STOP_RETRIES = 5  # 过早停止最大重试（assistant prefill + user nudge）
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 5  # 空响应最大重试
     MAX_READ_ONLY_PASSES = 10  # 只读工具调用最大轮次
@@ -149,8 +150,9 @@ class RapidExecutionLoop:
 
                 allow_stop_for_clarification = plan_blocked_asking_user
 
-                if ((plan_has_unfinished and not allow_stop_for_clarification)) and rt.premature_stop_count < self.MAX_ERROR_RETRIES:
+                if ((plan_has_unfinished and not allow_stop_for_clarification)) and rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES:
                     rt.premature_stop_count += 1
+
                     if plan_has_unfinished:
                         current = context.plan.current_step
                         pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
@@ -159,12 +161,19 @@ class RapidExecutionLoop:
                             f"There are still {pending_count} pending step(s) and the current step is: {current.content if current else 'N/A'}. "
                             "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
                         )
+                        prefill = (
+                            f"I'll continue with the current step: {current.content if current else 'next task'}. "
+                            "Let me use my tools to proceed."
+                        )
                     else:
                         nudge = (
                             "You stopped before completing the task. Continue using tools to finish the work. "
                             "Do NOT ask the user to write code — use your tools to do it yourself."
                         )
+                        prefill = "I'll continue working on the task using my tools."
+
                     context.add_message("user", nudge)
+                    context.metadata["_prefill_assistant"] = prefill
                     return LoopPhase.PLANNING
 
                 result.status = LoopStatus.COMPLETED
@@ -806,10 +815,17 @@ class RapidExecutionLoop:
             )
 
             if response.has_content or response.has_tool_calls:
+                prefill = context.metadata.pop("_prefill_assistant", None)
+                merged_content = response.content
+                if prefill:
+                    if merged_content:
+                        merged_content = prefill + merged_content
+                    else:
+                        merged_content = prefill
 
                 context.add_message(
                     "assistant",
-                    content=response.content or None,
+                    content=merged_content or None,
                     tool_calls=[tool_call.model_dump() for tool_call in response.tool_calls],
                 )
 
