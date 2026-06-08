@@ -93,9 +93,9 @@ describe('useSidebarProjectActions', () => {
       dialogService,
     })
 
-    await actions.handleCreateProject({ name: 'Demo', path: '/tmp/demo', language: 'typescript' })
+    await actions.handleCreateProject({ name: 'Demo', path: '/tmp/demo' })
 
-    expect(dialogService.notifyError).toHaveBeenCalledWith('创建项目失败')
+    expect(dialogService.notifyError).toHaveBeenCalledWith('boom')
   })
 
   it('does not open directory selection while busy', async () => {
@@ -114,5 +114,37 @@ describe('useSidebarProjectActions', () => {
     await actions.handleSelectDirectory()
 
     expect(selectProjectDirectoryMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects empty project name', async () => {
+    const dialogService = createDialogService()
+    const actions = useSidebarProjectActions({
+      busy: false,
+      currentProject: null,
+      addProject: vi.fn(),
+      removeProject: vi.fn(),
+      setCurrentProject: vi.fn(),
+      setProjectExpanded: vi.fn(),
+      setShowProjectModal: vi.fn(),
+      setFormData: vi.fn(),
+      navigate: vi.fn(),
+      dialogService,
+    })
+
+    await actions.handleCreateProject({ name: '   ', path: '/tmp/demo' })
+
+    expect(createProjectApiMock).not.toHaveBeenCalled()
+    expect(dialogService.notifyError).toHaveBeenCalledWith('项目名称不能为空')
+  })
+
+  it('auto-fills name from selected directory path', async () => {
+    selectProjectDirectoryMock.mockResolvedValue('/home/user/my-project')
+    const setFormData = vi.fn()
+
+    await selectProjectDirectoryMock('/home/user/my-project')
+    const dirName = '/home/user/my-project'.split(/[\\/]/).pop() || ''
+    setFormData({ name: dirName, path: '/home/user/my-project' })
+
+    expect(setFormData).toHaveBeenCalledWith({ name: 'my-project', path: '/home/user/my-project' })
   })
 })

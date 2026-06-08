@@ -7,7 +7,6 @@ import type { Project } from '@/types/project'
 interface ProjectFormData {
   name: string
   path: string
-  language: string
 }
 
 export type SidebarProjectFormData = ProjectFormData
@@ -42,12 +41,16 @@ async function createSidebarProject({
   setFormData,
   navigate,
 }: CreateSidebarProjectOptions) {
-  const response = await projectApi.create(formData)
+  if (!formData.name.trim()) {
+    throw new Error('项目名称不能为空')
+  }
+
+  const response = await projectApi.create({ name: formData.name.trim(), path: formData.path })
   addProject(response.data)
   setCurrentProject(response.data)
   setProjectExpanded(response.data.id, true)
   setShowProjectModal(false)
-  setFormData({ name: '', path: '', language: 'python' })
+  setFormData({ name: '', path: '' })
   navigate('/agent')
 }
 
@@ -73,7 +76,8 @@ async function selectSidebarProjectDirectory({
     return
   }
 
-  setFormData((current) => ({ ...current, path: selectedPath }))
+  const dirName = selectedPath.split(/[\\/]/).pop() || ''
+  setFormData((current) => ({ ...current, path: selectedPath, name: dirName }))
 }
 
 interface UseSidebarProjectActionsOptions {
@@ -114,7 +118,8 @@ export function useSidebarProjectActions({
       })
     } catch (error) {
       console.error('Failed to create project:', error)
-      dialogService.notifyError('创建项目失败')
+      const message = error instanceof Error ? error.message : '创建项目失败'
+      dialogService.notifyError(message)
     }
   }
 

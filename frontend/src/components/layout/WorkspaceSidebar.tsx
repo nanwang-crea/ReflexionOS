@@ -225,7 +225,7 @@ export function WorkspaceSidebar() {
   const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
 
   const [showProjectModal, setShowProjectModal] = useState(false)
-  const [formData, setFormData] = useState({ name: '', path: '', language: 'python' })
+  const [formData, setFormData] = useState({ name: '', path: '' })
   const canSelectDirectory = isElectronRuntime()
 
   const busy = isConversationBusy(currentConversation)
@@ -609,21 +609,7 @@ className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 tex
                   )}
                 </div>
               </div>
-              <div>
-                 <label className="mb-1 block text-sm font-medium text-content-secondary">主要语言</label>
-                <select
-                  value={formData.language}
-                  onChange={(event) => setFormData({ ...formData, language: event.target.value })}
-                   className="w-full rounded-xl border border-edge bg-surface-primary px-3 py-2 text-content-secondary outline-none transition focus:border-edge"
-                >
-                  <option value="python">Python</option>
-                  <option value="javascript">JavaScript</option>
-                  <option value="typescript">TypeScript</option>
-                  <option value="rust">Rust</option>
-                  <option value="go">Go</option>
-                  <option value="java">Java</option>
-                </select>
-              </div>
+
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <button
