@@ -84,7 +84,7 @@ describe('conversationApi', () => {
     const { conversationApi } = await import('./conversationApi')
     const response = await conversationApi.getConversation('session-1')
 
-    expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', { params: { limit: 0 } })
+    expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', { params: { limit: 20 } })
     expect(response.data).toEqual({
       session: {
         id: 'session-1',

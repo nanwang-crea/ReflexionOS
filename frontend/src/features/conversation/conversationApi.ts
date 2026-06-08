@@ -137,7 +137,7 @@ function buildSessionConversationPath(sessionId: string) {
 
 export const conversationApi = {
   getConversation: (sessionId: string) =>
-    mapConversationResponse(apiClient.get<ConversationSnapshotDto>(buildSessionConversationPath(sessionId), { params: { limit: 0 } })),
+    mapConversationResponse(apiClient.get<ConversationSnapshotDto>(buildSessionConversationPath(sessionId), { params: { limit: 20 } })),
   getConversationPaginated: (sessionId: string, params: { limit?: number; before?: string }) => {
     const queryParams: Record<string, string> = {}
     if (params.limit !== undefined) queryParams.limit = String(params.limit)
