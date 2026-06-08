@@ -59,7 +59,6 @@ export interface LlmRetryDto {
 export interface PlanDto {
   goal: string
   steps: PlanStepDto[]
-  current_step_index: number
 }
 
 export interface SessionTitleUpdatedDto {

@@ -284,7 +284,6 @@ export function useConversationRuntime(
       useConversationStore.getState().setPlan(sessionId, {
         goal: data.goal,
         steps: data.steps,
-        currentStepIndex: data.current_step_index,
       })
     })
     ws.on('plan:discarded', () => {

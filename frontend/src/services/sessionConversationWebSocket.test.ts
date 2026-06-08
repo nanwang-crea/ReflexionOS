@@ -101,11 +101,11 @@ describe('SessionConversationWebSocket', () => {
     webSocketInstances[0].onmessage?.({
       data: JSON.stringify({
         type: 'plan:updated',
-        data: { goal: 'inspect', steps: [], current_step_index: 0 },
+        data: { goal: 'inspect', steps: [] },
       }),
     })
 
     expect(durableEvents).toEqual([{ id: 'evt-1', event_type: 'message.created' }])
-    expect(plans).toEqual([{ goal: 'inspect', steps: [], current_step_index: 0 }])
+    expect(plans).toEqual([{ goal: 'inspect', steps: [] }])
   })
 })

@@ -105,6 +105,7 @@ export function isProcessGroupStreaming(subItems: ProcessSubItem[]): boolean {
 
 export function buildTranscriptItems(messages: ConversationMessage[]): TranscriptItem[] {
   const items: TranscriptItem[] = []
+  const runGroupCounter: Record<string, number> = {}
 
   let currentRunId: string | null = null
   let currentSubItems: ProcessSubItem[] = []
@@ -125,9 +126,10 @@ export function buildTranscriptItems(messages: ConversationMessage[]): Transcrip
   const flushProcessGroup = () => {
     flushToolBuffer()
     if (currentRunId !== null && currentSubItems.length > 0) {
+      const seq = (runGroupCounter[currentRunId] = (runGroupCounter[currentRunId] ?? 0) + 1)
       items.push({
         kind: 'process_group',
-        id: `process-${currentRunId}`,
+        id: `process-${currentRunId}-${seq}`,
         runId: currentRunId,
         subItems: currentSubItems,
       })

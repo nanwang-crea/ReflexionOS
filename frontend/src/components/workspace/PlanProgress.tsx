@@ -11,12 +11,9 @@ interface PlanProgressProps {
 
 export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onToggleMinimize }: PlanProgressProps) {
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
-  const failedCount = plan.steps.filter((s) => s.status === 'failed' || s.status === 'blocked').length
-  const cancelledCount = plan.steps.filter((s) => s.status === 'cancelled').length
+  const blockedCount = plan.steps.filter((s) => s.status === 'blocked').length
   const totalCount = plan.steps.length
 
-  // When minimized, the plan is shown as a compact bar above the input
-  // (rendered by AgentWorkspace), so we render nothing here.
   if (isMinimized) {
     return null
   }
@@ -34,8 +31,7 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
           <ListChecks className="h-4 w-4 shrink-0 text-content-secondary" />
           <span className="truncate text-[15px]">
             共 {totalCount} 个任务，已完成 {completedCount} 个
-            {failedCount > 0 && `，失败 ${failedCount} 个`}
-            {cancelledCount > 0 && `，取消 ${cancelledCount} 个`}
+            {blockedCount > 0 && `，阻塞 ${blockedCount} 个`}
           </span>
         </div>
         <button
@@ -48,17 +44,15 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
         </button>
       </div>
       <ol className="mt-4 max-h-[40vh] overflow-y-auto space-y-2 pr-2">
-        {plan.steps.map((step) => (
+        {plan.steps.map((step, index) => (
           <li
-            key={step.id}
+            key={index}
             className={[
               'flex items-start gap-3 text-[15px] leading-7',
               step.status === 'completed' && 'text-content-muted',
                step.status === 'in_progress' && 'font-medium text-content-primary',
                step.status === 'pending' && 'text-content-muted',
               step.status === 'blocked' && 'text-status-error',
-              step.status === 'failed' && 'text-status-error',
-              step.status === 'cancelled' && 'text-content-muted',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -76,17 +70,16 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
               {step.status === 'blocked' && (
                 <XCircle className="h-4 w-4 text-status-error" />
               )}
-              {step.status === 'failed' && (
-                <XCircle className="h-4 w-4 text-status-error" />
-              )}
-              {step.status === 'cancelled' && (
-                <Circle className="h-4 w-4 text-content-muted" />
-              )}
             </span>
             <div className="min-w-0">
-              <span className={step.status === 'completed' || step.status === 'cancelled' ? 'line-through' : ''}>
-                {step.id}. {step.description}
+              <span className={step.status === 'completed' ? 'line-through' : ''}>
+                {index + 1}. {step.content}
               </span>
+              {step.status === 'completed' && step.findings && (
+                <div className="mt-1 text-sm text-content-muted">
+                  → {step.findings}
+                </div>
+              )}
             </div>
           </li>
         ))}
@@ -109,6 +102,7 @@ export const PlanMinimizedBar = memo(function PlanMinimizedBar({
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
   const totalCount = plan.steps.length
   const currentStep = plan.steps.find((s) => s.status === 'in_progress')
+  const currentStepIndex = currentStep ? plan.steps.indexOf(currentStep) : -1
 
   const handleClick = useCallback(() => {
     onExpand()
@@ -126,7 +120,7 @@ export const PlanMinimizedBar = memo(function PlanMinimizedBar({
         共 {totalCount} 个任务，已完成 {completedCount} 个
         {currentStep && (
           <span className="ml-1 text-content-muted">
-            · 当前: {currentStep.id}. {currentStep.description}
+            · 当前: {currentStepIndex + 1}. {currentStep.content}
           </span>
         )}
       </span>
