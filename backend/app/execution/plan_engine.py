@@ -40,6 +40,13 @@ class Plan:
         old_in_progress = next(
             (s.content for s in self.steps if s.status == "in_progress"), None
         )
+        new_completed = {s.content for s in new_steps if s.status == "completed"}
+        dropped = old_completed - new_completed
+        if dropped:
+            raise ValueError(
+                f"Completed steps must not be removed. Missing: {dropped}. "
+                f"Keep ALL completed steps with status=completed and their findings."
+            )
         self.steps = new_steps
         if goal is not None:
             self.goal = goal

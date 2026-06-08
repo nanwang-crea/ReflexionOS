@@ -22,6 +22,7 @@ Re-read critical files if needed.
 ### Phase 4: Create Plan
 Call the plan tool to create a structured execution plan with high-level steps.
 Send the full step list (goal + steps) each time you call it.
+Set the first step's status to in_progress, all others to pending.
 Each step should be concise and actionable.
 
 ### Phase 5: Exit Planning

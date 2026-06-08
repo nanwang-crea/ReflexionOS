@@ -139,3 +139,36 @@ def test_plan_set_and_get_plan(tool):
     assert tool.get_plan() is plan
     tool.set_plan(None)
     assert tool.get_plan() is None
+
+
+@pytest.mark.asyncio
+async def test_plan_rejects_dropping_completed_steps(tool):
+    await tool.execute({
+        "goal": "Test",
+        "steps": [
+            {"content": "A", "status": "completed", "findings": "Done"},
+            {"content": "B", "status": "in_progress"},
+        ],
+    })
+    result = await tool.execute({
+        "steps": [
+            {"content": "B", "status": "completed", "findings": "Done"},
+        ],
+    })
+    assert not result.success
+    assert "Completed steps must not be removed" in result.error
+    assert "A" in result.error
+
+
+@pytest.mark.asyncio
+async def test_plan_tool_result_shows_step_list(tool):
+    result = await tool.execute({
+        "goal": "Test",
+        "steps": [
+            {"content": "Analyze", "status": "in_progress"},
+            {"content": "Fix", "status": "pending"},
+        ],
+    })
+    assert result.success
+    assert "○" in result.output or "►" in result.output
+    assert "Analyze" in result.output

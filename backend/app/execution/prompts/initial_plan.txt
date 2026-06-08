@@ -6,6 +6,7 @@ If the task can be answered or completed directly, respond exactly: NO_PLAN
 
 When creating a plan:
 - Call the plan tool with a goal and the full steps list
+- Set the first step's status to in_progress, all others to pending
 - Use concise, high-level steps
 - Do not explain the plan in normal text
 - Do not include code or implementation details in the step text

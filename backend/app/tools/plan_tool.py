@@ -20,7 +20,10 @@ class PlanTool(BaseTool):
     def description(self) -> str:
         return (
             "Manage execution plans for multi-step tasks. "
-            "Send the full step list each call. Keep exactly one step in_progress at a time. "
+            "Send the FULL step list every call — NEVER omit completed steps, always keep them with status=completed and findings. "
+            "Keep exactly one step in_progress at a time. "
+            "To mark a step done: keep it in the list with status=completed and add findings, then set the next step to in_progress. "
+            "Do NOT modify the content of completed steps. "
             "Skip for simple tasks that need fewer than 3 steps."
         )
 
@@ -52,14 +55,14 @@ class PlanTool(BaseTool):
                                 },
                                 "findings": {
                                     "type": "string",
-                                    "description": "Key results when completed (required when status=completed)",
+                                    "description": "Brief result summary when completed (required when status=completed, keep under 100 chars)",
                                 },
                             },
                             "required": ["content", "status"],
                         },
                         "minItems": 1,
                         "maxItems": 12,
-                        "description": "The complete step list. Send ALL steps every time, including already completed ones.",
+                        "description": "The complete step list. Send ALL steps every time. NEVER remove completed steps — keep them with status=completed and findings filled in. To advance: mark current step completed+findings, set next step in_progress.",
                     },
                 },
                 "required": ["steps"],
@@ -104,7 +107,10 @@ class PlanTool(BaseTool):
             if self._plan.current_step:
                 changes["just_started"] = self._plan.current_step.content
         else:
-            changes = self._plan.replace_from(steps, goal=goal or None)
+            try:
+                changes = self._plan.replace_from(steps, goal=goal or None)
+            except ValueError as e:
+                return ToolResult(success=False, error=str(e))
 
         plan = self._plan
         current = plan.current_step
@@ -114,11 +120,20 @@ class PlanTool(BaseTool):
         blocked = sum(1 for s in plan.steps if s.status == "blocked")
 
         output_parts = [
-            f"Plan updated. {pending} pending, {in_prog} in_progress, {completed} completed, {blocked} blocked.",
+            f"Plan updated ({completed}/{len(plan.steps)} done). {pending} pending, {in_prog} in_progress, {completed} completed, {blocked} blocked.",
         ]
+        for s in plan.steps:
+            mark = {"pending": "○", "in_progress": "►", "completed": "✓", "blocked": "✗"}[s.status]
+            output_parts.append(f"  {mark} {s.content}")
+            if s.status == "completed" and s.findings:
+                output_parts.append(f"    → {s.findings}")
         if current:
             output_parts.append(f"[Current] {current.content}")
-        output_parts.append("Ensure you use the plan to track your progress. Proceed with the current step.")
+            output_parts.append("Continue executing this step with your tools. Do NOT stop — the plan is not yet complete.")
+        elif plan.is_complete:
+            output_parts.append("All steps completed! You may now stop and provide the final answer to the user.")
+        else:
+            output_parts.append("Ensure you use the plan to track your progress. Proceed with the current step.")
 
         logger.info("Plan updated: %s (%d/%d done)", plan.goal, completed, len(plan.steps))
 

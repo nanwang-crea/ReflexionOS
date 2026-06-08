@@ -127,3 +127,20 @@ def test_plan_completed_findings():
         ],
     )
     assert plan.completed_findings() == ["Found X"]
+
+
+import pytest
+
+
+def test_plan_replace_from_rejects_dropping_completed_steps():
+    plan = Plan(
+        goal="Test",
+        steps=[
+            PlanStep(content="A", status="completed", findings="Done"),
+            PlanStep(content="B", status="in_progress"),
+        ],
+    )
+    with pytest.raises(ValueError, match="Completed steps must not be removed"):
+        plan.replace_from([
+            PlanStep(content="B", status="completed", findings="Done"),
+        ])

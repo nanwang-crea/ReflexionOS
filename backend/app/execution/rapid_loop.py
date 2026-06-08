@@ -130,21 +130,41 @@ class RapidExecutionLoop:
         if rt.has_executed_tools:
             if rt.response.has_content:
                 content = rt.response.content or ""
-                premature_indicators = [
-                    "you can now write the code", "you should now write the code",
-                    "i'll leave the implementation", "you can implement this yourself",
-                    "you should implement this yourself", "you can write the code yourself",
-                    "请你编写代码", "请你实现这部分", "你可以自己编写代码", "你可以自己实现",
-                ]
-                is_premature = any(indicator in content.lower() for indicator in premature_indicators)
+                # Check if plan still has unfinished steps
+                plan_has_unfinished = (
+                    context.plan is not None
+                    and not context.plan.is_complete
+                )
 
-                if is_premature and rt.premature_stop_count < self.MAX_ERROR_RETRIES:
+                # Allow stop when the model is genuinely asking for user clarification:
+                # 1) current step is blocked (no in_progress, has blocked) — model explicitly signaled a blocker
+                # 2) content contains clarification questions to the user
+                blocked_steps = [s for s in context.plan.steps if s.status == "blocked"] if context.plan else []
+                current_step = context.plan.current_step if context.plan else None
+                plan_blocked_asking_user = (
+                    context.plan is not None
+                    and current_step is None
+                    and len(blocked_steps) > 0
+                )
+
+                allow_stop_for_clarification = plan_blocked_asking_user
+
+                if ((plan_has_unfinished and not allow_stop_for_clarification)) and rt.premature_stop_count < self.MAX_ERROR_RETRIES:
                     rt.premature_stop_count += 1
-                    context.add_message(
-                        "user",
-                        "You stopped before completing the task. Continue using tools to finish the work. "
-                        "Do NOT ask the user to write code — use your tools to do it yourself.",
-                    )
+                    if plan_has_unfinished:
+                        current = context.plan.current_step
+                        pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
+                        nudge = (
+                            "The plan is NOT complete yet. "
+                            f"There are still {pending_count} pending step(s) and the current step is: {current.content if current else 'N/A'}. "
+                            "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
+                        )
+                    else:
+                        nudge = (
+                            "You stopped before completing the task. Continue using tools to finish the work. "
+                            "Do NOT ask the user to write code — use your tools to do it yourself."
+                        )
+                    context.add_message("user", nudge)
                     return LoopPhase.PLANNING
 
                 result.status = LoopStatus.COMPLETED
