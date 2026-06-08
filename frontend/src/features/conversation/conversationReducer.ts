@@ -198,18 +198,70 @@ export function applyConversationSnapshot(
       return [messageId, message]
     })
   )
+  // Preserve prepended history messages (from loadMore) and their associated turns/runs
+  // that are not present in the new snapshot
+  let finalMessageOrder = messageOrder
+  let finalMessagesById = messagesById
+  let finalTurnOrder = snapshot.turns
+    .slice()
+    .sort((left, right) => left.turnIndex - right.turnIndex)
+    .map((turn) => turn.id)
+  let finalTurnsById = Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn]))
+  let finalRunsById = runsById
+
+  if (previous) {
+    const carriedMessageIds = new Set(messageOrder)
+    const prependedIds = previous.messageOrder.filter(
+      (id) => !carriedMessageIds.has(id)
+    )
+
+    if (prependedIds.length > 0) {
+      const prependedMessages = prependedIds
+        .map((id) => previous.messagesById[id])
+        .filter(Boolean)
+
+      const snapshotTurnIds = new Set(snapshot.turns.map((t) => t.id))
+      const snapshotRunIds = new Set(snapshot.runs.map((r) => r.id))
+
+      const additionalTurns = [...new Set(prependedMessages.map((m) => m.turnId).filter(Boolean) as string[])]
+        .filter((id) => !snapshotTurnIds.has(id) && previous.turnsById[id])
+        .map((id) => previous.turnsById[id]!)
+        .sort((a, b) => a.turnIndex - b.turnIndex)
+
+      const additionalRuns = [...new Set(prependedMessages.map((m) => m.runId).filter(Boolean) as string[])]
+        .filter((id) => !snapshotRunIds.has(id) && previous.runsById[id])
+        .map((id) => previous.runsById[id]!)
+
+      const allTurns = [...additionalTurns, ...snapshot.turns]
+        .sort((a, b) => a.turnIndex - b.turnIndex)
+      finalTurnOrder = allTurns.map((t) => t.id)
+      finalTurnsById = {
+        ...Object.fromEntries(additionalTurns.map((t) => [t.id, t])),
+        ...finalTurnsById,
+      }
+
+      finalRunsById = {
+        ...Object.fromEntries(additionalRuns.map((r) => [r.id, r])),
+        ...finalRunsById,
+      }
+
+      finalMessageOrder = [...prependedIds, ...messageOrder]
+      finalMessagesById = {
+        ...Object.fromEntries(prependedMessages.map((m) => [m.id, m])),
+        ...messagesById,
+      }
+    }
+  }
+
   return {
     sessionId: snapshot.session.id,
     lastEventSeq: snapshot.session.lastEventSeq,
     session: snapshot.session,
-    turnOrder: snapshot.turns
-      .slice()
-      .sort((left, right) => left.turnIndex - right.turnIndex)
-      .map((turn) => turn.id),
-    turnsById: Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn])),
-    runsById,
-    messageOrder,
-    messagesById,
+    turnOrder: finalTurnOrder,
+    turnsById: finalTurnsById,
+    runsById: finalRunsById,
+    messageOrder: finalMessageOrder,
+    messagesById: finalMessagesById,
     hasMore: snapshot.hasMore,
   }
 }

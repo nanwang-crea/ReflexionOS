@@ -191,7 +191,7 @@ export function useConversationRuntime(
   }, [flushPendingLiveEvent])
 
   const refreshSnapshot = useCallback(async (sessionId: string) => {
-    const response = await conversationApi.getConversation(sessionId)
+    const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20 })
     useConversationStore.getState().setSnapshot(sessionId, response.data)
   }, [])
 
