@@ -42,14 +42,14 @@ class RapidExecutionLoop:
     """
 
     # 重试配置
-    MAX_TURN_RETRIES = 2  # 每轮最大重试
-    MAX_SUMMARY_RETRIES = 2  # 总结最大重试
-    MAX_ERROR_RETRIES = 2  # 错误恢复最大重试
+    MAX_TURN_RETRIES = 5  # 每轮最大重试
+    MAX_SUMMARY_RETRIES = 5  # 总结最大重试
+    MAX_ERROR_RETRIES = 5  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
-    MAX_EMPTY_RESPONSE_RETRIES = 3  # 空响应最大重试
-    MAX_READ_ONLY_PASSES = 10
-    MAX_STAGNANT_READ_ONLY_PASSES = 2
-    DOOM_LOOP_THRESHOLD = 3
+    MAX_EMPTY_RESPONSE_RETRIES = 5  # 空响应最大重试
+    MAX_READ_ONLY_PASSES = 10  # 只读工具调用最大轮次
+    MAX_STAGNANT_READ_ONLY_PASSES = 5  # 停滞的只读工具调用最大轮次
+    DOOM_LOOP_THRESHOLD = 3  # 致命循环阈值
 
     def __init__(
         self,
