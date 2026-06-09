@@ -42,6 +42,7 @@ export function useConversationData(currentSessionId: string | null) {
   })
 
   const hasMore = conversation?.hasMore ?? true
+  const oldestLoadedTurnId = conversation?.nextBeforeTurnId ?? null
 
-  return { messages, isRunning, plan, hasMore }
+  return { messages, isRunning, plan, hasMore, oldestLoadedTurnId }
 }

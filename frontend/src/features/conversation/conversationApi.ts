@@ -59,6 +59,7 @@ interface ConversationSnapshotDto {
   runs: ConversationRunDto[]
   messages: ConversationMessageDto[]
   has_more: boolean
+  next_before_turn_id: string | null
 }
 
 function toConversationTurn(dto: ConversationTurnDto): ConversationTurn {
@@ -118,6 +119,7 @@ function toConversationSnapshot(dto: ConversationSnapshotDto): ConversationSnaps
     runs: dto.runs.map(toConversationRun),
     messages: dto.messages.map(toConversationMessage),
     hasMore: dto.has_more,
+    nextBeforeTurnId: dto.next_before_turn_id ?? null,
   }
 }
 
@@ -138,10 +140,10 @@ function buildSessionConversationPath(sessionId: string) {
 export const conversationApi = {
   getConversation: (sessionId: string) =>
     mapConversationResponse(apiClient.get<ConversationSnapshotDto>(buildSessionConversationPath(sessionId), { params: { limit: 20 } })),
-  getConversationPaginated: (sessionId: string, params: { limit?: number; before?: string }) => {
+  getConversationPaginated: (sessionId: string, params: { limit?: number; beforeTurn?: string }) => {
     const queryParams: Record<string, string> = {}
     if (params.limit !== undefined) queryParams.limit = String(params.limit)
-    if (params.before !== undefined) queryParams.before = params.before
+    if (params.beforeTurn !== undefined) queryParams.before_turn = params.beforeTurn
     return mapConversationResponse(apiClient.get<ConversationSnapshotDto>(buildSessionConversationPath(sessionId), { params: queryParams }))
   },
 }

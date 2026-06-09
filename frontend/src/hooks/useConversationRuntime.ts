@@ -469,11 +469,14 @@ export function useConversationRuntime(
     }
   }, [closeWebSocket, flushPendingLiveEvent])
 
-  const loadMore = useCallback(async (sessionId: string, beforeMessageId: string) => {
-    const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20, before: beforeMessageId })
+  const loadMore = useCallback(async (sessionId: string, beforeTurnId: string) => {
+    const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20, beforeTurn: beforeTurnId })
     const snapshot = response.data
     useConversationStore.getState().prependMessages(sessionId, snapshot.messages, snapshot.turns, snapshot.runs)
-    useConversationStore.getState().setHasMore(sessionId, snapshot.hasMore)
+    useConversationStore.getState().setPagination(sessionId, {
+      hasMore: snapshot.hasMore,
+      nextBeforeTurnId: snapshot.nextBeforeTurnId,
+    })
   }, [])
 
   return {

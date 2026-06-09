@@ -312,7 +312,8 @@ interface WorkspaceTranscriptProps {
   onRegenerateMessage?: (messageId: string) => void
   hasMore?: boolean
   isLoadingMore?: boolean
-  onLoadMore?: (beforeMessageId: string) => void
+  oldestLoadedTurnId?: string | null
+  onLoadMore?: (beforeTurnId: string) => void
   bottomInset?: number
 }
 
@@ -335,6 +336,7 @@ export function WorkspaceTranscript({
   onRegenerateMessage,
   hasMore = false,
   isLoadingMore = false,
+  oldestLoadedTurnId = null,
   onLoadMore,
   bottomInset = MIN_TRANSCRIPT_BOTTOM_INSET_PX,
 }: WorkspaceTranscriptProps) {
@@ -346,6 +348,7 @@ export function WorkspaceTranscript({
   const isAtBottomRef = useRef(false)
   const userScrolledAwayRef = useRef(false)
   const userScrollIntentRef = useRef(false)
+  const hasSeenStartReachedRef = useRef(false)
   const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
   const showProcessExpanded = useSettingsStore((s) => s.showProcessExpanded)
   const autoCollapseProcess = useSettingsStore((s) => s.autoCollapseProcess)
@@ -411,16 +414,15 @@ export function WorkspaceTranscript({
     return () => window.clearInterval(intervalId)
   }, [hasRetryInfo, isRunning, retryAttempt, retryDelay, retryMaxRetries])
 
-  const oldestMessageId = useMemo(() => {
-    if (filteredMessages.length === 0) return null
-    return filteredMessages[0].id
-  }, [filteredMessages])
-
   const handleStartReached = useCallback(() => {
-    if (hasMore && oldestMessageId && !isLoadingMore) {
-      onLoadMore?.(oldestMessageId)
+    if (!hasSeenStartReachedRef.current) {
+      hasSeenStartReachedRef.current = true
+      return
     }
-  }, [hasMore, oldestMessageId, isLoadingMore, onLoadMore])
+    if (hasMore && oldestLoadedTurnId && !isLoadingMore) {
+      onLoadMore?.(oldestLoadedTurnId)
+    }
+  }, [hasMore, oldestLoadedTurnId, isLoadingMore, onLoadMore])
 
   const handleEditStart = useCallback((messageId: string, contentText: string) => {
     setEditingMessageId(messageId)

@@ -111,40 +111,55 @@ class ConversationService:
         finally:
             lock.release()
 
-    def get_snapshot(self, session_id: str, *, limit: int = 0, before: str | None = None) -> ConversationSnapshot:
+    def get_snapshot(
+        self,
+        session_id: str,
+        *,
+        limit: int = 0,
+        before_turn: str | None = None,
+    ) -> ConversationSnapshot:
+        normalized_before_turn = before_turn or None
         session = self.session_repo.get(session_id)
         if session is None:
             raise NotFoundValueError("会话不存在")
 
         if limit <= 0:
+            turns = self.turn_repo.list_by_session(session_id)
+            turn_ids = [turn.id for turn in turns]
             return ConversationSnapshot(
                 session=session,
-                turns=self.turn_repo.list_by_session(session_id),
-                runs=self.run_repo.list_by_session(session_id),
-                messages=self.message_repo.list_by_session(session_id),
+                turns=turns,
+                runs=self.run_repo.list_by_turn_ids(session_id, turn_ids),
+                messages=self.message_repo.list_by_turn_ids(session_id, turn_ids),
                 has_more=False,
+                next_before_turn_id=None,
             )
 
         probe_limit = limit + 1
-        if before is not None:
-            messages = self.message_repo.list_by_session_before(session_id, before, probe_limit)
+        if normalized_before_turn is not None:
+            page_turns = self.turn_repo.list_by_session_before(
+                session_id,
+                normalized_before_turn,
+                probe_limit,
+            )
         else:
-            messages = self.message_repo.list_by_session_latest(session_id, probe_limit)
+            page_turns = self.turn_repo.list_by_session_latest(session_id, probe_limit)
 
-        has_more = len(messages) > limit
+        has_more = len(page_turns) > limit
         if has_more:
-            messages = messages[-limit:]
+            page_turns = page_turns[-limit:]
 
-        turn_ids = list(dict.fromkeys(m.turn_id for m in messages))
-        turns = self.turn_repo.list_by_ids(turn_ids) if turn_ids else []
-        runs = self.run_repo.list_by_turn_ids(turn_ids) if turn_ids else []
+        turn_ids = [turn.id for turn in page_turns]
+        runs = self.run_repo.list_by_turn_ids(session_id, turn_ids)
+        messages = self.message_repo.list_by_turn_ids(session_id, turn_ids)
 
         return ConversationSnapshot(
             session=session,
-            turns=turns,
+            turns=page_turns,
             runs=runs,
             messages=messages,
             has_more=has_more,
+            next_before_turn_id=page_turns[0].id if has_more and page_turns else None,
         )
 
     def list_events_after(self, session_id: str, after_seq: int) -> list[ConversationEvent]:

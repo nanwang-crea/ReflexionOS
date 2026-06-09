@@ -17,7 +17,7 @@ export function useCurrentSessionViewModel(options: {
   retryInfo: LlmRetryDto | null
   plan: Plan | null
   hasMore?: boolean
-  onLoadMore?: (beforeMessageId: string) => void
+  onLoadMore?: (beforeTurnId: string) => void
   onReset: () => void
   onApprovalAction?: ToolApprovalActionHandler
   editAndRerun?: (payload: {
@@ -46,12 +46,12 @@ export function useCurrentSessionViewModel(options: {
   const isLoadingMoreRef = useRef(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
 
-  const handleLoadMore = useCallback(async (beforeMessageId: string) => {
+  const handleLoadMore = useCallback(async (beforeTurnId: string) => {
     if (isLoadingMoreRef.current || !options.hasMore) return
     isLoadingMoreRef.current = true
     setIsLoadingMore(true)
     try {
-      await options.onLoadMore?.(beforeMessageId)
+      await options.onLoadMore?.(beforeTurnId)
     } finally {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)

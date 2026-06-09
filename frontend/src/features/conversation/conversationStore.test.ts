@@ -63,6 +63,7 @@ function buildSnapshot(): ConversationSnapshot {
       },
     ],
     hasMore: false,
+    nextBeforeTurnId: null,
   }
 }
 
@@ -105,6 +106,129 @@ describe('createConversationStore', () => {
     expect(store.getState().conversationsBySessionId['session-1'].messagesById['msg-live'].contentText).toBe(
       '继续输出中'
     )
+  })
+
+  it('keeps the terminal older-page cursor after a later snapshot refresh', () => {
+    const store = createConversationStore()
+
+    store.getState().setSnapshot('session-1', {
+      ...buildSnapshot(),
+      turns: [
+        {
+          id: 'turn-0',
+          sessionId: 'session-1',
+          turnIndex: 0,
+          rootMessageId: 'msg-0',
+          status: 'completed',
+          activeRunId: null,
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:10Z',
+          completedAt: '2026-04-24T09:59:10Z',
+        },
+        ...buildSnapshot().turns,
+      ],
+      messages: [
+        {
+          id: 'msg-0',
+          sessionId: 'session-1',
+          turnId: 'turn-0',
+          runId: null,
+          turnMessageIndex: 1,
+          role: 'user',
+          messageType: 'user_message',
+          streamState: 'completed',
+          displayMode: 'default',
+          contentText: 'older',
+          payloadJson: {},
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:00Z',
+          completedAt: '2026-04-24T09:59:00Z',
+        },
+        ...buildSnapshot().messages,
+      ],
+      hasMore: false,
+      nextBeforeTurnId: null,
+    })
+
+    store.getState().setSnapshot('session-1', {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: 'turn-1',
+    })
+
+    expect(store.getState().conversationsBySessionId['session-1'].turnOrder).toEqual(['turn-0', 'turn-1'])
+    expect(store.getState().conversationsBySessionId['session-1'].hasMore).toBe(false)
+    expect(store.getState().conversationsBySessionId['session-1'].nextBeforeTurnId).toBeNull()
+  })
+
+  it('keeps the older-history cursor after a later snapshot refresh', () => {
+    const store = createConversationStore()
+
+    store.getState().setSnapshot('session-1', {
+      ...buildSnapshot(),
+      turns: [
+        {
+          id: 'turn-0',
+          sessionId: 'session-1',
+          turnIndex: 0,
+          rootMessageId: 'msg-0',
+          status: 'completed',
+          activeRunId: null,
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:10Z',
+          completedAt: '2026-04-24T09:59:10Z',
+        },
+        ...buildSnapshot().turns,
+      ],
+      messages: [
+        {
+          id: 'msg-0',
+          sessionId: 'session-1',
+          turnId: 'turn-0',
+          runId: null,
+          turnMessageIndex: 1,
+          role: 'user',
+          messageType: 'user_message',
+          streamState: 'completed',
+          displayMode: 'default',
+          contentText: 'older',
+          payloadJson: {},
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:00Z',
+          completedAt: '2026-04-24T09:59:00Z',
+        },
+        ...buildSnapshot().messages,
+      ],
+      hasMore: true,
+      nextBeforeTurnId: 'turn-0',
+    })
+
+    store.getState().setSnapshot('session-1', {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: 'turn-1',
+    })
+
+    expect(store.getState().conversationsBySessionId['session-1'].turnOrder).toEqual(['turn-0', 'turn-1'])
+    expect(store.getState().conversationsBySessionId['session-1'].hasMore).toBe(true)
+    expect(store.getState().conversationsBySessionId['session-1'].nextBeforeTurnId).toBe('turn-0')
+  })
+
+  it('treats a null cursor as terminal pagination state when updating pagination directly', () => {
+    const store = createConversationStore()
+    store.getState().setSnapshot('session-1', {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: 'turn-1',
+    })
+
+    store.getState().setPagination('session-1', {
+      hasMore: true,
+      nextBeforeTurnId: null,
+    })
+
+    expect(store.getState().conversationsBySessionId['session-1'].hasMore).toBe(false)
+    expect(store.getState().conversationsBySessionId['session-1'].nextBeforeTurnId).toBeNull()
   })
 
   it('clears a conversation by session id', () => {

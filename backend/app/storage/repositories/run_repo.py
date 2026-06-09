@@ -1,6 +1,6 @@
 from app.errors import NotFoundValueError
 from app.models.conversation import Run
-from app.storage.models import RunModel
+from app.storage.models import RunModel, TurnModel
 
 from .base_repo import BaseRepository
 
@@ -42,15 +42,23 @@ class RunRepository(BaseRepository[Run]):
             )
             return self._to_domain_list(models)
 
-    def list_by_turn_ids(self, turn_ids: list[str]) -> list[Run]:
+    def list_by_turn_ids(self, session_id: str, turn_ids: list[str]) -> list[Run]:
         if not turn_ids:
             return []
         with self.db.get_session() as db_session:
             models = (
                 db_session.query(RunModel)
-                .filter(RunModel.turn_id.in_(turn_ids))
+                .join(
+                    TurnModel,
+                    (TurnModel.id == RunModel.turn_id)
+                    & (TurnModel.session_id == RunModel.session_id),
+                )
+                .filter(
+                    RunModel.session_id == session_id,
+                    RunModel.turn_id.in_(turn_ids),
+                )
                 .order_by(
-                    RunModel.turn_id.asc(),
+                    TurnModel.turn_index.asc(),
                     RunModel.attempt_index.asc(),
                     RunModel.id.asc(),
                 )

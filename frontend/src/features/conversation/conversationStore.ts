@@ -29,7 +29,7 @@ interface ConversationStoreState {
   setPlan: (sessionId: string, plan: Plan | null) => void
   setAgentMode: (sessionId: string, mode: import('@/types/conversation').AgentMode) => void
   prependMessages: (sessionId: string, messages: ConversationMessage[], turns: ConversationTurn[], runs: ConversationRun[]) => void
-  setHasMore: (sessionId: string, hasMore: boolean) => void
+  setPagination: (sessionId: string, pagination: Pick<ConversationSnapshot, 'hasMore' | 'nextBeforeTurnId'>) => void
   clearConversation: (sessionId: string) => void
 }
 
@@ -95,20 +95,25 @@ export const createConversationStore = () => create<ConversationStoreState>((set
   prependMessages: (sessionId, messages, turns, runs) => set((state) => {
     const conversation = state.conversationsBySessionId[sessionId]
     if (!conversation) return state
+    const nextConversation = prependMessages(conversation, messages, turns, runs)
     return {
       conversationsBySessionId: {
         ...state.conversationsBySessionId,
-        [sessionId]: prependMessages(conversation, messages, turns, runs),
+        [sessionId]: nextConversation,
       },
     }
   }),
-  setHasMore: (sessionId, hasMore) => set((state) => {
+  setPagination: (sessionId, pagination) => set((state) => {
     const conversation = state.conversationsBySessionId[sessionId]
     if (!conversation) return state
     return {
       conversationsBySessionId: {
         ...state.conversationsBySessionId,
-        [sessionId]: { ...conversation, hasMore },
+        [sessionId]: {
+          ...conversation,
+          hasMore: pagination.nextBeforeTurnId !== null && pagination.hasMore,
+          nextBeforeTurnId: pagination.nextBeforeTurnId,
+        },
       },
     }
   }),

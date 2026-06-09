@@ -79,6 +79,7 @@ vi.mock('@/hooks/useConversationData', () => ({
     isRunning: false,
     plan: null,
     hasMore: false,
+    oldestLoadedTurnId: null,
   }),
 }))
 

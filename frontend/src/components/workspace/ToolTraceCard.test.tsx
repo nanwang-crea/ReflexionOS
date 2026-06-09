@@ -7,6 +7,14 @@ import { ToolTraceCard, ToolTraceGroup } from './ToolTraceCard'
 import { WorkspaceTranscript } from './WorkspaceTranscript'
 import { buildToolTraceDetail, type TranscriptItem } from './transcriptItems'
 
+const localStorageMock = {
+  getItem: vi.fn(() => null),
+  setItem: vi.fn(),
+  removeItem: vi.fn(),
+}
+
+vi.stubGlobal('localStorage', localStorageMock)
+
 interface MockVirtuosoProps {
   data?: TranscriptItem[]
   itemContent: (index: number, item: TranscriptItem) => React.ReactNode
@@ -30,6 +38,7 @@ interface MockVirtuosoProps {
 }
 
 let latestVirtuosoProps: MockVirtuosoProps | null = null
+let shouldInvokeStartReached = true
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
@@ -47,7 +56,7 @@ vi.mock('react-virtuoso', () => {
       const { data, itemContent, components, atBottomStateChange, startReached } = props
       const isAtBottom = Boolean(data && data.length > 0)
       if (atBottomStateChange) atBottomStateChange(isAtBottom)
-      if (startReached) startReached()
+      if (startReached && shouldInvokeStartReached) startReached()
       const header = components?.Header?.()
       const footer = components?.Footer?.()
       const content = React.createElement(React.Fragment, null,
@@ -662,8 +671,9 @@ describe('WorkspaceTranscript conversation rendering', () => {
     expect(html).toContain('居中的系统提示')
   })
 
-  it('loads older messages when the virtualized transcript reaches the start', () => {
+  it('loads older turns from oldestLoadedTurnId after the initial startReached is ignored', () => {
     const loadMore = vi.fn()
+    shouldInvokeStartReached = true
 
     renderToStaticMarkup(
       <WorkspaceTranscript
@@ -688,10 +698,20 @@ describe('WorkspaceTranscript conversation rendering', () => {
         }}
         messages={[
           buildMessage({
-            id: 'msg-oldest',
+            id: 'msg-hidden-oldest',
+            role: 'system',
+            runId: null,
+            messageType: 'system_notice',
+            contentText: '隐藏的续传提示',
+            payloadJson: {
+              kind: 'continuation_artifact',
+            },
+          }),
+          buildMessage({
+            id: 'msg-visible-oldest',
             role: 'user',
             messageType: 'user_message',
-            contentText: '最早已加载消息',
+            contentText: '过滤后最早可见消息',
           }),
           buildMessage({
             id: 'msg-newest',
@@ -701,12 +721,59 @@ describe('WorkspaceTranscript conversation rendering', () => {
           }),
         ]}
         hasMore
+        oldestLoadedTurnId="turn-7"
         onLoadMore={loadMore}
       />
     )
 
+    expect(latestVirtuosoProps?.data?.[0]?.id).toBe('msg-visible-oldest')
+    expect(loadMore).not.toHaveBeenCalled()
+    latestVirtuosoProps?.startReached?.()
     expect(loadMore).toHaveBeenCalledTimes(1)
-    expect(loadMore).toHaveBeenCalledWith('msg-oldest')
+    expect(loadMore).toHaveBeenCalledWith('turn-7')
+    expect(loadMore).not.toHaveBeenCalledWith('msg-visible-oldest')
+  })
+
+  it('does not auto-load older turns on initial render before upward interaction', () => {
+    const loadMore = vi.fn()
+    shouldInvokeStartReached = true
+
+    renderToStaticMarkup(
+      <WorkspaceTranscript
+        loaded
+        configured
+        currentProject={{
+          id: 'project-1',
+          name: 'ReflexionOS',
+          path: '/tmp/reflexion',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:00Z',
+        }}
+        currentSession={{
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          agentMode: 'build',
+          lastEventSeq: 0,
+          activeTurnId: null,
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:00Z',
+        }}
+        messages={[
+          buildMessage({
+            id: 'msg-visible-oldest',
+            role: 'user',
+            messageType: 'user_message',
+            contentText: '最早可见消息',
+          }),
+        ]}
+        hasMore
+        oldestLoadedTurnId="turn-7"
+        onLoadMore={loadMore}
+      />
+    )
+
+    expect(loadMore).not.toHaveBeenCalled()
   })
 
   it('passes stable virtual-list keys and indexes so prepended history keeps its scroll anchor', () => {

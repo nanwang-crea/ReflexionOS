@@ -80,7 +80,7 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more"}
+    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more", "next_before_turn_id"}
     assert "rounds" not in payload
     assert payload["session"]["id"] == "session-1"
     assert payload["session"]["last_event_seq"] >= 1
@@ -92,6 +92,46 @@ def test_get_conversation_snapshot_returns_normalized_entities(client):
     root_message_ids = {turn["root_message_id"] for turn in payload["turns"]}
     message_ids = {message["id"] for message in payload["messages"]}
     assert root_message_ids.issubset(message_ids)
+
+
+def test_get_conversation_snapshot_returns_turn_cursor_metadata(client):
+    response = client.get("/api/sessions/session-1/conversation")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "next_before_turn_id" in payload
+
+
+def test_get_conversation_snapshot_accepts_before_turn_query(client):
+    response = client.get(
+        "/api/sessions/session-1/conversation",
+        params={"limit": 20, "before_turn": "turn-3"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_get_conversation_snapshot_empty_before_turn_uses_latest_page(client):
+    response = client.get(
+        "/api/sessions/session-1/conversation",
+        params={"limit": 20, "before_turn": ""},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["messages"]
+
+
+def test_get_conversation_snapshot_terminal_page_has_null_next_before_turn_id(client):
+    response = client.get(
+        "/api/sessions/session-1/conversation",
+        params={"limit": 20},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["has_more"] is False
+    assert payload["next_before_turn_id"] is None
 
 
 def test_get_conversation_snapshot_returns_404_for_missing_session(client):
@@ -186,7 +226,7 @@ async def test_get_conversation_snapshot_includes_continuation_artifact_and_sear
     assert response.status_code == 200
     payload = response.json()
 
-    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more"}
+    assert set(payload.keys()) == {"session", "turns", "runs", "messages", "has_more", "next_before_turn_id"}
     assert any(msg["message_type"] == "assistant_message" for msg in payload["messages"])
     assert any(
         msg["message_type"] == "system_notice"

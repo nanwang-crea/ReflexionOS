@@ -40,6 +40,39 @@ class TurnRepository(BaseRepository[Turn]):
             )
             return self._to_domain_list(models)
 
+    def list_by_session_latest(self, session_id: str, limit: int) -> list[Turn]:
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(TurnModel)
+                .filter(TurnModel.session_id == session_id)
+                .order_by(TurnModel.turn_index.desc())
+                .limit(limit)
+                .all()
+            )
+            return self._to_domain_list(list(reversed(models)))
+
+    def list_by_session_before(self, session_id: str, before_turn_id: str, limit: int) -> list[Turn]:
+        with self.db.get_session() as db_session:
+            cursor = (
+                db_session.query(TurnModel)
+                .filter_by(id=before_turn_id, session_id=session_id)
+                .first()
+            )
+            if cursor is None:
+                return []
+
+            models = (
+                db_session.query(TurnModel)
+                .filter(
+                    TurnModel.session_id == session_id,
+                    TurnModel.turn_index < cursor.turn_index,
+                )
+                .order_by(TurnModel.turn_index.desc())
+                .limit(limit)
+                .all()
+            )
+            return self._to_domain_list(list(reversed(models)))
+
     def list_by_ids(self, turn_ids: list[str]) -> list[Turn]:
         if not turn_ids:
             return []

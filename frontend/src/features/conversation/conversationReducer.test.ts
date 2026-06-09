@@ -85,6 +85,7 @@ function buildSnapshot(): ConversationSnapshot {
       },
     ],
     hasMore: false,
+    nextBeforeTurnId: null,
   }
 }
 
@@ -94,6 +95,119 @@ describe('conversationReducer', () => {
 
     expect(state.messageOrder).toEqual(['msg-1', 'msg-2'])
     expect(state.lastEventSeq).toBe(2)
+  })
+
+  it('preserves a terminal older-page cursor after a later latest snapshot refresh', () => {
+    const fullHistoryState = applyConversationSnapshot(undefined, {
+      ...buildSnapshot(),
+      turns: [
+        {
+          id: 'turn-0',
+          sessionId: 'session-1',
+          turnIndex: 0,
+          rootMessageId: 'msg-0',
+          status: 'completed',
+          activeRunId: null,
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:10Z',
+          completedAt: '2026-04-24T09:59:10Z',
+        },
+        ...buildSnapshot().turns,
+      ],
+      messages: [
+        {
+          id: 'msg-0',
+          sessionId: 'session-1',
+          turnId: 'turn-0',
+          runId: null,
+          turnMessageIndex: 1,
+          role: 'user',
+          messageType: 'user_message',
+          streamState: 'completed',
+          displayMode: 'default',
+          contentText: 'older',
+          payloadJson: {},
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:00Z',
+          completedAt: '2026-04-24T09:59:00Z',
+        },
+        ...buildSnapshot().messages,
+      ],
+      hasMore: false,
+      nextBeforeTurnId: null,
+    })
+
+    const refreshedLatestState = applyConversationSnapshot(fullHistoryState, {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: 'turn-1',
+    })
+
+    expect(refreshedLatestState.turnOrder).toEqual(['turn-0', 'turn-1'])
+    expect(refreshedLatestState.hasMore).toBe(false)
+    expect(refreshedLatestState.nextBeforeTurnId).toBeNull()
+  })
+
+  it('preserves the older-history cursor after a later latest snapshot refresh', () => {
+    const partiallyLoadedHistoryState = applyConversationSnapshot(undefined, {
+      ...buildSnapshot(),
+      turns: [
+        {
+          id: 'turn-0',
+          sessionId: 'session-1',
+          turnIndex: 0,
+          rootMessageId: 'msg-0',
+          status: 'completed',
+          activeRunId: null,
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:10Z',
+          completedAt: '2026-04-24T09:59:10Z',
+        },
+        ...buildSnapshot().turns,
+      ],
+      messages: [
+        {
+          id: 'msg-0',
+          sessionId: 'session-1',
+          turnId: 'turn-0',
+          runId: null,
+          turnMessageIndex: 1,
+          role: 'user',
+          messageType: 'user_message',
+          streamState: 'completed',
+          displayMode: 'default',
+          contentText: 'older',
+          payloadJson: {},
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:00Z',
+          completedAt: '2026-04-24T09:59:00Z',
+        },
+        ...buildSnapshot().messages,
+      ],
+      hasMore: true,
+      nextBeforeTurnId: 'turn-0',
+    })
+
+    const refreshedLatestState = applyConversationSnapshot(partiallyLoadedHistoryState, {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: 'turn-1',
+    })
+
+    expect(refreshedLatestState.turnOrder).toEqual(['turn-0', 'turn-1'])
+    expect(refreshedLatestState.hasMore).toBe(true)
+    expect(refreshedLatestState.nextBeforeTurnId).toBe('turn-0')
+  })
+
+  it('uses a null cursor as the single source of truth for terminal pagination state', () => {
+    const refreshedLatestState = applyConversationSnapshot(undefined, {
+      ...buildSnapshot(),
+      hasMore: true,
+      nextBeforeTurnId: null,
+    })
+
+    expect(refreshedLatestState.hasMore).toBe(false)
+    expect(refreshedLatestState.nextBeforeTurnId).toBeNull()
   })
 
   it('applies live assistant chunks without advancing durable seq', () => {
@@ -510,6 +624,7 @@ describe('conversationReducer', () => {
           },
         ],
         hasMore: false,
+        nextBeforeTurnId: null,
       }
     }
 

@@ -78,6 +78,7 @@ describe('conversationApi', () => {
           },
         ],
         has_more: false,
+        next_before_turn_id: 'turn-1',
       },
     })
 
@@ -146,6 +147,39 @@ describe('conversationApi', () => {
         },
       ],
       hasMore: false,
+      nextBeforeTurnId: 'turn-1',
     })
+  })
+
+  it('serializes before_turn for paginated conversation requests', async () => {
+    getMock.mockResolvedValue({
+      data: {
+        session: {
+          id: 'session-1',
+          project_id: 'project-1',
+          title: '会话',
+          last_event_seq: 2,
+          active_turn_id: 'turn-2',
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:02Z',
+        },
+        turns: [],
+        runs: [],
+        messages: [],
+        has_more: true,
+        next_before_turn_id: 'turn-3',
+      },
+    })
+
+    const { conversationApi } = await import('./conversationApi')
+    const response = await conversationApi.getConversationPaginated('session-1', { limit: 20, beforeTurn: 'turn-4' })
+
+    expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', {
+      params: {
+        limit: '20',
+        before_turn: 'turn-4',
+      },
+    })
+    expect(response.data.nextBeforeTurnId).toBe('turn-3')
   })
 })

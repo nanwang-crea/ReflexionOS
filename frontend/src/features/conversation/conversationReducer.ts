@@ -168,6 +168,7 @@ export function createEmptyConversationState(sessionId: string | null = null): C
     messageOrder: [],
     messagesById: {},
     hasMore: true,
+    nextBeforeTurnId: null,
   }
 }
 
@@ -200,6 +201,8 @@ export function applyConversationSnapshot(
   )
   // Preserve prepended history messages (from loadMore) and their associated turns/runs
   // that are not present in the new snapshot
+  const incomingSnapshotTurnIds = new Set(snapshot.turns.map((turn) => turn.id))
+
   let finalMessageOrder = messageOrder
   let finalMessagesById = messagesById
   let finalTurnOrder = snapshot.turns
@@ -253,6 +256,13 @@ export function applyConversationSnapshot(
     }
   }
 
+  const hasLoadedOlderHistory = previous
+    ? previous.turnOrder.some((turnId) => !incomingSnapshotTurnIds.has(turnId))
+    : false
+  const nextBeforeTurnId = hasLoadedOlderHistory && previous
+    ? previous.nextBeforeTurnId
+    : snapshot.nextBeforeTurnId
+
   return {
     sessionId: snapshot.session.id,
     lastEventSeq: snapshot.session.lastEventSeq,
@@ -262,7 +272,8 @@ export function applyConversationSnapshot(
     runsById: finalRunsById,
     messageOrder: finalMessageOrder,
     messagesById: finalMessagesById,
-    hasMore: snapshot.hasMore,
+    hasMore: nextBeforeTurnId !== null,
+    nextBeforeTurnId,
   }
 }
 

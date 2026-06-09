@@ -1,4 +1,5 @@
 import json
+import logging
 
 from sqlalchemy import and_, case, func, or_
 
@@ -7,6 +8,9 @@ from app.models.conversation import Message, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
 
 from .base_repo import BaseRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 class MessageRepository(BaseRepository[Message]):
@@ -86,6 +90,12 @@ class MessageRepository(BaseRepository[Message]):
         with self.db.get_session() as db_session:
             cursor = db_session.query(MessageModel).filter_by(id=before_message_id).first()
             if cursor is None:
+                logger.warning(
+                    "message page fallback to latest session_id=%s before_message_id=%s limit=%s reason=cursor_missing",
+                    session_id,
+                    before_message_id,
+                    limit,
+                )
                 return self.list_by_session_latest(session_id, limit)
 
             cursor_turn = db_session.query(TurnModel).filter_by(id=cursor.turn_id).first()
@@ -117,6 +127,15 @@ class MessageRepository(BaseRepository[Message]):
                 .limit(limit)
                 .all()
             )
+            logger.info(
+                "message page before session_id=%s before_message_id=%s cursor_turn_id=%s cursor_turn_index=%s cursor_message_index=%s returned_ids=%s",
+                session_id,
+                before_message_id,
+                cursor.turn_id,
+                cursor_turn_index,
+                cursor.turn_message_index,
+                [model.id for model in models],
+            )
             return self._to_domain_list(list(reversed(models)))
 
     def list_by_turn(self, turn_id: str) -> list[Message]:
@@ -125,6 +144,31 @@ class MessageRepository(BaseRepository[Message]):
                 db_session.query(MessageModel)
                 .filter_by(turn_id=turn_id)
                 .order_by(MessageModel.turn_message_index.asc())
+                .all()
+            )
+            return self._to_domain_list(models)
+
+    def list_by_turn_ids(self, session_id: str, turn_ids: list[str]) -> list[Message]:
+        if not turn_ids:
+            return []
+
+        with self.db.get_session() as db_session:
+            models = (
+                db_session.query(MessageModel)
+                .outerjoin(
+                    TurnModel,
+                    (TurnModel.id == MessageModel.turn_id)
+                    & (TurnModel.session_id == MessageModel.session_id),
+                )
+                .filter(
+                    MessageModel.session_id == session_id,
+                    MessageModel.turn_id.in_(turn_ids),
+                )
+                .order_by(
+                    TurnModel.turn_index.asc(),
+                    MessageModel.turn_message_index.asc(),
+                    MessageModel.created_at.asc(),
+                )
                 .all()
             )
             return self._to_domain_list(models)

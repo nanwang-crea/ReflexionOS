@@ -5,7 +5,7 @@ from threading import Barrier, BrokenBarrierError
 
 import pytest
 
-from app.models.conversation import ConversationEvent, EventType, Message, MessageType, RunStatus, StreamState, Turn, TurnStatus
+from app.models.conversation import ConversationEvent, EventType, Message, MessageType, Run, RunStatus, StreamState, Turn, TurnStatus
 from app.models.session import Session
 from app.services.conversation_service import ConversationService
 from app.storage.database import Database
@@ -54,22 +54,22 @@ def test_get_snapshot_returns_session_turn_run_and_messages(tmp_path):
     assert [message.id for message in snapshot.messages] == [started.user_message.id]
 
 
-def test_get_snapshot_paginated_has_more_tracks_older_messages(tmp_path):
-    db = Database(str(tmp_path / "conversation-service-pagination.db"))
+def test_get_snapshot_paginated_returns_complete_turns(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-turn-pagination.db"))
     service = ConversationService(db=db)
     service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
 
-    for index in range(1, 6):
-        turn_id = f"turn-{index}"
+    for turn_index in range(1, 5):
+        turn_id = f"turn-{turn_index}"
         service.turn_repo.create(Turn(
             id=turn_id,
             session_id="session-1",
-            turn_index=index,
-            root_message_id=f"msg-{index}",
+            turn_index=turn_index,
+            root_message_id=f"msg-user-{turn_index}",
             status=TurnStatus.COMPLETED,
         ))
         service.message_repo.create(Message(
-            id=f"msg-{index}",
+            id=f"msg-user-{turn_index}",
             session_id="session-1",
             turn_id=turn_id,
             run_id=None,
@@ -78,19 +78,311 @@ def test_get_snapshot_paginated_has_more_tracks_older_messages(tmp_path):
             message_type=MessageType.USER_MESSAGE,
             stream_state=StreamState.COMPLETED,
             display_mode="default",
-            content_text=f"message {index}",
+            content_text=f"user {turn_index}",
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-assistant-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=2,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"assistant {turn_index}",
         ))
 
     latest = service.get_snapshot("session-1", limit=2)
-    middle = service.get_snapshot("session-1", limit=2, before="msg-4")
-    oldest = service.get_snapshot("session-1", limit=2, before="msg-2")
 
-    assert [message.id for message in latest.messages] == ["msg-4", "msg-5"]
+    assert [turn.id for turn in latest.turns] == ["turn-3", "turn-4"]
+    assert [message.id for message in latest.messages] == [
+        "msg-user-3",
+        "msg-assistant-3",
+        "msg-user-4",
+        "msg-assistant-4",
+    ]
     assert latest.has_more is True
-    assert [message.id for message in middle.messages] == ["msg-2", "msg-3"]
+    assert latest.next_before_turn_id == "turn-3"
+
+
+def test_get_snapshot_paginated_empty_before_turn_treated_as_latest_page(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-empty-before-turn.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    for turn_index in range(1, 5):
+        turn_id = f"turn-{turn_index}"
+        service.turn_repo.create(Turn(
+            id=turn_id,
+            session_id="session-1",
+            turn_index=turn_index,
+            root_message_id=f"msg-user-{turn_index}",
+            status=TurnStatus.COMPLETED,
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-user-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"user {turn_index}",
+        ))
+
+    snapshot = service.get_snapshot("session-1", limit=2, before_turn="")
+
+    assert [turn.id for turn in snapshot.turns] == ["turn-3", "turn-4"]
+    assert snapshot.has_more is True
+    assert snapshot.next_before_turn_id == "turn-3"
+
+
+def test_get_snapshot_paginated_before_turn_returns_complete_older_turns(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-before-turn-pagination.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    for turn_index in range(1, 6):
+        turn_id = f"turn-{turn_index}"
+        service.turn_repo.create(Turn(
+            id=turn_id,
+            session_id="session-1",
+            turn_index=turn_index,
+            root_message_id=f"msg-user-{turn_index}",
+            status=TurnStatus.COMPLETED,
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-user-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"user {turn_index}",
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-assistant-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=2,
+            role="assistant",
+            message_type=MessageType.ASSISTANT_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"assistant {turn_index}",
+        ))
+
+    middle = service.get_snapshot("session-1", limit=2, before_turn="turn-4")
+
+    assert [turn.id for turn in middle.turns] == ["turn-2", "turn-3"]
+    assert [message.id for message in middle.messages] == [
+        "msg-user-2",
+        "msg-assistant-2",
+        "msg-user-3",
+        "msg-assistant-3",
+    ]
     assert middle.has_more is True
-    assert [message.id for message in oldest.messages] == ["msg-1"]
-    assert oldest.has_more is False
+    assert middle.next_before_turn_id == "turn-2"
+
+
+def test_get_snapshot_paginated_before_missing_turn_returns_empty_page(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-missing-turn-pagination.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    for turn_index in range(1, 4):
+        turn_id = f"turn-{turn_index}"
+        service.turn_repo.create(Turn(
+            id=turn_id,
+            session_id="session-1",
+            turn_index=turn_index,
+            root_message_id=f"msg-user-{turn_index}",
+            status=TurnStatus.COMPLETED,
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-user-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"user {turn_index}",
+        ))
+
+    empty = service.get_snapshot("session-1", limit=2, before_turn="turn-missing")
+
+    assert empty.turns == []
+    assert empty.runs == []
+    assert empty.messages == []
+    assert empty.has_more is False
+    assert empty.next_before_turn_id is None
+
+
+def test_get_snapshot_paginated_terminal_page_omits_next_before_turn_id(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-terminal-page.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    for turn_index in range(1, 3):
+        turn_id = f"turn-{turn_index}"
+        service.turn_repo.create(Turn(
+            id=turn_id,
+            session_id="session-1",
+            turn_index=turn_index,
+            root_message_id=f"msg-user-{turn_index}",
+            status=TurnStatus.COMPLETED,
+        ))
+        service.message_repo.create(Message(
+            id=f"msg-user-{turn_index}",
+            session_id="session-1",
+            turn_id=turn_id,
+            run_id=None,
+            turn_message_index=1,
+            role="user",
+            message_type=MessageType.USER_MESSAGE,
+            stream_state=StreamState.COMPLETED,
+            display_mode="default",
+            content_text=f"user {turn_index}",
+        ))
+
+    snapshot = service.get_snapshot("session-1", limit=2)
+
+    assert [turn.id for turn in snapshot.turns] == ["turn-1", "turn-2"]
+    assert snapshot.has_more is False
+    assert snapshot.next_before_turn_id is None
+
+
+def test_get_snapshot_orders_runs_by_turn_chronology(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-run-order.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
+
+    service.turn_repo.create(Turn(
+        id="turn-9",
+        session_id="session-1",
+        turn_index=1,
+        root_message_id="msg-user-9",
+        status=TurnStatus.COMPLETED,
+    ))
+    service.turn_repo.create(Turn(
+        id="turn-10",
+        session_id="session-1",
+        turn_index=2,
+        root_message_id="msg-user-10",
+        status=TurnStatus.COMPLETED,
+    ))
+    service.run_repo.create(Run(
+        id="run-9",
+        session_id="session-1",
+        turn_id="turn-9",
+        attempt_index=1,
+        status=RunStatus.COMPLETED,
+    ))
+    service.run_repo.create(Run(
+        id="run-10",
+        session_id="session-1",
+        turn_id="turn-10",
+        attempt_index=1,
+        status=RunStatus.COMPLETED,
+    ))
+    service.message_repo.create(Message(
+        id="msg-user-9",
+        session_id="session-1",
+        turn_id="turn-9",
+        run_id=None,
+        turn_message_index=1,
+        role="user",
+        message_type=MessageType.USER_MESSAGE,
+        stream_state=StreamState.COMPLETED,
+        display_mode="default",
+        content_text="user 9",
+    ))
+    service.message_repo.create(Message(
+        id="msg-user-10",
+        session_id="session-1",
+        turn_id="turn-10",
+        run_id=None,
+        turn_message_index=1,
+        role="user",
+        message_type=MessageType.USER_MESSAGE,
+        stream_state=StreamState.COMPLETED,
+        display_mode="default",
+        content_text="user 10",
+    ))
+
+    snapshot = service.get_snapshot("session-1")
+
+    assert [turn.id for turn in snapshot.turns] == ["turn-9", "turn-10"]
+    assert [run.id for run in snapshot.runs] == ["run-9", "run-10"]
+
+
+def test_get_snapshot_scopes_turn_entity_loaders_by_session(tmp_path):
+    db = Database(str(tmp_path / "conversation-service-session-scoped-turn-loaders.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="会话 1"))
+    service.session_repo.create(Session(id="session-2", project_id="project-1", title="会话 2"))
+
+    service.turn_repo.create(Turn(
+        id="turn-shared",
+        session_id="session-1",
+        turn_index=1,
+        root_message_id="msg-session-1",
+        status=TurnStatus.COMPLETED,
+    ))
+    service.run_repo.create(Run(
+        id="run-session-1",
+        session_id="session-1",
+        turn_id="turn-shared",
+        attempt_index=1,
+        status=RunStatus.COMPLETED,
+    ))
+    service.run_repo.create(Run(
+        id="run-session-2",
+        session_id="session-2",
+        turn_id="turn-shared",
+        attempt_index=1,
+        status=RunStatus.COMPLETED,
+    ))
+    service.message_repo.create(Message(
+        id="msg-session-1",
+        session_id="session-1",
+        turn_id="turn-shared",
+        run_id=None,
+        turn_message_index=1,
+        role="user",
+        message_type=MessageType.USER_MESSAGE,
+        stream_state=StreamState.COMPLETED,
+        display_mode="default",
+        content_text="session 1 only",
+    ))
+    service.message_repo.create(Message(
+        id="msg-session-2",
+        session_id="session-2",
+        turn_id="turn-shared",
+        run_id=None,
+        turn_message_index=2,
+        role="user",
+        message_type=MessageType.USER_MESSAGE,
+        stream_state=StreamState.COMPLETED,
+        display_mode="default",
+        content_text="session 2 only",
+    ))
+
+    snapshot = service.get_snapshot("session-1")
+
+    assert [turn.id for turn in snapshot.turns] == ["turn-shared"]
+    assert [run.id for run in snapshot.runs] == ["run-session-1"]
+    assert [message.id for message in snapshot.messages] == ["msg-session-1"]
 
 
 def test_cancel_run_appends_cancel_and_system_notice(tmp_path):

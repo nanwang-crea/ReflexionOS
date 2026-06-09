@@ -37,7 +37,7 @@ export default function AgentWorkspace() {
     resetConversationRuntime,
     loadMore,
   } = useConversationRuntime(currentSessionId)
-  const { messages, isRunning, plan, hasMore } = useConversationData(currentSessionId)
+  const { messages, isRunning, plan, hasMore, oldestLoadedTurnId } = useConversationData(currentSessionId)
   const agentMode = useConversationStore(
     (s) => (currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build') as AgentMode
   )
@@ -108,7 +108,7 @@ export default function AgentWorkspace() {
     retryInfo,
     plan,
     hasMore,
-    onLoadMore: currentSessionId ? (beforeMessageId) => loadMore(currentSessionId, beforeMessageId) : undefined,
+    onLoadMore: currentSessionId ? (beforeTurnId) => loadMore(currentSessionId, beforeTurnId) : undefined,
     onReset: resetConversationRuntime,
     editAndRerun,
     onApprovalAction: (action, payload) => {
@@ -146,6 +146,7 @@ export default function AgentWorkspace() {
           <WorkspaceHeader {...viewModel.headerProps} />
           <WorkspaceTranscript
             {...viewModel.transcriptProps}
+            oldestLoadedTurnId={oldestLoadedTurnId}
             runsById={runsById}
             isPlanMinimized={effectivePlanMinimized}
             onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}

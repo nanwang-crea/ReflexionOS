@@ -7,6 +7,8 @@ const {
   applyEventMock,
   applyLiveEventMock,
   setLiveStateMock,
+  prependMessagesMock,
+  setPaginationMock,
   clearConversationMock,
   wsConnectMock,
   wsCloseMock,
@@ -27,6 +29,8 @@ const {
     applyEventMock: vi.fn(),
     applyLiveEventMock: vi.fn(),
     setLiveStateMock: vi.fn(),
+    prependMessagesMock: vi.fn(),
+    setPaginationMock: vi.fn(),
     clearConversationMock: vi.fn(),
     wsConnectMock: vi.fn(),
     wsCloseMock: vi.fn(),
@@ -45,6 +49,8 @@ const {
       applyEvent: vi.fn(),
       applyLiveEvent: vi.fn(),
       setLiveState: vi.fn(),
+      prependMessages: vi.fn(),
+      setPagination: vi.fn(),
       clearConversation: vi.fn(),
     },
   }
@@ -130,6 +136,7 @@ function buildSnapshot(): ConversationSnapshot {
     ],
     messages: [],
     hasMore: false,
+    nextBeforeTurnId: null,
   }
 }
 
@@ -147,6 +154,8 @@ describe('useConversationRuntime', () => {
     applyEventMock.mockReset()
     applyLiveEventMock.mockReset()
     setLiveStateMock.mockReset()
+    prependMessagesMock.mockReset()
+    setPaginationMock.mockReset()
     clearConversationMock.mockReset()
     wsConnectMock.mockReset()
     wsCloseMock.mockReset()
@@ -163,6 +172,8 @@ describe('useConversationRuntime', () => {
     conversationStoreState.applyEvent = applyEventMock
     conversationStoreState.applyLiveEvent = applyLiveEventMock
     conversationStoreState.setLiveState = setLiveStateMock
+    conversationStoreState.prependMessages = prependMessagesMock
+    conversationStoreState.setPagination = setPaginationMock
     conversationStoreState.clearConversation = clearConversationMock
 
     wsConnectMock.mockResolvedValue(undefined)
@@ -401,6 +412,63 @@ describe('useConversationRuntime', () => {
     expect(wsDenyToolMock).toHaveBeenCalledWith({
       runId: 'run-1',
       approvalId: 'approval-1',
+    })
+  })
+
+  it('loads more history using the oldest loaded turn id', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+
+    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    const olderPage: ConversationSnapshot = {
+      ...buildSnapshot(),
+      turns: [
+        {
+          id: 'turn-0',
+          sessionId: 'session-1',
+          turnIndex: 0,
+          rootMessageId: 'msg-0',
+          status: 'completed',
+          activeRunId: null,
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:01Z',
+          completedAt: '2026-04-24T09:59:02Z',
+        },
+      ],
+      runs: [],
+      messages: [
+        {
+          id: 'msg-0',
+          sessionId: 'session-1',
+          turnId: 'turn-0',
+          runId: null,
+          turnMessageIndex: 1,
+          role: 'user',
+          messageType: 'user_message',
+          streamState: 'completed',
+          displayMode: 'default',
+          contentText: 'older turn',
+          payloadJson: {},
+          createdAt: '2026-04-24T09:59:00Z',
+          updatedAt: '2026-04-24T09:59:00Z',
+          completedAt: '2026-04-24T09:59:00Z',
+        },
+      ],
+      hasMore: true,
+      nextBeforeTurnId: 'turn-0',
+    }
+    getConversationMock.mockResolvedValueOnce({ data: olderPage })
+
+    await runtime.loadMore('session-1', 'turn-1')
+
+    expect(getConversationMock).toHaveBeenLastCalledWith('session-1', { limit: 20, beforeTurn: 'turn-1' })
+    expect(prependMessagesMock).toHaveBeenCalledWith('session-1', olderPage.messages, olderPage.turns, olderPage.runs)
+    expect(setPaginationMock).toHaveBeenCalledWith('session-1', {
+      hasMore: true,
+      nextBeforeTurnId: 'turn-0',
     })
   })
 

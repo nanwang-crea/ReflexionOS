@@ -125,6 +125,7 @@ export interface ConversationSnapshot {
   runs: ConversationRun[]
   messages: ConversationMessage[]
   hasMore: boolean
+  nextBeforeTurnId: string | null
 }
 
 export interface ConversationState {
@@ -137,6 +138,7 @@ export interface ConversationState {
   messageOrder: string[]
   messagesById: Record<string, ConversationMessage>
   hasMore: boolean
+  nextBeforeTurnId: string | null
 }
 
 export type { Plan, PlanStep } from '@/types/plan'

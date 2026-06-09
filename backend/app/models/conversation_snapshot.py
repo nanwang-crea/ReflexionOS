@@ -10,6 +10,7 @@ class ConversationSnapshot(BaseModel):
     runs: list[Run]
     messages: list[Message]
     has_more: bool = False
+    next_before_turn_id: str | None = None
 
 
 class StartTurnResult(BaseModel):

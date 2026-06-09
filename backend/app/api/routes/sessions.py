@@ -27,9 +27,18 @@ async def list_project_sessions(project_id: str):
 
 
 @router.get("/sessions/{session_id}/conversation", response_model=ConversationSnapshot)
-async def get_session_conversation(session_id: str, limit: int = 20, before: str | None = None):
+async def get_session_conversation(
+    session_id: str,
+    limit: int = 20,
+    before_turn: str | None = None,
+):
     try:
-        return conversation_service.get_snapshot(session_id, limit=limit, before=before)
+        normalized_before_turn = before_turn or None
+        return conversation_service.get_snapshot(
+            session_id,
+            limit=limit,
+            before_turn=normalized_before_turn,
+        )
     except ValueError as exc:
         raise value_error_to_app_error(exc, resource="会话") from exc
 
