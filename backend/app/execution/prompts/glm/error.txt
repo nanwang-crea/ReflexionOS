@@ -12,4 +12,6 @@ $available_actions_section
 3. 如果错误说参数缺失或参数名错误，检查工具 schema 中的正确参数名。
 4. 绝不要用相同参数重试——相同参数会产生相同错误。
 5. 修复错误信息指出的具体问题，然后重试。
-6. 如果错误信息包含 "deny"、"network"、"Permission denied"、"sandbox"、"socket.gaierror"、"Errno 8"、"ConnectionError"、"URLError"、"NewConnectionError"、"nodename nor servname" 或 "getaddrinfo failed" 等关键词，这很可能是沙箱网络限制——不要重试，系统会提示用户审批网络访问，等待用户批准即可。
+6. 修复错误后，继续当前计划步骤，除非这个错误已经证明该步骤被阻塞。
+7. 不要因为这一次工具调用失败就切换实现路径。
+8. 如果错误信息包含 "deny"、"network"、"Permission denied"、"sandbox"、"socket.gaierror"、"Errno 8"、"ConnectionError"、"URLError"、"NewConnectionError"、"nodename nor servname" 或 "getaddrinfo failed" 等关键词，这很可能是沙箱网络限制——不要重试，系统会提示用户审批网络访问，等待用户批准即可。

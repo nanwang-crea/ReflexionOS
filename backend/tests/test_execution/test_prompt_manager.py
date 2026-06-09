@@ -20,8 +20,35 @@ class TestPromptManager:
         assert "/project" in prompt
         assert "darwin" in prompt
         assert "True" in prompt
-        assert "Execution plan" in prompt
-        assert "Plan overrides stopping" in prompt
+        assert "Plan contract" in prompt
+        assert "Plan contract" in prompt
+        assert "Clarification gate" in prompt
+        assert "Do not ask the user to confirm the next step" in prompt
+
+    def test_plan_mode_prompt_emphasizes_observable_evidence(self, manager):
+        prompt = manager.get_plan_mode_prompt(
+            working_directory="/project",
+            platform="darwin",
+            is_git_repo=True,
+        )
+
+        assert "Clarification gate" in prompt
+        assert "You must exhaust observable evidence before asking the user" in prompt
+        assert "Prefer 3-6 steps" in prompt
+        assert "call plan_exit" in prompt
+
+    def test_initial_plan_prompt_matches_plan_tool_protocol(self, manager):
+        prompt = manager.get_initial_plan_prompt()
+
+        assert "Call the plan tool only if the task clearly needs 3 or more distinct execution steps" in prompt
+        assert "respond exactly: NO_PLAN" in prompt
+        assert "status to in_progress" in prompt
+
+    def test_final_response_prompt_requires_no_unfinished_plan_steps(self, manager):
+        prompt = manager.get_final_response_prompt(task="Fix the prompt stack")
+
+        assert "Fix the prompt stack" in prompt
+        assert "Do not write the final answer if the active plan still has unfinished steps" in prompt
 
     def test_get_error_prompt(self, manager):
         prompt = manager.get_error_prompt(
@@ -59,6 +86,7 @@ class TestEnhancedErrorPrompt:
         )
         assert "Unknown action: load" in prompt
         assert "How to fix" in prompt
+        assert "continue the current plan step" in prompt
 
     def test_error_prompt_includes_original_arguments(self, manager):
         prompt = manager.get_error_prompt(
@@ -138,17 +166,37 @@ class TestPromptFamilySelection:
         prompt = manager.get_system_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
         assert "自主编程智能体" in prompt
         assert "你必须持续使用工具直到任务完全完成" in prompt
+        assert "计划契约" in prompt
+        assert "澄清门" in prompt
 
     def test_glm_family_error_prompt_in_chinese(self):
         manager = PromptManager(model_name="glm-4-plus")
         prompt = manager.get_error_prompt(error="参数错误", tool="file")
         assert "工具调用失败" in prompt
         assert "参数错误" in prompt
+        assert "继续当前计划步骤" in prompt
 
     def test_glm_family_final_response_in_chinese(self):
         manager = PromptManager(model_name="glm-4-plus")
         prompt = manager.get_final_response_prompt(task="测试任务")
         assert "最终答案" in prompt
+        assert "如果当前计划还有未完成步骤，不要输出最终答案" in prompt
+
+    def test_glm_family_plan_mode_prompt_matches_runtime_protocol(self):
+        manager = PromptManager(model_name="glm-4-plus")
+        prompt = manager.get_plan_mode_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
+
+        assert "澄清门" in prompt
+        assert "先穷尽可观察证据，再向用户提问" in prompt
+        assert "调用 plan_exit" in prompt
+
+    def test_glm_initial_plan_prompt_matches_plan_tool_protocol(self):
+        manager = PromptManager(model_name="glm-4-plus")
+        prompt = manager.get_initial_plan_prompt()
+
+        assert "只有在任务明确需要 3 个或更多不同执行步骤时才调用 plan 工具" in prompt
+        assert "精确回复：NO_PLAN" in prompt
+        assert "status 必须设为 in_progress" in prompt
 
     def test_non_glm_chinese_models_fall_back_to_default(self):
         manager = PromptManager(model_name="qwen-plus")

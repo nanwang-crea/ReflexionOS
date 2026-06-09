@@ -101,8 +101,8 @@ def test_system_prompt_uses_runtime_tool_definitions():
     assert len(system_messages) >= 1
     assert "autonomous coding agent" in system_messages[0].content
     assert "Tool and shell rules" in system_messages[0].content
-    assert "Execution plan" in system_messages[0].content
-    assert "Plan overrides stopping" in system_messages[0].content
+    assert "Plan contract" in system_messages[0].content
+    assert "Clarification gate" in system_messages[0].content
 
 
 def test_final_summary_messages_flatten_tool_protocol_history():
@@ -209,5 +209,4 @@ def test_prefill_cleared_after_build_does_not_persist():
     messages_without_prefill = builder.build(context)
     assistant_contents = [m.content for m in messages_without_prefill if m.role == "assistant"]
     assert not any("I'll continue." in (c or "") for c in assistant_contents)
-
 

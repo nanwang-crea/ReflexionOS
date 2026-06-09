@@ -7,6 +7,8 @@ Write the final answer for the user now.
 
 Requirements:
 - Directly answer the user's real question first
+- Do not write the final answer if the active plan still has unfinished steps
+- Only finalize when the task objective is actually satisfied by the completed tool work
 - Keep the tone natural, clear, and helpful
 - You may briefly mention how you verified or gathered the answer if it helps,
   but do not write a rigid "operation summary"

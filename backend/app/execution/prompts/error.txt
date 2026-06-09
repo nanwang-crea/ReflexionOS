@@ -12,4 +12,6 @@ $available_actions_section
 3. If the error says a parameter is missing or has the wrong name, check the tool schema for the correct parameter names.
 4. Do NOT retry with the same parameters — they will produce the same error.
 5. Fix the specific issue identified in the error, then retry.
-6. If the error contains "deny", "network", "Permission denied", "sandbox", "socket.gaierror", "Errno 8", "ConnectionError", "URLError", "NewConnectionError", "nodename nor servname", or "getaddrinfo failed" keywords, this is a sandbox network restriction — do NOT retry. The system will prompt the user to approve network access. Wait for approval.
+6. After fixing the error, continue the current plan step unless the error proves the step is blocked.
+7. Do not switch approaches solely because this tool call failed once.
+8. If the error contains "deny", "network", "Permission denied", "sandbox", "socket.gaierror", "Errno 8", "ConnectionError", "URLError", "NewConnectionError", "nodename nor servname", or "getaddrinfo failed" keywords, this is a sandbox network restriction — do NOT retry. The system will prompt the user to approve network access. Wait for approval.

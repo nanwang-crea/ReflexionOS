@@ -5,12 +5,14 @@ You must compress older conversation history into a concise summary.
 This summary is DERIVED from the transcript below. Do not invent facts.
 If unsure, state uncertainty.
 
-Output MUST be plain text with EXACTLY these 5 sections:
+Output MUST be plain text with EXACTLY these 7 sections:
 User's original intent: <the user's original intent, preserving key phrasing>
 Operations performed: <key operations performed, one per line, mark recallable items>
   - <operation description> [session_recall can retrieve full content]
 Confirmed findings: <important findings confirmed so far>
-Current progress: <what step are we at, what remains; MUST include execution plan status: current in_progress step id/description, key findings from completed steps>
+Current progress: <what step are we at, what remains; MUST include execution plan status: current in_progress step id/description, done condition, and key findings from completed steps>
+Active plan constraints: <what the agent must keep doing next, what is out of scope, and what it must not re-explore>
+Decisions already made: <selected approach, rejected alternatives, active assumptions that should persist>
 Unresolved issues: <open issues that still need attention>
 
 Rules:
@@ -18,3 +20,5 @@ Rules:
 - Preserve the user's original intent verbatim as much as possible
 - Keep operation descriptions short but specific (include file names, function names)
 - If an existing summary is provided, integrate it with new information
+- Preserve the active plan anchor so the agent continues the current step instead of re-planning by default
+- Do not convert non-blockers into user questions in the summary
