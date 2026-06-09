@@ -130,7 +130,7 @@ describe('AgentWorkspace', () => {
   it('passes a bottom safe area to the transcript before measurement completes', () => {
     const html = renderToStaticMarkup(<AgentWorkspace />)
 
-    expect(latestTranscriptProps?.bottomInset).toBe(160)
-    expect(html).toContain('data-bottom-inset="160"')
+    expect(latestTranscriptProps?.bottomInset).toBe(80)
+    expect(html).toContain('data-bottom-inset="80"')
   })
 })

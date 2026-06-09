@@ -292,7 +292,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('过程说明')
+    expect(html).toContain('展开过程')
     expect(html).not.toContain('你说得对，我先看一下当前实现。')
   })
 
@@ -415,7 +415,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('已运行 1 条命令')
+    expect(html).toContain('展开过程')
     expect(html).toContain('本次执行已取消')
   })
 
@@ -473,7 +473,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('已探索 1 个文件，已探索 1 次搜索，已运行 1 条命令')
+    expect(html).toContain('展开过程')
     expect(html).not.toContain('探索 src/app.py')
     expect(html).not.toContain('搜索 &quot;conversation:event&quot;')
     expect(html).not.toContain('M src/app.py')
@@ -615,9 +615,10 @@ describe('WorkspaceTranscript conversation rendering', () => {
       />
     )
 
-    expect(html).toContain('Thinking')
-    expect(html).toContain('先检查项目结构')
     expect(html).toContain('aria-expanded="false"')
+    expect(html).toContain('展开过程')
+    expect(html).toContain('最终回答')
+    expect(html).not.toContain('先检查项目结构')
   })
 
   it('centers assistant transcript blocks inside the reading column', () => {
@@ -664,10 +665,9 @@ describe('WorkspaceTranscript conversation rendering', () => {
     )
 
     expect(html).toContain('max-w-[920px] mx-auto w-full text-[17px]')
-    expect(html).toContain('mb-3 max-w-[920px] mx-auto w-full')
     expect(html).toContain('mb-6 max-w-[920px] mx-auto w-full')
     expect(html).toContain('mt-1 flex w-full max-w-[920px]')
-    expect(html).toContain('居中的思考块')
+    expect(html).toContain('展开过程')
     expect(html).toContain('居中的系统提示')
   })
 
