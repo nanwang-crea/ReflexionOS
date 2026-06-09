@@ -30,6 +30,17 @@ class TestOpenAIAdapter:
         assert openai_adapter.config == llm_config
         assert openai_adapter.model == "gpt-4-turbo-preview"
 
+    def test_adapter_initialization_sets_browser_like_default_headers(self, llm_config):
+        adapter = OpenAIAdapter(llm_config)
+
+        headers = dict(adapter.client.default_headers)
+
+        assert "Chrome/125.0.0.0" in headers["User-Agent"]
+        assert headers["Accept"] == "application/json"
+        assert headers["Accept-Language"] == "en-US,en;q=0.9"
+        assert headers["Cache-Control"] == "no-cache"
+        assert headers["Pragma"] == "no-cache"
+
     def test_get_model_name(self, openai_adapter):
         assert openai_adapter.get_model_name() == "gpt-4-turbo-preview"
 

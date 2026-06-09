@@ -3,6 +3,7 @@ from uuid import uuid4
 from openai import AsyncOpenAI
 
 from app.config.settings import config_manager
+from app.llm.client_headers import browser_like_default_headers
 from app.llm.base import MessageRole
 from app.models.llm_config import (
     DefaultLLMSelection,
@@ -292,6 +293,7 @@ class LLMProviderService:
         client = AsyncOpenAI(
             api_key=resolved.api_key or "reflexion-placeholder-key",
             base_url=resolved.base_url if resolved.base_url else None,
+            default_headers=browser_like_default_headers(),
         )
         await client.chat.completions.create(
             model=resolved.model,

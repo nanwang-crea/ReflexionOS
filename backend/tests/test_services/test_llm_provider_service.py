@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -95,3 +96,24 @@ def test_resolve_llm_config_rejects_unknown_explicit_model():
 
     with pytest.raises(ValueError, match="所选模型不存在或已禁用"):
         service.resolve_llm_config("provider-a", "missing-model")
+
+
+@pytest.mark.asyncio
+async def test_test_provider_connection_sets_browser_like_default_headers():
+    provider = build_provider("provider-openai", "OpenAI 官方", ["gpt-4.1"])
+    service, _ = build_service()
+
+    with patch("app.services.llm_provider_service.AsyncOpenAI") as mock_openai:
+        mock_client = mock_openai.return_value
+        mock_client.chat.completions.create = AsyncMock(return_value=SimpleNamespace())
+
+        await service.test_provider_connection(provider, "gpt-4.1")
+
+    kwargs = mock_openai.call_args.kwargs
+    headers = kwargs["default_headers"]
+
+    assert "Chrome/125.0.0.0" in headers["User-Agent"]
+    assert headers["Accept"] == "application/json"
+    assert headers["Accept-Language"] == "en-US,en;q=0.9"
+    assert headers["Cache-Control"] == "no-cache"
+    assert headers["Pragma"] == "no-cache"

@@ -20,6 +20,7 @@ from app.llm.base import (
     StreamChunk,
     UniversalLLMInterface,
 )
+from app.llm.client_headers import browser_like_default_headers
 from app.llm.dsml_tool_parser import contains_dsml, parse_dsml_tool_calls
 from app.llm.retry import retry_async
 from app.models.llm_config import ResolvedLLMConfig
@@ -42,6 +43,7 @@ class OpenAIAdapter(UniversalLLMInterface):
         self.client = AsyncOpenAI(
             api_key=config.api_key or "reflexion-placeholder-key",
             base_url=config.base_url if config.base_url else None,
+            default_headers=browser_like_default_headers(),
         )
 
         logger.info("OpenAI 适配器初始化完成, 模型: %s", self.model)
