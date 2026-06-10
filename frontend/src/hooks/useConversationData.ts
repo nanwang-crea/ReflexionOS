@@ -41,7 +41,7 @@ export function useConversationData(currentSessionId: string | null) {
     return state.planBySessionId[currentSessionId] ?? null
   })
 
-  const hasMore = conversation?.hasMore ?? true
+  const hasMore = conversation?.hasMore ?? false
   const oldestLoadedTurnId = conversation?.nextBeforeTurnId ?? null
 
   return { messages, isRunning, plan, hasMore, oldestLoadedTurnId }

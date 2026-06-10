@@ -167,7 +167,7 @@ export function createEmptyConversationState(sessionId: string | null = null): C
     runsById: {},
     messageOrder: [],
     messagesById: {},
-    hasMore: true,
+    hasMore: false,
     nextBeforeTurnId: null,
   }
 }

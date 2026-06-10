@@ -5,6 +5,7 @@ import {
   applyConversationLiveEvent,
   applyConversationLiveState,
   applyConversationSnapshot,
+  createEmptyConversationState,
 } from './conversationReducer'
 
 function buildSnapshot(): ConversationSnapshot {
@@ -90,6 +91,13 @@ function buildSnapshot(): ConversationSnapshot {
 }
 
 describe('conversationReducer', () => {
+  it('starts empty conversations in terminal pagination state until a cursor is loaded', () => {
+    const state = createEmptyConversationState('session-1')
+
+    expect(state.hasMore).toBe(false)
+    expect(state.nextBeforeTurnId).toBeNull()
+  })
+
   it('imports snapshot entities and keeps message order stable', () => {
     const state = applyConversationSnapshot(undefined, buildSnapshot())
 

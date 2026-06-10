@@ -151,6 +151,33 @@ describe('conversationApi', () => {
     })
   })
 
+  it('falls back to build mode when session agent_mode is unknown', async () => {
+    getMock.mockResolvedValue({
+      data: {
+        session: {
+          id: 'session-1',
+          project_id: 'project-1',
+          title: '会话',
+          agent_mode: 'unknown',
+          last_event_seq: 2,
+          active_turn_id: null,
+          created_at: '2026-04-24T10:00:00Z',
+          updated_at: '2026-04-24T10:00:02Z',
+        },
+        turns: [],
+        runs: [],
+        messages: [],
+        has_more: false,
+        next_before_turn_id: null,
+      },
+    })
+
+    const { conversationApi } = await import('./conversationApi')
+    const response = await conversationApi.getConversation('session-1')
+
+    expect(response.data.session.agentMode).toBe('build')
+  })
+
   it('serializes before_turn for paginated conversation requests', async () => {
     getMock.mockResolvedValue({
       data: {

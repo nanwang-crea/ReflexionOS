@@ -1,13 +1,15 @@
 import { useCallback, useRef, useState } from 'react'
+import { nativeDialogService } from '@/services/dialogService'
 import { useSettingsStore } from '@/stores/settingsStore'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'
-import type { SessionSummary } from '@/types/workspace'
 import type { ToolApprovalActionHandler } from '@/components/workspace/ToolTraceCard'
 import { getRuntimeStatusDescriptor } from '@/components/workspace/runtimeStatus'
 import { useSessionData } from './useSessionData'
 import { useSessionSelection } from './useSessionSelection'
+
+const REGENERATE_CONFIRM_MESSAGE = '重新生成回复？此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。'
 
 export function useCurrentSessionViewModel(options: {
   messages: ConversationMessage[]
@@ -56,7 +58,6 @@ export function useCurrentSessionViewModel(options: {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.hasMore, options.onLoadMore])
 
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {
@@ -67,19 +68,17 @@ export function useCurrentSessionViewModel(options: {
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
   const handleRegenerateMessage = useCallback((messageId: string) => {
     if (!currentSessionSummary) return
-    if (!window.confirm('重新生成回复？此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。')) return
+    if (!nativeDialogService.confirmAction(REGENERATE_CONFIRM_MESSAGE)) return
     options.editAndRerun?.({
       messageId,
       newContent: null,
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
 
   const runtimeStatus = getRuntimeStatusDescriptor({
@@ -90,7 +89,7 @@ export function useCurrentSessionViewModel(options: {
 
   return {
     currentProject,
-    currentSession: currentSessionSummary as SessionSummary | null,
+    currentSession: currentSessionSummary,
     configured,
     loaded,
     selection,
