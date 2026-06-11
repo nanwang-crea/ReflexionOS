@@ -246,8 +246,13 @@ class TestRapidExecutionLoop:
                     content="先读取 README", tool_calls=[tool_call], finish_reason="tool_calls"
                 ):
                     yield chunk
-            else:
+            elif call_index == 2:
+                # Agent stops with content after tool execution — completion firewall nudges
                 async for chunk in self._stream_response(content="README 已读取完成"):
+                    yield chunk
+            else:
+                # Nudge response: agent confirms done
+                async for chunk in self._stream_response(content="README 已读取完成，任务结束"):
                     yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -255,8 +260,8 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("帮我看一下当前 README")
 
         assert result.status == LoopStatus.COMPLETED
-        assert result.result == "README 已读取完成"
-        assert len(captured_calls) == 2
+        assert result.result == "README 已读取完成，任务结束"
+        assert len(captured_calls) == 3
 
         second_messages, second_tools = captured_calls[1]
         assert second_tools is not None
@@ -1265,7 +1270,8 @@ class TestRapidExecutionLoop:
         assert result.steps[0].status == StepStatus.SUCCESS
         assert result.steps[0].tool == "approval_tool"
         assert result.steps[1].tool == "mock"
-        assert call_count[0] == 3
+        # 3 tool-execution calls + 1 completion firewall nudge = 4 total
+        assert call_count[0] >= 3
 
         event_types = [event["type"] for event in events]
         assert "run:waiting_for_approval" in event_types

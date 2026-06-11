@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Plus, Minus, RotateCcw } from 'lucide-react'
-import type { GitFileChange, GitStatusCode } from '@/types/git'
+import type { GitFileChange } from '@/types/git'
+import { isValidGitStatusCode } from '@/types/git'
 import { GitFileItem } from './GitFileItem'
 import { useGitStore } from '@/features/git/gitStore'
 
@@ -94,7 +95,7 @@ export function GitFileGroup({ title, files, section, collapsed, onToggleCollaps
             <GitFileItem
               key={file.path}
               path={file.path}
-              status={file.status as GitStatusCode}
+              status={isValidGitStatusCode(file.status) ? file.status : 'M'}
               insertions={file.insertions}
               deletions={file.deletions}
               section={section}

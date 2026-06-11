@@ -150,7 +150,18 @@ class RapidExecutionLoop:
 
                 allow_stop_for_clarification = plan_blocked_asking_user
 
-                if ((plan_has_unfinished and not allow_stop_for_clarification)) and rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES:
+                # Anti-stop: always nudge when agent stops with content after executing tools.
+                # The LLM has full context and can judge whether work is truly complete.
+                # This acts as a "completion firewall" — catches premature stops regardless
+                # of whether a plan exists or what the content says.
+                should_nudge = False
+                if plan_has_unfinished and not allow_stop_for_clarification:
+                    should_nudge = rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES
+                elif not allow_stop_for_clarification:
+                    # No plan — single completion check, not a retry loop
+                    should_nudge = rt.premature_stop_count < 1
+
+                if should_nudge:
                     rt.premature_stop_count += 1
 
                     if plan_has_unfinished:
@@ -161,17 +172,13 @@ class RapidExecutionLoop:
                             f"There are still {pending_count} pending step(s) and the current step is: {current.content if current else 'N/A'}. "
                             "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
                         )
-                        prefill = (
-                            f"I'll continue with the current step: {current.content if current else 'next task'}. "
-                            "Let me use my tools to proceed."
-                        )
                     else:
                         nudge = (
-                            "You stopped before completing the task. Continue using tools to finish the work. "
-                            "Do NOT ask the user to write code — use your tools to do it yourself."
+                            "Check your work: is the original task fully complete with verification? "
+                            "If not, continue using tools. Do NOT stop to report partial progress."
                         )
-                        prefill = "I'll continue working on the task using my tools."
 
+                    prefill = "I'll continue working on the task using my tools."
                     context.add_message("user", nudge)
                     context.metadata["_prefill_assistant"] = prefill
                     return LoopPhase.PLANNING

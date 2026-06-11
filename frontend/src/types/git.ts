@@ -1,5 +1,9 @@
 export type GitStatusCode = 'M' | 'A' | 'D' | 'U' | 'R'
 
+export function isValidGitStatusCode(value: unknown): value is GitStatusCode {
+  return typeof value === 'string' && ['M', 'A', 'D', 'U', 'R'].includes(value)
+}
+
 export interface GitFileChange {
   path: string
   status: GitStatusCode

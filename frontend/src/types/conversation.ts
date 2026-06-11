@@ -21,22 +21,27 @@ export interface ConversationSessionDto {
   updated_at: string
 }
 
+export type AgentMode = 'build' | 'plan'
+
+function isValidAgentMode(value: unknown): value is AgentMode {
+  return value === 'build' || value === 'plan'
+}
+
 export function toConversationSession(dto: ConversationSessionDto): ConversationSession {
+  const agentMode = isValidAgentMode(dto.agent_mode) ? dto.agent_mode : 'build'
   return {
     id: dto.id,
     projectId: dto.project_id,
     title: dto.title,
     preferredProviderId: dto.preferred_provider_id ?? undefined,
     preferredModelId: dto.preferred_model_id ?? undefined,
-    agentMode: (dto.agent_mode as AgentMode) ?? 'build',
+    agentMode,
     lastEventSeq: dto.last_event_seq,
     activeTurnId: dto.active_turn_id,
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
   }
 }
-
-export type AgentMode = 'build' | 'plan'
 
 export interface ConversationSession {
   id: string

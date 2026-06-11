@@ -49,8 +49,8 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const isFailed = streamState === 'failed'
   const isCancelled = streamState === 'cancelled'
   const run = runId != null ? runsById?.[runId] : undefined
-  const errorCode = (payloadJson?.error_code as string | undefined) ?? run?.errorCode ?? undefined
-  const errorMessage = (payloadJson?.error_message as string | undefined) ?? run?.errorMessage ?? undefined
+  const errorCode = (typeof payloadJson?.error_code === 'string' ? payloadJson.error_code : undefined) ?? run?.errorCode ?? undefined
+  const errorMessage = (typeof payloadJson?.error_message === 'string' ? payloadJson.error_message : undefined) ?? run?.errorMessage ?? undefined
 
   return (
     <div className="mb-6 group">

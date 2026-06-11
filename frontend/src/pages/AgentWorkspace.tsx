@@ -38,8 +38,8 @@ export default function AgentWorkspace() {
     loadMore,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan, hasMore, oldestLoadedTurnId } = useConversationData(currentSessionId)
-  const agentMode = useConversationStore(
-    (s) => (currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build') as AgentMode
+  const agentMode: AgentMode = useConversationStore(
+    (s) => currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build'
   )
   const runsById = useConversationStore((s) =>
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
@@ -70,8 +70,8 @@ export default function AgentWorkspace() {
         createTerminal(cwd)
       }
       if (e.key === 'Tab' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
-        const target = e.target as HTMLElement
-        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') return
+        if (!(e.target instanceof HTMLElement)) return
+        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return
         e.preventDefault()
         toggleMode()
       }
@@ -91,7 +91,9 @@ export default function AgentWorkspace() {
   // ChatInputFrame is a flex sibling (not overlay), so no dynamic inset needed
 
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
-    const path = detail.arguments?.path as string | undefined
+    const args = detail.arguments
+    if (!args || typeof args !== 'object') return
+    const path = typeof args.path === 'string' ? args.path : undefined
     if (!path) return
     const viewMode = ['edit', 'create', 'delete'].includes(detail.category) ? 'diff' : 'edit'
     openFile(path, viewMode)

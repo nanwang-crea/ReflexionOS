@@ -188,21 +188,23 @@ const ActionReceiptDetailRow = memo(function ActionReceiptDetailRow({
       </AnimatePresence>
 
       {(() => {
-        const d = detail.data as Record<string, unknown> | null
-        if (!d?.screenshot_path) return null
+        const d = detail.data
+        if (!d || typeof d !== 'object' || !('screenshot_path' in d)) return null
+        const screenshotPath = typeof d.screenshot_path === 'string' ? d.screenshot_path : undefined
+        if (!screenshotPath) return null
+        const width = typeof d.width === 'number' ? d.width : undefined
+        const height = typeof d.height === 'number' ? d.height : undefined
         return (
           <div className="mt-2">
             <img
-              src={`/api/browser/screenshot?path=${encodeURIComponent(String(d.screenshot_path))}`}
+              src={`/api/browser/screenshot?path=${encodeURIComponent(screenshotPath)}`}
               alt="Browser screenshot"
               className="max-w-sm rounded border border-edge cursor-pointer hover:opacity-80"
-              onClick={() => {
-                if (d.screenshot_path) window.open(`/api/browser/screenshot?path=${encodeURIComponent(String(d.screenshot_path))}`, '_blank')
-              }}
+              onClick={() => window.open(`/api/browser/screenshot?path=${encodeURIComponent(screenshotPath)}`, '_blank')}
             />
-            {d.width != null && d.height != null && (
+            {width != null && height != null && (
               <p className="mt-1 text-xs text-content-tertiary">
-                {Number(d.width)}x{Number(d.height)} — 点击查看原图
+                {width}x{height} — 点击查看原图
               </p>
             )}
           </div>
@@ -225,27 +227,36 @@ const ApprovalCard = memo(function ApprovalCard({
         detail.status === 'waiting_for_approval' && hasApproval(detail)
       ))
       .map((detail) => {
-        const payload = detail.data as Record<string, unknown> | undefined
-        const approvalKind = (payload?.approval_kind ?? detail.approval?.shell ? 'shell_command' : undefined) as string | undefined
+        const payload = detail.data
+        const isRecord = payload && typeof payload === 'object'
+        const approvalKind = isRecord && 'approval_kind' in payload && typeof payload.approval_kind === 'string'
+          ? payload.approval_kind
+          : detail.approval?.shell ? 'shell_command' : undefined
         let sandboxNetwork: SandboxNetworkPayload | undefined
         let sandboxPath: SandboxPathPayload | undefined
 
-        if (approvalKind === 'sandbox_network_elevation' && payload) {
+        if (approvalKind === 'sandbox_network_elevation' && isRecord) {
           sandboxNetwork = {
             approval_kind: 'sandbox_network_elevation',
-            command: (payload.command as string) || '',
-            execution_mode: (payload.execution_mode as string) || '',
-            reasons: (payload.reasons as string[]) || [],
-            risks: (payload.risks as string[]) || [],
+            command: typeof payload.command === 'string' ? payload.command : '',
+            execution_mode: typeof payload.execution_mode === 'string' ? payload.execution_mode : '',
+            reasons: Array.isArray(payload.reasons) ? payload.reasons.filter((r): r is string => typeof r === 'string') : [],
+            risks: Array.isArray(payload.risks) ? payload.risks.filter((r): r is string => typeof r === 'string') : [],
           }
-        } else if (approvalKind === 'sandbox_path_elevation' && payload) {
+        } else if (approvalKind === 'sandbox_path_elevation' && isRecord) {
+          const elevReq = 'elevation_request' in payload && typeof payload.elevation_request === 'object' && payload.elevation_request
+            ? payload.elevation_request
+            : undefined
+          const deniedPaths = elevReq && 'denied_paths' in elevReq && Array.isArray(elevReq.denied_paths)
+            ? elevReq.denied_paths.filter((p): p is string => typeof p === 'string')
+            : []
           sandboxPath = {
             approval_kind: 'sandbox_path_elevation',
-            command: (payload.command as string) || '',
-            execution_mode: (payload.execution_mode as string) || '',
-            denied_paths: ((payload.elevation_request as Record<string, unknown>)?.denied_paths as string[]) || [],
-            reasons: (payload.reasons as string[]) || [],
-            risks: (payload.risks as string[]) || [],
+            command: typeof payload.command === 'string' ? payload.command : '',
+            execution_mode: typeof payload.execution_mode === 'string' ? payload.execution_mode : '',
+            denied_paths: deniedPaths,
+            reasons: Array.isArray(payload.reasons) ? payload.reasons.filter((r): r is string => typeof r === 'string') : [],
+            risks: Array.isArray(payload.risks) ? payload.risks.filter((r): r is string => typeof r === 'string') : [],
           }
         }
 

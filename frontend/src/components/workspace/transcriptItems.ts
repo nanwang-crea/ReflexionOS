@@ -44,27 +44,32 @@ function getToolGroupStatus(messages: ConversationMessage[]): ActionReceiptStatu
   return 'completed'
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 export function buildToolTraceDetail(message: ConversationMessage): ActionReceiptDetail {
   const payload = message.payloadJson
   const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : 'tool'
-  const detail = buildReceiptDetail(message.id, toolName, (payload.arguments as Record<string, unknown> | undefined) ?? undefined)
+  const args = isRecord(payload.arguments) ? payload.arguments : undefined
+  const detail = buildReceiptDetail(message.id, toolName, args)
   detail.status = getToolTraceStatus(message)
 
   if (detail.status === 'waiting_for_approval' && typeof message.runId === 'string' && typeof payload.approval_id === 'string') {
-    const approvalObj = payload.approval as Record<string, unknown> | undefined
-    const approvalPayload = approvalObj?.payload as Record<string, unknown> | undefined
+    const approvalObj = isRecord(payload.approval) ? payload.approval : undefined
+    const approvalPayload = isRecord(approvalObj?.payload) ? approvalObj.payload : undefined
     const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
-    const suggestedTrust = approvalObj?.suggested_trust as Record<string, unknown> | undefined
+    const suggestedTrust = isRecord(approvalObj?.suggested_trust) ? approvalObj.suggested_trust : undefined
     detail.approval = {
       runId: message.runId,
       approvalId: payload.approval_id,
       suggestedTrust: suggestedTrust ?? undefined,
       ...(hasShellPayload ? {
         shell: {
-          command: approvalPayload.command as string,
+          command: String(approvalPayload.command),
           ...(typeof approvalPayload.execution_mode === 'string' ? { execution_mode: approvalPayload.execution_mode } : {}),
-          ...(Array.isArray(approvalObj?.reasons) ? { reasons: (approvalObj!.reasons as string[]).filter((r): r is string => typeof r === 'string') } : {}),
-          ...(Array.isArray(approvalObj?.risks) ? { risks: (approvalObj!.risks as string[]).filter((r): r is string => typeof r === 'string') } : {}),
+          ...(Array.isArray(approvalObj?.reasons) ? { reasons: approvalObj.reasons.filter((r): r is string => typeof r === 'string') } : {}),
+          ...(Array.isArray(approvalObj?.risks) ? { risks: approvalObj.risks.filter((r): r is string => typeof r === 'string') } : {}),
         },
       } : {}),
     }

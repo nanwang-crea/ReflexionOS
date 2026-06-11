@@ -90,12 +90,20 @@ function toConversationEvent(event: SessionConversationEventDto): ConversationEv
 const VALID_MESSAGE_TYPES = new Set(['assistant_message', 'tool_trace'])
 const VALID_STREAM_STATES = new Set(['idle', 'streaming', 'completed', 'failed', 'cancelled'])
 
+function isValidMessageType(value: unknown): value is ConversationLiveMessage['messageType'] {
+  return typeof value === 'string' && VALID_MESSAGE_TYPES.has(value)
+}
+
+function isValidStreamState(value: unknown): value is ConversationLiveMessage['streamState'] {
+  return typeof value === 'string' && VALID_STREAM_STATES.has(value)
+}
+
 function toConversationLiveMessage(message: SessionConversationLiveMessageDto): ConversationLiveMessage {
-  const messageType = VALID_MESSAGE_TYPES.has(message.message_type)
-    ? message.message_type as ConversationLiveMessage['messageType']
+  const messageType = isValidMessageType(message.message_type)
+    ? message.message_type
     : 'assistant_message'
-  const streamState = VALID_STREAM_STATES.has(message.stream_state)
-    ? message.stream_state as ConversationLiveMessage['streamState']
+  const streamState = isValidStreamState(message.stream_state)
+    ? message.stream_state
     : 'streaming'
   return {
     sessionId: message.session_id,

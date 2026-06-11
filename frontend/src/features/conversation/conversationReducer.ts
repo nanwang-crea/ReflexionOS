@@ -13,6 +13,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isValidRole(value: unknown): value is ConversationMessage['role'] {
+  return value === 'user' || value === 'assistant'
+}
+
+function isValidMessageType(value: unknown): value is ConversationMessage['messageType'] {
+  return value === 'user_message' || value === 'tool_trace' || value === 'assistant_message'
+}
+
 function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
   const turnIndexById = Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn.turnIndex]))
 
@@ -226,12 +234,12 @@ export function applyConversationSnapshot(
       const snapshotTurnIds = new Set(snapshot.turns.map((t) => t.id))
       const snapshotRunIds = new Set(snapshot.runs.map((r) => r.id))
 
-      const additionalTurns = [...new Set(prependedMessages.map((m) => m.turnId).filter(Boolean) as string[])]
+      const additionalTurns = [...new Set(prependedMessages.map((m) => m.turnId).filter((id): id is string => typeof id === 'string'))]
         .filter((id) => !snapshotTurnIds.has(id) && previous.turnsById[id])
         .map((id) => previous.turnsById[id]!)
         .sort((a, b) => a.turnIndex - b.turnIndex)
 
-      const additionalRuns = [...new Set(prependedMessages.map((m) => m.runId).filter(Boolean) as string[])]
+      const additionalRuns = [...new Set(prependedMessages.map((m) => m.runId).filter((id): id is string => typeof id === 'string'))]
         .filter((id) => !snapshotRunIds.has(id) && previous.runsById[id])
         .map((id) => previous.runsById[id]!)
 
@@ -282,7 +290,9 @@ function applyMessagesTruncated(
   event: ConversationEvent
 ): ConversationState {
   const p = event.payloadJson
-  const deletedTurnIds = (p.deleted_turn_ids as string[]) ?? []
+  const deletedTurnIds = Array.isArray(p.deleted_turn_ids) 
+    ? p.deleted_turn_ids.filter((id): id is string => typeof id === 'string')
+    : []
   const deletedTurnIdSet = new Set(deletedTurnIds)
 
   const survivingTurnOrder = state.turnOrder.filter((id) => !deletedTurnIdSet.has(id))
@@ -478,22 +488,29 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
 
   if (event.eventType === 'message.created') {
     const p = event.payloadJson
-    const messageId = (p.message_id as string) ?? event.messageId
+    const messageId = typeof p.message_id === 'string' ? p.message_id : event.messageId
     if (currentState.messagesById[messageId]) {
       return { ...currentState, lastEventSeq: event.seq }
     }
+    const role = isValidRole(p.role) ? p.role : 'assistant'
+    const messageType = isValidMessageType(p.message_type) ? p.message_type : 'tool_trace'
+    const turnMessageIndex = typeof p.turn_message_index === 'number' ? p.turn_message_index : 0
+    const displayMode = typeof p.display_mode === 'string' ? p.display_mode : 'default'
+    const contentText = typeof p.content_text === 'string' ? p.content_text : ''
+    const payloadJson = isRecord(p.payload_json) ? p.payload_json : {}
+    
     const newMessage: ConversationMessage = {
       id: messageId,
       sessionId: event.sessionId,
       turnId: event.turnId ?? currentState.session?.activeTurnId ?? '',
       runId: event.runId ?? null,
-      turnMessageIndex: (p.turn_message_index as number) ?? 0,
-      role: (p.role as ConversationMessage['role']) ?? 'assistant',
-      messageType: (p.message_type as ConversationMessage['messageType']) ?? 'tool_trace',
+      turnMessageIndex,
+      role,
+      messageType,
       streamState: 'idle',
-      displayMode: (p.display_mode as string) ?? 'default',
-      contentText: (p.content_text as string) ?? '',
-      payloadJson: (p.payload_json as Record<string, unknown>) ?? {},
+      displayMode,
+      contentText,
+      payloadJson,
       createdAt: event.createdAt,
       updatedAt: event.createdAt,
       completedAt: null,
