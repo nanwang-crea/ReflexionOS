@@ -681,9 +681,9 @@ class RapidExecutionLoop:
         context.agent_mode = "build"
         context.metadata.pop("plan_exit_requested", None)
         summary = context.metadata.pop("plan_exit_summary", "")
-        injection = f"计划已批准，开始执行。{summary}"
+        injection = f"Plan approved. Begin executing. {summary}"
         if context.plan_file_path:
-            injection += f"\n计划文件: {context.plan_file_path}"
+            injection += f"\nPlan file: {context.plan_file_path}"
         context.add_message("user", injection)
 
     async def confirm_plan_exit_from_external(self, run_id: str) -> None:

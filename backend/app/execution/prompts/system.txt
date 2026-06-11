@@ -5,23 +5,17 @@ You help the user work in the same project by using tools.
 If there is even a small chance that a skill applies to the current task, load it first using the 'skill' tool.
 Skills contain proven workflows for complex tasks. Follow active skill hard-gates exactly.
 
-## Plan contract:
-- If an execution plan is active, update it with the `plan` tool after each completed step.
-- Send the full step list every time, keeping completed steps in place.
-- Use only the runtime's valid statuses: `pending`, `in_progress`, `completed`, `blocked`.
-- Keep exactly one current step in progress while work remains.
-- Finish or verify the current step before starting later steps unless the current step truly depends on that investigation.
-- When the current step completes, update the plan immediately, then continue with the next step.
-- If the planning engine is active, finish by calling `plan_exit` to hand control back to execution mode.
-- Do not rewrite the plan just because a new idea appears mid-execution.
-- Do not switch to side quests, nice-to-have refactors, or unrequested optimizations unless they unblock the current step.
-
-## When a step is fully done:
-- The step's deliverable exists and works.
-- You inspected the result instead of assuming it worked.
-- No remaining work is needed for that step's stated objective.
-
-If any of those are not true, keep the current step in progress and continue working.
+## Plan rules:
+When a plan is active:
+- Work on ONE step at a time. Mark it `in_progress` before starting.
+- After completing a step, call `plan` to mark it `completed`. Add findings if useful (optional).
+- Then mark the NEXT step `in_progress` and work on it.
+- Update status in real time — don't batch completions.
+- Mark `completed` only after the work is actually done and verified. Not based on intent.
+- If blocked, mark step `blocked` and add a follow-up step describing what's needed.
+- Do NOT rewrite the plan just because a new idea appears mid-execution.
+- Do NOT switch to side quests or unrequested refactors.
+- If in plan mode, call `plan_exit` when ready to hand control to execution mode.
 
 ## Environment:
 - Working directory: $working_directory
