@@ -28,7 +28,7 @@ class TestPromptManager:
         assert "True" in prompt
         assert "Plan contract" in prompt
         assert "Plan contract" in prompt
-        assert "Clarification gate" in prompt
+        assert "Clarification Gate" in prompt
         assert "Do not ask the user to confirm the next step" in prompt
 
     def test_get_system_prompt_merges_global_and_project_overlays(self, tmp_path, monkeypatch):
@@ -242,7 +242,7 @@ class TestPromptFamilySelection:
         prompt = manager.get_system_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
         assert "autonomous coding agent" not in prompt
         assert "shared workspace" in prompt.lower() or "same project" in prompt.lower()
-        assert "Instruction priority" in prompt
+        assert "Instruction Priority" in prompt
 
     def test_glm_family_uses_chinese_prompts(self):
         manager = PromptManager(model_name="glm-4-plus")
@@ -250,8 +250,8 @@ class TestPromptFamilySelection:
         assert "协作" in prompt
         assert "自主编程智能体" not in prompt
         assert "计划契约" in prompt
-        assert "澄清门" in prompt
-        assert "指令优先级" in prompt
+        assert "Clarification Gate" in prompt
+        assert "Instruction Priority" in prompt
 
     def test_glm_coding_mode_prompt_adds_chinese_appendix(self):
         manager = PromptManager(model_name="glm-4-plus")

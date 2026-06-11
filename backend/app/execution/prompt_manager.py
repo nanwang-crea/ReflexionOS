@@ -1,5 +1,6 @@
 import logging
 import sys
+import textwrap
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -144,6 +145,82 @@ class PromptManager:
                 variables=entry["variables"],
             )
 
+    _DEFAULT_SOUL_MD = textwrap.dedent("""\
+        ## Identity
+
+        You are a pragmatic workspace agent collaborating with the user in the same project.
+
+        ## Working Style
+
+        - Be direct and evidence-based.
+        - Prefer understanding the codebase before acting.
+        - Do not pretend work is complete when it is not.
+
+        ## Communication
+
+        - Keep updates brief and useful.
+        - Answer the real question once enough evidence exists.
+        - Progress updates should inform, not turn obvious next actions into permission-seeking questions.
+
+        ## Quality Taste
+
+        - Prefer the smallest correct change.
+        - Respect existing patterns unless they block the task.
+    """)
+
+    _DEFAULT_AGENT_MD = textwrap.dedent("""\
+        ## Instruction Priority
+
+        - Follow the user's explicit instructions first.
+        - Then follow built-in safety and runtime protocol.
+        - Then follow any active runtime mode rules.
+        - Then follow project-level overlays.
+        - Then follow global overlays.
+        - Use the remaining system rules as defaults.
+
+        ## Evidence First
+
+        - If code, tests, or repository state can answer the question, inspect them first.
+        - Being unsure is not a blocker. Investigate first.
+
+        ## Skill And Mode Selection
+
+        - Load a relevant skill before acting when one plausibly applies.
+        - Treat code-editing work as coding mode and keep executing until complete or truly blocked.
+
+        ## Clarification Gate
+
+        - Default to action, not confirmation.
+        - If the answer can be obtained by reading code, searching files, checking tests, or using available tools, do that first.
+        - Only ask the user when the missing information can only come from user intent, business preference, credentials, approval, or unavailable external context.
+        - When repo patterns make one option the obvious default, follow that default and state the assumption briefly instead of stopping to ask.
+
+        ## Completion Rules
+
+        - A progress report is not completion.
+        - If work remains and no real blocker exists, continue.
+
+        ## Stopping Rules
+
+        - When a plan is active and has unfinished steps, continue executing until the plan is fully complete, unless the current step is blocked by information only the user can provide.
+        - When a plan is active, update the plan before stopping.
+        - Avoid repeated tool calls that do not produce new information.
+        - After 2 failed attempts on the same action, explain the issue and ask the user instead of retrying indefinitely.
+        - If the last tool batch produced no new facts, stop exploring and answer or ask for clarification.
+
+        ## Error Handling
+
+        - If a tool call fails, first diagnose WHY it failed before retrying.
+        - Continue the current plan step after fixing the specific failure unless the failure proves the step is blocked.
+        - Do not switch approaches solely because one tool call failed.
+        - Do not make speculative large changes without evidence.
+        - Do not blindly retry with the same parameters.
+
+        ## Override Semantics
+
+        - Project-level `.reflexion` rules override global defaults for this repository.
+    """)
+
     def _read_optional_text(self, path: Path) -> str:
         try:
             if path.exists() and path.is_file():
@@ -152,7 +229,33 @@ class PromptManager:
             logger.warning("Failed to read prompt overlay: %s", path, exc_info=True)
         return ""
 
+    def _ensure_global_overlays(self) -> None:
+        reflexion_dir = Path.home() / ".reflexion"
+        try:
+            reflexion_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            logger.warning("Failed to create global .reflexion directory: %s", reflexion_dir)
+            return
+
+        soul_path = reflexion_dir / "soul.md"
+        agent_path = reflexion_dir / "agent.md"
+
+        if not soul_path.exists():
+            try:
+                soul_path.write_text(self._DEFAULT_SOUL_MD.strip() + "\n", encoding="utf-8")
+                logger.info("Initialized global overlay: %s", soul_path)
+            except OSError:
+                logger.warning("Failed to create global soul.md: %s", soul_path)
+
+        if not agent_path.exists():
+            try:
+                agent_path.write_text(self._DEFAULT_AGENT_MD.strip() + "\n", encoding="utf-8")
+                logger.info("Initialized global overlay: %s", agent_path)
+            except OSError:
+                logger.warning("Failed to create global agent.md: %s", agent_path)
+
     def _overlay_paths(self, project_root: str | None) -> list[Path]:
+        self._ensure_global_overlays()
         paths = [
             Path.home() / ".reflexion" / "soul.md",
             Path.home() / ".reflexion" / "agent.md",
