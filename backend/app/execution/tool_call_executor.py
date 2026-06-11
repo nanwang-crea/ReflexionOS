@@ -7,6 +7,7 @@ from typing import Any
 
 from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
+from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
 from app.tools.registry import ToolRegistry
 
@@ -189,6 +190,22 @@ class ToolCallExecutor:
 
             if isinstance(tool, PlanTool) and tool.get_plan() is not None:
                 context.plan = tool.get_plan()
+                # Persist plan to disk immediately after each plan tool call.
+                # This ensures plan survives crashes, cancellations, and plan-mode runs.
+                if not context.plan_file_path:
+                    plan_sync = PlanFileSync()
+                    context.plan_file_path = plan_sync.write(
+                        context.plan,
+                        session_id=context.session_id,
+                        project_path=context.project_path,
+                    )
+                else:
+                    plan_sync = PlanFileSync()
+                    plan_sync.sync(
+                        context.plan,
+                        context.plan_file_path,
+                        project_path=context.project_path,
+                    )
                 await self.emit("plan:updated", context.plan.to_dict())
 
             logger.info(

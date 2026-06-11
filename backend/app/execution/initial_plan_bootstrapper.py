@@ -77,6 +77,7 @@ class InitialPlanBootstrapper:
         plan_file_sync = PlanFileSync()
         recovery_path = plan_file_sync.find_recovery_plan(
             context.project_path,
+            session_id=context.session_id,
             max_age_hours=self.PLAN_RECOVERY_MAX_AGE_HOURS,
         )
         if recovery_path is not None:
@@ -116,7 +117,7 @@ class InitialPlanBootstrapper:
                 context.plan = plan_tool.get_plan()
                 # Write plan file for persistence
                 plan_file_sync = PlanFileSync()
-                plan_path = plan_file_sync.write(context.plan, session_id=context.run_id, project_path=context.project_path)
+                plan_path = plan_file_sync.write(context.plan, session_id=context.session_id, project_path=context.project_path)
                 context.plan_file_path = plan_path
                 await self.emit("plan:updated", context.plan.to_dict())
             elif result.error:

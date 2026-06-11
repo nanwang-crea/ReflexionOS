@@ -132,7 +132,7 @@ def test_plan_completed_findings():
 import pytest
 
 
-def test_plan_replace_from_rejects_dropping_completed_steps():
+def test_plan_replace_from_auto_recovers_dropped_completed_steps():
     plan = Plan(
         goal="Test",
         steps=[
@@ -140,7 +140,13 @@ def test_plan_replace_from_rejects_dropping_completed_steps():
             PlanStep(content="B", status="in_progress"),
         ],
     )
-    with pytest.raises(ValueError, match="Completed steps must not be removed"):
-        plan.replace_from([
-            PlanStep(content="B", status="completed", findings="Done"),
-        ])
+    changes = plan.replace_from([
+        PlanStep(content="B", status="completed", findings="Done"),
+    ])
+    # Completed step "A" should be auto-recovered, not rejected
+    assert len(plan.steps) == 2
+    assert plan.steps[0].content == "A"
+    assert plan.steps[0].status == "completed"
+    assert plan.steps[1].content == "B"
+    assert plan.steps[1].status == "completed"
+    assert changes["just_completed"] == ["B"]

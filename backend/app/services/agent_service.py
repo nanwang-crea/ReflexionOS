@@ -480,6 +480,7 @@ class AgentService:
                 task=task,
                 project_path=project_path,
                 run_id=run_id,
+                session_id=session_id,
                 seed_messages=assembly.recent_messages,
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,

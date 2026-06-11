@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -43,10 +46,15 @@ class Plan:
         new_completed = {s.content for s in new_steps if s.status == "completed"}
         dropped = old_completed - new_completed
         if dropped:
-            raise ValueError(
-                f"Completed steps must not be removed. Missing: {dropped}. "
-                f"Keep ALL completed steps with status=completed and their findings."
+            # Auto-recover: merge dropped completed steps back into the new list
+            # instead of rejecting the entire update. LLMs frequently drop completed
+            # steps when reconstructing the plan — this is a known behavioral issue.
+            logger.warning(
+                "Plan update dropped %d completed steps, auto-recovering: %s",
+                len(dropped), dropped,
             )
+            preserved = [s for s in self.steps if s.status == "completed" and s.content in dropped]
+            new_steps = preserved + new_steps
         self.steps = new_steps
         if goal is not None:
             self.goal = goal
