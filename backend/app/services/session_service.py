@@ -54,23 +54,7 @@ class SessionService:
             raise NotFoundValueError("会话不存在")
 
         payload_data = payload.model_dump(exclude_unset=True)
-        updated_session = session.model_copy(
-            update={
-                "title": payload_data.get("title", session.title),
-                "preferred_provider_id": payload_data.get(
-                    "preferred_provider_id",
-                    session.preferred_provider_id,
-                ),
-                "preferred_model_id": payload_data.get(
-                    "preferred_model_id",
-                    session.preferred_model_id,
-                ),
-                "agent_mode": payload_data.get(
-                    "agent_mode",
-                    session.agent_mode,
-                ),
-            }
-        )
+        updated_session = session.model_copy(update=payload_data)
         return self.session_repo.update(updated_session)
 
     def delete_session(self, session_id: str) -> bool:

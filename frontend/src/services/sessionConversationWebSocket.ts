@@ -261,22 +261,27 @@ class SessionConversationWebSocket {
 
     if (type === 'plan:updated') {
       this.emit('plan:updated', data as PlanDto)
+      return
     }
 
     if (type === 'plan:discarded') {
       this.emit('plan:discarded', data as { path: string; goal: string })
+      return
     }
 
     if (type === 'plan:recovered') {
       this.emit('plan:recovered', data as { path: string; goal: string })
+      return
     }
 
     if (type === 'session:title_updated') {
       this.emit('session:title_updated', data as SessionTitleUpdatedDto)
+      return
     }
 
     if (type === 'session:mode_changed') {
       this.emit('session:mode_changed', data as SessionModeChangedDto)
+      return
     }
   }
 

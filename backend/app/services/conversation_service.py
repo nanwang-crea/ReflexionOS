@@ -460,7 +460,6 @@ class ConversationService:
                 },
             )
             self.append_events_locked(session_id, [truncated_event])
-            print(f"new content: {content}")
 
             return self.start_turn(
                 session_id=session_id,

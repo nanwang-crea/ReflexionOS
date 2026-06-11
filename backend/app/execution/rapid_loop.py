@@ -164,13 +164,15 @@ class RapidExecutionLoop:
                 if plan_has_unfinished:
                     pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
                     nudge = (
-                        "The plan is NOT complete yet. "
-                        f"There are still {pending_count} pending step(s). "
-                        "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
+                        f"The user's original request was:\n---\n{context.task}\n---\n\n"
+                        f"The plan is NOT complete yet. There are still {pending_count} pending step(s). "
+                        "Review the original request above and continue executing the plan with your tools. "
+                        "Do NOT stop until all steps are completed and the user's request is fully addressed."
                     )
                 else:
                     nudge = (
-                        "Check your work: is the original task fully complete with verification? "
+                        f"The user's original request was:\n---\n{context.task}\n---\n\n"
+                        "Review the original request above. Is it fully complete with verification? "
                         "If not, continue using tools. Do NOT stop to report partial progress."
                     )
                 prefill = "I'll continue working on the task using my tools."

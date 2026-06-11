@@ -53,6 +53,8 @@ from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
 
+logger = logging.getLogger(__name__)
+
 try:
     from app.tools.browser_tool import BrowserTool as _BrowserTool
 except ImportError:
@@ -65,8 +67,6 @@ from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
-
-logger = logging.getLogger(__name__)
 
 
 _CANCEL_WAIT_ATTEMPTS = 10
