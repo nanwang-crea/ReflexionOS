@@ -26,10 +26,8 @@ class TestPromptManager:
         assert "/project" in prompt
         assert "darwin" in prompt
         assert "True" in prompt
-        assert "Plan contract" in prompt
-        assert "Plan contract" in prompt
-        assert "Clarification Gate" in prompt
-        assert "Do not ask the user to confirm the next step" in prompt
+        assert "Plan rules" in prompt
+        assert "Task Planning" in prompt
 
     def test_get_system_prompt_merges_global_and_project_overlays(self, tmp_path, monkeypatch):
         home = tmp_path / "home"

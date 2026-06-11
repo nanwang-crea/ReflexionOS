@@ -76,7 +76,7 @@ async def test_plan_rejects_goal_missing_on_first_call(tool):
 
 
 @pytest.mark.asyncio
-async def test_plan_rejects_multiple_in_progress(tool):
+async def test_plan_accepts_multiple_in_progress(tool):
     await tool.execute({
         "goal": "Test",
         "steps": [{"content": "A", "status": "in_progress"}],
@@ -87,12 +87,11 @@ async def test_plan_rejects_multiple_in_progress(tool):
             {"content": "B", "status": "in_progress"},
         ],
     })
-    assert not result.success
-    assert "in_progress" in result.error.lower()
+    assert result.success
 
 
 @pytest.mark.asyncio
-async def test_plan_completed_step_requires_findings(tool):
+async def test_plan_accepts_completed_without_findings(tool):
     await tool.execute({
         "goal": "Test",
         "steps": [{"content": "A", "status": "in_progress"}],
@@ -100,7 +99,7 @@ async def test_plan_completed_step_requires_findings(tool):
     result = await tool.execute({
         "steps": [{"content": "A", "status": "completed"}],
     })
-    assert not result.success
+    assert result.success
 
 
 @pytest.mark.asyncio
@@ -142,7 +141,7 @@ def test_plan_set_and_get_plan(tool):
 
 
 @pytest.mark.asyncio
-async def test_plan_rejects_dropping_completed_steps(tool):
+async def test_plan_auto_recovers_dropped_completed_steps(tool):
     await tool.execute({
         "goal": "Test",
         "steps": [
@@ -155,9 +154,11 @@ async def test_plan_rejects_dropping_completed_steps(tool):
             {"content": "B", "status": "completed", "findings": "Done"},
         ],
     })
-    assert not result.success
-    assert "Completed steps must not be removed" in result.error
-    assert "A" in result.error
+    assert result.success
+    plan = tool.get_plan()
+    contents = [s.content for s in plan.steps]
+    assert "A" in contents
+    assert "B" in contents
 
 
 @pytest.mark.asyncio

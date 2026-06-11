@@ -102,8 +102,7 @@ def test_system_prompt_uses_runtime_tool_definitions():
     assert "autonomous coding agent" not in system_messages[0].content
     assert "shared workspace" in system_messages[0].content.lower() or "same project" in system_messages[0].content.lower()
     assert "Tool and shell rules" in system_messages[0].content
-    assert "Plan contract" in system_messages[0].content
-    assert "Clarification Gate" in system_messages[0].content
+    assert "Plan rules" in system_messages[0].content
 
 
 def test_build_system_prompt_not_autonomous_coding_agent():

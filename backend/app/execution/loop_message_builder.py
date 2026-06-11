@@ -102,6 +102,11 @@ class LoopMessageBuilder:
                 )
             )
 
+        # Plan state injection: 每轮注入当前计划状态，确保 LLM 始终知道当前步骤
+        if context.plan and context.plan.current_step:
+            plan_status = self._build_plan_status(context.plan)
+            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=plan_status))
+
         # Task Anchor: 首轮注入，之后按 task_anchor_interval 周期性注入
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
         should_inject_anchor = False
@@ -272,6 +277,22 @@ class LoopMessageBuilder:
             m for m in flat
             if not (should_dedup_task and m["role"] == MessageRole.USER and m.get("content") == context.task)
         ]
+
+    @staticmethod
+    def _build_plan_status(plan) -> str:
+        """构建轻量级计划状态注入，每轮调用，~50 tokens"""
+        current = plan.current_step
+        total = len(plan.steps)
+        completed = sum(1 for s in plan.steps if s.status == "completed")
+        step_num = next(
+            (i + 1 for i, s in enumerate(plan.steps) if s.status == "in_progress"),
+            0,
+        )
+        return (
+            f"[Plan ► Step {step_num}/{total}: {current.content}] "
+            f"({completed}/{total} completed) → "
+            f"work on this step, then call plan to mark it completed."
+        )
 
     def _group_messages(self, messages: list[dict]) -> list[list[dict]]:
         """将消息按 assistant+tool_calls 开组的方式分组，确保 tool_call 与 tool output 不被拆分"""
