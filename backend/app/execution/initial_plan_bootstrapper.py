@@ -10,16 +10,30 @@ from app.llm.base import LLMMessage, LLMToolCall, MessageRole, UniversalLLMInter
 logger = logging.getLogger(__name__)
 
 _PLAN_RELEVANCE_PROMPT = """\
-Determine whether the new task is related to the existing plan's goal.
-Answer ONLY "yes" or "no".
+You are deciding whether to RESUME an existing plan or DISCARD it and create a new one.
 
 Existing plan goal: {goal}
-Completed steps: {completed}/{total}
-Current step: {current_step}
 
-New task: {task}
+Full plan ({total} steps):
+{steps_detail}
 
-Is the new task a continuation or subtask of the existing plan goal?\
+New user task: {task}
+
+Question: Should the agent RESUME the existing plan (continue from where it left off)
+to fulfill the new task? Or should it DISCARD the plan and create a fresh one?
+
+Resume criteria (answer "yes" ONLY if ALL are true):
+1. The new task is asking to CONTINUE the same work described in the plan goal
+2. The remaining pending/blocked steps are directly relevant to completing the new task
+3. Starting a fresh plan would be wasteful because the completed steps already cover
+   what the new task needs
+
+Answer "no" if:
+- The new task is a DIFFERENT focus area, even if it's in the same project/domain
+- The new task only overlaps partially with the plan goal
+- The user wants to investigate or work on something specific, not continue the full plan
+
+Answer ONLY "yes" or "no".\
 """
 
 
@@ -41,16 +55,20 @@ class InitialPlanBootstrapper:
         self.message_builder = message_builder
         self.emit = emit
 
-    async def _check_plan_relevance(self, context: LoopContext, plan_goal: str, plan) -> bool:
-        """Ask LLM whether the new task is related to the recovered plan's goal."""
-        completed = sum(1 for s in plan.steps if s.status == "completed")
-        total = len(plan.steps)
-        current_step_desc = plan.current_step.content if plan.current_step else "N/A"
+    async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
+        """Ask LLM whether the new task is related to the recovered plan."""
+        steps_lines = []
+        for i, s in enumerate(plan.steps, 1):
+            line = f"  {i}. [{s.status}] {s.content}"
+            if s.findings:
+                line += f"\n     Findings: {s.findings}"
+            steps_lines.append(line)
+        steps_detail = "\n".join(steps_lines)
+
         prompt = _PLAN_RELEVANCE_PROMPT.format(
-            goal=plan_goal,
-            completed=completed,
-            total=total,
-            current_step=current_step_desc,
+            goal=plan.goal,
+            total=len(plan.steps),
+            steps_detail=steps_detail,
             task=context.task,
         )
         messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
@@ -72,6 +90,7 @@ class InitialPlanBootstrapper:
             return
 
         plan_tool.set_plan(None)
+        context.plan = None
 
         # Check for recovery plan file
         plan_file_sync = PlanFileSync()
@@ -83,7 +102,8 @@ class InitialPlanBootstrapper:
         if recovery_path is not None:
             recovered_plan = plan_file_sync.read(recovery_path)
             if recovered_plan is not None:
-                is_relevant = await self._check_plan_relevance(context, recovered_plan.goal, recovered_plan)
+                logger.info("Recovered plan: goal=%s", recovered_plan.goal[:80])
+                is_relevant = await self._check_plan_relevance(context, recovered_plan)
                 if is_relevant:
                     context.plan = recovered_plan
                     plan_tool.set_plan(recovered_plan)
@@ -99,6 +119,7 @@ class InitialPlanBootstrapper:
                     )
                     plan_file_sync.delete(recovery_path, project_path=context.project_path)
                     await self.emit("plan:discarded", {"path": recovery_path, "goal": recovered_plan.goal})
+                    context.plan = None
 
         if context.plan is not None:
             return
