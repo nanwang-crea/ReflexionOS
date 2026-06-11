@@ -23,7 +23,7 @@ from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
-from app.llm.base import LLMResponse, LLMToolCall, UniversalLLMInterface
+from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, MessageRole, UniversalLLMInterface
 from app.llm.retry import LLMRetryExhaustedError
 from app.llm.token_counter import count_messages_tokens
 from app.tools.registry import ToolRegistry
@@ -45,7 +45,6 @@ class RapidExecutionLoop:
     MAX_TURN_RETRIES = 5  # 每轮最大重试
     MAX_SUMMARY_RETRIES = 5  # 总结最大重试
     MAX_ERROR_RETRIES = 5  # 错误恢复最大重试
-    MAX_PREMATURE_STOP_RETRIES = 5  # 过早停止最大重试（assistant prefill + user nudge）
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 5  # 空响应最大重试
     MAX_READ_ONLY_PASSES = 10  # 只读工具调用最大轮次
@@ -148,37 +147,12 @@ class RapidExecutionLoop:
                 and current_step is None
                 and len(blocked_steps) > 0
             )
-            should_nudge = False
-            if plan_has_unfinished and not allow_stop_for_clarification:
-                should_nudge = rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES
-            elif not allow_stop_for_clarification:
-                should_nudge = rt.premature_stop_count < 1
-
-            logger.info(
-                "Anti-stop check: should_nudge=%s, plan_has_unfinished=%s, premature_stop_count=%s",
-                should_nudge, plan_has_unfinished, rt.premature_stop_count,
-            )
-
-            if should_nudge:
-                rt.premature_stop_count += 1
-                if plan_has_unfinished:
-                    pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
-                    nudge = (
-                        f"The user's original request was:\n---\n{context.task}\n---\n\n"
-                        f"The plan is NOT complete yet. There are still {pending_count} pending step(s). "
-                        "Review the original request above and continue executing the plan with your tools. "
-                        "Do NOT stop until all steps are completed and the user's request is fully addressed."
-                    )
-                else:
-                    nudge = (
-                        f"The user's original request was:\n---\n{context.task}\n---\n\n"
-                        "Review the original request above. Is it fully complete with verification? "
-                        "If not, continue using tools. Do NOT stop to report partial progress."
-                    )
-                prefill = "I'll continue working on the task using my tools."
-                context.add_message("user", nudge)
-                context.metadata["_prefill_assistant"] = prefill
-                return LoopPhase.PLANNING
+            if not allow_stop_for_clarification:
+                logger.info(
+                    "Anti-stop check: plan_has_unfinished=%s, making decision call",
+                    plan_has_unfinished,
+                )
+                return await self._make_decision_call(context, result, rt, plan_has_unfinished)
 
         if rt.response.has_tool_calls:
             rt.consecutive_failures = 0
@@ -217,6 +191,143 @@ class RapidExecutionLoop:
                         "请检查模型配置或更换模型"
                     )
                 return LoopPhase.PLANNING
+
+    MAX_DECISION_RETRIES = 5
+
+    async def _make_decision_call(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+        plan_has_unfinished: bool,
+    ) -> LoopPhase:
+        """
+        Premature-stop decision call.
+
+        当模型在已执行工具后无 tool_calls 返回时，调用一次专门的 decision LLM，
+        让模型基于原始任务和当前进度做出 continue/stop 决策，避免 nudge→PLANNING 循环。
+
+        Returns:
+            TOOL_EXECUTION — 模型决定继续，有 tool_calls
+            DONE — 模型给出最终回答
+        Raises:
+            RuntimeError — 重试 MAX_DECISION_RETRIES 次后仍无有效响应
+        """
+        task_summary = (context.task or "")[:500]
+        partial_response = (rt.response.content or "")[:500] if rt.response else ""
+
+        plan_progress = ""
+        if context.plan and plan_has_unfinished:
+            pending = [s for s in context.plan.steps if s.status == "pending"]
+            completed = [s for s in context.plan.steps if s.status == "completed"]
+            plan_progress = (
+                f"\nPlan progress: {len(completed)} completed, {len(pending)} pending.\n"
+                "Pending steps:\n"
+                + "\n".join(f"  - {s.content}" for s in pending)
+            )
+
+        decision_prompt = (
+            f"The user's original request was:\n---\n{task_summary}\n---\n\n"
+            f"You previously responded:\n---\n{partial_response}\n---\n"
+            f"{plan_progress}\n\n"
+            "Decision required: Should you continue working or is the task complete?\n"
+            "- If there is more work to do, call the appropriate tools to continue.\n"
+            "- If the task is fully complete, provide your final answer to the user."
+        )
+
+        messages = [
+            LLMMessage(
+                role=MessageRole.SYSTEM,
+                content=self.prompt_manager.get_system_prompt(),
+            )
+        ]
+        for msg in self.message_builder.recent_context_messages(context):
+            tool_calls = [LLMToolCall(**tc) for tc in msg.get("tool_calls", [])]
+            messages.append(
+                LLMMessage(
+                    role=msg["role"],
+                    content=msg.get("content"),
+                    tool_calls=tool_calls,
+                    tool_call_id=msg.get("tool_call_id"),
+                )
+            )
+        messages.append(LLMMessage(role=MessageRole.USER, content=decision_prompt))
+
+        tools = (
+            self.tool_definitions.for_plan_mode()
+            if context.agent_mode == "plan"
+            else self.tool_definitions.for_context(context)
+        )
+
+        for attempt in range(self.MAX_DECISION_RETRIES):
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls: list[LLMToolCall] = []
+            finish_reason = "stop"
+            call_started_at = time.perf_counter()
+            first_chunk_latency: float | None = None
+
+            async for chunk in self.llm.stream_complete(messages, tools):
+                if first_chunk_latency is None:
+                    first_chunk_latency = time.perf_counter() - call_started_at
+                if chunk.type == "content" and chunk.content:
+                    content_parts.append(chunk.content)
+                    await self._emit("llm:content", {"content": chunk.content})
+                elif chunk.type == "reasoning" and chunk.reasoning_content:
+                    reasoning_parts.append(chunk.reasoning_content)
+                    await self._emit("llm:reasoning", {"reasoning_content": chunk.reasoning_content})
+                elif chunk.type == "tool_calls":
+                    tool_calls = chunk.tool_calls
+                    finish_reason = chunk.finish_reason or "tool_calls"
+                    break
+                elif chunk.type == "done":
+                    finish_reason = chunk.finish_reason or "stop"
+                    break
+                elif chunk.type == "error":
+                    logger.warning(
+                        "Decision call stream error (attempt %d/%d): %s",
+                        attempt + 1, self.MAX_DECISION_RETRIES, chunk.error,
+                    )
+                    break
+
+            response = LLMResponse(
+                content="".join(content_parts),
+                reasoning_content="".join(reasoning_parts) or None,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                model=self.llm.get_model_name(),
+            )
+
+            if response.has_content or response.has_tool_calls:
+                context.add_message(
+                    "assistant",
+                    content=response.content or None,
+                    tool_calls=[tc.model_dump() for tc in response.tool_calls],
+                )
+
+                logger.info(
+                    "Decision call response: has_tool_calls=%s, content_preview=%s",
+                    response.has_tool_calls,
+                    (response.content or "")[:80],
+                )
+
+                if response.has_tool_calls:
+                    rt.response = response
+                    return LoopPhase.TOOL_EXECUTION
+
+                result.status = LoopStatus.COMPLETED
+                result.result = response.content
+                return LoopPhase.DONE
+
+            logger.warning(
+                "Decision call empty response (attempt %d/%d), finish_reason=%s",
+                attempt + 1, self.MAX_DECISION_RETRIES, finish_reason,
+            )
+
+        raise RuntimeError(
+            f"Decision call returned empty response after {self.MAX_DECISION_RETRIES} retries. "
+            "The model may be unable to continue. Please check model configuration."
+        )
 
     def _record_tool_signature(self, context: LoopContext, tool_call: LLMToolCall) -> None:
         sig = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
@@ -318,7 +429,6 @@ class RapidExecutionLoop:
                 else:
                     rt.consecutive_failures = 0
                     rt.has_executed_tools = True
-                    rt.premature_stop_count = 0
 
             for step in parallel_steps:
                 if step.status == StepStatus.WAITING_FOR_APPROVAL:
@@ -389,7 +499,6 @@ class RapidExecutionLoop:
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
-                rt.premature_stop_count = 0
                 rt.stagnant_read_only_passes = 0
 
             if self._is_doom_loop(context):
