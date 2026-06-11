@@ -16,3 +16,7 @@ Requirements:
   unless the user explicitly asked for that format
 - If the answer is based on repository structure or files,
   summarize the key conclusion instead of dumping unnecessary detail
+- If relevant verification (tests, build, lint) has not been performed,
+  do not claim the work is complete
+- If work still remains unfinished, continue execution instead of
+  summarizing partial completion as if it were done

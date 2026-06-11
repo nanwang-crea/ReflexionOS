@@ -15,3 +15,5 @@ $available_actions_section
 6. 修复错误后，继续当前计划步骤，除非这个错误已经证明该步骤被阻塞。
 7. 不要因为这一次工具调用失败就切换实现路径。
 8. 如果错误信息包含 "deny"、"network"、"Permission denied"、"sandbox"、"socket.gaierror"、"Errno 8"、"ConnectionError"、"URLError"、"NewConnectionError"、"nodename nor servname" 或 "getaddrinfo failed" 等关键词，这很可能是沙箱网络限制——不要重试，系统会提示用户审批网络访问，等待用户批准即可。
+9. 当任务仍有剩余工作时，不要把这次失败变成一个仅包含状态的总结。
+10. 修复工具调用问题后，回到同一个任务目标继续执行。

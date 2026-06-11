@@ -48,6 +48,12 @@ TEMPLATES_MANIFEST: list[dict] = [
         "family_specific": True,
     },
     {
+        "name": "coding_appendix",
+        "file": "coding_appendix.txt",
+        "variables": [],
+        "family_specific": True,
+    },
+    {
         "name": "plan_mode",
         "file": "plan_mode.txt",
         "variables": ["working_directory", "platform", "date", "is_git_repo"],
@@ -138,6 +144,32 @@ class PromptManager:
                 variables=entry["variables"],
             )
 
+    def _read_optional_text(self, path: Path) -> str:
+        try:
+            if path.exists() and path.is_file():
+                return path.read_text(encoding="utf-8").strip()
+        except OSError:
+            logger.warning("Failed to read prompt overlay: %s", path, exc_info=True)
+        return ""
+
+    def _overlay_paths(self, project_root: str | None) -> list[Path]:
+        paths = [
+            Path.home() / ".reflexion" / "soul.md",
+            Path.home() / ".reflexion" / "agent.md",
+        ]
+        if project_root:
+            root = Path(project_root)
+            paths.extend([
+                root / ".reflexion" / "soul.md",
+                root / ".reflexion" / "agent.md",
+            ])
+        return paths
+
+    @staticmethod
+    def _join_sections(sections: list[str]) -> str:
+        normalized = [section.strip() for section in sections if str(section or "").strip()]
+        return "\n\n".join(normalized)
+
     def register_template(self, name: str, template: str, variables: list[str]):
         """注册模板"""
         self.templates[name] = PromptTemplate(name, template, variables)
@@ -154,13 +186,20 @@ class PromptManager:
         working_directory: str = "",
         platform: str = "",
         is_git_repo: bool = False,
+        project_root: str | None = None,
+        coding_mode: bool = False,
     ) -> str:
-        return self.get_template("system").render(
+        base_prompt = self.get_template("system").render(
             working_directory=working_directory,
             platform=platform,
             date=datetime.now().strftime("%Y-%m-%d"),
             is_git_repo=str(is_git_repo),
         )
+        sections = [base_prompt]
+        sections.extend(self._read_optional_text(path) for path in self._overlay_paths(project_root))
+        if coding_mode:
+            sections.append(self.get_template("coding_appendix").render())
+        return self._join_sections(sections)
 
     def get_plan_mode_prompt(
         self,

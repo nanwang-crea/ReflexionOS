@@ -58,6 +58,8 @@ class LoopMessageBuilder:
                 is_git_repo=os.path.isdir(
                     os.path.join(context.project_path or os.getcwd(), ".git")
                 ),
+                project_root=context.project_path,
+                coding_mode=context.agent_mode != "plan",
             )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
@@ -146,7 +148,7 @@ class LoopMessageBuilder:
             LLMMessage(
                 role=MessageRole.SYSTEM,
                 content=(
-                    "You are an autonomous coding agent. Write the final answer directly "
+                    "You are a pragmatic workspace agent. Write the final answer directly "
                     "from the provided context. Do not call tools."
                 ),
             )

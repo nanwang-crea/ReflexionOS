@@ -99,10 +99,36 @@ def test_system_prompt_uses_runtime_tool_definitions():
 
     system_messages = [message for message in messages if message.role == "system"]
     assert len(system_messages) >= 1
-    assert "autonomous coding agent" in system_messages[0].content
+    assert "autonomous coding agent" not in system_messages[0].content
+    assert "shared workspace" in system_messages[0].content.lower() or "same project" in system_messages[0].content.lower()
     assert "Tool and shell rules" in system_messages[0].content
     assert "Plan contract" in system_messages[0].content
     assert "Clarification gate" in system_messages[0].content
+
+
+def test_build_system_prompt_not_autonomous_coding_agent():
+    builder = build_message_builder()
+    context = LoopContext(task="验证身份")
+    context.add_message("user", "验证身份")
+
+    messages = builder.build(context)
+
+    system_messages = [m for m in messages if m.role == "system"]
+    assert len(system_messages) >= 1
+    assert "autonomous coding agent" not in system_messages[0].content
+
+
+def test_build_final_summary_system_prompt_not_autonomous_coding_agent():
+    builder = build_message_builder()
+    context = LoopContext(task="最终总结身份")
+    context.add_message("user", "最终总结身份")
+
+    messages = builder.build_final_summary(context)
+
+    system_messages = [m for m in messages if m.role == "system"]
+    assert len(system_messages) >= 1
+    assert "autonomous coding agent" not in system_messages[0].content
+    assert "pragmatic workspace agent" in system_messages[0].content
 
 
 def test_final_summary_messages_flatten_tool_protocol_history():
