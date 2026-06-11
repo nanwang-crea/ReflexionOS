@@ -123,6 +123,61 @@ class RapidExecutionLoop:
         self._overflow_retry_count = 0
         rt.response = await self._call_llm(context)
 
+        logger.info(
+            "Planning LLM response: has_tool_calls=%s, has_content=%s, content_preview=%s, "
+            "has_executed_tools=%s, plan_is_none=%s",
+            rt.response.has_tool_calls,
+            rt.response.has_content,
+            (rt.response.content or "")[:80],
+            rt.has_executed_tools,
+            context.plan is None,
+        )
+
+        # Completion firewall: check BEFORE routing to TOOL_EXECUTION.
+        # If agent has been using tools and plan is unfinished, nudge to continue
+        # even if the LLM returned tool_calls alongside content.
+        if rt.has_executed_tools and not rt.response.has_tool_calls:
+            plan_has_unfinished = (
+                context.plan is not None
+                and not context.plan.is_complete
+            )
+            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"] if context.plan else []
+            current_step = context.plan.current_step if context.plan else None
+            allow_stop_for_clarification = (
+                context.plan is not None
+                and current_step is None
+                and len(blocked_steps) > 0
+            )
+            should_nudge = False
+            if plan_has_unfinished and not allow_stop_for_clarification:
+                should_nudge = rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES
+            elif not allow_stop_for_clarification:
+                should_nudge = rt.premature_stop_count < 1
+
+            logger.info(
+                "Anti-stop check: should_nudge=%s, plan_has_unfinished=%s, premature_stop_count=%s",
+                should_nudge, plan_has_unfinished, rt.premature_stop_count,
+            )
+
+            if should_nudge:
+                rt.premature_stop_count += 1
+                if plan_has_unfinished:
+                    pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
+                    nudge = (
+                        "The plan is NOT complete yet. "
+                        f"There are still {pending_count} pending step(s). "
+                        "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
+                    )
+                else:
+                    nudge = (
+                        "Check your work: is the original task fully complete with verification? "
+                        "If not, continue using tools. Do NOT stop to report partial progress."
+                    )
+                prefill = "I'll continue working on the task using my tools."
+                context.add_message("user", nudge)
+                context.metadata["_prefill_assistant"] = prefill
+                return LoopPhase.PLANNING
+
         if rt.response.has_tool_calls:
             rt.consecutive_failures = 0
             return LoopPhase.TOOL_EXECUTION
@@ -131,57 +186,6 @@ class RapidExecutionLoop:
         if rt.has_executed_tools:
             if rt.response.has_content:
                 content = rt.response.content or ""
-                # Check if plan still has unfinished steps
-                plan_has_unfinished = (
-                    context.plan is not None
-                    and not context.plan.is_complete
-                )
-
-                # Allow stop when the model is genuinely asking for user clarification:
-                # 1) current step is blocked (no in_progress, has blocked) — model explicitly signaled a blocker
-                # 2) content contains clarification questions to the user
-                blocked_steps = [s for s in context.plan.steps if s.status == "blocked"] if context.plan else []
-                current_step = context.plan.current_step if context.plan else None
-                plan_blocked_asking_user = (
-                    context.plan is not None
-                    and current_step is None
-                    and len(blocked_steps) > 0
-                )
-
-                allow_stop_for_clarification = plan_blocked_asking_user
-
-                # Anti-stop: always nudge when agent stops with content after executing tools.
-                # The LLM has full context and can judge whether work is truly complete.
-                # This acts as a "completion firewall" — catches premature stops regardless
-                # of whether a plan exists or what the content says.
-                should_nudge = False
-                if plan_has_unfinished and not allow_stop_for_clarification:
-                    should_nudge = rt.premature_stop_count < self.MAX_PREMATURE_STOP_RETRIES
-                elif not allow_stop_for_clarification:
-                    # No plan — single completion check, not a retry loop
-                    should_nudge = rt.premature_stop_count < 1
-
-                if should_nudge:
-                    rt.premature_stop_count += 1
-
-                    if plan_has_unfinished:
-                        current = context.plan.current_step
-                        pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
-                        nudge = (
-                            "The plan is NOT complete yet. "
-                            f"There are still {pending_count} pending step(s) and the current step is: {current.content if current else 'N/A'}. "
-                            "You MUST continue executing the plan with your tools. Do NOT stop until all steps are completed."
-                        )
-                    else:
-                        nudge = (
-                            "Check your work: is the original task fully complete with verification? "
-                            "If not, continue using tools. Do NOT stop to report partial progress."
-                        )
-
-                    prefill = "I'll continue working on the task using my tools."
-                    context.add_message("user", nudge)
-                    context.metadata["_prefill_assistant"] = prefill
-                    return LoopPhase.PLANNING
 
                 result.status = LoopStatus.COMPLETED
                 result.result = rt.response.content

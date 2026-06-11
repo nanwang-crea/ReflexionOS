@@ -78,27 +78,34 @@ const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(funct
   ref
 ) {
   const { onUserScrollIntent, onScrollerScroll } = React.useContext(TranscriptScrollerContext)
-  const domHandlers = props as React.HTMLAttributes<HTMLDivElement>
 
   return (
     <div
       {...props}
       ref={ref}
       onScroll={(event) => {
-        domHandlers.onScroll?.(event)
+        if ('onScroll' in props && typeof props.onScroll === 'function') {
+          props.onScroll(event)
+        }
         onScrollerScroll(event)
       }}
       onWheel={(event) => {
         onUserScrollIntent()
-        domHandlers.onWheel?.(event)
+        if ('onWheel' in props && typeof props.onWheel === 'function') {
+          props.onWheel(event)
+        }
       }}
       onTouchMove={(event) => {
         onUserScrollIntent()
-        domHandlers.onTouchMove?.(event)
+        if ('onTouchMove' in props && typeof props.onTouchMove === 'function') {
+          props.onTouchMove(event)
+        }
       }}
       onPointerDown={(event) => {
         onUserScrollIntent()
-        domHandlers.onPointerDown?.(event)
+        if ('onPointerDown' in props && typeof props.onPointerDown === 'function') {
+          props.onPointerDown(event)
+        }
       }}
       style={{
         ...style,

@@ -65,9 +65,17 @@ function _refreshFileTree() {
 
 function _isNotGitRepo(err: unknown): boolean {
   if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as { response?: { data?: { detail?: string } } }).response
-    const msg = resp?.data?.detail ?? ''
-    return msg.includes('不是 git 仓库') || msg.includes('not a git repository')
+    const errObj = err as Record<string, unknown>
+    const response = errObj.response
+    if (response && typeof response === 'object' && 'data' in response) {
+      const respObj = response as Record<string, unknown>
+      const data = respObj.data
+      if (data && typeof data === 'object' && 'detail' in data) {
+        const dataObj = data as Record<string, unknown>
+        const msg = typeof dataObj.detail === 'string' ? dataObj.detail : ''
+        return msg.includes('不是 git 仓库') || msg.includes('not a git repository')
+      }
+    }
   }
   return false
 }

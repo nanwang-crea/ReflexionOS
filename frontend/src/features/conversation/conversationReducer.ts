@@ -348,15 +348,15 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
   if (!event.messageId) {
     if (event.eventType === 'turn.created') {
       const p = event.payloadJson
-      const turnId = (p.turn_id as string) ?? event.turnId ?? ''
+      const turnId = typeof p.turn_id === 'string' ? p.turn_id : (event.turnId ?? '')
       if (currentState.turnsById[turnId]) {
         return { ...currentState, lastEventSeq: event.seq }
       }
       const newTurn: ConversationTurn = {
         id: turnId,
         sessionId: event.sessionId,
-        turnIndex: (p.turn_index as number) ?? 0,
-        rootMessageId: (p.root_message_id as string) ?? '',
+        turnIndex: typeof p.turn_index === 'number' ? p.turn_index : 0,
+        rootMessageId: typeof p.root_message_id === 'string' ? p.root_message_id : '',
         status: 'running',
         activeRunId: null,
         createdAt: event.createdAt,
@@ -379,11 +379,11 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
           id: event.runId,
           sessionId: event.sessionId,
           turnId: event.turnId ?? '',
-          attemptIndex: (p.attempt_index as number) ?? 1,
+          attemptIndex: typeof p.attempt_index === 'number' ? p.attempt_index : 1,
           status: 'created',
-          providerId: (p.provider_id as string | null) ?? null,
-          modelId: (p.model_id as string | null) ?? null,
-          workspaceRef: (p.workspace_ref as string | null) ?? null,
+          providerId: typeof p.provider_id === 'string' ? p.provider_id : null,
+          modelId: typeof p.model_id === 'string' ? p.model_id : null,
+          workspaceRef: typeof p.workspace_ref === 'string' ? p.workspace_ref : null,
           startedAt: null,
           finishedAt: null,
           errorCode: null,
@@ -397,8 +397,8 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
       }
       if (run) {
         if (event.eventType === 'run.completed') {
-          const finishedAt = (event.payloadJson.finished_at as string) ?? null
-          const messagesById = Object.fromEntries(
+          const finishedAt = typeof event.payloadJson.finished_at === 'string' ? event.payloadJson.finished_at : null
+          const messagesById: Record<string, ConversationMessage> = Object.fromEntries(
             Object.entries(currentState.messagesById).map(([messageId, message]) => {
               if (
                 message.runId === event.runId &&
@@ -406,7 +406,7 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
               ) {
                 return [messageId, {
                   ...message,
-                  streamState: 'completed',
+                  streamState: 'completed' as const,
                   completedAt: finishedAt ?? message.completedAt,
                   updatedAt: event.createdAt,
                 }]
@@ -431,7 +431,7 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
         }
         if (event.eventType === 'run.failed' || event.eventType === 'run.cancelled') {
           const terminalState: ConversationStreamState = event.eventType === 'run.failed' ? 'failed' : 'cancelled'
-          const messagesById = Object.fromEntries(
+          const messagesById: Record<string, ConversationMessage> = Object.fromEntries(
             Object.entries(currentState.messagesById).map(([messageId, message]) => {
               if (
                 message.runId === event.runId &&
@@ -454,8 +454,8 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
               [event.runId]: {
                 ...run,
                 status: terminalState,
-                errorCode: (event.payloadJson.error_code as string | null) ?? null,
-                errorMessage: (event.payloadJson.error_message as string | null) ?? null,
+                errorCode: typeof event.payloadJson.error_code === 'string' ? event.payloadJson.error_code : null,
+                errorMessage: typeof event.payloadJson.error_message === 'string' ? event.payloadJson.error_message : null,
               },
             },
             messagesById,

@@ -301,7 +301,9 @@ export function useConversationRuntime(
       useConversationStore.getState().setPlan(sessionId, null)
     })
     ws.on('session:mode_changed', (data: { session_id: string; mode: string }) => {
-      useConversationStore.getState().setAgentMode(sessionId, data.mode as import('@/types/conversation').AgentMode)
+      if (data.mode === 'build' || data.mode === 'plan') {
+        useConversationStore.getState().setAgentMode(sessionId, data.mode)
+      }
     })
     ws.on('session:title_updated', (data) => {
       const store = useSessionStore.getState()

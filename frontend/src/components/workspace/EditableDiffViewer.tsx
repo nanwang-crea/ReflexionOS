@@ -66,12 +66,11 @@ export function EditableDiffViewer({ original, modified, language, onChange, onS
         automaticLayout: true,
         enableSplitViewResizing: true,
         wordWrap: 'on',
-        tabSize: 2,
         quickSuggestions: true,
         suggestOnTriggerCharacters: true,
         parameterHints: { enabled: true },
         formatOnPaste: true,
-      } as editor.IDiffEditorConstructionOptions}
+      } satisfies editor.IDiffEditorConstructionOptions}
     />
   )
 }

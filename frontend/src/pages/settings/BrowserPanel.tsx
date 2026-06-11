@@ -110,7 +110,12 @@ export function BrowserPanel() {
           </div>
           <select
             value={settings.browser_engine}
-            onChange={e => setSettings(s => ({ ...s, browser_engine: e.target.value as BrowserSettings['browser_engine'] }))}
+            onChange={e => {
+              const val = e.target.value
+              if (val === 'chromium' || val === 'firefox' || val === 'webkit') {
+                setSettings(s => ({ ...s, browser_engine: val }))
+              }
+            }}
             className="rounded border border-edge bg-surface-primary px-2 py-1 text-sm text-content-primary"
           >
             <option value="chromium">Chromium</option>

@@ -123,13 +123,13 @@ export default function SkillsPage() {
     if (!specifier) return
     setInstalling(true)
     try {
-      await skillApi.install({ specifier } as InstallSkillRequest)
+      await skillApi.install({ specifier } satisfies InstallSkillRequest)
       useToastStore.getState().addToast('info', `技能 ${specifier} 安装成功`)
       setInstallSpecifier('')
       setShowInstallDialog(false)
       await loadSkills()
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '安装失败'
+      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '安装失败'
       useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
     } finally {
       setInstalling(false)
@@ -143,7 +143,7 @@ export default function SkillsPage() {
       useToastStore.getState().addToast('info', `技能 ${name} 已删除`)
       await loadSkills()
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '删除失败'
+      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '删除失败'
       useToastStore.getState().addToast('warning', `删除失败: ${msg}`)
     } finally {
       setDeleting(null)

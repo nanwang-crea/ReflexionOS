@@ -222,59 +222,61 @@ class SessionConversationWebSocket {
   }
 
   private handleMessage(message: SessionConversationMessageEnvelope) {
-    if (message.type === 'conversation:event') {
-      this.emit('conversation:event', message.data as SessionConversationEventDto)
+    const { type, data } = message
+
+    if (type === 'conversation:event') {
+      this.emit('conversation:event', data as SessionConversationEventDto)
       return
     }
 
-    if (message.type === 'conversation:live_event') {
-      this.emit('conversation:live_event', message.data as SessionConversationLiveMessageDto)
+    if (type === 'conversation:live_event') {
+      this.emit('conversation:live_event', data as SessionConversationLiveMessageDto)
       return
     }
 
-    if (message.type === 'conversation:live_state') {
-      this.emit('conversation:live_state', message.data as SessionConversationLiveMessageDto)
+    if (type === 'conversation:live_state') {
+      this.emit('conversation:live_state', data as SessionConversationLiveMessageDto)
       return
     }
 
-    if (message.type === 'conversation:synced') {
-      this.emit('conversation:synced', message.data as ConversationSyncedDto)
+    if (type === 'conversation:synced') {
+      this.emit('conversation:synced', data as ConversationSyncedDto)
       return
     }
 
-    if (message.type === 'conversation:resync_required') {
-      this.emit('conversation:resync_required', message.data as ConversationResyncRequiredDto)
+    if (type === 'conversation:resync_required') {
+      this.emit('conversation:resync_required', data as ConversationResyncRequiredDto)
       return
     }
 
-    if (message.type === 'conversation:error') {
-      this.emit('conversation:error', message.data as ConversationErrorDto)
+    if (type === 'conversation:error') {
+      this.emit('conversation:error', data as ConversationErrorDto)
       return
     }
 
-    if (message.type === 'llm:retry') {
-      this.emit('llm:retry', message.data as LlmRetryDto)
+    if (type === 'llm:retry') {
+      this.emit('llm:retry', data as LlmRetryDto)
       return
     }
 
-    if (message.type === 'plan:updated') {
-      this.emit('plan:updated', message.data as PlanDto)
+    if (type === 'plan:updated') {
+      this.emit('plan:updated', data as PlanDto)
     }
 
-    if (message.type === 'plan:discarded') {
-      this.emit('plan:discarded', message.data as { path: string; goal: string })
+    if (type === 'plan:discarded') {
+      this.emit('plan:discarded', data as { path: string; goal: string })
     }
 
-    if (message.type === 'plan:recovered') {
-      this.emit('plan:recovered', message.data as { path: string; goal: string })
+    if (type === 'plan:recovered') {
+      this.emit('plan:recovered', data as { path: string; goal: string })
     }
 
-    if (message.type === 'session:title_updated') {
-      this.emit('session:title_updated', message.data as SessionTitleUpdatedDto)
+    if (type === 'session:title_updated') {
+      this.emit('session:title_updated', data as SessionTitleUpdatedDto)
     }
 
-    if (message.type === 'session:mode_changed') {
-      this.emit('session:mode_changed', message.data as SessionModeChangedDto)
+    if (type === 'session:mode_changed') {
+      this.emit('session:mode_changed', data as SessionModeChangedDto)
     }
   }
 

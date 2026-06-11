@@ -59,13 +59,13 @@ export default function PluginsPage() {
     if (!specifier) return
     setInstalling(true)
     try {
-      await pluginApi.install({ specifier } as InstallPluginRequest)
+      await pluginApi.install({ specifier } satisfies InstallPluginRequest)
       useToastStore.getState().addToast('info', `插件 ${specifier} 安装成功`)
       setInstallSpecifier('')
       setShowInstallDialog(false)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '安装失败'
+      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '安装失败'
       useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
     } finally {
       setInstalling(false)
@@ -82,7 +82,7 @@ export default function PluginsPage() {
       }
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '卸载失败'
+      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '卸载失败'
       useToastStore.getState().addToast('warning', `卸载失败: ${msg}`)
     } finally {
       setUninstalling(null)
@@ -96,7 +96,7 @@ export default function PluginsPage() {
       useToastStore.getState().addToast('info', `插件 ${name} 更新成功`)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (error as Error)?.message || '更新失败'
+      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '更新失败'
       useToastStore.getState().addToast('warning', `更新失败: ${msg}`)
     } finally {
       setUpdating(null)
