@@ -218,13 +218,22 @@ class RapidExecutionLoop:
 
         plan_progress = ""
         if context.plan and plan_has_unfinished:
+            current = context.plan.current_step
             pending = [s for s in context.plan.steps if s.status == "pending"]
             completed = [s for s in context.plan.steps if s.status == "completed"]
-            plan_progress = (
-                f"\nPlan progress: {len(completed)} completed, {len(pending)} pending.\n"
-                "Pending steps:\n"
-                + "\n".join(f"  - {s.content}" for s in pending)
-            )
+            total = len(context.plan.steps)
+            plan_progress = f"\nPlan progress: {len(completed)}/{total} completed, {len(pending)} pending."
+            if current:
+                step_num = next(
+                    (i + 1 for i, s in enumerate(context.plan.steps) if s.status == "in_progress"),
+                    0,
+                )
+                plan_progress += (
+                    f"\n[Plan ► Step {step_num}/{total}: {current.content}] "
+                    f"→ work on this step, then call plan to mark it completed."
+                )
+            else:
+                plan_progress += "\nPending steps:\n" + "\n".join(f"  - {s.content}" for s in pending)
 
         decision_prompt = (
             f"The user's original request was:\n---\n{task_summary}\n---\n\n"

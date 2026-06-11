@@ -20,45 +20,9 @@ class PlanTool(BaseTool):
     def description(self) -> str:
         return (
             "Manage execution plans for multi-step tasks. "
-            "Send the FULL step list every call — NEVER omit completed steps, always keep them with status=completed and findings. "
+            "Send the FULL step list every call — keep completed steps with status=completed and findings. "
             "Keep exactly one step in_progress at a time. "
-            "To mark a step done: keep it in the list with status=completed and add findings, then set the next step to in_progress. "
-            "Do NOT modify the content of completed steps.\n\n"
-            "## When to Use\n"
-            "Use this tool proactively for:\n"
-            "1. Complex multistep tasks — when a task requires 3 or more distinct steps\n"
-            "2. Non-trivial tasks — tasks requiring careful planning or multiple operations\n"
-            "3. After receiving new instructions — capture requirements as plan steps\n"
-            "4. After completing a task — mark it completed with findings and start the next step\n\n"
-            "## When NOT to Use\n"
-            "Skip for simple tasks that need fewer than 3 steps or are purely conversational.\n\n"
-            "## Example: Progressive Plan Updates\n"
-            "User: Refactor the auth module and add tests\n"
-            "Assistant creates plan:\n"
-            "  steps: [\n"
-            '    {content: "Analyze current auth module structure", status: "in_progress"},\n'
-            '    {content: "Refactor auth module", status: "pending"},\n'
-            '    {content: "Write unit tests for auth", status: "pending"},\n'
-            '    {content: "Run tests and fix failures", status: "pending"}\n'
-            "  ]\n"
-            "Assistant analyzes the code...\n"
-            "Assistant updates plan:\n"
-            "  steps: [\n"
-            '    {content: "Analyze current auth module structure", status: "completed", findings: "Found 3 files, token logic in auth.py:42"},\n'
-            '    {content: "Refactor auth module", status: "in_progress"},\n'
-            '    {content: "Write unit tests for auth", status: "pending"},\n'
-            '    {content: "Run tests and fix failures", status: "pending"}\n'
-            "  ]\n"
-            "Assistant refactors...\n"
-            "Assistant updates plan:\n"
-            "  steps: [\n"
-            '    {content: "Analyze current auth module structure", status: "completed", findings: "Found 3 files, token logic in auth.py:42"},\n'
-            '    {content: "Refactor auth module", status: "completed", findings: "Extracted TokenService, reduced coupling"},\n'
-            '    {content: "Write unit tests for auth", status: "in_progress"},\n'
-            '    {content: "Run tests and fix failures", status: "pending"}\n'
-            "  ]\n"
-            "and so on until all steps are completed.\n\n"
-            "IMPORTANT: Always use this tool to plan and track tasks throughout the conversation."
+            "Skip for simple tasks that need fewer than 3 steps."
         )
 
     def get_schema(self) -> dict[str, Any]:
