@@ -214,7 +214,7 @@ class RapidExecutionLoop:
         
         # 防止无限循环：检查是否已经询问过
         nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
-        if nudge_count >= 2:
+        if nudge_count >= 5:
             # 已经问过 2 次了，强制进入总结
             logger.warning("计划未完成但 LLM 持续停止，强制进入总结阶段")
             return LoopPhase.FINAL_SUMMARY
