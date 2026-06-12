@@ -46,8 +46,7 @@ class RapidExecutionLoop:
     MAX_ERROR_RETRIES = 5  # 错误恢复最大重试
     MAX_CONTEXT_GROUPS = 10  # 最近上下文分组数，保证 tool_call 与 tool 输出成组保留
     MAX_EMPTY_RESPONSE_RETRIES = 5  # 空响应最大重试
-    MAX_READ_ONLY_PASSES = 10  # 只读工具调用最大轮次
-    MAX_STAGNANT_READ_ONLY_PASSES = 10  # 停滞的只读工具调用最大轮次
+    MAX_READ_ONLY_PASSES = 50  # 只读工具调用最大轮次
     DOOM_LOOP_THRESHOLD = 3  # 致命循环阈值
 
     def __init__(
@@ -287,21 +286,8 @@ class RapidExecutionLoop:
                 write_calls.append(tool_call)
 
         read_only_calls = self.tool_executor.prepare_read_only_batch(read_only_calls)
-        batch_produced_new_facts = False
         if read_only_calls:
             rt.read_only_passes_used += 1
-            read_only_signatures = {
-                self.tool_executor._read_only_signature(tool_call)
-                for tool_call in read_only_calls
-            }
-            seen_signatures = context.metadata.setdefault("seen_read_only_signatures", [])
-            new_signatures = read_only_signatures - set(seen_signatures)
-            if new_signatures:
-                batch_produced_new_facts = True
-                rt.stagnant_read_only_passes = 0
-                seen_signatures.extend(new_signatures)
-            else:
-                rt.stagnant_read_only_passes += 1
 
         # Execute read-only tools in parallel
         if read_only_calls:
@@ -342,16 +328,11 @@ class RapidExecutionLoop:
                 if step.status == StepStatus.WAITING_FOR_APPROVAL:
                     return await self._handle_approval(step, context, result, rt)
 
+        # 只在达到最大只读轮次时才触发调查预算限制
         if (
             read_only_calls
             and not write_calls
-            and (
-                (
-                    not batch_produced_new_facts
-                    and rt.read_only_passes_used > 4
-                )
-                or rt.read_only_passes_used >= self.MAX_READ_ONLY_PASSES
-            )
+            and rt.read_only_passes_used >= self.MAX_READ_ONLY_PASSES
         ):
             # 如果有未完成的计划，推动LLM继续执行而不是强制总结
             if context.plan and not context.plan.is_complete:
@@ -359,7 +340,7 @@ class RapidExecutionLoop:
                 in_progress_count = sum(1 for s in context.plan.steps if s.status == "in_progress")
                 
                 nudge_prompt = (
-                    f"[Investigation Budget Notice] You've been reading files repeatedly without taking action. "
+                    f"[Investigation Budget Limit] You've reached the maximum number of read-only operations ({self.MAX_READ_ONLY_PASSES} passes). "
                     f"Your plan has {pending_count} pending and {in_progress_count} in-progress steps remaining.\n\n"
                     f"Please proceed with concrete actions now:\n"
                     f"- Call the plan tool to update step status if investigation is complete\n"
@@ -368,13 +349,13 @@ class RapidExecutionLoop:
                     f"Do NOT continue reading files without making progress."
                 )
                 context.add_message("user", nudge_prompt)
-                logger.info("调查预算触发但计划未完成，推动LLM继续执行: pending=%d, in_progress=%d", 
-                           pending_count, in_progress_count)
+                logger.info("达到最大只读轮次(%d)但计划未完成，推动LLM继续执行: pending=%d, in_progress=%d", 
+                           self.MAX_READ_ONLY_PASSES, pending_count, in_progress_count)
                 return LoopPhase.PLANNING
             
             # 没有计划或计划已完成，才进入强制总结
             context.metadata["investigation_budget_exhausted"] = True
-            logger.info("调查预算耗尽，进入总结阶段")
+            logger.info("达到最大只读轮次(%d)，进入总结阶段", self.MAX_READ_ONLY_PASSES)
             return LoopPhase.FINAL_SUMMARY
 
         if read_only_calls:
@@ -428,7 +409,6 @@ class RapidExecutionLoop:
             else:
                 rt.consecutive_failures = 0
                 rt.has_executed_tools = True
-                rt.stagnant_read_only_passes = 0
 
             if self._is_doom_loop(context):
                 doom_prompt = (

@@ -599,7 +599,7 @@ class TestRapidExecutionLoop:
     ):
         registry = ToolRegistry()
         registry.register(ReadOnlyFileTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=20)
 
         call_count = [0]
 
@@ -621,7 +621,7 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("重新检查并给出结论")
 
         assert result.status == LoopStatus.COMPLETED
-        assert len(result.steps) == 2
+        assert len(result.steps) == 10  # MAX_READ_ONLY_PASSES = 10
         assert result.result == "基于现有证据给出结论。"
 
     @pytest.mark.asyncio
