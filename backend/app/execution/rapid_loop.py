@@ -143,6 +143,14 @@ class RapidExecutionLoop:
     ) -> LoopPhase:
         """验证停止决策是否合理"""
         
+        logger.info(
+            "验证停止决策: has_executed_tools=%s, has_plan=%s, plan_complete=%s, has_content=%s",
+            rt.has_executed_tools,
+            context.plan is not None,
+            context.plan.is_complete if context.plan else "N/A",
+            rt.response.has_content,
+        )
+        
         # 没执行过工具 - 纯问答，可以停止
         if not rt.has_executed_tools:
             if rt.response.has_content:
@@ -183,8 +191,9 @@ class RapidExecutionLoop:
             logger.info("计划未完成但 LLM 停止，询问是否继续")
             return await self._ask_continue_or_stop(context, rt)
         
-        # 没计划或计划完成 - 正常停止
+        # 没计划或计划完成 
         if rt.response.has_content:
+            # 正常完成
             result.status = LoopStatus.COMPLETED
             result.result = rt.response.content
             return LoopPhase.DONE
@@ -752,6 +761,7 @@ class RapidExecutionLoop:
         """Bootstrap plan at task start: try to recover, check relevance, or create new."""
         plan_tool = self.tool_definitions.get_plan_tool()
         if not plan_tool:
+            logger.info("Bootstrap plan: 无 plan_tool，跳过")
             return
 
         # Set context for file operations
@@ -761,8 +771,16 @@ class RapidExecutionLoop:
 
         # Try to recover existing plan
         recovered_plan = plan_tool.try_recover(max_age_hours=24)
+        logger.info(
+            "Bootstrap plan: recovered_plan=%s, goal=%s",
+            recovered_plan is not None,
+            recovered_plan.goal[:80] if recovered_plan else "N/A",
+        )
+        
         if recovered_plan:
             is_relevant = await self._check_plan_relevance(context, recovered_plan)
+            logger.info("Bootstrap plan: 相关性检查结果=%s", is_relevant)
+            
             if is_relevant:
                 context.plan = recovered_plan
                 context.plan_file_path = plan_tool._file_path
