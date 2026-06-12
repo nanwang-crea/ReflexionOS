@@ -231,15 +231,43 @@ export function applyConversationSnapshot(
         .map((id) => previous.messagesById[id])
         .filter(Boolean)
 
+      // Find the minimum turn index in the new snapshot
+      // Only preserve messages from turns that are OLDER than the snapshot range
+      // (i.e., real history from loadMore, not deleted messages)
+      const minSnapshotTurnIndex = snapshot.turns.length > 0
+        ? Math.min(...snapshot.turns.map((t) => t.turnIndex))
+        : Number.MAX_SAFE_INTEGER
+
+      const historyMessages = prependedMessages.filter((m) => {
+        const turn = previous.turnsById[m.turnId]
+        return turn && turn.turnIndex < minSnapshotTurnIndex
+      })
+
+      if (historyMessages.length === 0) {
+        // No real history messages to preserve, all missing messages were deleted
+        return {
+          sessionId: snapshot.session.id,
+          lastEventSeq: snapshot.session.lastEventSeq,
+          session: snapshot.session,
+          turnOrder: finalTurnOrder,
+          turnsById: finalTurnsById,
+          runsById: finalRunsById,
+          messageOrder: finalMessageOrder,
+          messagesById: finalMessagesById,
+          hasMore: snapshot.nextBeforeTurnId !== null,
+          nextBeforeTurnId: snapshot.nextBeforeTurnId,
+        }
+      }
+
       const snapshotTurnIds = new Set(snapshot.turns.map((t) => t.id))
       const snapshotRunIds = new Set(snapshot.runs.map((r) => r.id))
 
-      const additionalTurns = [...new Set(prependedMessages.map((m) => m.turnId).filter((id): id is string => typeof id === 'string'))]
+      const additionalTurns = [...new Set(historyMessages.map((m) => m.turnId).filter((id): id is string => typeof id === 'string'))]
         .filter((id) => !snapshotTurnIds.has(id) && previous.turnsById[id])
         .map((id) => previous.turnsById[id]!)
         .sort((a, b) => a.turnIndex - b.turnIndex)
 
-      const additionalRuns = [...new Set(prependedMessages.map((m) => m.runId).filter((id): id is string => typeof id === 'string'))]
+      const additionalRuns = [...new Set(historyMessages.map((m) => m.runId).filter((id): id is string => typeof id === 'string'))]
         .filter((id) => !snapshotRunIds.has(id) && previous.runsById[id])
         .map((id) => previous.runsById[id]!)
 
@@ -256,9 +284,10 @@ export function applyConversationSnapshot(
         ...finalRunsById,
       }
 
-      finalMessageOrder = [...prependedIds, ...messageOrder]
+      const historyMessageIds = historyMessages.map((m) => m.id)
+      finalMessageOrder = [...historyMessageIds, ...messageOrder]
       finalMessagesById = {
-        ...Object.fromEntries(prependedMessages.map((m) => [m.id, m])),
+        ...Object.fromEntries(historyMessages.map((m) => [m.id, m])),
         ...messagesById,
       }
     }
