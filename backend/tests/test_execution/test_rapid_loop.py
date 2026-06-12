@@ -246,13 +246,9 @@ class TestRapidExecutionLoop:
                     content="先读取 README", tool_calls=[tool_call], finish_reason="tool_calls"
                 ):
                     yield chunk
-            elif call_index == 2:
-                # Agent stops with content after tool execution — completion firewall nudges
-                async for chunk in self._stream_response(content="README 已读取完成"):
-                    yield chunk
             else:
-                # Nudge response: agent confirms done
-                async for chunk in self._stream_response(content="README 已读取完成，任务结束"):
+                # Agent returns final answer after tool execution
+                async for chunk in self._stream_response(content="README 已读取完成"):
                     yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -260,8 +256,8 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("帮我看一下当前 README")
 
         assert result.status == LoopStatus.COMPLETED
-        assert result.result == "README 已读取完成，任务结束"
-        assert len(captured_calls) == 3
+        assert result.result == "README 已读取完成"
+        assert len(captured_calls) == 2
 
         second_messages, second_tools = captured_calls[1]
         assert second_tools is not None
