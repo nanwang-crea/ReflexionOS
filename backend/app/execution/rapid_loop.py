@@ -9,7 +9,6 @@ from datetime import datetime
 from app.config.settings import config_manager
 from app.execution.approval_flow import ApprovalFlow
 from app.execution.context_manager import LoopContext
-from app.execution.initial_plan_bootstrapper import InitialPlanBootstrapper
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.models import (
     LoopPhase,
@@ -72,12 +71,6 @@ class RapidExecutionLoop:
             max_context_groups=self.MAX_CONTEXT_GROUPS,
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
             task_anchor_interval=8,
-        )
-        self.initial_plan_bootstrapper = InitialPlanBootstrapper(
-            llm=self.llm,
-            tool_definitions=self.tool_definitions,
-            message_builder=self.message_builder,
-            emit=self._emit,
         )
         self.tool_executor = ToolCallExecutor(
             tool_registry=self._tool_registry,
@@ -757,7 +750,7 @@ class RapidExecutionLoop:
 
         try:
             if context.agent_mode != "plan":
-                await self.initial_plan_bootstrapper.bootstrap(context)
+                await self._bootstrap_plan(context)
 
             handlers: dict[LoopPhase, Callable] = {
                 LoopPhase.PLANNING: self._handle_planning,
@@ -846,6 +839,105 @@ class RapidExecutionLoop:
         return loop_result
 
     # -- helpers ----------------------------------------------------------
+
+    async def _bootstrap_plan(self, context: LoopContext) -> None:
+        """Bootstrap plan at task start: try to recover, check relevance, or create new."""
+        plan_tool = self.tool_definitions.get_plan_tool()
+        if not plan_tool:
+            return
+
+        # Set context for file operations
+        plan_tool.set_context(context.project_path, context.session_id)
+        plan_tool.set_plan(None)
+        context.plan = None
+
+        # Try to recover existing plan
+        recovered_plan = plan_tool.try_recover(max_age_hours=24)
+        if recovered_plan:
+            is_relevant = await self._check_plan_relevance(context, recovered_plan)
+            if is_relevant:
+                context.plan = recovered_plan
+                context.plan_file_path = plan_tool._file_path
+                await self._emit("plan:updated", context.plan.to_dict())
+                await self._emit("plan:recovered", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+                logger.info("已恢复计划: %s", recovered_plan.goal[:80])
+                return
+            else:
+                logger.info(
+                    "恢复的计划 (goal: %s) 与新任务不相关: %s — 丢弃",
+                    recovered_plan.goal[:80],
+                    context.task[:80],
+                )
+                plan_tool.discard()
+                await self._emit("plan:discarded", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+
+        # No plan or discarded, create new one via LLM
+        tools = self.tool_definitions.for_initial_plan()
+        messages = self.message_builder.build_initial_plan(context)
+        response = await self.llm.complete(messages, tools)
+        
+        for tool_call in response.tool_calls:
+            if tool_call.name != plan_tool.name:
+                continue
+            result = await plan_tool.execute(tool_call.arguments)
+            if result.success and plan_tool.get_plan():
+                context.plan = plan_tool.get_plan()
+                context.plan_file_path = plan_tool._file_path
+                await self._emit("plan:updated", context.plan.to_dict())
+            elif result.error:
+                context.add_message("system", f"初始计划创建失败: {result.error}")
+            return
+
+    async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
+        """Ask LLM whether the new task is related to the recovered plan."""
+        steps_lines = []
+        for i, s in enumerate(plan.steps, 1):
+            line = f"  {i}. [{s.status}] {s.content}"
+            if s.findings:
+                line += f"\n     Findings: {s.findings}"
+            steps_lines.append(line)
+        steps_detail = "\n".join(steps_lines)
+
+        prompt = f"""\
+You are deciding whether to RESUME an existing plan or DISCARD it and create a new one.
+
+Existing plan goal: {plan.goal}
+
+Full plan ({len(plan.steps)} steps):
+{steps_detail}
+
+New user task: {context.task}
+
+Question: Should the agent RESUME the existing plan (continue from where it left off)
+to fulfill the new task? Or should it DISCARD the plan and create a fresh one?
+
+Resume criteria (answer "yes" ONLY if ALL are true):
+1. The new task is asking to CONTINUE the same work described in the plan goal
+2. The remaining pending/blocked steps are directly relevant to completing the new task
+3. Starting a fresh plan would be wasteful because the completed steps already cover
+   what the new task needs
+
+Answer "no" if:
+- The new task is a DIFFERENT focus area, even if it's in the same project/domain
+- The new task only overlaps partially with the plan goal
+- The user wants to investigate or work on something specific, not continue the full plan
+
+Answer ONLY "yes" or "no".\
+"""
+        messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
+        try:
+            response = await self.llm.complete(messages, tools=[])
+            answer = (response.content or "").strip().lower()
+            if answer.startswith("yes"):
+                return True
+            if answer.startswith("no"):
+                return False
+            return "yes" in answer
+        except Exception:
+            logger.warning("计划相关性检查失败，默认为不相关")
+            return False
+
+    # -- LLM calls --------------------------------------------------------
 
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """

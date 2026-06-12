@@ -301,7 +301,7 @@ class TestRapidExecutionLoop:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        execution_loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+        execution_loop._bootstrap_plan = bootstrap_with_plan
 
         call_count = [0]
         async def mock_stream(messages, tools=None):
@@ -375,7 +375,7 @@ class TestRapidExecutionLoop:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        execution_loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+        execution_loop._bootstrap_plan = bootstrap_with_plan
 
         call_count = [0]
 
@@ -1611,7 +1611,7 @@ class TestHardenedLoopIntegration:
         llm.stream_complete = mock_stream
 
         loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=10)
-        loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+        loop._bootstrap_plan = bootstrap_with_plan
 
         result = await loop.run(task="fix the bug")
 
@@ -1670,7 +1670,7 @@ class TestHardenedLoopIntegration:
         llm.stream_complete = mock_stream
 
         loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=10)
-        loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+        loop._bootstrap_plan = bootstrap_with_plan
 
         result = await loop.run(task="fix the bug")
 
@@ -1729,7 +1729,7 @@ class TestHardenedLoopIntegration:
         llm.stream_complete = mock_stream
 
         loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=10)
-        loop.initial_plan_bootstrapper.bootstrap = bootstrap_with_plan
+        loop._bootstrap_plan = bootstrap_with_plan
 
         LoopContext.add_message = capturing_add
         try:
