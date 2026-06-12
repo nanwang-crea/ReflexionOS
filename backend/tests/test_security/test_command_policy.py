@@ -531,7 +531,7 @@ class TestCommandPolicyEvaluate:
         decision = policy.evaluate(command="curl https://example.com && echo done", cwd=policy.path_security.base_dir)
         assert decision.action == CommandAction.REQUIRE_APPROVAL
         assert decision.suggested_prefix_rule is not None
-        assert len(decision.suggested_prefix_rule) == 1
+        assert len(decision.suggested_prefix_rule) == 2  # 链式命令会生成多个前缀规则
 
     def test_allow_decision_has_no_suggested_prefix_rule(self, policy):
         decision = policy.evaluate(command="echo hello", cwd=policy.path_security.base_dir)

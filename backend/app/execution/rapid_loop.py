@@ -9,7 +9,6 @@ from datetime import datetime
 from app.config.settings import config_manager
 from app.execution.approval_flow import ApprovalFlow
 from app.execution.context_manager import LoopContext
-from app.execution.initial_plan_bootstrapper import InitialPlanBootstrapper
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.models import (
     LoopPhase,
@@ -73,12 +72,6 @@ class RapidExecutionLoop:
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
             task_anchor_interval=8,
         )
-        self.initial_plan_bootstrapper = InitialPlanBootstrapper(
-            llm=self.llm,
-            tool_definitions=self.tool_definitions,
-            message_builder=self.message_builder,
-            emit=self._emit,
-        )
         self.tool_executor = ToolCallExecutor(
             tool_registry=self._tool_registry,
             emit=self._emit,
@@ -132,50 +125,40 @@ class RapidExecutionLoop:
             context.plan is None,
         )
 
-        # Completion firewall: check BEFORE routing to TOOL_EXECUTION.
-        # If agent has been using tools and plan is unfinished, nudge to continue
-        # even if the LLM returned tool_calls alongside content.
-        if rt.has_executed_tools and not rt.response.has_tool_calls:
-            plan_has_unfinished = (
-                context.plan is not None
-                and not context.plan.is_complete
-            )
-            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"] if context.plan else []
-            current_step = context.plan.current_step if context.plan else None
-            allow_stop_for_clarification = (
-                context.plan is not None
-                and current_step is None
-                and len(blocked_steps) > 0
-            )
-            if not allow_stop_for_clarification:
-                logger.info(
-                    "Anti-stop check: plan_has_unfinished=%s, making decision call",
-                    plan_has_unfinished,
-                )
-                return await self._make_decision_call(context, result, rt, plan_has_unfinished)
-
+        # Route based on response
         if rt.response.has_tool_calls:
             rt.consecutive_failures = 0
             return LoopPhase.TOOL_EXECUTION
 
-        # 没有工具调用
-        if rt.has_executed_tools:
-            if rt.response.has_content:
-                content = rt.response.content or ""
+        # No tool calls - validate if stopping is reasonable
+        return await self._validate_stop_decision(context, result, rt)
 
-                result.status = LoopStatus.COMPLETED
-                result.result = rt.response.content
-                return LoopPhase.DONE
-            else:
-                # 没有最终回答时，再进入兜底总结阶段
-                return LoopPhase.FINAL_SUMMARY
-        else:
-            # 没执行过工具，直接完成
+    MAX_DECISION_RETRIES = 5
+
+    async def _validate_stop_decision(
+        self,
+        context: LoopContext,
+        result: LoopResult,
+        rt: RuntimeState,
+    ) -> LoopPhase:
+        """验证停止决策是否合理"""
+        
+        logger.info(
+            "验证停止决策: has_executed_tools=%s, has_plan=%s, plan_complete=%s, has_content=%s",
+            rt.has_executed_tools,
+            context.plan is not None,
+            context.plan.is_complete if context.plan else "N/A",
+            rt.response.has_content,
+        )
+        
+        # 没执行过工具 - 纯问答，可以停止
+        if not rt.has_executed_tools:
             if rt.response.has_content:
                 result.status = LoopStatus.COMPLETED
                 result.result = rt.response.content
                 return LoopPhase.DONE
             else:
+                # 空响应处理
                 if rt.response.finish_reason == "length":
                     result.status = LoopStatus.COMPLETED
                     result.result = "模型输出被截断（max_tokens 不足），请尝试增大 max_tokens 配置"
@@ -191,152 +174,68 @@ class RapidExecutionLoop:
                         "请检查模型配置或更换模型"
                     )
                 return LoopPhase.PLANNING
+        
+        # 执行过工具，检查计划状态
+        if context.plan and not context.plan.is_complete:
+            # 检查是否是合理的停止（等待用户输入）
+            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
+            current_step = context.plan.current_step
+            
+            if blocked_steps and not current_step:
+                # 有阻塞步骤且没有进行中的步骤 - 合理停止
+                result.status = LoopStatus.COMPLETED
+                result.result = rt.response.content or "需要更多信息才能继续"
+                return LoopPhase.DONE
+            
+            # 计划未完成但停止了 - 询问确认
+            logger.info("计划未完成但 LLM 停止，询问是否继续")
+            return await self._ask_continue_or_stop(context, rt)
+        
+        # 没计划或计划完成 
+        if rt.response.has_content:
+            # 正常完成
+            result.status = LoopStatus.COMPLETED
+            result.result = rt.response.content
+            return LoopPhase.DONE
+        else:
+            # 没有最终回答，进入兜底总结
+            return LoopPhase.FINAL_SUMMARY
 
-    MAX_DECISION_RETRIES = 5
-
-    async def _make_decision_call(
+    async def _ask_continue_or_stop(
         self,
         context: LoopContext,
-        result: LoopResult,
         rt: RuntimeState,
-        plan_has_unfinished: bool,
     ) -> LoopPhase:
-        """
-        Premature-stop decision call.
-
-        当模型在已执行工具后无 tool_calls 返回时，调用一次专门的 decision LLM，
-        让模型基于原始任务和当前进度做出 continue/stop 决策，避免 nudge→PLANNING 循环。
-
-        Returns:
-            TOOL_EXECUTION — 模型决定继续，有 tool_calls
-            DONE — 模型给出最终回答
-        Raises:
-            RuntimeError — 重试 MAX_DECISION_RETRIES 次后仍无有效响应
-        """
-        task_summary = (context.task or "")[:500]
-        partial_response = (rt.response.content or "")[:500] if rt.response else ""
-
-        plan_progress = ""
-        if context.plan and plan_has_unfinished:
-            current = context.plan.current_step
-            pending = [s for s in context.plan.steps if s.status == "pending"]
-            completed = [s for s in context.plan.steps if s.status == "completed"]
-            total = len(context.plan.steps)
-            plan_progress = f"\nPlan progress: {len(completed)}/{total} completed, {len(pending)} pending."
-            if current:
-                step_num = next(
-                    (i + 1 for i, s in enumerate(context.plan.steps) if s.status == "in_progress"),
-                    0,
-                )
-                plan_progress += (
-                    f"\n[Plan ► Step {step_num}/{total}: {current.content}] "
-                    f"→ work on this step, then call plan to mark it completed."
-                )
-            else:
-                plan_progress += "\nPending steps:\n" + "\n".join(f"  - {s.content}" for s in pending)
-
-        decision_prompt = (
-            f"The user's original request was:\n---\n{task_summary}\n---\n\n"
-            f"You previously responded:\n---\n{partial_response}\n---\n"
-            f"{plan_progress}\n\n"
-            "Decision required: Should you continue working or is the task complete?\n"
-            "- If there is more work to do, call the appropriate tools to continue.\n"
-            "- If the task is fully complete, provide your final answer to the user."
+        """询问 LLM：计划未完成，确定要停止吗？"""
+        
+        # 先把 assistant 的响应加到上下文
+        if rt.response.has_content:
+            context.add_message("assistant", content=rt.response.content)
+        
+        # 防止无限循环：检查是否已经询问过
+        nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
+        if nudge_count >= 2:
+            # 已经问过 2 次了，强制进入总结
+            logger.warning("计划未完成但 LLM 持续停止，强制进入总结阶段")
+            return LoopPhase.FINAL_SUMMARY
+        
+        context.metadata["_plan_incomplete_nudge_count"] = nudge_count + 1
+        
+        pending = [s for s in context.plan.steps if s.status == "pending"]
+        completed = [s for s in context.plan.steps if s.status == "completed"]
+        
+        prompt = (
+            f"Your plan has {len(pending)} pending steps (out of {len(context.plan.steps)} total, "
+            f"{len(completed)} completed):\n"
+            + "\n".join(f"  - {s.content}" for s in pending)
+            + "\n\nThe plan is NOT complete. You stopped without calling tools. Please:\n"
+            "A) Call the necessary tools to continue the next step, OR\n"
+            "B) Update the plan to mark steps as completed/blocked if the work is actually done."
         )
 
-        messages = [
-            LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=self.prompt_manager.get_system_prompt(),
-            )
-        ]
-        for msg in self.message_builder.recent_context_messages(context):
-            tool_calls = [LLMToolCall(**tc) for tc in msg.get("tool_calls", [])]
-            messages.append(
-                LLMMessage(
-                    role=msg["role"],
-                    content=msg.get("content"),
-                    tool_calls=tool_calls,
-                    tool_call_id=msg.get("tool_call_id"),
-                )
-            )
-        messages.append(LLMMessage(role=MessageRole.USER, content=decision_prompt))
-
-        tools = (
-            self.tool_definitions.for_plan_mode()
-            if context.agent_mode == "plan"
-            else self.tool_definitions.for_context(context)
-        )
-
-        for attempt in range(self.MAX_DECISION_RETRIES):
-            content_parts: list[str] = []
-            reasoning_parts: list[str] = []
-            tool_calls: list[LLMToolCall] = []
-            finish_reason = "stop"
-            call_started_at = time.perf_counter()
-            first_chunk_latency: float | None = None
-
-            async for chunk in self.llm.stream_complete(messages, tools):
-                if first_chunk_latency is None:
-                    first_chunk_latency = time.perf_counter() - call_started_at
-                if chunk.type == "content" and chunk.content:
-                    content_parts.append(chunk.content)
-                    await self._emit("llm:content", {"content": chunk.content})
-                elif chunk.type == "reasoning" and chunk.reasoning_content:
-                    reasoning_parts.append(chunk.reasoning_content)
-                    await self._emit("llm:reasoning", {"reasoning_content": chunk.reasoning_content})
-                elif chunk.type == "tool_calls":
-                    tool_calls = chunk.tool_calls
-                    finish_reason = chunk.finish_reason or "tool_calls"
-                    break
-                elif chunk.type == "done":
-                    finish_reason = chunk.finish_reason or "stop"
-                    break
-                elif chunk.type == "error":
-                    logger.warning(
-                        "Decision call stream error (attempt %d/%d): %s",
-                        attempt + 1, self.MAX_DECISION_RETRIES, chunk.error,
-                    )
-                    break
-
-            response = LLMResponse(
-                content="".join(content_parts),
-                reasoning_content="".join(reasoning_parts) or None,
-                tool_calls=tool_calls,
-                finish_reason=finish_reason,
-                model=self.llm.get_model_name(),
-            )
-
-            if response.has_content or response.has_tool_calls:
-                context.add_message(
-                    "assistant",
-                    content=response.content or None,
-                    tool_calls=[tc.model_dump() for tc in response.tool_calls],
-                )
-
-                logger.info(
-                    "Decision call response: has_tool_calls=%s, content_preview=%s",
-                    response.has_tool_calls,
-                    (response.content or "")[:80],
-                )
-
-                if response.has_tool_calls:
-                    rt.response = response
-                    return LoopPhase.TOOL_EXECUTION
-
-                result.status = LoopStatus.COMPLETED
-                result.result = response.content
-                return LoopPhase.DONE
-
-            logger.warning(
-                "Decision call empty response (attempt %d/%d), finish_reason=%s",
-                attempt + 1, self.MAX_DECISION_RETRIES, finish_reason,
-            )
-
-        raise RuntimeError(
-            f"Decision call returned empty response after {self.MAX_DECISION_RETRIES} retries. "
-            "The model may be unable to continue. Please check model configuration."
-        )
+        context.add_message("user", prompt)
+        context.metadata["_prefill_assistant"] = "I'll continue working on the plan. "
+        return LoopPhase.PLANNING
 
     def _record_tool_signature(self, context: LoopContext, tool_call: LLMToolCall) -> None:
         sig = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
@@ -737,6 +636,7 @@ class RapidExecutionLoop:
             LoopResult: 执行结果
         """
         start_time = time.time()
+        # 在这儿先构造LoopResult，因为LoopContext需要用到run_id
 
         loop_result = LoopResult(
             id=run_id or f"run-{uuid.uuid4().hex[:8]}",
@@ -744,6 +644,7 @@ class RapidExecutionLoop:
             status=LoopStatus.RUNNING,
             created_at=created_at or datetime.now(),
         )
+        # 构造LoopContext，此时已将用户的原始输入，上下文，系统提示词等注入到LoopContext中
 
         context = LoopContext.from_run_input(
             task=task,
@@ -766,7 +667,7 @@ class RapidExecutionLoop:
 
         try:
             if context.agent_mode != "plan":
-                await self.initial_plan_bootstrapper.bootstrap(context)
+                await self._bootstrap_plan(context)
 
             handlers: dict[LoopPhase, Callable] = {
                 LoopPhase.PLANNING: self._handle_planning,
@@ -855,6 +756,114 @@ class RapidExecutionLoop:
         return loop_result
 
     # -- helpers ----------------------------------------------------------
+
+    async def _bootstrap_plan(self, context: LoopContext) -> None:
+        """Bootstrap plan at task start: try to recover, check relevance, or create new."""
+        plan_tool = self.tool_definitions.get_plan_tool()
+        if not plan_tool:
+            logger.info("Bootstrap plan: 无 plan_tool，跳过")
+            return
+
+        # Set context for file operations
+        plan_tool.set_context(context.project_path, context.session_id)
+        plan_tool.set_plan(None)
+        context.plan = None
+
+        # Try to recover existing plan
+        recovered_plan = plan_tool.try_recover(max_age_hours=24)
+        logger.info(
+            "Bootstrap plan: recovered_plan=%s, goal=%s",
+            recovered_plan is not None,
+            recovered_plan.goal[:80] if recovered_plan else "N/A",
+        )
+        
+        if recovered_plan:
+            is_relevant = await self._check_plan_relevance(context, recovered_plan)
+            logger.info("Bootstrap plan: 相关性检查结果=%s", is_relevant)
+            
+            if is_relevant:
+                context.plan = recovered_plan
+                context.plan_file_path = plan_tool._file_path
+                await self._emit("plan:updated", context.plan.to_dict())
+                await self._emit("plan:recovered", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+                logger.info("已恢复计划: %s", recovered_plan.goal[:80])
+                return
+            else:
+                logger.info(
+                    "恢复的计划 (goal: %s) 与新任务不相关: %s — 丢弃",
+                    recovered_plan.goal[:80],
+                    context.task[:80],
+                )
+                plan_tool.discard()
+                await self._emit("plan:discarded", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+
+        # No plan or discarded, create new one via LLM
+        tools = self.tool_definitions.for_initial_plan()
+        messages = self.message_builder.build_initial_plan(context)
+        response = await self.llm.complete(messages, tools)
+        
+        for tool_call in response.tool_calls:
+            if tool_call.name != plan_tool.name:
+                continue
+            result = await plan_tool.execute(tool_call.arguments)
+            if result.success and plan_tool.get_plan():
+                context.plan = plan_tool.get_plan()
+                context.plan_file_path = plan_tool._file_path
+                await self._emit("plan:updated", context.plan.to_dict())
+            elif result.error:
+                context.add_message("system", f"初始计划创建失败: {result.error}")
+            return
+
+    async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
+        """Ask LLM whether the new task is related to the recovered plan."""
+        steps_lines = []
+        for i, s in enumerate(plan.steps, 1):
+            line = f"  {i}. [{s.status}] {s.content}"
+            if s.findings:
+                line += f"\n     Findings: {s.findings}"
+            steps_lines.append(line)
+        steps_detail = "\n".join(steps_lines)
+
+        prompt = f"""\
+You are deciding whether to RESUME an existing plan or DISCARD it and create a new one.
+
+Existing plan goal: {plan.goal}
+
+Full plan ({len(plan.steps)} steps):
+{steps_detail}
+
+New user task: {context.task}
+
+Question: Should the agent RESUME the existing plan (continue from where it left off)
+to fulfill the new task? Or should it DISCARD the plan and create a fresh one?
+
+Resume criteria (answer "yes" ONLY if ALL are true):
+1. The new task is asking to CONTINUE the same work described in the plan goal
+2. The remaining pending/blocked steps are directly relevant to completing the new task
+3. Starting a fresh plan would be wasteful because the completed steps already cover
+   what the new task needs
+
+Answer "no" if:
+- The new task is a DIFFERENT focus area, even if it's in the same project/domain
+- The new task only overlaps partially with the plan goal
+- The user wants to investigate or work on something specific, not continue the full plan
+
+Answer ONLY "yes" or "no".\
+"""
+        messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
+        try:
+            response = await self.llm.complete(messages, tools=[])
+            answer = (response.content or "").strip().lower()
+            if answer.startswith("yes"):
+                return True
+            if answer.startswith("no"):
+                return False
+            return "yes" in answer
+        except Exception:
+            logger.warning("计划相关性检查失败，默认为不相关")
+            return False
+
+    # -- LLM calls --------------------------------------------------------
 
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """

@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from app.execution.plan_engine import Plan, PlanStep
+from app.execution.plan_file_sync import PlanFileSync
 from app.tools.base import BaseTool, ToolResult
 
 logger = logging.getLogger(__name__)
@@ -9,8 +10,12 @@ logger = logging.getLogger(__name__)
 
 class PlanTool(BaseTool):
 
-    def __init__(self):
+    def __init__(self, file_sync: PlanFileSync | None = None):
         self._plan: Plan | None = None
+        self._file_sync = file_sync or PlanFileSync()
+        self._file_path: str | None = None
+        self._project_path: str | None = None
+        self._session_id: str | None = None
 
     @property
     def name(self) -> str:
@@ -72,6 +77,52 @@ class PlanTool(BaseTool):
     def get_plan(self) -> Plan | None:
         return self._plan
 
+    def set_context(self, project_path: str, session_id: str):
+        """Set project and session context for file operations."""
+        self._project_path = project_path
+        self._session_id = session_id
+
+    def try_recover(self, max_age_hours: int = 24) -> Plan | None:
+        """Try to recover an existing plan from disk. Returns the plan if found."""
+        if not self._session_id:
+            return None
+        
+        path = self._file_sync.find_recovery_plan(
+            project_path=self._project_path,
+            session_id=self._session_id,
+            max_age_hours=max_age_hours,
+        )
+        if path:
+            plan = self._file_sync.read(path)
+            if plan:
+                self._plan = plan
+                self._file_path = path
+                logger.info("恢复计划: %s", plan.goal[:80])
+                return plan
+        return None
+
+    def discard(self):
+        """Discard current plan and delete its file."""
+        if self._file_path:
+            self._file_sync.delete(self._file_path, project_path=self._project_path)
+            logger.info("丢弃计划: %s", self._file_path)
+        self._plan = None
+        self._file_path = None
+
+    def _persist(self):
+        """Persist current plan to disk."""
+        if not self._plan or not self._session_id:
+            return
+        
+        if self._file_path:
+            self._file_sync.sync(self._plan, self._file_path, project_path=self._project_path)
+        else:
+            self._file_path = self._file_sync.write(
+                self._plan,
+                session_id=self._session_id,
+                project_path=self._project_path,
+            )
+
     async def execute(self, args: dict[str, Any]) -> ToolResult:
         steps_raw = args.get("steps", [])
         goal = args.get("goal", "")
@@ -121,6 +172,9 @@ class PlanTool(BaseTool):
             output_parts.append("\nAll steps completed. Provide a summary to the user.")
 
         logger.info("Plan updated: %s (%d/%d done)", plan.goal, completed, len(plan.steps))
+
+        # Auto-persist after update
+        self._persist()
 
         return ToolResult(
             success=True,

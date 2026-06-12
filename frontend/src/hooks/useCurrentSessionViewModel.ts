@@ -58,7 +58,7 @@ export function useCurrentSessionViewModel(options: {
       isLoadingMoreRef.current = false
       setIsLoadingMore(false)
     }
-  }, [options.hasMore, options.onLoadMore])
+  }, [options])
 
   const handleEditMessage = useCallback((messageId: string, newContent: string) => {
     if (!currentSessionSummary) return
@@ -68,7 +68,7 @@ export function useCurrentSessionViewModel(options: {
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
-  }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
+  }, [currentSessionSummary, options, selection.providerId, selection.modelId])
 
   const handleRegenerateMessage = useCallback((messageId: string) => {
     if (!currentSessionSummary) return
@@ -79,7 +79,7 @@ export function useCurrentSessionViewModel(options: {
       providerId: selection.providerId,
       modelId: selection.modelId,
     })
-  }, [currentSessionSummary, options.editAndRerun, selection.providerId, selection.modelId])
+  }, [currentSessionSummary, options, selection.providerId, selection.modelId])
 
   const runtimeStatus = getRuntimeStatusDescriptor({
     isRunning: options.isRunning,
