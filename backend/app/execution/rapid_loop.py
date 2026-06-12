@@ -627,6 +627,7 @@ class RapidExecutionLoop:
             LoopResult: 执行结果
         """
         start_time = time.time()
+        # 在这儿先构造LoopResult，因为LoopContext需要用到run_id
 
         loop_result = LoopResult(
             id=run_id or f"run-{uuid.uuid4().hex[:8]}",
@@ -634,6 +635,7 @@ class RapidExecutionLoop:
             status=LoopStatus.RUNNING,
             created_at=created_at or datetime.now(),
         )
+        # 构造LoopContext，此时已将用户的原始输入，上下文，系统提示词等注入到LoopContext中
 
         context = LoopContext.from_run_input(
             task=task,
