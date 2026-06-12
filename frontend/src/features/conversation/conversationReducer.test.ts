@@ -740,5 +740,108 @@ describe('conversationReducer', () => {
       expect(next.messagesById['msg-3']).toBeUndefined()
       expect(next.messagesById['msg-4']).toBeUndefined()
     })
+
+    it('does not preserve deleted messages when editing (bug regression test)', () => {
+      // Start with a conversation containing turn-1
+      const base = applyConversationSnapshot(undefined, buildTwoTurnSnapshot())
+      expect(base.turnOrder).toEqual(['turn-1', 'turn-2'])
+      expect(base.messageOrder).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4'])
+
+      // User edits msg-1, backend truncates turn-1 and turn-2
+      const afterTruncate = applyConversationEvent(base, {
+        id: 'evt-trunc-edit',
+        sessionId: 'session-1',
+        seq: 9,
+        turnId: null,
+        runId: null,
+        messageId: null,
+        eventType: 'messages.truncated',
+        payloadJson: {
+          message_id: 'msg-1',
+          deleted_turn_ids: ['turn-1', 'turn-2'],
+          is_edit: true,
+          is_regenerate: false,
+        },
+        createdAt: '2026-04-24T10:00:11Z',
+      })
+
+      expect(afterTruncate.messageOrder).toEqual([])
+      expect(afterTruncate.turnOrder).toEqual([])
+
+      // Backend sends new snapshot with edited message in new turn-1
+      const afterEdit = applyConversationSnapshot(afterTruncate, {
+        session: {
+          id: 'session-1',
+          projectId: 'project-1',
+          title: '会话',
+          preferredProviderId: 'provider-a',
+          preferredModelId: 'model-a',
+          agentMode: 'build',
+          lastEventSeq: 12,
+          activeTurnId: 'turn-1-new',
+          createdAt: '2026-04-24T10:00:00Z',
+          updatedAt: '2026-04-24T10:00:12Z',
+        },
+        turns: [
+          {
+            id: 'turn-1-new',
+            sessionId: 'session-1',
+            turnIndex: 1,
+            rootMessageId: 'msg-1-edited',
+            status: 'running',
+            activeRunId: 'run-1-new',
+            createdAt: '2026-04-24T10:00:12Z',
+            updatedAt: '2026-04-24T10:00:12Z',
+            completedAt: null,
+          },
+        ],
+        runs: [
+          {
+            id: 'run-1-new',
+            sessionId: 'session-1',
+            turnId: 'turn-1-new',
+            attemptIndex: 1,
+            status: 'running',
+            providerId: 'provider-a',
+            modelId: 'model-a',
+            workspaceRef: null,
+            startedAt: '2026-04-24T10:00:12Z',
+            finishedAt: null,
+            errorCode: null,
+            errorMessage: null,
+          },
+        ],
+        messages: [
+          {
+            id: 'msg-1-edited',
+            sessionId: 'session-1',
+            turnId: 'turn-1-new',
+            runId: null,
+            turnMessageIndex: 1,
+            role: 'user',
+            messageType: 'user_message',
+            streamState: 'completed',
+            displayMode: 'default',
+            contentText: 'hello edited',
+            payloadJson: {},
+            createdAt: '2026-04-24T10:00:12Z',
+            updatedAt: '2026-04-24T10:00:12Z',
+            completedAt: '2026-04-24T10:00:12Z',
+          },
+        ],
+        hasMore: false,
+        nextBeforeTurnId: null,
+      })
+
+      // Bug regression check: old messages (msg-1, msg-2, msg-3, msg-4) should NOT be preserved
+      // Only the new edited message should be present
+      expect(afterEdit.messageOrder).toEqual(['msg-1-edited'])
+      expect(afterEdit.turnOrder).toEqual(['turn-1-new'])
+      expect(afterEdit.messagesById['msg-1']).toBeUndefined()
+      expect(afterEdit.messagesById['msg-2']).toBeUndefined()
+      expect(afterEdit.messagesById['msg-3']).toBeUndefined()
+      expect(afterEdit.messagesById['msg-4']).toBeUndefined()
+      expect(afterEdit.messagesById['msg-1-edited']).toBeDefined()
+    })
   })
 })
