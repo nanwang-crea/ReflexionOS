@@ -193,7 +193,7 @@ services/dialogService.test.ts           ← 测试混在 services 目录
 
 ---
 
-## ✅ 优先级 P1：APIs 重组（9 文件）— 已完成
+## ✅ 优先级 P1：APIs 重组（9 文件）— 已完成 ✅
 
 ### 移动 + 重命名 ✅
 
@@ -228,6 +228,8 @@ services/dialogService.test.ts           ← 测试混在 services 目录
 - git.store.ts, projectLoader.ts, useSidebarProjectActions.ts
 - sessionActions.ts, llmSettingsLoader.ts, providerActions.ts
 - llmSettingsLoader.test.ts, PluginsPage.tsx, SkillsPage.tsx, DisplayOptionsPanel.tsx
+
+**✅ 构建验证：用户已确认 `pnpm run build` 通过**
 
 ---
 

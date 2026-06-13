@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SessionConversationWebSocket } from './sessionConversationWebSocket'
+import { SessionConversationWebSocket } from '../sessionConversationWebSocket'
 
 const sentMessages: string[] = []
 const webSocketInstances: MockWebSocket[] = []

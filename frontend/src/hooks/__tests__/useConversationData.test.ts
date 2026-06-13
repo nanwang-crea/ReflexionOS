@@ -50,7 +50,7 @@ describe('useConversationData', () => {
   })
 
   it('defaults hasMore to false when the current conversation has not loaded yet', async () => {
-    const { useConversationData } = await import('./useConversationData')
+    const { useConversationData } = await import('../useConversationData')
 
     const result = useConversationData('session-1')
 
@@ -65,7 +65,7 @@ describe('useConversationData', () => {
       nextBeforeTurnId: 'turn-3',
     })
 
-    const { useConversationData } = await import('./useConversationData')
+    const { useConversationData } = await import('../useConversationData')
 
     const result = useConversationData('session-1')
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProviderInstance } from '@/types/llm'
-import { resolveSessionSelection } from './sessionSelection'
+import { resolveSessionSelection } from '../sessionSelection'
 
 function createProvider(
   id: string,

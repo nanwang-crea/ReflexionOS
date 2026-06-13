@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@/types/workspace'
-import { createSendMessage } from './useSendMessage'
+import { createSendMessage } from '../useSendMessage'
 
 describe('createSendMessage', () => {
   it('creates a backend session before first send when no current session exists', async () => {
@@ -178,7 +178,7 @@ describe('useSendMessage', () => {
     notifyErrorMock.mockReset()
     currentProjectState.currentProject = null
 
-    const { useSendMessage } = await import('./useSendMessage')
+    const { useSendMessage } = await import('../useSendMessage')
     const { sendMessage } = useSendMessage({
       currentSession: null,
       configured: true,

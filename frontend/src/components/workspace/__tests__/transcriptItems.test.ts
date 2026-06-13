@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationMessage } from '@/types/conversation'
-import { buildTranscriptItems, isProcessGroupStreaming } from './transcriptItems'
+import { buildTranscriptItems, isProcessGroupStreaming } from '../transcriptItems'
 
 function buildMessage(overrides: Partial<ConversationMessage> = {}): ConversationMessage {
   return {
@@ -28,7 +28,7 @@ function getProcessGroup(items: ReturnType<typeof buildTranscriptItems>, index: 
   return item
 }
 
-function getToolGroupFromProcess(processGroup: { kind: 'process_group'; subItems: import('./transcriptItems').ProcessSubItem[] }, toolGroupIndex: number) {
+function getToolGroupFromProcess(processGroup: { kind: 'process_group'; subItems: import('../transcriptItems').ProcessSubItem[] }, toolGroupIndex: number) {
   const sub = processGroup.subItems[toolGroupIndex]
   if (sub?.kind !== 'tool_group') return null
   return sub
@@ -163,11 +163,11 @@ describe('buildTranscriptItems', () => {
 
     const pg0 = getProcessGroup(items, 0)!
     const tg0 = getToolGroupFromProcess(pg0, 0)!
-    expect(tg0.messages.map((m) => m.id)).toEqual(['msg-tool-before'])
+    expect(tg0.messages.map((m: ConversationMessage) => m.id)).toEqual(['msg-tool-before'])
 
     const pg2 = getProcessGroup(items, 2)!
     const tg2 = getToolGroupFromProcess(pg2, 0)!
-    expect(tg2.messages.map((m) => m.id)).toEqual(['msg-tool-after'])
+    expect(tg2.messages.map((m: ConversationMessage) => m.id)).toEqual(['msg-tool-after'])
   })
 
   it('keeps approval-required shell traces in a waiting receipt state', () => {

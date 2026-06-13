@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AUTO_SCROLL_FOLLOW_THRESHOLD_PX, shouldFollowTranscript } from './autoScroll'
+import { AUTO_SCROLL_FOLLOW_THRESHOLD_PX, shouldFollowTranscript } from '../autoScroll'
 
 describe('shouldFollowTranscript', () => {
   it('returns true when the viewport is already near the bottom', () => {

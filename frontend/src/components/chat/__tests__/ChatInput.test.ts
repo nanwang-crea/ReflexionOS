@@ -1,7 +1,7 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { ChatInput } from './ChatInput'
+import { ChatInput } from '../ChatInput'
 
 describe('ChatInput', () => {
   it('renders empty placeholder options when no provider or model is selected yet', () => {

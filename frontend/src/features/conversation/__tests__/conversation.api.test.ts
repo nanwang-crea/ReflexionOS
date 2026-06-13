@@ -82,7 +82,7 @@ describe('conversationApi', () => {
       },
     })
 
-    const { conversationApi } = await import('./api/conversation.api')
+    const { conversationApi } = await import('../api/conversation.api')
     const response = await conversationApi.getConversation('session-1')
 
     expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', { params: { limit: 20 } })
@@ -172,7 +172,7 @@ describe('conversationApi', () => {
       },
     })
 
-    const { conversationApi } = await import('./api/conversation.api')
+    const { conversationApi } = await import('../api/conversation.api')
     const response = await conversationApi.getConversation('session-1')
 
     expect(response.data.session.agentMode).toBe('build')
@@ -198,7 +198,7 @@ describe('conversationApi', () => {
       },
     })
 
-    const { conversationApi } = await import('./api/conversation.api')
+    const { conversationApi } = await import('../api/conversation.api')
     const response = await conversationApi.getConversationPaginated('session-1', { limit: 20, beforeTurn: 'turn-4' })
 
     expect(getMock).toHaveBeenCalledWith('/api/sessions/session-1/conversation', {

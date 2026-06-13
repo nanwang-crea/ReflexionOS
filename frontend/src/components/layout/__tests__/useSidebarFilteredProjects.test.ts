@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getFilteredProjects } from './useSidebarFilteredProjects'
+import { getFilteredProjects } from '../useSidebarFilteredProjects'
 import type { Project } from '@/types/project'
 import type { SessionSummary } from '@/types/workspace'
 

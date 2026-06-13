@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSidebarProjectActions } from './useSidebarProjectActions'
+import { useSidebarProjectActions } from '../useSidebarProjectActions'
 import type { DialogService } from '@/services/dialogService'
 import type { Project } from '@/types/project'
 

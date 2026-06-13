@@ -6,7 +6,7 @@ const updateSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 const listProjectSessionsMock = vi.fn()
 
-vi.mock('./sessionApi', () => ({
+vi.mock('../sessionApi', () => ({
   sessionApi: {
     createSession: createSessionMock,
     updateSession: updateSessionMock,
@@ -55,7 +55,7 @@ describe('sessionActions', () => {
       }],
     })
 
-    const { createSession } = await import('./sessionActions')
+    const { createSession } = await import('../sessionActions')
     const session = await createSession('project-1', {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
@@ -103,7 +103,7 @@ describe('sessionActions', () => {
       }],
     })
 
-    const { renameSession } = await import('./sessionActions')
+    const { renameSession } = await import('../sessionActions')
     const session = await renameSession('session-1', '新标题')
 
     expect(updateSessionMock).toHaveBeenCalledWith('session-1', { title: '新标题' })
@@ -152,7 +152,7 @@ describe('sessionActions', () => {
       }],
     })
 
-    const { writeSessionPreferences } = await import('./sessionActions')
+    const { writeSessionPreferences } = await import('../sessionActions')
     const session = await writeSessionPreferences('session-1', {
       preferredProviderId: 'provider-a',
       preferredModelId: 'model-a',
@@ -178,7 +178,7 @@ describe('sessionActions', () => {
       updatedAt: '2026-04-20T00:00:00Z',
     }])
 
-    const { deleteSession } = await import('./sessionActions')
+    const { deleteSession } = await import('../sessionActions')
     await deleteSession('project-1', 'session-1')
 
     expect(deleteSessionMock).toHaveBeenCalledWith('session-1')

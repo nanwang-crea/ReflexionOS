@@ -27,7 +27,7 @@ const deleteProviderMock = vi.fn()
 const testProviderMock = vi.fn()
 const setDefaultSelectionMock = vi.fn()
 
-vi.mock('./api/llm.api', () => ({
+vi.mock('../api/llm.api', () => ({
   llmApi: {
     getProviders: getProvidersMock,
     getDefaultSelection: getDefaultSelectionMock,
@@ -71,7 +71,7 @@ describe('ensureLLMSettingsLoaded', () => {
       loaded: false,
     })
 
-    const { ensureLLMSettingsLoaded } = await import('./llmSettingsLoader')
+    const { ensureLLMSettingsLoaded } = await import('../llmSettingsLoader')
     const [first, second] = await Promise.all([ensureLLMSettingsLoaded(), ensureLLMSettingsLoaded()])
 
     expect(getProvidersMock).toHaveBeenCalledTimes(1)
@@ -92,7 +92,7 @@ describe('ensureLLMSettingsLoaded', () => {
       loaded: true,
     })
 
-    const { ensureLLMSettingsLoaded } = await import('./llmSettingsLoader')
+    const { ensureLLMSettingsLoaded } = await import('../llmSettingsLoader')
     const loadedSettings = await ensureLLMSettingsLoaded()
 
     expect(getProvidersMock).not.toHaveBeenCalled()
@@ -108,7 +108,7 @@ describe('ensureLLMSettingsLoaded', () => {
 describe('resetLLMSettingsStore', () => {
   it('resets stored settings to an unloaded state', async () => {
     const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
-    const { resetLLMSettingsStore } = await import('./llmSettingsLoader')
+    const { resetLLMSettingsStore } = await import('../llmSettingsLoader')
 
     useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
@@ -133,7 +133,7 @@ describe('resetLLMSettingsStore', () => {
 
 describe('providerDraft helpers', () => {
   it('normalizes provider draft by trimming fields', async () => {
-    const { normalizeProviderDraft } = await import('./providerDraft')
+    const { normalizeProviderDraft } = await import('../providerDraft')
 
     const normalized = normalizeProviderDraft({
       id: 'provider-a',
@@ -164,7 +164,7 @@ describe('providerDraft helpers', () => {
   })
 
   it('rejects provider drafts with empty model fields', async () => {
-    const { validateProviderDraft } = await import('./providerDraft')
+    const { validateProviderDraft } = await import('../providerDraft')
 
     expect(validateProviderDraft({
       id: 'provider-a',
@@ -193,7 +193,7 @@ describe('providerActions', () => {
     const onError = vi.fn()
     const setSaving = vi.fn()
 
-    const { createProviderActions } = await import('./providerActions')
+    const { createProviderActions } = await import('../providerActions')
     const actions = createProviderActions({
       api: {
         createProvider,
@@ -263,7 +263,7 @@ describe('providerActions', () => {
     const onError = vi.fn()
     const confirmDelete = vi.fn().mockReturnValue(true)
 
-    const { createProviderActions } = await import('./providerActions')
+    const { createProviderActions } = await import('../providerActions')
     const actions = createProviderActions({
       api: {
         createProvider: vi.fn(),
@@ -305,7 +305,7 @@ describe('providerActions', () => {
 
     updateProviderMock.mockResolvedValue(undefined)
 
-    const { createSettingsPageActions } = await import('./providerActions')
+    const { createSettingsPageActions } = await import('../providerActions')
     const actions = createSettingsPageActions({
       loadSettings,
       setSaving,

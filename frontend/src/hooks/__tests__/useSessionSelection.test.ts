@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   useSessionSelection,
-} from './useSessionSelection'
+} from '../useSessionSelection'
 
 type Assert<T extends true> = T
 type IsExact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false

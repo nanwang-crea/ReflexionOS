@@ -192,7 +192,7 @@ describe('useConversationRuntime', () => {
     const snapshot = buildSnapshot()
     getConversationMock.mockResolvedValue({ data: snapshot })
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     useConversationRuntime('session-1')
 
     await flushAsyncEffects()
@@ -275,7 +275,7 @@ describe('useConversationRuntime', () => {
     vi.useFakeTimers()
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     useConversationRuntime('session-1')
 
     await vi.waitFor(() => {
@@ -348,7 +348,7 @@ describe('useConversationRuntime', () => {
       },
     }
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')
 
     await flushAsyncEffects()
@@ -383,7 +383,7 @@ describe('useConversationRuntime', () => {
       },
     }
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')
 
     await flushAsyncEffects()
@@ -396,7 +396,7 @@ describe('useConversationRuntime', () => {
   it('routes approve and deny tool decisions through the session websocket channel', async () => {
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')
 
     await flushAsyncEffects()
@@ -418,7 +418,7 @@ describe('useConversationRuntime', () => {
   it('loads more history using the oldest loaded turn id', async () => {
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')
 
     await flushAsyncEffects()
@@ -473,7 +473,7 @@ describe('useConversationRuntime', () => {
   })
 
   it('queues snapshot refresh per session without dropping cross-session refreshes', async () => {
-    const { createSnapshotRefreshQueue } = await import('./useConversationRuntime')
+    const { createSnapshotRefreshQueue } = await import('../useConversationRuntime')
     const pendingResolves = new Map<string, Array<() => void>>()
     const refreshCalls: string[] = []
 
@@ -515,7 +515,7 @@ describe('useConversationRuntime', () => {
     const snapshot = buildSnapshot()
     getConversationMock.mockResolvedValue({ data: snapshot })
 
-    const { useConversationRuntime } = await import('./useConversationRuntime')
+    const { useConversationRuntime } = await import('../useConversationRuntime')
     useConversationRuntime('session-1')
 
     await flushAsyncEffects()

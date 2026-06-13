@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isConversationBusy } from './sidebarBusy'
+import { isConversationBusy } from '../sidebarBusy'
 
 describe('isConversationBusy', () => {
   it('returns false when there is no conversation state', () => {

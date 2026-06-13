@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error CommonJS helper used by the Electron bootstrap.
-import { buildBackendLaunchPlan, resolvePackagedBackendExecutable } from '../../electron/backend-manager.cjs'
+import { buildBackendLaunchPlan, resolvePackagedBackendExecutable } from '../../../electron/backend-manager.cjs'
 
 describe('backend-manager packaging helpers', () => {
   it('keeps the Python uvicorn launch path for development', () => {

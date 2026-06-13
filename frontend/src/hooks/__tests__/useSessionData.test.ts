@@ -3,7 +3,7 @@ import type { SessionSummary } from '@/types/workspace'
 import {
   findCurrentSessionSummary,
   shouldClearStaleCurrentSessionId,
-} from './useSessionData'
+} from '../useSessionData'
 
 const {
   ensureLLMSettingsLoadedMock,
@@ -125,7 +125,7 @@ describe('useSessionData helpers', () => {
       'project-1': [createSession('session-1')],
     }
 
-    const { useSessionData } = await import('./useSessionData')
+    const { useSessionData } = await import('../useSessionData')
     const result = useSessionData()
 
     expect(result.currentSessionSummary?.id).toBe('session-1')

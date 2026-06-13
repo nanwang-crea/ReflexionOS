@@ -3,9 +3,9 @@ import React from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { sendApprovalAction } from '@/components/execution/approvalActions'
 import type { ConversationMessage } from '@/types/conversation'
-import { ToolTraceCard, ToolTraceGroup } from './ToolTraceCard'
-import { WorkspaceTranscript } from './WorkspaceTranscript'
-import { buildToolTraceDetail, type TranscriptItem } from './transcriptItems'
+import { ToolTraceCard, ToolTraceGroup } from '../ToolTraceCard'
+import { WorkspaceTranscript } from '../WorkspaceTranscript'
+import { buildToolTraceDetail, type TranscriptItem } from '../transcriptItems'
 
 const localStorageMock = {
   getItem: vi.fn(() => null),
@@ -1127,7 +1127,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
   })
 
   it('counts retry delay down from the retry delay to zero', async () => {
-    const module = await import('./WorkspaceTranscript') as unknown as {
+    const module = await import('../WorkspaceTranscript') as unknown as {
       getRetryCountdownSeconds?: (delay: number, elapsedMs?: number) => number
     }
 
@@ -1139,7 +1139,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
   })
 
   it('only shifts the virtual first item index when history is prepended', async () => {
-    const module = await import('./WorkspaceTranscript') as unknown as {
+    const module = await import('../WorkspaceTranscript') as unknown as {
       getNextFirstItemIndex?: (
         previous: null | {
           sessionId: string | null
@@ -1193,7 +1193,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
   })
 
   it('computes transcript bottom padding from the measured input safe area', async () => {
-    const module = await import('./WorkspaceTranscript') as unknown as {
+    const module = await import('../WorkspaceTranscript') as unknown as {
       getTranscriptBottomPadding?: (bottomInset: number) => number
     }
 
@@ -1203,7 +1203,7 @@ describe('WorkspaceTranscript conversation rendering', () => {
   })
 
   it('distinguishes user scroll intent from streaming measurement jitter', async () => {
-    const module = await import('./WorkspaceTranscript') as unknown as {
+    const module = await import('../WorkspaceTranscript') as unknown as {
       shouldMarkUserScrolledAway?: (position: {
         userScrollIntent: boolean
         distanceFromBottom: number

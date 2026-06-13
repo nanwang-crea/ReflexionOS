@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
-import AgentWorkspace from './AgentWorkspace'
+import AgentWorkspace from '../AgentWorkspace'
 
 let latestTranscriptProps: Record<string, unknown> | null = null
 

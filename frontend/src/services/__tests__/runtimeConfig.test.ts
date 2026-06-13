@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getApiBaseUrl,
   getSessionConversationWebSocketUrl,
-} from './runtimeConfig'
+} from '../runtimeConfig'
 
 afterEach(() => {
   vi.unstubAllEnvs()

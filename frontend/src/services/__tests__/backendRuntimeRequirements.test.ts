@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error CommonJS helper used by the Electron bootstrap.
-import { probeModuleNamesFromRequirements } from '../../electron/backend-runtime-requirements.cjs'
+import { probeModuleNamesFromRequirements } from '../../../electron/backend-runtime-requirements.cjs'
 
 describe('probeModuleNamesFromRequirements', () => {
   it('derives runtime probe modules from requirements text and skips test-only entries', () => {

@@ -76,7 +76,7 @@ function createOptions(overrides: Record<string, unknown> = {}) {
 async function renderUseCurrentSessionViewModel(options: ReturnType<typeof createOptions>) {
   const React = await import('react')
   const ReactDOMServer = await import('react-dom/server')
-  const { useCurrentSessionViewModel } = await import('./useCurrentSessionViewModel')
+  const { useCurrentSessionViewModel } = await import('../useCurrentSessionViewModel')
   let result: ReturnType<typeof useCurrentSessionViewModel> | undefined
 
   function TestComponent() {
