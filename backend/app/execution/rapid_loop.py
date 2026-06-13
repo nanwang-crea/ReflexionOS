@@ -743,6 +743,7 @@ class RapidExecutionLoop:
             if loop_result.status not in {
                 LoopStatus.CANCELLED,
                 LoopStatus.WAITING_FOR_APPROVAL,
+                LoopStatus.FAILED,
             }:
                 await self._emit(
                     "run:complete",
