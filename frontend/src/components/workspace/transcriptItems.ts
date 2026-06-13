@@ -211,7 +211,7 @@ export function buildTranscriptItems(messages: ConversationMessage[]): Transcrip
         })
       }
 
-      if (message.contentText) {
+      if (message.contentText || message.streamState === 'failed' || message.streamState === 'cancelled') {
         flushProcessGroup()
         items.push({ kind: 'answer_message', id: message.id, message })
       }

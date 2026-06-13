@@ -348,7 +348,7 @@ class ConversationRuntimeAdapter:
 
     def _execution_error_events(self, data: dict) -> list[ConversationEvent]:
         error_message = str(data.get("error") or "execution failed")
-        if self.assistant_message_id is None and self._assistant_content:
+        if self.assistant_message_id is None:
             self.assistant_message_id = new_message_id()
         events = self._assistant_terminal_events(
             terminal_event_type=EventType.MESSAGE_FAILED,
@@ -475,7 +475,7 @@ class ConversationRuntimeAdapter:
             error_code = "run_cancelled"
             error_message = data.get("result") or "本次执行已取消"
 
-        if self.assistant_message_id is None and self._assistant_content:
+        if self.assistant_message_id is None:
             self.assistant_message_id = new_message_id()
         events = self._close_open_messages_for_cancel(error_code, error_message)
 
