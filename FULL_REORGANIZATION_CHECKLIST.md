@@ -2,12 +2,13 @@
 
 ## ✅ 已完成工作
 
-### 准备阶段：导入路径修复（2024-06-13）
+### 准备阶段：导入路径修复（2026-06-13）
 - ✅ 修复了 9 个 TypeScript 导入错误
 - ✅ `App.tsx` - 更新 `themeStore` 路径为 `@/shared/stores/theme.store`
 - ✅ `conversation.store.ts` - 更新 `conversationReducer` 路径为 `@/features/conversation/conversationReducer`
 - ✅ `session.store.test.ts` - 更新所有 `sessionApi` 导入为 `@/features/sessions/sessionApi`
 - ✅ `sessionActions.test.ts` - 更新 `session.store` 导入为 `@/features/sessions/stores/session.store`
+- ✅ `transcriptItems.test.ts` - 修复类型导入路径和隐式 `any` 类型错误（3 处）
 - ⏸️ **等待用户运行 `pnpm run build` 验证**
 
 ---
@@ -117,22 +118,15 @@ frontend/src/
 
 ---
 
-## 🔴 优先级 P0：Tests 重组（30 文件）
+## ✅ 优先级 P0：Tests 重组（30 文件）— 已完成 ✅
 
-### 当前问题
+**完成状态**: ✅ 30/30 文件已移动到 `__tests__/` 子目录
 
-30 个测试文件散布在 8 个目录中，与源文件混放：
+### 当前问题（已解决）
 
-```
-components/chat/ChatInput.test.ts        ← 测试混在组件目录
-components/layout/sidebarBusy.test.ts    ← 同上
-features/code/codeTabStore.test.ts       ← 测试混在 feature 根目录
-hooks/useConversationData.test.ts        ← 测试混在 hooks 目录
-services/dialogService.test.ts           ← 测试混在 services 目录
-...
-```
+~~30 个测试文件散布在 8 个目录中，与源文件混放~~
 
-### 目标结构：`__tests__/` 子目录
+### 目标结构：`__tests__/` 子目录 ✅
 
 每个有测试的目录下创建 `__tests__/`，将测试文件移入并跟随源文件重命名。
 
@@ -140,56 +134,56 @@ services/dialogService.test.ts           ← 测试混在 services 目录
 
 | # | 原路径 | 新路径 |
 |---|--------|--------|
-| 1 | `features/code/codeTabStore.test.ts` | `features/code/__tests__/codeTab.store.test.ts` |
-| 2 | `features/conversation/conversationApi.test.ts` | `features/conversation/__tests__/conversation.api.test.ts` |
-| 3 | `features/conversation/conversationReducer.test.ts` | `features/conversation/__tests__/conversation.reducer.test.ts` |
-| 4 | `features/conversation/conversationStore.test.ts` | `features/conversation/__tests__/conversation.store.test.ts` |
-| 5 | `features/llm/llmSettingsLoader.test.ts` | `features/llm/__tests__/llmSettings.loader.test.ts` |
-| 6 | `features/projects/projectLoader.test.ts` | `features/projects/__tests__/project.loader.test.ts` |
-| 7 | `features/sessions/sessionActions.test.ts` | `features/sessions/__tests__/session.actions.test.ts` |
-| 8 | `features/sessions/sessionStore.test.ts` | `features/sessions/__tests__/session.store.test.ts` |
-| 9 | `features/terminal/terminalStore.test.ts` | `features/terminal/__tests__/terminal.store.test.ts` |
-| 10 | `features/workspace/autoScroll.test.ts` | `features/workspace/__tests__/autoScroll.test.ts` |
-| 11 | `features/workspace/sessionSelection.test.ts` | `features/workspace/__tests__/sessionSelection.test.ts` |
+| 1 | `features/code/codeTabStore.test.ts` | `features/code/__tests__/codeTab.store.test.ts` | ✅ |
+| 2 | `features/conversation/conversationApi.test.ts` | `features/conversation/__tests__/conversation.api.test.ts` | ✅ |
+| 3 | `features/conversation/conversationReducer.test.ts` | `features/conversation/__tests__/conversation.reducer.test.ts` | ✅ |
+| 4 | `features/conversation/conversationStore.test.ts` | `features/conversation/__tests__/conversation.store.test.ts` | ✅ |
+| 5 | `features/llm/llmSettingsLoader.test.ts` | `features/llm/__tests__/llmSettings.loader.test.ts` | ✅ |
+| 6 | `features/projects/projectLoader.test.ts` | `features/projects/__tests__/project.loader.test.ts` | ✅ |
+| 7 | `features/sessions/sessionActions.test.ts` | `features/sessions/__tests__/session.actions.test.ts` | ✅ |
+| 8 | `features/sessions/sessionStore.test.ts` | `features/sessions/__tests__/session.store.test.ts` | ✅ |
+| 9 | `features/terminal/terminalStore.test.ts` | `features/terminal/__tests__/terminal.store.test.ts` | ✅ |
+| 10 | `features/workspace/autoScroll.test.ts` | `features/workspace/__tests__/autoScroll.test.ts` | ✅ |
+| 11 | `features/workspace/sessionSelection.test.ts` | `features/workspace/__tests__/sessionSelection.test.ts` | ✅ |
 
 ### components/ 下的测试（7 个）
 
 | # | 原路径 | 新路径 |
 |---|--------|--------|
-| 12 | `components/chat/ChatInput.test.ts` | `components/chat/__tests__/ChatInput.test.ts` |
-| 13 | `components/layout/sidebarBusy.test.ts` | `components/layout/__tests__/sidebarBusy.test.ts` |
-| 14 | `components/layout/useSidebarFilteredProjects.test.ts` | `components/layout/__tests__/useSidebarFilteredProjects.test.ts` |
-| 15 | `components/layout/useSidebarProjectActions.test.ts` | `components/layout/__tests__/useSidebarProjectActions.test.ts` |
-| 16 | `components/layout/useSidebarSessionActions.test.ts` | `components/layout/__tests__/useSidebarSessionActions.test.ts` |
-| 17 | `components/workspace/ToolTraceCard.test.tsx` | `components/workspace/__tests__/ToolTraceCard.test.tsx` |
-| 18 | `components/workspace/transcriptItems.test.ts` | `components/workspace/__tests__/transcriptItems.test.ts` |
+| 12 | `components/chat/ChatInput.test.ts` | `components/chat/__tests__/ChatInput.test.ts` | ✅ |
+| 13 | `components/layout/sidebarBusy.test.ts` | `components/layout/__tests__/sidebarBusy.test.ts` | ✅ |
+| 14 | `components/layout/useSidebarFilteredProjects.test.ts` | `components/layout/__tests__/useSidebarFilteredProjects.test.ts` | ✅ |
+| 15 | `components/layout/useSidebarProjectActions.test.ts` | `components/layout/__tests__/useSidebarProjectActions.test.ts` | ✅ |
+| 16 | `components/layout/useSidebarSessionActions.test.ts` | `components/layout/__tests__/useSidebarSessionActions.test.ts` | ✅ |
+| 17 | `components/workspace/ToolTraceCard.test.tsx` | `components/workspace/__tests__/ToolTraceCard.test.tsx` | ✅ |
+| 18 | `components/workspace/transcriptItems.test.ts` | `components/workspace/__tests__/transcriptItems.test.ts` | ✅ |
 
 ### hooks/ 下的测试（6 个）
 
 | # | 原路径 | 新路径 |
 |---|--------|--------|
-| 19 | `hooks/useConversationData.test.ts` | `hooks/__tests__/useConversationData.test.ts` |
-| 20 | `hooks/useConversationRuntime.test.ts` | `hooks/__tests__/useConversationRuntime.test.ts` |
-| 21 | `hooks/useCurrentSessionViewModel.test.ts` | `hooks/__tests__/useCurrentSessionViewModel.test.ts` |
-| 22 | `hooks/useSendMessage.test.ts` | `hooks/__tests__/useSendMessage.test.ts` |
-| 23 | `hooks/useSessionData.test.ts` | `hooks/__tests__/useSessionData.test.ts` |
-| 24 | `hooks/useSessionSelection.test.ts` | `hooks/__tests__/useSessionSelection.test.ts` |
+| 19 | `hooks/useConversationData.test.ts` | `hooks/__tests__/useConversationData.test.ts` | ✅ |
+| 20 | `hooks/useConversationRuntime.test.ts` | `hooks/__tests__/useConversationRuntime.test.ts` | ✅ |
+| 21 | `hooks/useCurrentSessionViewModel.test.ts` | `hooks/__tests__/useCurrentSessionViewModel.test.ts` | ✅ |
+| 22 | `hooks/useSendMessage.test.ts` | `hooks/__tests__/useSendMessage.test.ts` | ✅ |
+| 23 | `hooks/useSessionData.test.ts` | `hooks/__tests__/useSessionData.test.ts` | ✅ |
+| 24 | `hooks/useSessionSelection.test.ts` | `hooks/__tests__/useSessionSelection.test.ts` | ✅ |
 
 ### services/ 下的测试（5 个）
 
 | # | 原路径 | 新路径 |
 |---|--------|--------|
-| 25 | `services/backendManagerPackaging.test.ts` | `services/__tests__/backendManagerPackaging.test.ts` |
-| 26 | `services/backendRuntimeRequirements.test.ts` | `services/__tests__/backendRuntimeRequirements.test.ts` |
-| 27 | `services/dialogService.test.ts` | `services/__tests__/dialogService.test.ts` |
-| 28 | `services/runtimeConfig.test.ts` | `services/__tests__/runtimeConfig.test.ts` |
-| 29 | `services/sessionConversationWebSocket.test.ts` | `services/__tests__/sessionConversationWebSocket.test.ts` |
+| 25 | `services/backendManagerPackaging.test.ts` | `services/__tests__/backendManagerPackaging.test.ts` | ✅ |
+| 26 | `services/backendRuntimeRequirements.test.ts` | `services/__tests__/backendRuntimeRequirements.test.ts` | ✅ |
+| 27 | `services/dialogService.test.ts` | `services/__tests__/dialogService.test.ts` | ✅ |
+| 28 | `services/runtimeConfig.test.ts` | `services/__tests__/runtimeConfig.test.ts` | ✅ |
+| 29 | `services/sessionConversationWebSocket.test.ts` | `services/__tests__/sessionConversationWebSocket.test.ts` | ✅ |
 
 ### pages/ 下的测试（1 个）
 
 | # | 原路径 | 新路径 |
 |---|--------|--------|
-| 30 | `pages/AgentWorkspace.test.tsx` | `pages/__tests__/AgentWorkspace.test.tsx` |
+| 30 | `pages/AgentWorkspace.test.tsx` | `pages/__tests__/AgentWorkspace.test.tsx` | ✅ |
 
 ---
 
