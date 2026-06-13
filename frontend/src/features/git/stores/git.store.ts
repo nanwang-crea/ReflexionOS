@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { gitApi } from '@/features/git/gitApi'
+import { gitApi } from '@/features/git/api/git.api'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'

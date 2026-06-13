@@ -1,4 +1,4 @@
-import { sessionApi } from './sessionApi'
+import { sessionApi } from './api/session.api'
 import { useSessionStore } from './stores/session.store'
 import type { SessionCreatePayload, SessionSummary, SessionUpdatePayload } from '@/types/workspace'
 

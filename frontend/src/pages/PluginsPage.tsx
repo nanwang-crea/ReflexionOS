@@ -12,7 +12,7 @@ import {
   Globe,
   Download,
 } from 'lucide-react'
-import { pluginApi } from '@/features/plugins/pluginApi'
+import { pluginApi } from '@/features/plugins/api/plugin.api'
 import { useToastStore } from '@/shared/stores/toast.store'
 import type { Plugin, InstallPluginRequest } from '@/types/plugin'
 

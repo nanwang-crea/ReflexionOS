@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { conversationApi } from '@/features/conversation/conversationApi'
+import { conversationApi } from '@/features/conversation/api/conversation.api'
 import { useConversationStore } from '@/features/conversation/stores/conversation.store'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
 import type { ConnectionStatus } from '@/features/workspace/types'

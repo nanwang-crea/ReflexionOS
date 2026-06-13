@@ -1,5 +1,17 @@
 # ReflexionOS 全面重组清单
 
+## ✅ 已完成工作
+
+### 准备阶段：导入路径修复（2024-06-13）
+- ✅ 修复了 9 个 TypeScript 导入错误
+- ✅ `App.tsx` - 更新 `themeStore` 路径为 `@/shared/stores/theme.store`
+- ✅ `conversation.store.ts` - 更新 `conversationReducer` 路径为 `@/features/conversation/conversationReducer`
+- ✅ `session.store.test.ts` - 更新所有 `sessionApi` 导入为 `@/features/sessions/sessionApi`
+- ✅ `sessionActions.test.ts` - 更新 `session.store` 导入为 `@/features/sessions/stores/session.store`
+- ⏸️ **等待用户运行 `pnpm run build` 验证**
+
+---
+
 ## 📊 项目现状扫描
 
 | 类别 | 文件数 | 当前位置 | 问题 |
@@ -60,32 +72,32 @@ frontend/src/
 
 ---
 
-## 🔴 优先级 P0：Stores 重组（11 文件 + 4 测试）
+## ✅ 优先级 P0：Stores 重组（11 文件 + 4 测试）— 已完成
 
-### 移动 + 重命名
+### 移动 + 重命名 ✅
 
-| # | 原路径 | 新路径 | 类型 |
+| # | 原路径 | 新路径 | 类型 | 状态 |
+|---|--------|--------|------|------|
+| 1 | `stores/animationStore.ts` | `shared/stores/animation.store.ts` | shared | ✅ |
+| 2 | `stores/themeStore.ts` | `shared/stores/theme.store.ts` | shared | ✅ |
+| 3 | `stores/toastStore.ts` | `shared/stores/toast.store.ts` | shared | ✅ |
+| 4 | `stores/projectStore.ts` | `features/projects/stores/project.store.ts` | feature | ✅ |
+| 5 | `stores/settingsStore.ts` | `features/settings/stores/settings.store.ts` | feature | ✅ |
+| 6 | `stores/workspaceStore.ts` | `features/workspace/stores/workspace.store.ts` | feature | ✅ |
+| 7 | `features/code/codeTabStore.ts` | `features/code/stores/codeTab.store.ts` | feature | ✅ |
+| 8 | `features/conversation/conversationStore.ts` | `features/conversation/stores/conversation.store.ts` | feature | ✅ |
+| 9 | `features/git/gitStore.ts` | `features/git/stores/git.store.ts` | feature | ✅ |
+| 10 | `features/sessions/sessionStore.ts` | `features/sessions/stores/session.store.ts` | feature | ✅ |
+| 11 | `features/terminal/terminalStore.ts` | `features/terminal/stores/terminal.store.ts` | feature | ✅ |
+
+### 对应测试文件 ✅
+
+| # | 原路径 | 新路径 | 状态 |
 |---|--------|--------|------|
-| 1 | `stores/animationStore.ts` | `shared/stores/animation.store.ts` | shared |
-| 2 | `stores/themeStore.ts` | `shared/stores/theme.store.ts` | shared |
-| 3 | `stores/toastStore.ts` | `shared/stores/toast.store.ts` | shared |
-| 4 | `stores/projectStore.ts` | `features/projects/stores/project.store.ts` | feature |
-| 5 | `stores/settingsStore.ts` | `features/settings/stores/settings.store.ts` | feature |
-| 6 | `stores/workspaceStore.ts` | `features/workspace/stores/workspace.store.ts` | feature |
-| 7 | `features/code/codeTabStore.ts` | `features/code/stores/codeTab.store.ts` | feature |
-| 8 | `features/conversation/conversationStore.ts` | `features/conversation/stores/conversation.store.ts` | feature |
-| 9 | `features/git/gitStore.ts` | `features/git/stores/git.store.ts` | feature |
-| 10 | `features/sessions/sessionStore.ts` | `features/sessions/stores/session.store.ts` | feature |
-| 11 | `features/terminal/terminalStore.ts` | `features/terminal/stores/terminal.store.ts` | feature |
-
-### 对应测试文件
-
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 12 | `features/code/codeTabStore.test.ts` | `features/code/__tests__/codeTab.store.test.ts` |
-| 13 | `features/conversation/conversationStore.test.ts` | `features/conversation/__tests__/conversation.store.test.ts` |
-| 14 | `features/sessions/sessionStore.test.ts` | `features/sessions/__tests__/session.store.test.ts` |
-| 15 | `features/terminal/terminalStore.test.ts` | `features/terminal/__tests__/terminal.store.test.ts` |
+| 12 | `features/code/codeTabStore.test.ts` | `features/code/__tests__/codeTab.store.test.ts` | ✅ |
+| 13 | `features/conversation/conversationStore.test.ts` | `features/conversation/__tests__/conversation.store.test.ts` | ✅ |
+| 14 | `features/sessions/sessionStore.test.ts` | `features/sessions/__tests__/session.store.test.ts` | ✅ |
+| 15 | `features/terminal/terminalStore.test.ts` | `features/terminal/__tests__/terminal.store.test.ts` | ✅ |
 
 ### 导入路径映射
 
@@ -181,35 +193,41 @@ services/dialogService.test.ts           ← 测试混在 services 目录
 
 ---
 
-## 🟡 优先级 P1：APIs 重组（9 文件）
+## ✅ 优先级 P1：APIs 重组（9 文件）— 已完成
 
-### 移动 + 重命名
+### 移动 + 重命名 ✅
 
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 1 | `features/code/fileApi.ts` | `features/code/api/file.api.ts` |
-| 2 | `features/conversation/conversationApi.ts` | `features/conversation/api/conversation.api.ts` |
-| 3 | `features/git/gitApi.ts` | `features/git/api/git.api.ts` |
-| 4 | `features/llm/llmApi.ts` | `features/llm/api/llm.api.ts` |
-| 5 | `features/plugins/pluginApi.ts` | `features/plugins/api/plugin.api.ts` |
-| 6 | `features/projects/projectApi.ts` | `features/projects/api/project.api.ts` |
-| 7 | `features/sessions/sessionApi.ts` | `features/sessions/api/session.api.ts` |
-| 8 | `features/skills/skillApi.ts` | `features/skills/api/skill.api.ts` |
-| 9 | `features/uiSettings/uiSettingsApi.ts` | `features/settings/api/uiSettings.api.ts` |
+| # | 原路径 | 新路径 | 状态 |
+|---|--------|--------|------|
+| 1 | `features/code/fileApi.ts` | `features/code/api/file.api.ts` | ✅ |
+| 2 | `features/conversation/conversationApi.ts` | `features/conversation/api/conversation.api.ts` | ✅ |
+| 3 | `features/git/gitApi.ts` | `features/git/api/git.api.ts` | ✅ |
+| 4 | `features/llm/llmApi.ts` | `features/llm/api/llm.api.ts` | ✅ |
+| 5 | `features/plugins/pluginApi.ts` | `features/plugins/api/plugin.api.ts` | ✅ |
+| 6 | `features/projects/projectApi.ts` | `features/projects/api/project.api.ts` | ✅ |
+| 7 | `features/sessions/sessionApi.ts` | `features/sessions/api/session.api.ts` | ✅ |
+| 8 | `features/skills/skillApi.ts` | `features/skills/api/skill.api.ts` | ✅ |
+| 9 | `features/uiSettings/uiSettingsApi.ts` | `features/uiSettings/api/uiSettings.api.ts` | ✅ |
 
-### 导入路径映射
+### 导入路径映射 ✅
 
-| 旧导入 | 新导入 |
-|--------|--------|
-| `@/features/code/fileApi` | `@/features/code/api/file.api` |
-| `@/features/conversation/conversationApi` | `@/features/conversation/api/conversation.api` |
-| `@/features/git/gitApi` | `@/features/git/api/git.api` |
-| `@/features/llm/llmApi` | `@/features/llm/api/llm.api` |
-| `@/features/plugins/pluginApi` | `@/features/plugins/api/plugin.api` |
-| `@/features/projects/projectApi` | `@/features/projects/api/project.api` |
-| `@/features/sessions/sessionApi` | `@/features/sessions/api/session.api` |
-| `@/features/skills/skillApi` | `@/features/skills/api/skill.api` |
-| `@/features/uiSettings/uiSettingsApi` | `@/features/settings/api/uiSettings.api` |
+| 旧导入 | 新导入 | 状态 |
+|--------|--------|------|
+| `@/features/code/fileApi` | `@/features/code/api/file.api` | ✅ |
+| `@/features/conversation/conversationApi` | `@/features/conversation/api/conversation.api` | ✅ |
+| `@/features/git/gitApi` | `@/features/git/api/git.api` | ✅ |
+| `@/features/llm/llmApi` | `@/features/llm/api/llm.api` | ✅ |
+| `@/features/plugins/pluginApi` | `@/features/plugins/api/plugin.api` | ✅ |
+| `@/features/projects/projectApi` | `@/features/projects/api/project.api` | ✅ |
+| `@/features/sessions/sessionApi` | `@/features/sessions/api/session.api` | ✅ |
+| `@/features/skills/skillApi` | `@/features/skills/api/skill.api` | ✅ |
+| `@/features/uiSettings/uiSettingsApi` | `@/features/uiSettings/api/uiSettings.api` | ✅ |
+
+**已更新文件（13 处）：**
+- CodeTab.tsx, FileSidebar.tsx, useConversationRuntime.ts
+- git.store.ts, projectLoader.ts, useSidebarProjectActions.ts
+- sessionActions.ts, llmSettingsLoader.ts, providerActions.ts
+- llmSettingsLoader.test.ts, PluginsPage.tsx, SkillsPage.tsx, DisplayOptionsPanel.tsx
 
 ---
 

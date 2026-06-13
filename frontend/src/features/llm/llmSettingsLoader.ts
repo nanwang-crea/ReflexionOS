@@ -1,4 +1,4 @@
-import { llmApi } from './llmApi'
+import { llmApi } from './api/llm.api'
 import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import type { DefaultLLMSelection, ProviderInstance } from '@/types/llm'
 

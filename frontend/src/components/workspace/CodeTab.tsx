@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCodeTabStore, type ViewMode } from '@/features/code/stores/codeTab.store'
-import { fileApi } from '@/features/code/fileApi'
+import { fileApi } from '@/features/code/api/file.api'
 import { CodeTabBar } from './CodeTabBar'
 import { CodeEditor } from './CodeEditor'
 import { EditableDiffViewer } from './EditableDiffViewer'

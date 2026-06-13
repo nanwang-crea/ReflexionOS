@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react'
-import { projectApi } from '@/features/projects/projectApi'
+import { projectApi } from '@/features/projects/api/project.api'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import { selectProjectDirectory } from '@/services/desktopClient'
 import type { Project } from '@/types/project'
