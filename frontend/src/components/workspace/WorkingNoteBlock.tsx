@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 
 export function WorkingNoteBlock({
   text,
@@ -26,8 +27,8 @@ export function WorkingNoteBlock({
         <span>过程说明</span>
       </button>
       {isExpanded && (
-        <div className="mt-2 whitespace-pre-wrap pl-5 text-content-secondary">
-          {text}
+        <div className="mt-2 pl-5 text-content-secondary">
+          <MarkdownRenderer content={text} variant="plain" />
         </div>
       )}
     </div>
