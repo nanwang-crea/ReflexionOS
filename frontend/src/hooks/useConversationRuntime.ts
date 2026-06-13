@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/conversationApi'
-import { useConversationStore } from '@/features/conversation/conversationStore'
-import { useSessionStore } from '@/features/sessions/sessionStore'
+import { useConversationStore } from '@/features/conversation/stores/conversation.store'
+import { useSessionStore } from '@/features/sessions/stores/session.store'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
 import {
@@ -10,7 +10,7 @@ import {
   type SessionConversationLiveMessageDto,
 } from '@/services/sessionConversationWebSocket'
 import type { ConversationEvent, ConversationLiveMessage } from '@/types/conversation'
-import { useToastStore } from '@/stores/toastStore'
+import { useToastStore } from '@/shared/stores/toast.store'
 import { resolveActiveRunId } from '@/utils/activeRun'
 
 interface StartTurnPayload {

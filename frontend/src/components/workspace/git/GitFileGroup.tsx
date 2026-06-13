@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, Plus, Minus, RotateCcw } from 'lucide-react'
 import type { GitFileChange } from '@/types/git'
 import { isValidGitStatusCode } from '@/types/git'
 import { GitFileItem } from './GitFileItem'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 
 interface GitFileGroupProps {
   title: string

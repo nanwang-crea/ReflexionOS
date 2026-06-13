@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { nativeDialogService } from '@/services/dialogService'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import type { ConversationMessage } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'
 import type { Plan } from '@/types/conversation'

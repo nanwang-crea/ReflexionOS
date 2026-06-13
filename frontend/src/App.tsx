@@ -6,7 +6,7 @@ import SkillsPage from './pages/SkillsPage'
 import PluginsPage from './pages/PluginsPage'
 import AutomationPage from './pages/AutomationPage'
 import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
-import { useThemeStore, applyTheme } from './stores/themeStore'
+import { useThemeStore, applyTheme } from '@/shared/stores/theme.store'
 
 function useThemeEffect() {
   const theme = useThemeStore((s) => s.theme)

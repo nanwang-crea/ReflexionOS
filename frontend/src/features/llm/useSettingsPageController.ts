@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
-import { useSettingsStore } from '@/stores/settingsStore'
-import { useToastStore } from '@/stores/toastStore'
+import { useSettingsStore } from '@/features/settings/stores/settings.store'
+import { useToastStore } from '@/shared/stores/toast.store'
 import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
 import { createEmptySelection, getEnabledModels } from '@/utils/llmHelpers'
 import {

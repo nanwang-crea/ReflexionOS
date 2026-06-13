@@ -1,4 +1,4 @@
-import { useConversationStore } from '@/features/conversation/conversationStore'
+import { useConversationStore } from '@/features/conversation/stores/conversation.store'
 import type { ConversationMessage } from '@/types/conversation'
 
 export function useStreamingMessage(sessionId: string | null): ConversationMessage | null {

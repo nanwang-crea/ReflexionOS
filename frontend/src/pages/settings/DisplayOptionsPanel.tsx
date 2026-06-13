@@ -1,7 +1,7 @@
 import { useCallback, useEffect } from 'react'
 import { uiSettingsApi } from '@/features/uiSettings/uiSettingsApi'
-import { useSettingsStore } from '@/stores/settingsStore'
-import { useToastStore } from '@/stores/toastStore'
+import { useSettingsStore } from '@/features/settings/stores/settings.store'
+import { useToastStore } from '@/shared/stores/toast.store'
 
 function ToggleSwitch({
   checked,

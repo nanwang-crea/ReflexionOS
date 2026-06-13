@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { useTerminalStore } from '@/features/terminal/terminalStore'
+import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
 import { TerminalTabBar } from './TerminalTabBar'
 import { TerminalInstance } from './TerminalInstance'
 

@@ -16,7 +16,7 @@ import {
   applyConversationSnapshot,
   createEmptyConversationState,
   prependMessages,
-} from './conversationReducer'
+} from '@/features/conversation/conversationReducer'
 
 interface ConversationStoreState {
   conversationsBySessionId: Record<string, ConversationState>

@@ -1,7 +1,7 @@
 import { FolderTree, TerminalSquare } from 'lucide-react'
 import type { ConnectionStatus } from '@/features/workspace/types'
-import { useCodeTabStore, type WorkspaceTab } from '@/features/code/codeTabStore'
-import { useTerminalStore } from '@/features/terminal/terminalStore'
+import { useCodeTabStore, type WorkspaceTab } from '@/features/code/stores/codeTab.store'
+import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
 
 interface WorkspaceHeaderProps {
   title: string

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { ReactNode } from 'react'
-import { useAnimationStore } from '@/stores/animationStore'
+import { useAnimationStore } from '@/shared/stores/animation.store'
 import { durationMap } from '@/types/animation'
 
 interface SlideInProps {

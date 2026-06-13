@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useConversationStore } from '@/features/conversation/conversationStore'
+import { useConversationStore } from '@/features/conversation/stores/conversation.store'
 import type { ConversationMessage } from '@/types/conversation'
 import { ACTIVE_RUN_STATUSES, resolveActiveRunId } from '@/utils/activeRun'
 

@@ -72,7 +72,7 @@ vi.mock('@/features/conversation/conversationApi', () => ({
   },
 }))
 
-vi.mock('@/features/conversation/conversationStore', () => ({
+vi.mock('@/features/conversation/stores/conversation.store', () => ({
   useConversationStore: {
     getState: () => conversationStoreState,
   },

@@ -1,5 +1,5 @@
 import { GitCommitHorizontal, RefreshCw } from 'lucide-react'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 import { useEffect } from 'react'
 
 export function GitLogPanel() {

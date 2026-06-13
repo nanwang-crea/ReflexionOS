@@ -1,7 +1,7 @@
 import { useRef, useEffect, useState } from 'react'
 import { Editor } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
-import { useThemeStore } from '@/stores/themeStore'
+import { useThemeStore } from '@/shared/stores/theme.store'
 
 interface CodeEditorProps {
   content: string

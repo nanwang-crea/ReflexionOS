@@ -35,7 +35,7 @@ vi.mock('@/features/llm/llmSettingsLoader', () => ({
   ensureLLMSettingsLoaded: ensureLLMSettingsLoadedMock,
 }))
 
-vi.mock('@/stores/projectStore', () => ({
+vi.mock('@/features/projects/stores/project.store', () => ({
   useProjectStore: Object.assign(
     (selector?: (state: typeof projectStoreState) => unknown) =>
       selector ? selector(projectStoreState) : projectStoreState,
@@ -45,12 +45,12 @@ vi.mock('@/stores/projectStore', () => ({
   ),
 }))
 
-vi.mock('@/stores/workspaceStore', () => ({
+vi.mock('@/features/workspace/stores/workspace.store', () => ({
   useWorkspaceStore: (selector: (state: typeof workspaceStoreState) => unknown) =>
     selector(workspaceStoreState),
 }))
 
-vi.mock('@/features/sessions/sessionStore', () => ({
+vi.mock('@/features/sessions/stores/session.store', () => ({
   useSessionStore: (selector: (state: typeof sessionStoreState) => unknown) =>
     selector(sessionStoreState),
 }))

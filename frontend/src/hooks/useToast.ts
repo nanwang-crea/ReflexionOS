@@ -1,4 +1,4 @@
-import { useToastStore, type ToastLevel } from '@/stores/toastStore'
+import { useToastStore, type ToastLevel } from '@/shared/stores/toast.store'
 
 export function useToast() {
   const addToast = useToastStore((s) => s.addToast)

@@ -61,7 +61,7 @@ describe('ensureLLMSettingsLoaded', () => {
     getProvidersMock.mockResolvedValue({ data: providers })
     getDefaultSelectionMock.mockResolvedValue({ data: selection })
 
-    const { useSettingsStore } = await import('@/stores/settingsStore')
+    const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
     useSettingsStore.setState({
       providers: [],
       defaultSelection: { provider_id: null, model_id: null, configured: false },
@@ -82,7 +82,7 @@ describe('ensureLLMSettingsLoaded', () => {
   })
 
   it('returns the existing store snapshot when settings are already loaded', async () => {
-    const { useSettingsStore } = await import('@/stores/settingsStore')
+    const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
     useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
       defaultSelection: { provider_id: 'provider-a', model_id: 'model-a', configured: true },
@@ -107,7 +107,7 @@ describe('ensureLLMSettingsLoaded', () => {
 
 describe('resetLLMSettingsStore', () => {
   it('resets stored settings to an unloaded state', async () => {
-    const { useSettingsStore } = await import('@/stores/settingsStore')
+    const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
     const { resetLLMSettingsStore } = await import('./llmSettingsLoader')
 
     useSettingsStore.setState({
@@ -300,7 +300,7 @@ describe('providerActions', () => {
     const onSavedMessage = vi.fn()
     const onError = vi.fn()
     const setSaving = vi.fn()
-    const { useSettingsStore } = await import('@/stores/settingsStore')
+    const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
     const setLLMStateSpy = vi.spyOn(useSettingsStore.getState(), 'setLLMState')
 
     updateProviderMock.mockResolvedValue(undefined)

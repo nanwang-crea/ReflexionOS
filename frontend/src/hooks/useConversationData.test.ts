@@ -12,7 +12,7 @@ vi.mock('react', () => ({
   useMemo: <T>(factory: () => T) => factory(),
 }))
 
-vi.mock('@/features/conversation/conversationStore', () => ({
+vi.mock('@/features/conversation/stores/conversation.store', () => ({
   useConversationStore: (selector: (state: typeof conversationStoreState) => unknown) => selector(conversationStoreState),
 }))
 

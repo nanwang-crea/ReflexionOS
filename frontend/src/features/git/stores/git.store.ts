@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { gitApi } from '@/features/git/gitApi'
-import { useProjectStore } from '@/stores/projectStore'
-import { useToastStore } from '@/stores/toastStore'
-import { useCodeTabStore } from '@/features/code/codeTabStore'
+import { useProjectStore } from '@/features/projects/stores/project.store'
+import { useToastStore } from '@/shared/stores/toast.store'
+import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import type { GitFileChange, GitBranchInfo, GitBranchItem, GitLogCommit } from '@/types/git'
 
 interface GitState {

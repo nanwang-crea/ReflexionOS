@@ -1,5 +1,5 @@
 import { Check, RotateCcw } from 'lucide-react'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 import { useState } from 'react'
 
 export function GitCommitInput() {

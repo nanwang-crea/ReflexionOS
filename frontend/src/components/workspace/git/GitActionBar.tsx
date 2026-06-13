@@ -1,5 +1,5 @@
 import { ArrowUp, ArrowDown, Archive, ArchiveRestore, CloudDownload } from 'lucide-react'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 
 export function GitActionBar() {
   const push = useGitStore((s) => s.push)

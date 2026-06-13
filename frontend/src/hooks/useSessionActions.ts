@@ -5,7 +5,7 @@ import {
   ensureProjectSessionsLoaded,
   renameSession as renameSessionAction,
 } from '@/features/sessions/sessionActions'
-import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { SessionCreatePayload, SessionSummary } from '@/types/workspace'
 
 export function useSessionActions() {

@@ -1,5 +1,5 @@
 import { X, FileCode, GitCompare } from 'lucide-react'
-import type { OpenFile, ViewMode } from '@/features/code/codeTabStore'
+import type { OpenFile, ViewMode } from '@/features/code/stores/codeTab.store'
 
 interface CodeTabBarProps {
   openFiles: OpenFile[]

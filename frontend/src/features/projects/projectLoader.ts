@@ -1,6 +1,6 @@
 import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionActions'
 import { projectApi } from './projectApi'
-import { useProjectStore } from '@/stores/projectStore'
+import { useProjectStore } from '@/features/projects/stores/project.store'
 import type { Project } from '@/types/project'
 
 interface ProjectLoaderStoreState {

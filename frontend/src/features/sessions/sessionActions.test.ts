@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useSessionStore } from './sessionStore'
+import { useSessionStore } from '@/features/sessions/stores/session.store'
 
 const createSessionMock = vi.fn()
 const updateSessionMock = vi.fn()

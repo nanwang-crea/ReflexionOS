@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { useTerminalStore } from '@/features/terminal/terminalStore'
-import { useThemeStore } from '@/stores/themeStore'
+import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
+import { useThemeStore } from '@/shared/stores/theme.store'
 import { terminalIpc } from '@/services/terminalIpc'
 import '@xterm/xterm/css/xterm.css'
 

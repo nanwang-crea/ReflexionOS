@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useCodeTabStore, type ViewMode } from '@/features/code/codeTabStore'
+import { useCodeTabStore, type ViewMode } from '@/features/code/stores/codeTab.store'
 import { fileApi } from '@/features/code/fileApi'
 import { CodeTabBar } from './CodeTabBar'
 import { CodeEditor } from './CodeEditor'
 import { EditableDiffViewer } from './EditableDiffViewer'
-import { useProjectStore } from '@/stores/projectStore'
+import { useProjectStore } from '@/features/projects/stores/project.store'
 
 function CodeTabEmpty() {
   return (

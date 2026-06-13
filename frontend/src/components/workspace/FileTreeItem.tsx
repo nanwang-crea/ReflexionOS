@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react'
 import type { FileTreeNode, GitStatusCode } from '@/types/fileTree'
-import { useCodeTabStore } from '@/features/code/codeTabStore'
+import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 
 const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {
   M: 'text-status-success',

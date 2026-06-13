@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useTerminalStore, _resetForTesting } from './terminalStore'
+import { useTerminalStore, _resetForTesting } from '../stores/terminal.store'
 
 beforeEach(() => {
   _resetForTesting()

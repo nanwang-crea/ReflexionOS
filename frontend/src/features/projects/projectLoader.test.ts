@@ -40,7 +40,7 @@ describe('ensureProjectsLoaded', () => {
       data: [createProject('project-a')],
     })
 
-    const { useProjectStore } = await import('@/stores/projectStore')
+    const { useProjectStore } = await import('@/features/projects/stores/project.store')
     useProjectStore.setState({
       loaded: false,
       loading: false,
@@ -58,7 +58,7 @@ describe('ensureProjectsLoaded', () => {
   })
 
   it('skips the network request when projects are already loaded', async () => {
-    const { useProjectStore } = await import('@/stores/projectStore')
+    const { useProjectStore } = await import('@/features/projects/stores/project.store')
     useProjectStore.setState({
       loaded: true,
       loading: false,
@@ -97,8 +97,8 @@ describe('ensureProjectsLoaded', () => {
         }],
       })
 
-    const { useProjectStore } = await import('@/stores/projectStore')
-    const { useSessionStore } = await import('@/features/sessions/sessionStore')
+    const { useProjectStore } = await import('@/features/projects/stores/project.store')
+    const { useSessionStore } = await import('@/features/sessions/stores/session.store')
     useProjectStore.setState({
       loaded: false,
       loading: false,
@@ -138,7 +138,7 @@ describe('ensureProjectsLoaded', () => {
       data: [createProject('project-1')],
     })
 
-    const { useProjectStore } = await import('@/stores/projectStore')
+    const { useProjectStore } = await import('@/features/projects/stores/project.store')
     useProjectStore.setState({
       loaded: false,
       loading: false,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { createSessionStore } from './sessionStore'
+import { createSessionStore } from '@/features/sessions/stores/session.store'
 
 const getMock = vi.fn()
 const postMock = vi.fn()
@@ -187,7 +187,7 @@ describe('sessionApi', () => {
       ],
     })
 
-    const { sessionApi } = await import('./sessionApi')
+    const { sessionApi } = await import('@/features/sessions/sessionApi')
     const response = await sessionApi.listProjectSessions('project-1')
 
     expect(getMock).toHaveBeenCalledWith('/api/projects/project-1/sessions')
@@ -223,7 +223,7 @@ describe('sessionApi', () => {
       },
     })
 
-    const { sessionApi } = await import('./sessionApi')
+    const { sessionApi } = await import('@/features/sessions/sessionApi')
     const response = await sessionApi.createSession('project-1', {
       title: '需求讨论',
       preferredProviderId: undefined,
@@ -264,7 +264,7 @@ describe('sessionApi', () => {
       },
     })
 
-    const { sessionApi } = await import('./sessionApi')
+    const { sessionApi } = await import('@/features/sessions/sessionApi')
     const response = await sessionApi.updateSession('session-1', {
       preferredProviderId: 'provider-b',
       preferredModelId: null,
@@ -291,7 +291,7 @@ describe('sessionApi', () => {
   it('calls delete session endpoint', async () => {
     deleteMock.mockResolvedValue({ data: { message: '会话已删除' } })
 
-    const { sessionApi } = await import('./sessionApi')
+    const { sessionApi } = await import('@/features/sessions/sessionApi')
     await sessionApi.deleteSession('session-1')
 
     expect(deleteMock).toHaveBeenCalledWith('/api/sessions/session-1')

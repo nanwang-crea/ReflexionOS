@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nativeDialogService } from './dialogService'
-import { useToastStore } from '@/stores/toastStore'
+import { useToastStore } from '@/shared/stores/toast.store'
 
 describe('nativeDialogService', () => {
   afterEach(() => {

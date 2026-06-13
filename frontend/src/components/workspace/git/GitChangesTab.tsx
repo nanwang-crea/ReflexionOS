@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, History, GitBranch } from 'lucide-react'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 import { GitBranchBar } from './GitBranchBar'
 import { GitFileGroup } from './GitFileGroup'
 import { GitCommitInput } from './GitCommitInput'

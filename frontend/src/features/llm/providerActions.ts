@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { llmApi } from './llmApi'
-import { useSettingsStore } from '@/stores/settingsStore'
+import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import type { DefaultLLMSelection, ProviderConnectionTestRequest, ProviderConnectionTestResult, ProviderInstance } from '@/types/llm'
 import { normalizeProviderDraft, validateProviderDraft } from './providerDraft'
 

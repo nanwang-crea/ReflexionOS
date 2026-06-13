@@ -1,7 +1,7 @@
 import { File, Plus, Minus, RotateCcw } from 'lucide-react'
 import type { GitStatusCode } from '@/types/git'
-import { useCodeTabStore } from '@/features/code/codeTabStore'
-import { useGitStore } from '@/features/git/gitStore'
+import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
+import { useGitStore } from '@/features/git/stores/git.store'
 import { useToast } from '@/hooks/useToast'
 
 const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {

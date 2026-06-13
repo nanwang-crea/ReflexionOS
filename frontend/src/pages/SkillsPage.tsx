@@ -2,8 +2,8 @@ import { useEffect, useState, useMemo } from 'react'
 import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe, Plus, Trash2 } from 'lucide-react'
 import { skillApi } from '@/features/skills/skillApi'
 import type { InstallSkillRequest } from '@/features/skills/skillApi'
-import { useToastStore } from '@/stores/toastStore'
-import { useCodeTabStore } from '@/features/code/codeTabStore'
+import { useToastStore } from '@/shared/stores/toast.store'
+import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import type { Skill, SkillCategories } from '@/types/skill'
 
 const CATEGORY_LABELS: Record<string, string> = {

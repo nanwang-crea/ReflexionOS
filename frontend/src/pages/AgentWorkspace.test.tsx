@@ -39,14 +39,14 @@ vi.mock('@/components/workspace/FileSidebar', () => ({
   FileSidebar: () => <div />,
 }))
 
-vi.mock('@/features/conversation/conversationStore', () => ({
+vi.mock('@/features/conversation/stores/conversation.store', () => ({
   useConversationStore: (selector: (state: unknown) => unknown) => selector({
     agentModeBySessionId: { 'session-1': 'build' },
     conversationsBySessionId: { 'session-1': { runsById: {} } },
   }),
 }))
 
-vi.mock('@/features/code/codeTabStore', () => ({
+vi.mock('@/features/code/stores/codeTab.store', () => ({
   useCodeTabStore: (selector: (state: unknown) => unknown) => selector({
     workspaceTab: 'chat',
     setSidebarOpen: vi.fn(),
@@ -54,20 +54,20 @@ vi.mock('@/features/code/codeTabStore', () => ({
   }),
 }))
 
-vi.mock('@/features/terminal/terminalStore', () => ({
+vi.mock('@/features/terminal/stores/terminal.store', () => ({
   useTerminalStore: (selector: (state: unknown) => unknown) => selector({
     togglePanel: vi.fn(),
     createTerminal: vi.fn(),
   }),
 }))
 
-vi.mock('@/stores/workspaceStore', () => ({
+vi.mock('@/features/workspace/stores/workspace.store', () => ({
   useWorkspaceStore: (selector: (state: unknown) => unknown) => selector({
     currentSessionId: 'session-1',
   }),
 }))
 
-vi.mock('@/stores/projectStore', () => ({
+vi.mock('@/features/projects/stores/project.store', () => ({
   useProjectStore: (selector: (state: unknown) => unknown) => selector({
     currentProject: { path: '/tmp/reflexion' },
   }),

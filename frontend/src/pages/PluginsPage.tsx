@@ -13,7 +13,7 @@ import {
   Download,
 } from 'lucide-react'
 import { pluginApi } from '@/features/plugins/pluginApi'
-import { useToastStore } from '@/stores/toastStore'
+import { useToastStore } from '@/shared/stores/toast.store'
 import type { Plugin, InstallPluginRequest } from '@/types/plugin'
 
 interface PluginSkill {

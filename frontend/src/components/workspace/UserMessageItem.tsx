@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
-import { useToastStore } from '@/stores/toastStore'
+import { useToastStore } from '@/shared/stores/toast.store'
 
 interface UserMessageItemProps {
   messageId: string

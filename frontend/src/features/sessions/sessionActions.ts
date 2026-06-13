@@ -1,5 +1,5 @@
 import { sessionApi } from './sessionApi'
-import { useSessionStore } from './sessionStore'
+import { useSessionStore } from './stores/session.store'
 import type { SessionCreatePayload, SessionSummary, SessionUpdatePayload } from '@/types/workspace'
 
 export async function ensureProjectSessionsLoaded(projectId: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { Plus, X } from 'lucide-react'
-import { useTerminalStore } from '@/features/terminal/terminalStore'
-import { useProjectStore } from '@/stores/projectStore'
+import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
+import { useProjectStore } from '@/features/projects/stores/project.store'
 
 interface TerminalTabBarProps {
   onClosePanel: () => void

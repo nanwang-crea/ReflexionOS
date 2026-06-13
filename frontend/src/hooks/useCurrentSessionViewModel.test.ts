@@ -36,7 +36,7 @@ const { settingsState, sessionDataState, selectionState, confirmActionMock } = v
   confirmActionMock: vi.fn(() => true),
 }))
 
-vi.mock('@/stores/settingsStore', () => ({
+vi.mock('@/features/settings/stores/settings.store', () => ({
   useSettingsStore: () => settingsState,
 }))
 

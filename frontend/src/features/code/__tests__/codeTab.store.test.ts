@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { useCodeTabStore } from './codeTabStore'
+import { useCodeTabStore } from '../stores/codeTab.store'
 
 describe('codeTabStore multi-file', () => {
   beforeEach(() => {

@@ -1,9 +1,9 @@
 import { useEffect, useMemo } from 'react'
 import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
-import { useSessionStore } from '@/features/sessions/sessionStore'
-import { useProjectStore } from '@/stores/projectStore'
-import { useToastStore } from '@/stores/toastStore'
-import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { useSessionStore } from '@/features/sessions/stores/session.store'
+import { useProjectStore } from '@/features/projects/stores/project.store'
+import { useToastStore } from '@/shared/stores/toast.store'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { SessionSummary } from '@/types/workspace'
 
 const EMPTY_SESSIONS: SessionSummary[] = []

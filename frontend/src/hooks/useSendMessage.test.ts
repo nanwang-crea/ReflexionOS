@@ -151,7 +151,7 @@ vi.mock('@/services/dialogService', () => ({
   },
 }))
 
-vi.mock('@/stores/projectStore', () => ({
+vi.mock('@/features/projects/stores/project.store', () => ({
   useProjectStore: () => currentProjectState,
 }))
 

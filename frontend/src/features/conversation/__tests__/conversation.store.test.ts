@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
-import { createConversationStore } from './conversationStore'
+import { createConversationStore } from '../stores/conversation.store'
 
 function buildSnapshot(): ConversationSnapshot {
   return {

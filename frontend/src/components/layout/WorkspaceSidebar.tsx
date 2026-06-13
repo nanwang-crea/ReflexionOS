@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { useSessionStore } from '@/features/sessions/sessionStore'
+import { useSessionStore } from '@/features/sessions/stores/session.store'
 import {
   ChevronDown,
   ChevronRight,
@@ -21,12 +21,12 @@ import {
 } from 'lucide-react'
 import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
 import { isElectronRuntime } from '@/services/desktopClient'
-import { useToastStore } from '@/stores/toastStore'
-import { useConversationStore } from '@/features/conversation/conversationStore'
-import { useProjectStore } from '@/stores/projectStore'
-import { useSettingsStore } from '@/stores/settingsStore'
-import { useThemeStore } from '@/stores/themeStore'
-import { useWorkspaceStore } from '@/stores/workspaceStore'
+import { useToastStore } from '@/shared/stores/toast.store'
+import { useConversationStore } from '@/features/conversation/stores/conversation.store'
+import { useProjectStore } from '@/features/projects/stores/project.store'
+import { useSettingsStore } from '@/features/settings/stores/settings.store'
+import { useThemeStore } from '@/shared/stores/theme.store'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
 import { isConversationBusy } from './sidebarBusy'

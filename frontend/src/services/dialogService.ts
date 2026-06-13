@@ -1,4 +1,4 @@
-import { useToastStore } from '@/stores/toastStore'
+import { useToastStore } from '@/shared/stores/toast.store'
 
 export interface DialogService {
   notifyError: (message: string) => void

@@ -1,5 +1,5 @@
 import { GitBranch, ArrowUp, ArrowDown, ChevronDown, Plus, Trash2, X } from 'lucide-react'
-import { useGitStore } from '@/features/git/gitStore'
+import { useGitStore } from '@/features/git/stores/git.store'
 import { useState, useRef, useEffect } from 'react'
 
 export function GitBranchBar() {

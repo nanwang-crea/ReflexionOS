@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
-import { useToastStore, type ToastItem } from '@/stores/toastStore'
+import { useToastStore, type ToastItem } from '@/shared/stores/toast.store'
 
 const levelConfig: Record<string, { icon: typeof AlertCircle; bg: string; border: string; text: string }> = {
   error: { icon: AlertCircle, bg: 'bg-status-error-soft', border: 'border-status-error-border', text: 'text-status-error' },
