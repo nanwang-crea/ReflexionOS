@@ -6,7 +6,7 @@ const updateSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 const listProjectSessionsMock = vi.fn()
 
-vi.mock('../sessionApi', () => ({
+vi.mock('../api/session.api', () => ({
   sessionApi: {
     createSession: createSessionMock,
     updateSession: updateSessionMock,

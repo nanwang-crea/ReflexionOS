@@ -40,11 +40,11 @@ vi.mock('@/features/settings/stores/settings.store', () => ({
   useSettingsStore: () => settingsState,
 }))
 
-vi.mock('./useSessionData', () => ({
+vi.mock('../useSessionData', () => ({
   useSessionData: () => sessionDataState,
 }))
 
-vi.mock('./useSessionSelection', () => ({
+vi.mock('../useSessionSelection', () => ({
   useSessionSelection: () => selectionState,
 }))
 

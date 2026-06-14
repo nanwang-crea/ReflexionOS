@@ -52,6 +52,8 @@ const {
       prependMessages: vi.fn(),
       setPagination: vi.fn(),
       clearConversation: vi.fn(),
+      setPlan: vi.fn(),
+      setAgentMode: vi.fn(),
     },
   }
 })
@@ -65,7 +67,7 @@ vi.mock('react', () => ({
   useState: <T,>(value: T) => [value, vi.fn()] as const,
 }))
 
-vi.mock('@/features/conversation/conversationApi', () => ({
+vi.mock('@/features/conversation/api/conversation.api', () => ({
   conversationApi: {
     getConversation: getConversationMock,
     getConversationPaginated: getConversationMock,
@@ -75,6 +77,23 @@ vi.mock('@/features/conversation/conversationApi', () => ({
 vi.mock('@/features/conversation/stores/conversation.store', () => ({
   useConversationStore: {
     getState: () => conversationStoreState,
+  },
+}))
+
+vi.mock('@/features/sessions/stores/session.store', () => ({
+  useSessionStore: {
+    getState: () => ({
+      sessionsByProjectId: {},
+      upsertSession: vi.fn(),
+    }),
+  },
+}))
+
+vi.mock('@/shared/stores/toast.store', () => ({
+  useToastStore: {
+    getState: () => ({
+      addToast: vi.fn(),
+    }),
   },
 }))
 

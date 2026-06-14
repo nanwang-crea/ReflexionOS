@@ -13,25 +13,23 @@ function createProject(id: string): Project {
 }
 
 const listProjectsMock = vi.fn()
-const listProjectSessionsMock = vi.fn()
+const ensureProjectSessionsLoadedMock = vi.fn()
 
-vi.mock('../projectApi', () => ({
+vi.mock('../api/project.api', () => ({
   projectApi: {
     list: listProjectsMock,
   },
 }))
 
-vi.mock('@/features/sessions/sessionApi', () => ({
-  sessionApi: {
-    listProjectSessions: listProjectSessionsMock,
-  },
+vi.mock('@/features/sessions/sessionActions', () => ({
+  ensureProjectSessionsLoaded: ensureProjectSessionsLoadedMock,
 }))
 
 beforeEach(() => {
   vi.resetModules()
   listProjectsMock.mockReset()
-  listProjectSessionsMock.mockReset()
-  listProjectSessionsMock.mockResolvedValue({ data: [] })
+  ensureProjectSessionsLoadedMock.mockReset()
+  ensureProjectSessionsLoadedMock.mockResolvedValue(undefined)
 })
 
 describe('ensureProjectsLoaded', () => {
@@ -73,64 +71,25 @@ describe('ensureProjectsLoaded', () => {
     expect(projects.map((project) => project.id)).toEqual(['project-a'])
   })
 
-  it('hydrates sessionStore for each loaded project', async () => {
+  it('calls ensureProjectSessionsLoaded for each loaded project', async () => {
     listProjectsMock.mockResolvedValue({
       data: [createProject('project-a'), createProject('project-b')],
     })
-    listProjectSessionsMock
-      .mockResolvedValueOnce({
-        data: [{
-          id: 'session-a',
-          projectId: 'project-a',
-          title: 'Project A Chat',
-          createdAt: '2026-04-20T00:00:00Z',
-          updatedAt: '2026-04-20T00:00:00Z',
-        }],
-      })
-      .mockResolvedValueOnce({
-        data: [{
-          id: 'session-b',
-          projectId: 'project-b',
-          title: 'Project B Chat',
-          createdAt: '2026-04-20T00:01:00Z',
-          updatedAt: '2026-04-20T00:01:00Z',
-        }],
-      })
 
     const { useProjectStore } = await import('@/features/projects/stores/project.store')
-    const { useSessionStore } = await import('@/features/sessions/stores/session.store')
     useProjectStore.setState({
       loaded: false,
       loading: false,
       projects: [],
       currentProject: null,
     })
-    useSessionStore.setState({
-      sessionsByProjectId: {},
-    })
 
     const { ensureProjectsLoaded } = await import('../projectLoader')
     await ensureProjectsLoaded({ force: true })
 
-    expect(listProjectSessionsMock).toHaveBeenCalledTimes(2)
-    expect(listProjectSessionsMock).toHaveBeenNthCalledWith(1, 'project-a')
-    expect(listProjectSessionsMock).toHaveBeenNthCalledWith(2, 'project-b')
-    expect(useSessionStore.getState().sessionsByProjectId).toEqual({
-      'project-a': [{
-        id: 'session-a',
-        projectId: 'project-a',
-        title: 'Project A Chat',
-        createdAt: '2026-04-20T00:00:00Z',
-        updatedAt: '2026-04-20T00:00:00Z',
-      }],
-      'project-b': [{
-        id: 'session-b',
-        projectId: 'project-b',
-        title: 'Project B Chat',
-        createdAt: '2026-04-20T00:01:00Z',
-        updatedAt: '2026-04-20T00:01:00Z',
-      }],
-    })
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledTimes(2)
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenNthCalledWith(1, 'project-a')
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenNthCalledWith(2, 'project-b')
   })
 
   it('preloads project sessions during project loading', async () => {
@@ -149,7 +108,7 @@ describe('ensureProjectsLoaded', () => {
     const { ensureProjectsLoaded } = await import('../projectLoader')
     await ensureProjectsLoaded({ force: true })
 
-    expect(listProjectSessionsMock).toHaveBeenCalledWith('project-1')
+    expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')
   })
 
 })

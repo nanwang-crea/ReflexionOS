@@ -33,7 +33,7 @@ const {
   selectProjectDirectoryMock: vi.fn(),
 }))
 
-vi.mock('@/features/projects/projectApi', () => ({
+vi.mock('@/features/projects/api/project.api', () => ({
   projectApi: {
     create: createProjectApiMock,
     delete: deleteProjectApiMock,
