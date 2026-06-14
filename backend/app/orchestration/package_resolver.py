@@ -46,6 +46,28 @@ def _get_github_default_branch(owner: str, repo: str, timeout: int = 5) -> str:
             default_branch = data.get("default_branch", "main")
             logger.info("获取 %s/%s 的默认分支: %s", owner, repo, default_branch)
             return default_branch
+        elif response.status_code == 403:
+            # API 限流，尝试从 git ls-remote 获取（不消耗 API 配额）
+            logger.warning("GitHub API 限流，尝试使用 git ls-remote 获取 %s/%s 的默认分支", owner, repo)
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ['git', 'ls-remote', '--symref', f'https://github.com/{owner}/{repo}', 'HEAD'],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout
+                )
+                if result.returncode == 0:
+                    # 解析输出: "ref: refs/heads/master	HEAD"
+                    for line in result.stdout.split('\n'):
+                        if line.startswith('ref:'):
+                            ref_path = line.split()[1]
+                            branch = ref_path.split('/')[-1]
+                            logger.info("通过 git ls-remote 获取 %s/%s 的默认分支: %s", owner, repo, branch)
+                            return branch
+            except Exception as e:
+                logger.warning("git ls-remote 失败: %s", e)
+            return "main"
         else:
             logger.warning("无法获取 %s/%s 的默认分支 (状态码: %d)，使用 main", owner, repo, response.status_code)
             return "main"

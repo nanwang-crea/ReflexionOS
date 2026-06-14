@@ -36,6 +36,7 @@ export default function PluginsPage() {
   const [skillsLoading, setSkillsLoading] = useState<string | null>(null)
   const [showInstallDialog, setShowInstallDialog] = useState(false)
   const [installSpecifier, setInstallSpecifier] = useState('')
+  const [installBranch, setInstallBranch] = useState('')
 
   const loadPlugins = useCallback(async () => {
     setLoading(true)
@@ -55,13 +56,31 @@ export default function PluginsPage() {
   }, [loadPlugins])
 
   const handleInstall = async () => {
-    const specifier = installSpecifier.trim()
+    let specifier = installSpecifier.trim()
     if (!specifier) return
+
+    // 如果用户指定了分支，添加到specifier
+    if (installBranch.trim()) {
+      const branch = installBranch.trim()
+      // 判断格式并添加分支
+      if (specifier.includes('@') && !specifier.includes('@git+')) {
+        // 已有@符号，替换分支部分
+        specifier = specifier.split('@')[0] + '@' + branch
+      } else if (specifier.startsWith('http')) {
+        // URL格式，使用#添加分支
+        specifier = specifier.replace(/#.*$/, '') + '#' + branch
+      } else {
+        // 短格式，使用@添加分支
+        specifier = specifier + '@' + branch
+      }
+    }
+
     setInstalling(true)
     try {
       await pluginApi.install({ specifier } satisfies InstallPluginRequest)
       useToastStore.getState().addToast('info', `插件 ${specifier} 安装成功`)
       setInstallSpecifier('')
+      setInstallBranch('')
       setShowInstallDialog(false)
       await loadPlugins()
     } catch (error: unknown) {
@@ -235,34 +254,52 @@ export default function PluginsPage() {
                 </li>
               </ul>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-3">
               <input
                 type="text"
-                placeholder="例如: obra/superpowers 或 owner/repo@master"
+                placeholder="例如: obra/superpowers 或 https://github.com/owner/repo"
                 value={installSpecifier}
                 onChange={(e) => setInstallSpecifier(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleInstall()
+                  if (e.key === 'Enter' && !installBranch) handleInstall()
                 }}
-                className="min-w-0 flex-1 rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
+                className="rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
                 autoFocus
               />
-              <button
-                onClick={handleInstall}
-                disabled={installing || !installSpecifier.trim()}
-                className="rounded-xl bg-content-primary px-4 py-2 text-sm font-medium text-surface-primary transition-colors hover:bg-content-primary/90 disabled:opacity-50"
-              >
-                {installing ? '安装中...' : '安装'}
-              </button>
-              <button
-                onClick={() => {
-                  setShowInstallDialog(false)
-                  setInstallSpecifier('')
-                }}
-                className="rounded-xl border border-edge bg-surface-tertiary px-4 py-2 text-sm text-content-secondary transition-colors hover:bg-surface-secondary"
-              >
-                取消
-              </button>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-content-muted whitespace-nowrap">
+                  分支（可选）:
+                </label>
+                <input
+                  type="text"
+                  placeholder="留空则自动检测默认分支，如: master, develop"
+                  value={installBranch}
+                  onChange={(e) => setInstallBranch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleInstall()
+                  }}
+                  className="flex-1 rounded-2xl border border-edge bg-surface-primary px-4 py-2 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleInstall}
+                  disabled={installing || !installSpecifier.trim()}
+                  className="flex-1 rounded-xl bg-content-primary px-4 py-2 text-sm font-medium text-surface-primary transition-colors hover:bg-content-primary/90 disabled:opacity-50"
+                >
+                  {installing ? '安装中...' : '安装'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowInstallDialog(false)
+                    setInstallSpecifier('')
+                    setInstallBranch('')
+                  }}
+                  className="flex-1 rounded-xl border border-edge bg-surface-tertiary px-4 py-2 text-sm text-content-secondary transition-colors hover:bg-surface-secondary"
+                >
+                  取消
+                </button>
+              </div>
             </div>
           </div>
         )}
