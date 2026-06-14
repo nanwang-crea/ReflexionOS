@@ -19,7 +19,7 @@ import {
   Trash2,
   Workflow
 } from 'lucide-react'
-import { ensureProjectsLoaded } from '@/features/projects/projectLoader'
+import { ensureProjectsLoaded } from '@/features/projects/project.loader'
 import { isElectronRuntime } from '@/services/desktopClient'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useConversationStore } from '@/features/conversation/stores/conversation.store'

@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react'
-import { uiSettingsApi } from '@/features/uiSettings/api/uiSettings.api'
+import { uiSettingsApi } from '@/features/settings/api/uiSettings.api'
 import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import { useToastStore } from '@/shared/stores/toast.store'
 

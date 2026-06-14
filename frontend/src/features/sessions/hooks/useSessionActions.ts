@@ -4,7 +4,7 @@ import {
   deleteSession as deleteSessionAction,
   ensureProjectSessionsLoaded,
   renameSession as renameSessionAction,
-} from '@/features/sessions/sessionActions'
+} from '@/features/sessions/session.actions'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { SessionCreatePayload, SessionSummary } from '@/types/workspace'
 

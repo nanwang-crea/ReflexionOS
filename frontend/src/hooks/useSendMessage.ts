@@ -1,9 +1,9 @@
 import { useCallback } from 'react'
-import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/sessionActions'
+import { writeSessionPreferences as writeSessionPreferencesAction } from '@/features/sessions/session.actions'
 import { nativeDialogService } from '@/services/dialogService'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import type { SessionSummary } from '@/types/workspace'
-import { useSessionActions } from './useSessionActions'
+import { useSessionActions } from '@/features/sessions/hooks/useSessionActions'
 
 interface SelectionState {
   providerId: string | null

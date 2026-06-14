@@ -1,4 +1,4 @@
-import { createSession, deleteSession, renameSession } from '@/features/sessions/sessionActions'
+import { createSession, deleteSession, renameSession } from '@/features/sessions/session.actions'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import type { Project } from '@/types/project'
 import type { SessionSummary } from '@/types/workspace'

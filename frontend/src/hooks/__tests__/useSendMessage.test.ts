@@ -155,7 +155,7 @@ vi.mock('@/features/projects/stores/project.store', () => ({
   useProjectStore: () => currentProjectState,
 }))
 
-vi.mock('@/hooks/useSessionActions', () => ({
+vi.mock('@/features/sessions/hooks/useSessionActions', () => ({
   useSessionActions: () => ({
     createSession: createSessionActionMock,
   }),
@@ -169,7 +169,7 @@ vi.mock('react', async (importOriginal) => {
   }
 })
 
-vi.mock('@/features/sessions/sessionActions', () => ({
+vi.mock('@/features/sessions/session.actions', () => ({
   writeSessionPreferences: writeSessionPreferencesMock,
 }))
 

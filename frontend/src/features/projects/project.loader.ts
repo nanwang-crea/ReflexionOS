@@ -1,4 +1,4 @@
-import { ensureProjectSessionsLoaded } from '@/features/sessions/sessionActions'
+import { ensureProjectSessionsLoaded } from '@/features/sessions/session.actions'
 import { projectApi } from './api/project.api'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import type { Project } from '@/types/project'

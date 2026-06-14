@@ -71,7 +71,7 @@ describe('ensureLLMSettingsLoaded', () => {
       loaded: false,
     })
 
-    const { ensureLLMSettingsLoaded } = await import('../llmSettingsLoader')
+    const { ensureLLMSettingsLoaded } = await import('../llmSettings.loader')
     const [first, second] = await Promise.all([ensureLLMSettingsLoaded(), ensureLLMSettingsLoaded()])
 
     expect(getProvidersMock).toHaveBeenCalledTimes(1)
@@ -92,7 +92,7 @@ describe('ensureLLMSettingsLoaded', () => {
       loaded: true,
     })
 
-    const { ensureLLMSettingsLoaded } = await import('../llmSettingsLoader')
+    const { ensureLLMSettingsLoaded } = await import('../llmSettings.loader')
     const loadedSettings = await ensureLLMSettingsLoaded()
 
     expect(getProvidersMock).not.toHaveBeenCalled()
@@ -108,7 +108,7 @@ describe('ensureLLMSettingsLoaded', () => {
 describe('resetLLMSettingsStore', () => {
   it('resets stored settings to an unloaded state', async () => {
     const { useSettingsStore } = await import('@/features/settings/stores/settings.store')
-    const { resetLLMSettingsStore } = await import('../llmSettingsLoader')
+    const { resetLLMSettingsStore } = await import('../llmSettings.loader')
 
     useSettingsStore.setState({
       providers: [createProvider('provider-a', 'model-a')],
@@ -193,7 +193,7 @@ describe('providerActions', () => {
     const onError = vi.fn()
     const setSaving = vi.fn()
 
-    const { createProviderActions } = await import('../providerActions')
+    const { createProviderActions } = await import('../provider.actions')
     const actions = createProviderActions({
       api: {
         createProvider,
@@ -263,7 +263,7 @@ describe('providerActions', () => {
     const onError = vi.fn()
     const confirmDelete = vi.fn().mockReturnValue(true)
 
-    const { createProviderActions } = await import('../providerActions')
+    const { createProviderActions } = await import('../provider.actions')
     const actions = createProviderActions({
       api: {
         createProvider: vi.fn(),
@@ -305,7 +305,7 @@ describe('providerActions', () => {
 
     updateProviderMock.mockResolvedValue(undefined)
 
-    const { createSettingsPageActions } = await import('../providerActions')
+    const { createSettingsPageActions } = await import('../provider.actions')
     const actions = createSettingsPageActions({
       loadSettings,
       setSaving,

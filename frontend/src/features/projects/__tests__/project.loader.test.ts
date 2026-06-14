@@ -21,7 +21,7 @@ vi.mock('../api/project.api', () => ({
   },
 }))
 
-vi.mock('@/features/sessions/sessionActions', () => ({
+vi.mock('@/features/sessions/session.actions', () => ({
   ensureProjectSessionsLoaded: ensureProjectSessionsLoadedMock,
 }))
 
@@ -46,7 +46,7 @@ describe('ensureProjectsLoaded', () => {
       currentProject: null,
     })
 
-    const { ensureProjectsLoaded } = await import('../projectLoader')
+    const { ensureProjectsLoaded } = await import('../project.loader')
 
     await Promise.all([ensureProjectsLoaded(), ensureProjectsLoaded()])
 
@@ -64,7 +64,7 @@ describe('ensureProjectsLoaded', () => {
       currentProject: null,
     })
 
-    const { ensureProjectsLoaded } = await import('../projectLoader')
+    const { ensureProjectsLoaded } = await import('../project.loader')
     const projects = await ensureProjectsLoaded()
 
     expect(listProjectsMock).not.toHaveBeenCalled()
@@ -84,7 +84,7 @@ describe('ensureProjectsLoaded', () => {
       currentProject: null,
     })
 
-    const { ensureProjectsLoaded } = await import('../projectLoader')
+    const { ensureProjectsLoaded } = await import('../project.loader')
     await ensureProjectsLoaded({ force: true })
 
     expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledTimes(2)
@@ -105,7 +105,7 @@ describe('ensureProjectsLoaded', () => {
       currentProject: null,
     })
 
-    const { ensureProjectsLoaded } = await import('../projectLoader')
+    const { ensureProjectsLoaded } = await import('../project.loader')
     await ensureProjectsLoaded({ force: true })
 
     expect(ensureProjectSessionsLoadedMock).toHaveBeenCalledWith('project-1')

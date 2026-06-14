@@ -13,8 +13,8 @@ import {
 import {
   ensureLLMSettingsLoaded,
   resetLLMSettingsStore,
-} from './llmSettingsLoader'
-import { createSettingsPageActions } from './providerActions'
+} from './llmSettings.loader'
+import { createSettingsPageActions } from './provider.actions'
 
 type TestResult = { type: 'success' | 'error'; message: string } | null
 

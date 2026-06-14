@@ -227,87 +227,138 @@ frontend/src/
 
 ---
 
-## 🟡 优先级 P1：Reducers & Actions & Loaders 重命名（9 文件）
+## ✅ 优先级 P1：Reducers & Actions & Loaders 重命名（9 文件）— 已完成 ✅
 
-### Reducers（1 文件）
+**完成状态**: ✅ 9/9 文件已重命名并更新所有导入路径
 
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 1 | `features/conversation/conversationReducer.ts` | `features/conversation/conversation.reducer.ts` |
+### Reducers（1 文件）✅
 
-### Actions（3 文件在 features/ 下）
+| # | 原路径 | 新路径 | 状态 |
+|---|--------|--------|------|
+| 1 | `features/conversation/conversationReducer.ts` | `features/conversation/conversation.reducer.ts` | ✅ |
 
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 2 | `features/llm/providerActions.ts` | `features/llm/provider.actions.ts` |
-| 3 | `features/sessions/sessionActions.ts` | `features/sessions/session.actions.ts` |
+### Actions（2 文件在 features/ 下）✅
+
+| # | 原路径 | 新路径 | 状态 |
+|---|--------|--------|------|
+| 2 | `features/llm/providerActions.ts` | `features/llm/provider.actions.ts` | ✅ |
+| 3 | `features/sessions/sessionActions.ts` | `features/sessions/session.actions.ts` | ✅ |
 
 > 注：`components/execution/approvalActions.ts` 和 `components/layout/useSidebar*.ts` 是组件局部逻辑，暂不移动。
 
-### Loaders（2 文件）
+### Loaders（2 文件）✅
 
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 4 | `features/llm/llmSettingsLoader.ts` | `features/llm/llmSettings.loader.ts` |
-| 5 | `features/projects/projectLoader.ts` | `features/projects/project.loader.ts` |
-
-### 对应测试文件
-
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 6 | `features/conversation/conversationReducer.test.ts` | `features/conversation/__tests__/conversation.reducer.test.ts` |
-| 7 | `features/llm/llmSettingsLoader.test.ts` | `features/llm/__tests__/llmSettings.loader.test.ts` |
-| 8 | `features/projects/projectLoader.test.ts` | `features/projects/__tests__/project.loader.test.ts` |
-| 9 | `features/sessions/sessionActions.test.ts` | `features/sessions/__tests__/session.actions.test.ts` |
-
----
-
-## 🟢 优先级 P2：Hooks 归位（5 文件）
-
-当前有 5 个 hook 文件不在 `/hooks/` 目录中，而是散落在 `components/` 和 `features/` 中：
-
-| # | 原路径 | 新路径 | 说明 |
+| # | 原路径 | 新路径 | 状态 |
 |---|--------|--------|------|
-| 1 | `components/layout/useSidebarFilteredProjects.ts` | `hooks/useSidebarFilteredProjects.ts` | 全局 hook |
-| 2 | `components/layout/useSidebarProjectActions.ts` | `hooks/useSidebarProjectActions.ts` | 全局 hook |
-| 3 | `components/layout/useSidebarSessionActions.ts` | `hooks/useSidebarSessionActions.ts` | 全局 hook |
-| 4 | `features/llm/useSettingsPageController.ts` | `hooks/useSettingsPageController.ts` | 全局 hook |
-| 5 | `hooks/useSessionActions.ts` | `features/sessions/hooks/useSessionActions.ts` | feature 级 hook |
+| 4 | `features/llm/llmSettingsLoader.ts` | `features/llm/llmSettings.loader.ts` | ✅ |
+| 5 | `features/projects/projectLoader.ts` | `features/projects/project.loader.ts` | ✅ |
 
-> ⚠️ 需要确认：前 4 个 hook 是否确实被多处使用。如果只被同目录组件使用，可以保留原位。
+### 对应测试文件 ✅
 
-### 对应测试文件
-
-| # | 原路径 | 新路径 |
-|---|--------|--------|
-| 6 | `components/layout/useSidebarFilteredProjects.test.ts` | `hooks/__tests__/useSidebarFilteredProjects.test.ts` |
-| 7 | `components/layout/useSidebarProjectActions.test.ts` | `hooks/__tests__/useSidebarProjectActions.test.ts` |
-| 8 | `components/layout/useSidebarSessionActions.test.ts` | `hooks/__tests__/useSidebarSessionActions.test.ts` |
-
----
-
-## 🟢 优先级 P2：Feature 目录重命名（1 个）
-
-| # | 原路径 | 新路径 | 说明 |
+| # | 原路径 | 新路径 | 状态 |
 |---|--------|--------|------|
-| 1 | `features/uiSettings/` | `features/settings/` | 与 settingsStore 对齐 |
+| 6 | `features/conversation/conversationReducer.test.ts` | `features/conversation/__tests__/conversation.reducer.test.ts` | ✅ (已在 P0 完成) |
+| 7 | `features/llm/llmSettingsLoader.test.ts` | `features/llm/__tests__/llmSettings.loader.test.ts` | ✅ (已在 P0 完成) |
+| 8 | `features/projects/projectLoader.test.ts` | `features/projects/__tests__/project.loader.test.ts` | ✅ (已在 P0 完成) |
+| 9 | `features/sessions/sessionActions.test.ts` | `features/sessions/__tests__/session.actions.test.ts` | ✅ (已在 P0 完成) |
 
-### 涉及文件
+### 更新的导入路径（共 13 处）✅
 
-- `features/uiSettings/uiSettingsApi.ts` → `features/settings/api/uiSettings.api.ts`
-- 所有导入 `@/features/uiSettings/` 的文件需更新
+**conversationReducer → conversation.reducer:**
+- `features/conversation/__tests__/conversation.reducer.test.ts` ✅
+- `features/conversation/stores/conversation.store.ts` ✅
+
+**providerActions → provider.actions:**
+- `features/llm/useSettingsPageController.ts` ✅
+- `features/llm/__tests__/llmSettings.loader.test.ts` (3 处) ✅
+
+**sessionActions → session.actions:**
+- `features/projects/__tests__/project.loader.test.ts` ✅
+- `features/projects/projectLoader.ts` ✅
+- `features/sessions/__tests__/session.actions.test.ts` (4 处) ✅
+- `components/layout/useSidebarSessionActions.ts` ✅
+- `components/layout/__tests__/useSidebarSessionActions.test.ts` ✅
+- `hooks/useSendMessage.ts` ✅
+- `hooks/useSessionActions.ts` ✅
+- `hooks/__tests__/useSendMessage.test.ts` ✅
+
+**llmSettingsLoader → llmSettings.loader:**
+- `features/llm/useSettingsPageController.ts` ✅
+- `features/llm/__tests__/llmSettings.loader.test.ts` (3 处) ✅
+- `hooks/useSessionData.ts` ✅
+- `hooks/__tests__/useSessionData.test.ts` ✅
+
+**projectLoader → project.loader:**
+- `features/projects/__tests__/project.loader.test.ts` (4 处) ✅
+- `components/layout/WorkspaceSidebar.tsx` ✅
+
+**✅ 测试验证：`pnpm test` 全部通过（175 个测试）**
 
 ---
 
-## 🟢 优先级 P2：清理空目录
+## ✅ 优先级 P2：Hooks 归位（1 文件）— 已完成 ✅
 
-重组完成后需要删除的空目录：
+**完成状态**: ✅ 1/1 文件已移动（其余 4 个 hook 保持原位，因为它们是组件/feature 特定的）
 
-| # | 目录 | 前提 |
-|---|------|------|
-| 1 | `stores/` | 所有 store 文件移走后 |
-| 2 | `test/` | 当前已为空 |
-| 3 | `features/uiSettings/` | 重命名为 settings 后 |
+### 已移动的 Hooks ✅
+
+| # | 原路径 | 新路径 | 说明 | 状态 |
+|---|--------|--------|------|------|
+| 1 | `hooks/useSessionActions.ts` | `features/sessions/hooks/useSessionActions.ts` | feature 级 hook | ✅ |
+
+### 保持原位的 Hooks（合理的设计）
+
+以下 hooks 经过检查后，决定保持在原位置，因为它们只被特定的组件使用，不是全局 hooks：
+
+| # | 原路径 | 使用位置 | 说明 |
+|---|--------|----------|------|
+| 1 | `components/layout/useSidebarFilteredProjects.ts` | 仅 `WorkspaceSidebar.tsx` | 组件特定 hook |
+| 2 | `components/layout/useSidebarProjectActions.ts` | 仅 `WorkspaceSidebar.tsx` | 组件特定 hook |
+| 3 | `components/layout/useSidebarSessionActions.ts` | 仅 `WorkspaceSidebar.tsx` | 组件特定 hook |
+| 4 | `features/llm/useSettingsPageController.ts` | 仅 settings 页面组件 | feature 特定 hook |
+
+> **设计原则**: 只有被多个 feature 使用的 hooks 才应该放在全局 `/hooks/` 目录。feature-specific 或 component-specific 的 hooks 应该靠近它们的使用位置。
+
+### 更新的导入路径 ✅
+
+**useSessionActions 移动:**
+- `hooks/useSendMessage.ts` ✅
+- `hooks/__tests__/useSendMessage.test.ts` ✅
+
+**✅ 测试验证：`pnpm test` 全部通过（175 个测试）**
+
+---
+
+## ✅ 优先级 P2：Feature 目录重命名（1 个）— 已完成 ✅
+
+**完成状态**: ✅ 已将 `uiSettings` 合并到 `settings`
+
+| # | 原路径 | 新路径 | 说明 | 状态 |
+|---|--------|--------|------|------|
+| 1 | `features/uiSettings/` | `features/settings/` | 与 settingsStore 对齐 | ✅ |
+
+### 涉及文件 ✅
+
+- `features/uiSettings/api/uiSettings.api.ts` → `features/settings/api/uiSettings.api.ts` ✅
+- `pages/settings/DisplayOptionsPanel.tsx` 导入路径更新 ✅
+
+**✅ 测试验证：`pnpm test` 全部通过（175 个测试）**
+
+---
+
+## ✅ 优先级 P2：清理空目录 — 已完成 ✅
+
+**完成状态**: ✅ 所有空目录已删除
+
+| # | 目录 | 前提 | 状态 |
+|---|------|------|------|
+| 1 | `stores/` | 所有 store 文件移走后 | ✅ 已删除 |
+| 2 | `test/` | 当前已为空 | ✅ 已删除 |
+| 3 | `features/uiSettings/` | 重命名为 settings 后 | ✅ 已删除 |
+| 4 | `features/workspace/api/` | 当前已为空 | ✅ 已删除 |
+| 5 | `features/files/api/` | 当前已为空 | ✅ 已删除 |
+
+**✅ 测试验证：`pnpm test` 全部通过（175 个测试）**
 
 ---
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettingsLoader'
+import { ensureLLMSettingsLoaded } from '@/features/llm/llmSettings.loader'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import { useToastStore } from '@/shared/stores/toast.store'

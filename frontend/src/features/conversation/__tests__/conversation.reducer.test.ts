@@ -6,7 +6,7 @@ import {
   applyConversationLiveState,
   applyConversationSnapshot,
   createEmptyConversationState,
-} from '../conversationReducer'
+} from '../conversation.reducer'
 
 function buildSnapshot(): ConversationSnapshot {
   return {

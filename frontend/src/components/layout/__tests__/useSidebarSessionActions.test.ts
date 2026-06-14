@@ -33,7 +33,7 @@ const {
   deleteSessionMock: vi.fn(),
 }))
 
-vi.mock('@/features/sessions/sessionActions', () => ({
+vi.mock('@/features/sessions/session.actions', () => ({
   createSession: createSessionMock,
   renameSession: updateSessionMock,
   deleteSession: deleteSessionMock,
