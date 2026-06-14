@@ -65,7 +65,7 @@ export default function PluginsPage() {
       setShowInstallDialog(false)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '安装失败'
+      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '安装失败'
       useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
     } finally {
       setInstalling(false)
@@ -82,7 +82,7 @@ export default function PluginsPage() {
       }
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '卸载失败'
+      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '卸载失败'
       useToastStore.getState().addToast('warning', `卸载失败: ${msg}`)
     } finally {
       setUninstalling(null)
@@ -96,7 +96,7 @@ export default function PluginsPage() {
       useToastStore.getState().addToast('info', `插件 ${name} 更新成功`)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '更新失败'
+      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '更新失败'
       useToastStore.getState().addToast('warning', `更新失败: ${msg}`)
     } finally {
       setUpdating(null)
@@ -211,20 +211,34 @@ export default function PluginsPage() {
         {showInstallDialog && (
           <div className="mb-6 rounded-3xl border border-edge bg-surface-tertiary p-4 sm:p-6">
             <h3 className="mb-3 text-sm font-medium text-content-primary">安装新插件</h3>
-            <p className="mb-4 text-sm text-content-muted">
-              输入插件标识符，支持以下格式：
+            <p className="mb-3 text-sm text-content-muted">
+              输入插件标识符。系统会自动检测 GitHub 仓库的默认分支（main/master等）。
             </p>
-            <ul className="mb-4 space-y-1 text-xs text-content-muted">
-              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo</code> — GitHub 短格式</li>
-              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">owner/repo@v1.0</code> — GitHub 带版本/分支</li>
-              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">https://github.com/owner/repo</code> — GitHub URL</li>
-              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@git+https://...</code> — Git 完整格式</li>
-              <li><code className="rounded bg-surface-primary px-1.5 py-0.5">name@file:///path</code> — 本地路径</li>
-            </ul>
+            <div className="mb-4 rounded-2xl border border-edge bg-surface-primary p-3">
+              <p className="mb-2 text-xs font-medium text-content-secondary">支持的格式：</p>
+              <ul className="space-y-1.5 text-xs text-content-muted">
+                <li className="flex items-start gap-2">
+                  <code className="rounded bg-surface-tertiary px-1.5 py-0.5 text-content-secondary">owner/repo</code>
+                  <span className="flex-1">GitHub 短格式（自动检测默认分支）</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="rounded bg-surface-tertiary px-1.5 py-0.5 text-content-secondary">owner/repo@branch</code>
+                  <span className="flex-1">指定分支或标签</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="rounded bg-surface-tertiary px-1.5 py-0.5 text-content-secondary">https://github.com/owner/repo</code>
+                  <span className="flex-1">GitHub URL（自动检测默认分支）</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <code className="rounded bg-surface-tertiary px-1.5 py-0.5 text-content-secondary">name@git+https://...</code>
+                  <span className="flex-1">Git 完整格式</span>
+                </li>
+              </ul>
+            </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="text"
-                placeholder="例如: obra/superpowers 或 obra/superpowers@main"
+                placeholder="例如: obra/superpowers 或 owner/repo@master"
                 value={installSpecifier}
                 onChange={(e) => setInstallSpecifier(e.target.value)}
                 onKeyDown={(e) => {

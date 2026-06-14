@@ -14,7 +14,6 @@ import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import { useProjectStore } from '@/features/projects/stores/project.store'
-import { ToastContainer } from '@/components/common/Toast'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
@@ -134,7 +133,6 @@ export default function AgentWorkspace() {
 
   return (
     <>
-      <ToastContainer />
       <div className="flex h-full">
         <div className={`flex h-full flex-col bg-surface-primary flex-1 min-w-0 ${workspaceTab === 'code' ? '' : 'hidden'}`}>
           <WorkspaceHeader {...viewModel.headerProps} />

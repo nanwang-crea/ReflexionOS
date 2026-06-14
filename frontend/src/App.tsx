@@ -7,6 +7,7 @@ import PluginsPage from './pages/PluginsPage'
 import AutomationPage from './pages/AutomationPage'
 import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
 import { useThemeStore, applyTheme } from '@/shared/stores/theme.store'
+import { ToastContainer } from '@/components/common/Toast'
 
 function useThemeEffect() {
   const theme = useThemeStore((s) => s.theme)
@@ -51,6 +52,7 @@ function App() {
           </Routes>
         </main>
       </div>
+      <ToastContainer />
     </Router>
   )
 }

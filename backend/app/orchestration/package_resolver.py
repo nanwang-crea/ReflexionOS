@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Literal
 
+import requests
 from git import Repo
 from pydantic import BaseModel
 
@@ -26,6 +27,33 @@ _PLAIN_SPEC_RE = re.compile(
 )
 
 
+def _get_github_default_branch(owner: str, repo: str, timeout: int = 5) -> str:
+    """获取 GitHub 仓库的默认分支
+
+    Args:
+        owner: 仓库所有者
+        repo: 仓库名称
+        timeout: 超时时间（秒）
+
+    Returns:
+        默认分支名，如果获取失败则返回 "main"
+    """
+    try:
+        url = f"https://api.github.com/repos/{owner}/{repo}"
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            data = response.json()
+            default_branch = data.get("default_branch", "main")
+            logger.info("获取 %s/%s 的默认分支: %s", owner, repo, default_branch)
+            return default_branch
+        else:
+            logger.warning("无法获取 %s/%s 的默认分支 (状态码: %d)，使用 main", owner, repo, response.status_code)
+            return "main"
+    except Exception as e:
+        logger.warning("获取 %s/%s 的默认分支失败: %s，使用 main", owner, repo, e)
+        return "main"
+
+
 class PackageSpecifier(BaseModel):
     raw: str
     name: str
@@ -38,15 +66,19 @@ class PackageSpecifier(BaseModel):
         m = _GITHUB_URL_RE.match(raw)
         if m:
             name = m.group("repo")
-            url = f"https://github.com/{m.group('owner')}/{name}"
-            ref = m.group("ref") or "main"
+            owner = m.group("owner")
+            url = f"https://github.com/{owner}/{name}"
+            # 如果用户指定了分支，使用用户指定的；否则动态获取默认分支
+            ref = m.group("ref") or _get_github_default_branch(owner, name)
             return cls(raw=raw, name=name, spec_type="git", url=url, ref=ref)
 
         m = _GITHUB_SHORT_RE.match(raw)
         if m:
             name = m.group("repo")
-            url = f"https://github.com/{m.group('owner')}/{name}"
-            ref = m.group("ref") or "main"
+            owner = m.group("owner")
+            url = f"https://github.com/{owner}/{name}"
+            # 如果用户指定了分支，使用用户指定的；否则动态获取默认分支
+            ref = m.group("ref") or _get_github_default_branch(owner, name)
             return cls(raw=raw, name=name, spec_type="git", url=url, ref=ref)
 
         m = _GIT_SPEC_RE.match(raw)
