@@ -5,6 +5,15 @@ import type { InstallSkillRequest } from '@/features/skills/api/skill.api'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import type { Skill, SkillCategories } from '@/types/skill'
+import PluginFilter from '@/components/skills/PluginFilter'
+import LoadMoreButton from '@/components/skills/LoadMoreButton'
+import {
+  getPluginList,
+  getTopPlugins,
+  sortSkills,
+  getPluginType,
+  getPluginDisplayName,
+} from '@/utils/skillSorting'
 
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',
@@ -27,6 +36,8 @@ export default function SkillsPage() {
   const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('全部')
   const [searchQuery, setSearchQuery] = useState('')
+  const [activePlugin, setActivePlugin] = useState<string>('all')
+  const [displayCount, setDisplayCount] = useState(24)
   const [toggling, setToggling] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [showInstallDialog, setShowInstallDialog] = useState(false)
@@ -59,9 +70,22 @@ export default function SkillsPage() {
 
   const filteredSkills = useMemo(() => {
     let result = skills
+
+    // 分类筛选
     if (activeCategory !== '全部') {
       result = result.filter((s) => s.category === activeCategory)
     }
+
+    // 插件筛选
+    if (activePlugin !== 'all') {
+      if (activePlugin === 'independent') {
+        result = result.filter((s) => !s.plugin_name)
+      } else {
+        result = result.filter((s) => s.plugin_name === activePlugin)
+      }
+    }
+
+    // 搜索筛选
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter(
@@ -70,8 +94,29 @@ export default function SkillsPage() {
           s.description.toLowerCase().includes(q)
       )
     }
-    return result
-  }, [skills, activeCategory, searchQuery])
+
+    // 排序
+    return sortSkills(result)
+  }, [skills, activeCategory, activePlugin, searchQuery])
+
+  const pluginList = useMemo(() => getPluginList(skills), [skills])
+  const topPlugins = useMemo(() => getTopPlugins(pluginList), [pluginList])
+
+  const displayedSkills = useMemo(
+    () => filteredSkills.slice(0, displayCount),
+    [filteredSkills, displayCount]
+  )
+
+  const hasMore = displayCount < filteredSkills.length
+
+  const handleLoadMore = () => {
+    setDisplayCount((prev) => prev + 12)
+  }
+
+  // 筛选条件改变时重置分页
+  useEffect(() => {
+    setDisplayCount(24)
+  }, [activeCategory, activePlugin, searchQuery])
 
   const categoryTabs = useMemo(() => {
     const tabs = ['全部']
