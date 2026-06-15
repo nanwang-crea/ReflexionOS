@@ -2,6 +2,11 @@ import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
 
+interface MessageAttachment {
+  id: string
+  mimeType?: string
+}
+
 interface UserMessageItemProps {
   messageId: string
   contentText: string
@@ -12,6 +17,7 @@ interface UserMessageItemProps {
   onEditCancel: () => void
   onEditSubmit: () => void
   showActions: boolean
+  attachments?: MessageAttachment[]
 }
 
 export const UserMessageItem = memo(function UserMessageItem({
@@ -24,9 +30,29 @@ export const UserMessageItem = memo(function UserMessageItem({
   onEditCancel,
   onEditSubmit,
   showActions,
+  attachments = [],
 }: UserMessageItemProps) {
   return (
     <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
+      {attachments.length > 0 && !isEditing && (
+        <div className="mb-2 flex max-w-[min(720px,calc(100%_-_16px))] flex-wrap gap-1.5">
+          {attachments.slice(0, 4).map((att) => (
+            <div
+              key={att.id}
+              className="h-20 w-20 overflow-hidden rounded-lg border border-edge-subtle bg-surface-tertiary flex items-center justify-center"
+            >
+              <span className="text-xs text-content-muted">
+                {att.mimeType?.startsWith('image/') ? '🖼️' : '📎'}
+              </span>
+            </div>
+          ))}
+          {attachments.length > 4 && (
+            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-edge-subtle bg-surface-tertiary text-sm text-content-muted">
+              +{attachments.length - 4}
+            </div>
+          )}
+        </div>
+      )}
       {isEditing ? (
         <div className="w-full max-w-[min(720px,calc(100%_-_16px))]">
           <textarea
