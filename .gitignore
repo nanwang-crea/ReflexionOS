@@ -36,6 +36,7 @@ frontend/build-resources/
 frontend/release/
 backend/build/
 backend/dist/
+backend/storage/*
 
 # Logs
 *.log
