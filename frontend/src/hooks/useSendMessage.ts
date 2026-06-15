@@ -28,13 +28,14 @@ interface SendMessageDependencies {
     message: string
     providerId: string
     modelId: string
+    attachmentIds?: string[]
   }) => Promise<void> | void
   notify: (message: string) => void
 }
 
 export function createSendMessage(dependencies: SendMessageDependencies) {
-  return async function sendMessage(message: string) {
-    if (!message.trim()) {
+  return async function sendMessage(message: string, attachmentIds?: string[]) {
+    if (!message.trim() && (!attachmentIds || attachmentIds.length === 0)) {
       return
     }
 
@@ -85,6 +86,7 @@ export function createSendMessage(dependencies: SendMessageDependencies) {
         message,
         providerId: dependencies.selection.providerId,
         modelId: dependencies.selection.modelId,
+        attachmentIds,
       })
     } catch (error) {
       console.error('Failed to send message:', error)
@@ -103,7 +105,7 @@ export function useSendMessage(options: {
   const { currentProject } = useProjectStore()
   const { createSession } = useSessionActions()
 
-  const sendMessage = useCallback(async (message: string) => {
+  const sendMessage = useCallback(async (message: string, attachmentIds?: string[]) => {
     const sendFn = createSendMessage({
       currentProject,
       currentSession: options.currentSession,
@@ -114,7 +116,7 @@ export function useSendMessage(options: {
       startTurn: options.startTurn,
       notify: nativeDialogService.notifyError,
     })
-    await sendFn(message)
+    await sendFn(message, attachmentIds)
   }, [currentProject, options.currentSession, options.configured, options.selection, createSession, options.startTurn])
 
   return {

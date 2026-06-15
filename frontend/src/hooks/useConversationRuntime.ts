@@ -18,6 +18,7 @@ interface StartTurnPayload {
   message: string
   providerId?: string | null
   modelId?: string | null
+  attachmentIds?: string[]
 }
 
 const SNAPSHOT_SKIP_EVENT_TYPES = new Set([
@@ -373,6 +374,7 @@ export function useConversationRuntime(
       content,
       providerId: payload.providerId,
       modelId: payload.modelId,
+      attachmentIds: payload.attachmentIds,
     })
   }, [connectSession])
 

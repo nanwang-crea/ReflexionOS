@@ -108,6 +108,7 @@ function buildStartTurnMessage(payload: {
   content: string
   providerId?: string | null
   modelId?: string | null
+  attachmentIds?: string[]
 }) {
   return {
     type: 'conversation:start_turn',
@@ -115,6 +116,7 @@ function buildStartTurnMessage(payload: {
       content: payload.content,
       provider_id: payload.providerId ?? null,
       model_id: payload.modelId ?? null,
+      attachment_ids: payload.attachmentIds ?? [],
     },
   }
 }
@@ -303,7 +305,7 @@ class SessionConversationWebSocket {
     }
   }
 
-  startTurn(payload: { content: string; providerId?: string | null; modelId?: string | null }): void {
+  startTurn(payload: { content: string; providerId?: string | null; modelId?: string | null; attachmentIds?: string[] }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildStartTurnMessage(payload)))
     }
