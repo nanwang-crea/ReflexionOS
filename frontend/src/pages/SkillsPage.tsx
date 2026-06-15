@@ -2,18 +2,19 @@ import { useEffect, useState, useMemo } from 'react'
 import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe, Plus, Trash2 } from 'lucide-react'
 import { skillApi } from '@/features/skills/api/skill.api'
 import type { InstallSkillRequest } from '@/features/skills/api/skill.api'
+import { useSkillList } from '@/features/skills/hooks/useSkillList'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import type { Skill, SkillCategories } from '@/types/skill'
-import PluginFilter from '@/components/skills/PluginFilter'
-import LoadMoreButton from '@/components/skills/LoadMoreButton'
+import PluginFilter from '@/features/skills/components/PluginFilter'
+import LoadMoreButton from '@/features/skills/components/LoadMoreButton'
 import {
   getPluginList,
   getTopPlugins,
   sortSkills,
   getPluginType,
   getPluginDisplayName,
-} from '@/utils/skillSorting'
+} from '@/features/skills/utils/skillSorting'
 
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',
