@@ -321,106 +321,111 @@ export default function SkillsPage() {
             未找到匹配的技能
           </div>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {displayedSkills.map((skill) => {
-              const pluginType = getPluginType(skill)
-              const pluginDisplayName = getPluginDisplayName(skill)
-              const pluginBadgeStyle =
-                pluginType === 'builtin'
-                  ? 'bg-green-500/10 text-green-400'
-                  : pluginType === 'installed'
-                    ? 'bg-blue-500/10 text-blue-400'
-                    : 'bg-surface-tertiary text-content-muted'
-              const showIcon = pluginType === 'builtin' || pluginType === 'installed'
-              return (
-                <div key={skill.name}>
-                    <div
-                      className="rounded-3xl border border-edge bg-surface-primary p-4 transition-colors hover:bg-surface-secondary sm:p-6"
-                    >
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h2 className="min-w-0 break-words text-xl font-semibold text-content-primary">
-                            {skill.name}
-                          </h2>
-                          <span className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-muted">
-                            {CATEGORY_LABELS[skill.category] || skill.category}
-                          </span>
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${pluginBadgeStyle}`}
-                          >
-                            {showIcon && (pluginType === 'builtin' ? <Code2 className="h-3 w-3" /> : <Globe className="h-3 w-3" />)}
-                            {pluginDisplayName}
-                          </span>
-                        </div>
-                        <p className="mt-2 line-clamp-2 text-[15px] leading-7 text-content-muted">
-                          {skill.description}
-                        </p>
-                      </div>
-
-                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
-                        <button
-                          onClick={() => {
-                            openFile(skill.install_path + '/SKILL.md', 'edit')
-                          }}
-                          className="rounded-lg p-1 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
-                          title="在编辑器中查看"
-                        >
-                          <Code2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(skill.name)}
-                          disabled={deleting === skill.name}
-                          className="rounded-lg p-1 text-content-muted transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
-                          title="删除技能"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            handleToggle(skill.name, skill.enabled)
-                          }}
-                          disabled={toggling === skill.name}
-                          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
-                            skill.enabled
-                              ? 'bg-status-success'
-                              : 'bg-surface-tertiary'
-                          } ${toggling === skill.name ? 'opacity-50' : ''}`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              skill.enabled
-                                ? 'translate-x-6'
-                                : 'translate-x-1'
-                            }`}
-                          />
-                        </button>
-                      </div>
-                    </div>
-
-                    {skill.required_skills.length > 0 && (
-                      <div className="mt-4">
-                        <div className="mb-1.5 flex items-center gap-1.5 text-xs text-content-muted">
-                          <BookOpen className="h-3.5 w-3.5" />
-                          <span>前置技能</span>
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {skill.required_skills.map((req) => (
-                            <span
-                              key={req}
-                              className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-secondary"
-                            >
-                              {req}
+          <>
+            <div className="grid gap-4 md:grid-cols-2">
+              {displayedSkills.map((skill) => {
+                const pluginType = getPluginType(skill)
+                const pluginDisplayName = getPluginDisplayName(skill)
+                const pluginBadgeStyle =
+                  pluginType === 'builtin'
+                    ? 'bg-green-500/10 text-green-400'
+                    : pluginType === 'installed'
+                      ? 'bg-blue-500/10 text-blue-400'
+                      : 'bg-surface-tertiary text-content-muted'
+                const showIcon = pluginType === 'builtin' || pluginType === 'installed'
+                return (
+                  <div key={skill.name}>
+                      <div
+                        className="rounded-3xl border border-edge bg-surface-primary p-4 transition-colors hover:bg-surface-secondary sm:p-6"
+                      >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="min-w-0 break-words text-xl font-semibold text-content-primary">
+                              {skill.name}
+                            </h2>
+                            <span className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-muted">
+                              {CATEGORY_LABELS[skill.category] || skill.category}
                             </span>
-                          ))}
+                            <span
+                              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${pluginBadgeStyle}`}
+                            >
+                              {showIcon && (pluginType === 'builtin' ? <Code2 className="h-3 w-3" /> : <Globe className="h-3 w-3" />)}
+                              {pluginDisplayName}
+                            </span>
+                          </div>
+                          <p className="mt-2 line-clamp-2 text-[15px] leading-7 text-content-muted">
+                            {skill.description}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 items-center gap-2 self-end sm:self-start">
+                          <button
+                            onClick={() => {
+                              openFile(skill.install_path + '/SKILL.md', 'edit')
+                            }}
+                            className="rounded-lg p-1 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
+                            title="在编辑器中查看"
+                          >
+                            <Code2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(skill.name)}
+                            disabled={deleting === skill.name}
+                            className="rounded-lg p-1 text-content-muted transition-colors hover:bg-red-500/10 hover:text-red-400 disabled:opacity-50"
+                            title="删除技能"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleToggle(skill.name, skill.enabled)
+                            }}
+                            disabled={toggling === skill.name}
+                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                              skill.enabled
+                                ? 'bg-status-success'
+                                : 'bg-surface-tertiary'
+                            } ${toggling === skill.name ? 'opacity-50' : ''}`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                skill.enabled
+                                  ? 'translate-x-6'
+                                  : 'translate-x-1'
+                              }`}
+                            />
+                          </button>
                         </div>
                       </div>
-                    )}
+
+                      {skill.required_skills.length > 0 && (
+                        <div className="mt-4">
+                          <div className="mb-1.5 flex items-center gap-1.5 text-xs text-content-muted">
+                            <BookOpen className="h-3.5 w-3.5" />
+                            <span>前置技能</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {skill.required_skills.map((req) => (
+                              <span
+                                key={req}
+                                className="rounded-full bg-surface-tertiary px-2.5 py-0.5 text-xs text-content-secondary"
+                              >
+                                {req}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })}
+            </div>
+
+            {/* 加载更多按钮 */}
+            <LoadMoreButton hasMore={hasMore} onClick={handleLoadMore} />
+          </>
         )}
       </div>
     </div>
