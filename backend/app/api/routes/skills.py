@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 from app.orchestration.package_resolver import PackageResolver, PackageSpecifier
 from app.orchestration.skill_parser import parse_skill_md
 from app.orchestration.skill_registry import SkillMetadata, SkillSource, skill_registry
+from app.orchestration.skill_sorting import sort_skills
 
 logger = logging.getLogger(__name__)
 
@@ -17,24 +19,76 @@ class InstallSkillRequest(BaseModel):
     specifier: str
 
 
-@router.get("/")
-async def list_skills():
-    metadata_list = skill_registry.list_skills()
-    return [
-        {
-            "name": s.name,
-            "description": s.description,
-            "category": s.category,
-            "required_skills": s.required_skills,
-            "enabled": s.enabled,
-            "source": s.source,
-            "source_type": s.source_type.value if s.source_type else "",
-            "install_path": s.install_path,
-            "plugin_name": s.plugin_name,
-            "version": s.version,
-        }
-        for s in metadata_list
-    ]
+class SkillListResponse(BaseModel):
+    items: list[dict]
+    total: int
+    offset: int
+    limit: int
+    has_more: bool
+
+
+@router.get("/", response_model=SkillListResponse)
+async def list_skills(
+    offset: int = 0,
+    limit: int = 24,
+    category: Optional[str] = None,
+    plugin_name: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    # 1. 获取所有技能
+    all_skills = skill_registry.list_skills()
+
+    # 2. 筛选
+    filtered = all_skills
+
+    # 分类筛选
+    if category:
+        filtered = [s for s in filtered if s.category == category]
+
+    # 插件筛选
+    if plugin_name:
+        if plugin_name == "independent":
+            filtered = [s for s in filtered if not s.plugin_name]
+        else:
+            filtered = [s for s in filtered if s.plugin_name == plugin_name]
+
+    # 搜索筛选
+    if search:
+        q = search.lower()
+        filtered = [
+            s for s in filtered
+            if q in s.name.lower() or q in s.description.lower()
+        ]
+
+    # 3. 排序
+    sorted_skills = sort_skills(filtered)
+
+    # 4. 分页
+    total = len(sorted_skills)
+    paginated = sorted_skills[offset:offset+limit]
+
+    # 5. 序列化并返回
+    return {
+        "items": [
+            {
+                "name": s.name,
+                "description": s.description,
+                "category": s.category,
+                "required_skills": s.required_skills,
+                "enabled": s.enabled,
+                "source": s.source,
+                "source_type": s.source_type.value if s.source_type else "",
+                "install_path": s.install_path,
+                "plugin_name": s.plugin_name,
+                "version": s.version,
+            }
+            for s in paginated
+        ],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+    }
 
 
 @router.get("/categories")
