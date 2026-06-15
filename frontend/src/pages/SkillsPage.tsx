@@ -13,7 +13,7 @@ import {
   getTopPlugins,
   getPluginType,
   getPluginDisplayName,
-} from '@/features/skills/utils/skillSorting'
+} from '@/features/skills/utils/skillHelpers'
 
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',

@@ -1,6 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
-import type { PluginInfo } from '@/utils/skillSorting'
+import type { PluginInfo } from '@/features/skills/utils/skillHelpers'
 
 interface PluginFilterProps {
   plugins: PluginInfo[]

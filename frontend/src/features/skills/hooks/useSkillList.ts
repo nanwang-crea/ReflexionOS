@@ -48,14 +48,14 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
       const response = await skillApi.list(params)
 
       if (resetOffset) {
-        setSkills(response.items)
+        setSkills(response.data.items)
       } else {
-        setSkills(prev => [...prev, ...response.items])
+        setSkills(prev => [...prev, ...response.data.items])
       }
 
-      setTotal(response.total)
-      setHasMore(response.has_more)
-      setOffset(response.offset + response.items.length)
+      setTotal(response.data.total)
+      setHasMore(response.data.has_more)
+      setOffset(response.data.offset + response.data.items.length)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load skills'))
     } finally {
