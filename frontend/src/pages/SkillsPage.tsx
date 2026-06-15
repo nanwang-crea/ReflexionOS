@@ -211,32 +211,48 @@ export default function SkillsPage() {
           </p>
         </div>
 
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-wrap gap-2">
-            {categoryTabs.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                  activeCategory === cat
-                    ? 'bg-content-primary text-surface-primary'
-                    : 'bg-surface-tertiary text-content-secondary hover:bg-surface-secondary'
-                }`}
-              >
-                {cat === '全部' ? '全部' : CATEGORY_LABELS[cat] || cat}
-              </button>
-            ))}
+        <div className="mb-6 flex flex-col gap-4">
+          {/* 第一行：分类筛选 + 插件筛选 */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 分类筛选 */}
+            <div className="flex flex-wrap gap-2">
+              {categoryTabs.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    activeCategory === cat
+                      ? 'bg-content-primary text-surface-primary'
+                      : 'bg-surface-tertiary text-content-secondary hover:bg-surface-secondary'
+                  }`}
+                >
+                  {cat === '全部' ? '全部' : CATEGORY_LABELS[cat] || cat}
+                </button>
+              ))}
+            </div>
+
+            {/* 分隔符 */}
+            <div className="h-6 w-px bg-edge" />
+
+            {/* 插件筛选 */}
+            <PluginFilter
+              plugins={pluginList}
+              topPlugins={topPlugins}
+              activePlugin={activePlugin}
+              onPluginChange={setActivePlugin}
+            />
           </div>
 
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <div className="relative min-w-0 flex-1 sm:flex-none">
+          {/* 第二行：搜索框和操作按钮 */}
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-content-muted" />
               <input
                 type="text"
                 placeholder="搜索技能..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-2xl border border-edge bg-surface-tertiary py-2 pl-9 pr-4 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary sm:w-64"
+                className="w-full rounded-2xl border border-edge bg-surface-tertiary py-2 pl-9 pr-4 text-sm text-content-primary placeholder:text-content-muted focus:outline-none focus:ring-1 focus:ring-content-primary"
               />
             </div>
             <button
