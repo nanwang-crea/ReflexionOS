@@ -78,11 +78,13 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
     if (!loading && hasMore) {
       loadSkills(offset)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, hasMore, offset])
 
   const refresh = useCallback(() => {
     setOffset(0)
     loadSkills(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return {
