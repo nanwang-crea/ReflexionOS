@@ -112,7 +112,7 @@ class SkillRegistry:
 
         return count
 
-    def scan_all(self, plugin_skill_dirs: list[str] | None = None, project_path: str | None = None) -> int:
+    def scan_all(self, plugin_skill_dirs: list[tuple[str, str]] | None = None, project_path: str | None = None) -> int:
         self.skills.clear()
         self._content_cache.clear()
         from app.config.settings import config_manager
@@ -135,10 +135,10 @@ class SkillRegistry:
             total += self.scan_recursive(global_skills, SkillSource.GLOBAL)
 
         if plugin_skill_dirs:
-            for d in plugin_skill_dirs:
-                p = Path(d)
+            for plugin_name, skill_dir in plugin_skill_dirs:
+                p = Path(skill_dir)
                 if p.exists():
-                    total += self.scan_recursive(p, SkillSource.PLUGIN)
+                    total += self.scan_recursive(p, SkillSource.PLUGIN, plugin_name=plugin_name)
 
         for compat_dir in skill_settings.compat_dirs:
             p = Path(compat_dir)

@@ -108,8 +108,13 @@ class PluginLoader:
                 results.append(reg)
         return results
 
-    def get_all_skill_dirs(self) -> list[str]:
-        return [d for r in self._registrations.values() for d in r.skill_dirs]
+    def get_all_skill_dirs(self) -> list[tuple[str, str]]:
+        """返回 (plugin_name, skill_dir) 元组列表"""
+        result = []
+        for plugin_name, reg in self._registrations.items():
+            for skill_dir in reg.skill_dirs:
+                result.append((plugin_name, skill_dir))
+        return result
 
     def get_hook(self, event: str) -> list[Callable]:
         return self._hook_registry.get(event, [])
