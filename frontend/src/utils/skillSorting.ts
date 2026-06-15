@@ -1,19 +1,32 @@
 import type { Skill } from '@/types/skill'
 
+type PluginTypeKey = 'builtin' | 'installed' | 'local' | 'independent'
+
+const PLUGIN_TYPE_ORDER: Record<PluginTypeKey, number> = {
+  builtin: 0,
+  installed: 1,
+  local: 2,
+  independent: 3,
+} as const
+
 export type PluginInfo = {
   name: string
   displayName: string
-  type: 'builtin' | 'installed' | 'local' | 'independent'
+  type: PluginTypeKey
   skillCount: number
 }
 
 /**
  * 获取技能的插件类型
  */
-export function getPluginType(skill: Skill): 'builtin' | 'installed' | 'local' | 'independent' {
+export function getPluginType(skill: Skill): PluginTypeKey {
   if (!skill.plugin_name) return 'independent'
-  if (skill.install_path?.includes('.reflexion')) return 'installed'
-  if (skill.install_path?.includes('skills/')) return 'builtin'
+  if (!skill.install_path) return 'local'
+
+  // 更精确的路径匹配
+  const normalizedPath = skill.install_path.replace(/\\/g, '/')
+  if (normalizedPath.includes('/.reflexion/')) return 'installed'
+  if (normalizedPath.match(/\/skills\/?$/)) return 'builtin'
   return 'local'
 }
 
@@ -40,21 +53,17 @@ export function getPluginList(skills: Skill[]): PluginInfo[] {
     if (!pluginMap.has(name)) {
       pluginMap.set(name, { name, displayName, type, skillCount: 0 })
     }
-    pluginMap.get(name)!.skillCount++
+    const plugin = pluginMap.get(name)
+    if (plugin) {
+      plugin.skillCount++
+    }
   })
 
   const plugins = Array.from(pluginMap.values())
 
   // 排序：内置 → 全局安装 → 本地 → 独立，同类型内按技能数量降序
-  const typeOrder: Record<string, number> = {
-    builtin: 0,
-    installed: 1,
-    local: 2,
-    independent: 3,
-  }
-
   plugins.sort((a, b) => {
-    const typeCompare = typeOrder[a.type] - typeOrder[b.type]
+    const typeCompare = PLUGIN_TYPE_ORDER[a.type] - PLUGIN_TYPE_ORDER[b.type]
     if (typeCompare !== 0) return typeCompare
     return b.skillCount - a.skillCount
   })
@@ -81,17 +90,10 @@ export function getTopPlugins(plugins: PluginInfo[]): PluginInfo[] {
  * 按插件类型 → 插件名 → 技能名
  */
 export function sortSkills(skills: Skill[]): Skill[] {
-  const typeOrder: Record<string, number> = {
-    builtin: 0,
-    installed: 1,
-    local: 2,
-    independent: 3,
-  }
-
   return [...skills].sort((a, b) => {
     const typeA = getPluginType(a)
     const typeB = getPluginType(b)
-    const typeCompare = typeOrder[typeA] - typeOrder[typeB]
+    const typeCompare = PLUGIN_TYPE_ORDER[typeA] - PLUGIN_TYPE_ORDER[typeB]
     if (typeCompare !== 0) return typeCompare
 
     const pluginA = a.plugin_name || ''
