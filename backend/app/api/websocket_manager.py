@@ -7,6 +7,15 @@ from fastapi import WebSocket
 logger = logging.getLogger(__name__)
 
 
+class DateTimeEncoder(json.JSONEncoder):
+    """处理 datetime 对象的 JSON 编码器"""
+
+    def default(self, obj):
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return super().default(obj)
+
+
 class ConnectionManager:
     """WebSocket 连接管理器"""
 
@@ -42,6 +51,7 @@ class ConnectionManager:
         message = json.dumps(
             {"type": event_type, "data": data, "timestamp": datetime.now().isoformat()},
             ensure_ascii=False,
+            cls=DateTimeEncoder,
         )
 
         disconnected = []

@@ -31,7 +31,6 @@ interface ChatInputProps {
   onImageAdd?: (files: File[]) => void
   attachments?: PendingAttachment[]
   onRemoveAttachment?: (id: string) => void
-  onRetryAttachment?: (id: string) => void
 }
 
 export function ChatInput({ 
@@ -55,7 +54,6 @@ export function ChatInput({
   onImageAdd,
   attachments = [],
   onRemoveAttachment,
-  onRetryAttachment,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
@@ -170,7 +168,6 @@ export function ChatInput({
         <ImagePreview
           attachments={attachments}
           onRemove={onRemoveAttachment ?? (() => {})}
-          onRetry={onRetryAttachment ?? (() => {})}
         />
         <textarea
           ref={textareaRef}

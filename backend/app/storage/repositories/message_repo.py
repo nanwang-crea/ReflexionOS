@@ -61,7 +61,7 @@ class MessageRepository(BaseRepository[Message]):
             attachments = data.pop("attachments")
             if attachments:
                 data["attachments_json"] = json.dumps(
-                    [att.model_dump() if hasattr(att, "model_dump") else att for att in attachments]
+                    [att.model_dump(mode="json") if hasattr(att, "model_dump") else att for att in attachments]
                 )
             else:
                 data["attachments_json"] = None
@@ -230,7 +230,7 @@ class MessageRepository(BaseRepository[Message]):
         model.content_text = message.content_text
         model.payload_json = message.payload_json
         if message.attachments:
-            model.attachments_json = json.dumps([att.model_dump() for att in message.attachments])
+            model.attachments_json = json.dumps([att.model_dump(mode="json") for att in message.attachments])
         else:
             model.attachments_json = None
         model.updated_at = message.updated_at

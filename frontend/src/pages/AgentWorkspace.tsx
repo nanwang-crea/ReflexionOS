@@ -139,8 +139,7 @@ export default function AgentWorkspace() {
     addFiles,
     removeAttachment,
     clearAttachments,
-    retryUpload,
-    uploadedIds,
+    uploadAll,
   } = useImageUpload(currentSessionId ?? null)
 
   const handleImageAdd = useCallback(
@@ -151,20 +150,28 @@ export default function AgentWorkspace() {
           '当前模型可能不支持图片分析，建议切换到 gpt-4o 等模型'
         )
       }
-      addFiles(files).catch((err) => {
+      try {
+        addFiles(files)
+      } catch (err) {
         const msg = err instanceof Error ? err.message : '图片添加失败'
         useToastStore.getState().addToast('error', msg)
-      })
+      }
     },
     [viewModel.selection.modelId, addFiles]
   )
 
   const handleSend = useCallback(
     async (message: string) => {
-      await sendMessage(message, uploadedIds.length > 0 ? uploadedIds : undefined)
-      clearAttachments()
+      try {
+        const attachmentIds = await uploadAll()
+        await sendMessage(message, attachmentIds.length > 0 ? attachmentIds : undefined)
+        clearAttachments()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : '发送失败'
+        useToastStore.getState().addToast('error', msg)
+      }
     },
-    [sendMessage, uploadedIds, clearAttachments]
+    [sendMessage, uploadAll, clearAttachments]
   )
 
   return (
@@ -206,7 +213,6 @@ export default function AgentWorkspace() {
                 onImageAdd={handleImageAdd}
                 attachments={attachments}
                 onRemoveAttachment={removeAttachment}
-                onRetryAttachment={retryUpload}
                 {...viewModel.inputProps}
               />
               {!viewModel.currentProject && (
