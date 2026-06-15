@@ -33,31 +33,13 @@ def _get_resolver_and_loader():
                 _module_loader.load_all(installed)
                 logger.info("Auto-loaded %d installed plugins into singleton loader", len(installed))
 
-                # 同步配置：将已安装但不在配置中的插件写入配置
-                config_updated = False
+                # 扫描插件的技能目录
                 for pkg in installed:
                     plugin_name = pkg.specifier.name
-                    # 检查是否在配置中
-                    in_config = any(
-                        s.startswith(f"{plugin_name}@") or s == plugin_name
-                        for s in plugin_settings.plugins
-                    )
-                    if not in_config:
-                        # 添加到配置（使用完整规范，而不是只有名称）
-                        full_specifier = pkg.specifier.raw
-                        plugin_settings.plugins.append(full_specifier)
-                        config_updated = True
-                        logger.info("Synced installed plugin '%s' to config with full specifier: %s", plugin_name, full_specifier)
-
-                    # 扫描插件的技能目录
                     registration = _module_loader.get_registration(plugin_name)
                     if registration and registration.skill_dirs:
                         for d in registration.skill_dirs:
                             skill_registry.scan_recursive(d, source_type="plugin", plugin_name=plugin_name)
-
-                if config_updated:
-                    config_manager.save()
-                    logger.info("Config file updated with installed plugins")
         except Exception:
             logger.exception("Failed to auto-load installed plugins")
     return resolver, _module_loader
@@ -112,12 +94,22 @@ async def install_plugin(req: InstallPluginRequest):
         for d in registration.skill_dirs:
             skill_registry.scan_recursive(d, source_type="plugin", plugin_name=spec.name)
 
-    # 写入配置文件
+    # 写入配置文件 - 统一转换为 name@git+url#ref 格式
     plugin_settings = config_manager.settings.plugin
-    if req.specifier not in plugin_settings.plugins:
-        plugin_settings.plugins.append(req.specifier)
+    # 检查是否已存在（按 name 匹配）
+    exists = any(
+        s.startswith(f"{spec.name}@") or s == spec.name
+        for s in plugin_settings.plugins
+    )
+    if not exists:
+        # 统一转换为 name@git+url#ref 格式
+        if spec.spec_type == "git" and spec.url:
+            normalized_specifier = f"{spec.name}@git+{spec.url}#{spec.ref}"
+        else:
+            normalized_specifier = req.specifier
+        plugin_settings.plugins.append(normalized_specifier)
         config_manager.save()
-        logger.info("Added plugin '%s' to config", req.specifier)
+        logger.info("Added plugin '%s' to config with normalized specifier: %s", spec.name, normalized_specifier)
 
     return {
         "name": spec.name,
