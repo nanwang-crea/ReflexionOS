@@ -32,6 +32,31 @@ def _get_resolver_and_loader():
             if installed:
                 _module_loader.load_all(installed)
                 logger.info("Auto-loaded %d installed plugins into singleton loader", len(installed))
+
+                # 同步配置：将已安装但不在配置中的插件写入配置
+                config_updated = False
+                for pkg in installed:
+                    plugin_name = pkg.specifier.name
+                    # 检查是否在配置中
+                    in_config = any(
+                        s.startswith(f"{plugin_name}@") or s == plugin_name
+                        for s in plugin_settings.plugins
+                    )
+                    if not in_config:
+                        # 添加到配置
+                        plugin_settings.plugins.append(plugin_name)
+                        config_updated = True
+                        logger.info("Synced installed plugin '%s' to config", plugin_name)
+
+                    # 扫描插件的技能目录
+                    registration = _module_loader.get_registration(plugin_name)
+                    if registration and registration.skill_dirs:
+                        for d in registration.skill_dirs:
+                            skill_registry.scan_recursive(d, source_type="plugin", plugin_name=plugin_name)
+
+                if config_updated:
+                    config_manager.save()
+                    logger.info("Config file updated with installed plugins")
         except Exception:
             logger.exception("Failed to auto-load installed plugins")
     return resolver, _module_loader
@@ -60,6 +85,8 @@ async def list_plugins():
 
 @router.post("/install")
 async def install_plugin(req: InstallPluginRequest):
+    from app.config.settings import config_manager
+
     try:
         spec = PackageSpecifier.parse(req.specifier)
     except ValueError as e:
@@ -77,6 +104,13 @@ async def install_plugin(req: InstallPluginRequest):
         for d in registration.skill_dirs:
             skill_registry.scan_recursive(d, source_type="plugin", plugin_name=spec.name)
 
+    # 写入配置文件
+    plugin_settings = config_manager.settings.plugin
+    if req.specifier not in plugin_settings.plugins:
+        plugin_settings.plugins.append(req.specifier)
+        config_manager.save()
+        logger.info("Added plugin '%s' to config", req.specifier)
+
     return {
         "name": spec.name,
         "install_path": package.install_path,
@@ -88,6 +122,8 @@ async def install_plugin(req: InstallPluginRequest):
 
 @router.delete("/{plugin_name}")
 async def uninstall_plugin(plugin_name: str):
+    from app.config.settings import config_manager
+
     resolver, loader = _get_resolver_and_loader()
     registration = loader.get_registration(plugin_name)
     if registration:
@@ -101,6 +137,17 @@ async def uninstall_plugin(plugin_name: str):
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_name}' not found")
 
     loader._registrations.pop(plugin_name, None)
+
+    # 从配置文件中移除
+    plugin_settings = config_manager.settings.plugin
+    original_count = len(plugin_settings.plugins)
+    plugin_settings.plugins = [
+        s for s in plugin_settings.plugins
+        if not (s.startswith(f"{plugin_name}@") or s == plugin_name)
+    ]
+    if len(plugin_settings.plugins) < original_count:
+        config_manager.save()
+        logger.info("Removed plugin '%s' from config", plugin_name)
 
     return {"name": plugin_name, "uninstalled": True}
 
