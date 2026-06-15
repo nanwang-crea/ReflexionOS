@@ -30,12 +30,11 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
   const [offset, setOffset] = useState(0)
   const [hasMore, setHasMore] = useState(false)
 
-  const loadSkills = useCallback(async (resetOffset: boolean = false) => {
+  const loadSkills = async (currentOffset: number) => {
     setLoading(true)
     setError(null)
 
     try {
-      const currentOffset = resetOffset ? 0 : offset
       const params: SkillListParams = {
         offset: currentOffset,
         limit: ITEMS_PER_PAGE,
@@ -52,7 +51,7 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
         throw new Error('Invalid API response format')
       }
 
-      if (resetOffset) {
+      if (currentOffset === 0) {
         setSkills(response.data.items)
       } else {
         setSkills(prev => [...prev, ...response.data.items])
@@ -60,30 +59,31 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
 
       setTotal(response.data.total)
       setHasMore(response.data.has_more)
-      setOffset(response.data.offset + response.data.items.length)
+      setOffset(currentOffset + response.data.items.length)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('Failed to load skills'))
     } finally {
       setLoading(false)
     }
-  }, [offset, category, pluginName, search])
+  }
 
   // Load initial data when filters change
   useEffect(() => {
     setOffset(0)
-    loadSkills(true)
-  }, [category, pluginName, search, loadSkills])
+    loadSkills(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [category, pluginName, search])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {
-      loadSkills(false)
+      loadSkills(offset)
     }
-  }, [loading, hasMore, loadSkills])
+  }, [loading, hasMore, offset])
 
   const refresh = useCallback(() => {
     setOffset(0)
-    loadSkills(true)
-  }, [loadSkills])
+    loadSkills(0)
+  }, [])
 
   return {
     skills,
