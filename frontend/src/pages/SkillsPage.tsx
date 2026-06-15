@@ -5,13 +5,12 @@ import type { InstallSkillRequest } from '@/features/skills/api/skill.api'
 import { useSkillList } from '@/features/skills/hooks/useSkillList'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
-import type { Skill, SkillCategories } from '@/types/skill'
+import type { SkillCategories } from '@/types/skill'
 import PluginFilter from '@/features/skills/components/PluginFilter'
 import LoadMoreButton from '@/features/skills/components/LoadMoreButton'
 import {
   getPluginList,
   getTopPlugins,
-  sortSkills,
   getPluginType,
   getPluginDisplayName,
 } from '@/features/skills/utils/skillSorting'
@@ -25,13 +24,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 }
 
 export default function SkillsPage() {
-  const [skills, setSkills] = useState<Skill[]>([])
   const [categories, setCategories] = useState<SkillCategories>({})
-  const [loading, setLoading] = useState(true)
   const [activeCategory, setActiveCategory] = useState<string>('全部')
   const [searchQuery, setSearchQuery] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [activePlugin, setActivePlugin] = useState<string>('all')
-  const [displayCount, setDisplayCount] = useState(24)
   const [toggling, setToggling] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [showInstallDialog, setShowInstallDialog] = useState(false)
@@ -41,76 +38,45 @@ export default function SkillsPage() {
 
   const openFile = useCodeTabStore((s) => s.openFile)
 
-  const loadSkills = async () => {
-    setLoading(true)
+  // 使用 useSkillList hook 获取技能列表
+  const {
+    skills,
+    loading,
+    error,
+    total,
+    hasMore,
+    loadMore,
+    refresh: refreshSkills,
+  } = useSkillList({
+    category: activeCategory === '全部' ? undefined : activeCategory,
+    pluginName: activePlugin === 'all' ? undefined : activePlugin === 'independent' ? '' : activePlugin,
+    search: debouncedSearch,
+  })
+
+  // 搜索防抖
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // 加载分类数据
+  const loadCategories = async () => {
     try {
-      const [skillsRes, categoriesRes] = await Promise.all([
-        skillApi.list(),
-        skillApi.categories(),
-      ])
-      setSkills(skillsRes.data)
+      const categoriesRes = await skillApi.categories()
       setCategories(categoriesRes.data)
     } catch (error) {
-      console.error('Failed to load skills:', error)
-      useToastStore.getState().addToast('warning', '加载技能列表失败')
-    } finally {
-      setLoading(false)
+      console.error('Failed to load categories:', error)
     }
   }
 
   useEffect(() => {
-    loadSkills()
+    loadCategories()
   }, [])
-
-  const filteredSkills = useMemo(() => {
-    let result = skills
-
-    // 分类筛选
-    if (activeCategory !== '全部') {
-      result = result.filter((s) => s.category === activeCategory)
-    }
-
-    // 插件筛选
-    if (activePlugin !== 'all') {
-      if (activePlugin === 'independent') {
-        result = result.filter((s) => !s.plugin_name)
-      } else {
-        result = result.filter((s) => s.plugin_name === activePlugin)
-      }
-    }
-
-    // 搜索筛选
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q)
-      )
-    }
-
-    // 排序
-    return sortSkills(result)
-  }, [skills, activeCategory, activePlugin, searchQuery])
 
   const pluginList = useMemo(() => getPluginList(skills), [skills])
   const topPlugins = useMemo(() => getTopPlugins(pluginList), [pluginList])
-
-  const displayedSkills = useMemo(
-    () => filteredSkills.slice(0, displayCount),
-    [filteredSkills, displayCount]
-  )
-
-  const hasMore = displayCount < filteredSkills.length
-
-  const handleLoadMore = () => {
-    setDisplayCount((prev) => prev + 12)
-  }
-
-  // 筛选条件改变时重置分页
-  useEffect(() => {
-    setDisplayCount(24)
-  }, [activeCategory, activePlugin, searchQuery])
 
   const categoryTabs = useMemo(() => {
     const tabs = ['全部']
@@ -132,9 +98,7 @@ export default function SkillsPage() {
       } else {
         await skillApi.enable(name)
       }
-      setSkills((prev) =>
-        prev.map((s) => (s.name === name ? { ...s, enabled: !enabled } : s))
-      )
+      refreshSkills()
     } catch (error) {
       console.error('Failed to toggle skill:', error)
       useToastStore.getState().addToast('warning', '切换技能状态失败')
@@ -147,7 +111,8 @@ export default function SkillsPage() {
     setRefreshing(true)
     try {
       await skillApi.refresh()
-      await loadSkills()
+      refreshSkills()
+      await loadCategories()
       useToastStore.getState().addToast('info', '技能列表已刷新')
     } catch (error) {
       console.error('Failed to refresh skills:', error)
@@ -166,7 +131,8 @@ export default function SkillsPage() {
       useToastStore.getState().addToast('info', `技能 ${specifier} 安装成功`)
       setInstallSpecifier('')
       setShowInstallDialog(false)
-      await loadSkills()
+      refreshSkills()
+      await loadCategories()
     } catch (error: unknown) {
       const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '安装失败'
       useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
@@ -180,7 +146,8 @@ export default function SkillsPage() {
     try {
       await skillApi.remove(name)
       useToastStore.getState().addToast('info', `技能 ${name} 已删除`)
-      await loadSkills()
+      refreshSkills()
+      await loadCategories()
     } catch (error: unknown) {
       const msg = typeof error === 'object' && error !== null && 'response' in error && typeof error.response === 'object' && error.response !== null && 'data' in error.response && typeof error.response.data === 'object' && error.response.data !== null && 'detail' in error.response.data && typeof error.response.data.detail === 'string' ? error.response.data.detail : error instanceof Error ? error.message : '删除失败'
       useToastStore.getState().addToast('warning', `删除失败: ${msg}`)
@@ -313,18 +280,22 @@ export default function SkillsPage() {
           <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
             正在加载技能列表...
           </div>
-        ) : filteredSkills.length === 0 && skills.length === 0 ? (
+        ) : error ? (
+          <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
+            加载失败: {error.message}
+          </div>
+        ) : skills.length === 0 && !searchQuery && activeCategory === '全部' && activePlugin === 'all' ? (
           <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
             暂无技能。点击 + 按钮从 Git 仓库安装技能，或将 SKILL.md 文件放入 skills/ 目录。
           </div>
-        ) : filteredSkills.length === 0 ? (
+        ) : skills.length === 0 ? (
           <div className="rounded-3xl border border-edge bg-surface-tertiary px-6 py-8 text-content-muted">
             未找到匹配的技能
           </div>
         ) : (
           <>
             <div className="grid gap-4 md:grid-cols-2">
-              {displayedSkills.map((skill) => {
+              {skills.map((skill) => {
                 const pluginType = getPluginType(skill)
                 const pluginDisplayName = getPluginDisplayName(skill)
                 const pluginBadgeStyle =
@@ -425,7 +396,7 @@ export default function SkillsPage() {
             </div>
 
             {/* 加载更多按钮 */}
-            <LoadMoreButton hasMore={hasMore} onClick={handleLoadMore} />
+            <LoadMoreButton hasMore={hasMore} onClick={loadMore} />
           </>
         )}
       </div>
