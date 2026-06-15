@@ -125,12 +125,15 @@ class PackageSpecifier(BaseModel):
 
         m = _PLAIN_SPEC_RE.match(raw)
         if m:
-            return cls(
-                raw=raw,
-                name=m.group("name"),
-                spec_type="pypi",
-                url=m.group("name"),
-                ref="latest",
+            # PyPI 包不支持，提供明确的错误信息
+            raise ValueError(
+                f"Invalid plugin specifier: '{raw}'. "
+                "PyPI packages are not supported. "
+                "Supported formats: "
+                "GitHub short (owner/repo), "
+                "GitHub URL (https://github.com/owner/repo), "
+                "Git (name@git+https://...), "
+                "Local (name@local:///absolute/path)"
             )
 
         raise ValueError(f"Invalid package specifier: {raw!r}")
@@ -151,8 +154,11 @@ class PackageResolver:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def resolve(self, spec: PackageSpecifier) -> ResolvedPackage:
+        # PyPI 包类型应该在 parse 阶段就被拒绝了，这里是双重保险
         if spec.spec_type == "pypi":
-            raise ValueError("PyPI packages not yet supported")
+            raise ValueError(
+                f"PyPI packages are not supported. Invalid specifier: '{spec.raw}'"
+            )
 
         target_dir = self.cache_dir / spec.name
 

@@ -43,10 +43,11 @@ def _get_resolver_and_loader():
                         for s in plugin_settings.plugins
                     )
                     if not in_config:
-                        # 添加到配置
-                        plugin_settings.plugins.append(plugin_name)
+                        # 添加到配置（使用完整规范，而不是只有名称）
+                        full_specifier = pkg.specifier.raw
+                        plugin_settings.plugins.append(full_specifier)
                         config_updated = True
-                        logger.info("Synced installed plugin '%s' to config", plugin_name)
+                        logger.info("Synced installed plugin '%s' to config with full specifier: %s", plugin_name, full_specifier)
 
                     # 扫描插件的技能目录
                     registration = _module_loader.get_registration(plugin_name)
@@ -91,6 +92,13 @@ async def install_plugin(req: InstallPluginRequest):
         spec = PackageSpecifier.parse(req.specifier)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from None
+
+    # 双重检查：不应该出现 pypi 类型（parse 阶段已拒绝）
+    if spec.spec_type == "pypi":
+        raise HTTPException(
+            status_code=400,
+            detail="PyPI packages are not supported. Use GitHub (owner/repo) or Git (name@git+url) format"
+        )
 
     resolver, loader = _get_resolver_and_loader()
     try:
