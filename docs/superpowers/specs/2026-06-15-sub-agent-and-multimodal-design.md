@@ -908,24 +908,43 @@ class SubAgentAskRequest(BaseModel):
 
 ## 实现计划
 
-### Phase 1: Sub-Agent 核心功能
+### Phase 1: 多模态支持（优先实现）
+1. **数据模型扩展**
+   - Message 表增加 `attachments` 字段
+   - LLMMessage 支持多模态 content（text + image_url）
+   - LLMConfig 增加 `supports_vision` 标记
+
+2. **图片上传功能**
+   - 实现上传 API：`POST /api/sessions/{session_id}/upload`
+   - 文件存储：`storage/uploads/{session_id}/{timestamp}_{uuid}.ext`
+   - 验证：文件类型、大小限制（10MB）
+
+3. **LLM 适配器改造**
+   - OpenAIAdapter 支持多模态消息转换
+   - 增加模型能力检测（不支持视觉时返回友好错误）
+   - 错误处理：图片过大、模型不支持等场景
+
+4. **前端集成**
+   - 图片粘贴和上传组件
+   - 消息中显示图片预览
+   - 模型不支持时的前端提示
+
+5. **图片清理**
+   - 定时任务：每小时清理超过 1 天的文件
+   - session 删除时同步清理
+   - 监控目录大小
+
+### Phase 2: Sub-Agent 核心功能
 1. 扩展数据模型（Session 表、级联删除）
 2. 实现 DelegateTool（无依赖版本）
 3. 实现 sub-session 创建和执行逻辑
 4. 实现级联取消机制
 5. 前端树形展示（基础版）
 
-### Phase 2: 依赖关系支持
+### Phase 3: 依赖关系支持
 1. 实现依赖图构建和拓扑排序
 2. 实现分批执行逻辑
 3. 前端展示依赖关系
-
-### Phase 3: 多模态支持
-1. 扩展 Message/LLMMessage 模型
-2. 实现图片上传 API
-3. 实现 LLM 消息多模态转换
-4. 前端图片粘贴和预览
-5. 实现图片清理任务
 
 ### Phase 4: 交互增强
 1. 实现只读对话功能
@@ -933,6 +952,208 @@ class SubAgentAskRequest(BaseModel):
 3. 优化树形展示（状态实时更新）
 
 ---
+
+## 多模态模型能力检测
+
+### 支持视觉的模型列表
+```python
+# backend/app/llm/model_capabilities.py
+VISION_CAPABLE_MODELS = {
+    # OpenAI
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-4-vision-preview",
+    
+    # Anthropic Claude
+    "claude-3-opus",
+    "claude-3-sonnet",
+    "claude-3-haiku",
+    "claude-3-5-sonnet",
+    "claude-fable-5",
+    
+    # Google Gemini
+    "gemini-pro-vision",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    
+    # 通配符匹配
+    "gpt-4o-*",
+    "claude-3-*",
+    "gemini-*-vision",
+}
+
+def supports_vision(model_name: str) -> bool:
+    """检测模型是否支持视觉能力"""
+    # 精确匹配
+    if model_name in VISION_CAPABLE_MODELS:
+        return True
+    
+    # 通配符匹配
+    for pattern in VISION_CAPABLE_MODELS:
+        if "*" in pattern:
+            prefix = pattern.replace("*", "")
+            if model_name.startswith(prefix):
+                return True
+    
+    return False
+```
+
+### 上传时的模型检测
+```python
+# backend/app/api/upload.py
+@router.post("/sessions/{session_id}/upload")
+async def upload_image(
+    session_id: str,
+    file: UploadFile = File(...),
+) -> dict:
+    # 1. 验证 session 存在
+    session = session_repo.get(session_id)
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    
+    # 2. 检查当前模型是否支持视觉
+    from app.llm.model_capabilities import supports_vision
+    from app.services.llm_provider_service import llm_provider_service
+    
+    # 获取 session 当前使用的模型
+    # 从最近的 turn 或 session 配置中获取
+    current_model = session.default_model_id  # 假设 session 存储了默认模型
+    
+    if current_model and not supports_vision(current_model):
+        raise HTTPException(
+            400,
+            f"当前模型 {current_model} 不支持图片分析。"
+            f"请切换到支持视觉的模型（如 gpt-4o, claude-3-5-sonnet）后重试。"
+        )
+    
+    # 3. 验证文件类型
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(400, "只支持图片文件（PNG, JPG, WEBP）")
+    
+    # 4. 验证文件大小（10MB）
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "图片大小超过限制（最大 10MB）")
+    
+    # 5. 保存文件
+    upload_dir = Path("storage/uploads") / session_id
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    timestamp = int(time.time())
+    file_id = uuid.uuid4().hex[:8]
+    file_ext = Path(file.filename).suffix or ".png"
+    file_path = upload_dir / f"{timestamp}_{file_id}{file_ext}"
+    
+    with open(file_path, "wb") as f:
+        f.write(content)
+    
+    # 6. 返回 attachment 信息
+    return {
+        "attachment_id": f"att_{file_id}",
+        "file_path": str(file_path),
+        "file_size": len(content),
+        "mime_type": file.content_type
+    }
+```
+
+### 发送消息时的错误处理
+```python
+# backend/app/llm/openai_adapter.py
+async def complete(
+    self, messages: list[LLMMessage], tools: list[LLMToolDefinition] = None
+) -> LLMResponse:
+    """同步补全（支持工具调用和多模态）"""
+    
+    # 检查是否包含图片
+    has_images = any(
+        isinstance(msg.content, list) and 
+        any(part.type == "image_url" for part in msg.content)
+        for msg in messages
+    )
+    
+    # 如果有图片但模型不支持视觉
+    if has_images and not supports_vision(self.model):
+        raise ValueError(
+            f"模型 {self.model} 不支持图片分析。"
+            f"请切换到支持视觉的模型（如 gpt-4o, claude-3-5-sonnet）。"
+        )
+    
+    openai_messages = self._convert_messages(messages)
+    openai_tools = self._convert_tools(tools) if tools else None
+    
+    # ... 其余逻辑
+```
+
+### 前端错误提示
+```typescript
+// frontend/src/features/conversation/useImageUpload.ts
+async function uploadImage(sessionId: string, file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  try {
+    const response = await fetch(`/api/sessions/${sessionId}/upload`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      
+      // 特殊处理模型不支持的错误
+      if (response.status === 400 && error.detail?.includes('不支持图片')) {
+        throw new ModelNotSupportVisionError(error.detail);
+      }
+      
+      throw new Error(error.detail || '上传失败');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    if (error instanceof ModelNotSupportVisionError) {
+      // 显示友好的模型切换提示
+      showModelSwitchDialog({
+        message: error.message,
+        suggestedModels: ['gpt-4o', 'claude-3-5-sonnet', 'gemini-1.5-pro']
+      });
+    } else {
+      // 显示通用错误提示
+      showErrorToast(error.message);
+    }
+    throw error;
+  }
+}
+
+class ModelNotSupportVisionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ModelNotSupportVisionError';
+  }
+}
+```
+
+### LLMConfig 扩展（可选）
+```python
+# backend/app/models/llm_config.py
+class LLMProvider(BaseModel):
+    id: str
+    name: str
+    models: list[LLMModel]
+
+class LLMModel(BaseModel):
+    id: str
+    name: str
+    supports_vision: bool = False  # 新增：是否支持视觉
+    context_window: int = 128000
+    max_tokens: int = 4096
+    
+class ResolvedLLMConfig(BaseModel):
+    provider_id: str
+    model: str
+    supports_vision: bool = False  # 新增
+    # ... 其他字段
+```
 
 ## 测试策略
 
