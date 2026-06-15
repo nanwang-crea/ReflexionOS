@@ -313,7 +313,7 @@ export default function SkillsPage() {
           </div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {filteredSkills.map((skill) => {
+            {displayedSkills.map((skill) => {
               const src = getSourceLabel(skill)
               return (
                 <div key={skill.name}>
