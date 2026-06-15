@@ -14,6 +14,9 @@ import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import { useProjectStore } from '@/features/projects/stores/project.store'
+import { useImageUpload } from '@/features/conversation/hooks/useImageUpload'
+import { supportsVision } from '@/constants/visionModels'
+import { useToastStore } from '@/shared/stores/toast.store'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
@@ -131,6 +134,39 @@ export default function AgentWorkspace() {
     startTurn,
   })
 
+  const {
+    attachments,
+    addFiles,
+    removeAttachment,
+    clearAttachments,
+    retryUpload,
+    uploadedIds,
+  } = useImageUpload(currentSessionId ?? null)
+
+  const handleImageAdd = useCallback(
+    (files: File[]) => {
+      if (viewModel.selection.modelId && !supportsVision(viewModel.selection.modelId)) {
+        useToastStore.getState().addToast(
+          'warning',
+          '当前模型可能不支持图片分析，建议切换到 gpt-4o 等模型'
+        )
+      }
+      addFiles(files).catch((err) => {
+        const msg = err instanceof Error ? err.message : '图片添加失败'
+        useToastStore.getState().addToast('error', msg)
+      })
+    },
+    [viewModel.selection.modelId, addFiles]
+  )
+
+  const handleSend = useCallback(
+    async (message: string) => {
+      await sendMessage(message, uploadedIds.length > 0 ? uploadedIds : undefined)
+      clearAttachments()
+    },
+    [sendMessage, uploadedIds, clearAttachments]
+  )
+
   return (
     <>
       <div className="flex h-full">
@@ -163,10 +199,14 @@ export default function AgentWorkspace() {
                 />
               )}
               <ChatInput
-                onSend={sendMessage}
+                onSend={handleSend}
                 onCancel={cancelRun}
                 agentMode={agentMode}
                 onModeChange={(mode) => setMode(mode)}
+                onImageAdd={handleImageAdd}
+                attachments={attachments}
+                onRemoveAttachment={removeAttachment}
+                onRetryAttachment={retryUpload}
                 {...viewModel.inputProps}
               />
               {!viewModel.currentProject && (
