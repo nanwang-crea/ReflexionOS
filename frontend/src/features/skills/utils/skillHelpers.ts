@@ -35,6 +35,10 @@ export function getPluginDisplayName(skill: Skill): string {
  * 注意：仅用于 UI 显示，不用于数据排序（后端处理）
  */
 export function getPluginList(skills: Skill[]): PluginInfo[] {
+  if (!skills || skills.length === 0) {
+    return []
+  }
+
   const pluginMap = new Map<string, PluginInfo>()
   const PLUGIN_TYPE_ORDER: Record<PluginTypeKey, number> = {
     builtin: 0,
