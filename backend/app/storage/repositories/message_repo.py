@@ -388,6 +388,46 @@ class MessageRepository(BaseRepository[Message]):
         else:
             stream_state = StreamState.IDLE
 
+        # 处理附件 IDs - 转换为 MessageAttachment 对象
+        attachments = []
+        attachment_ids = payload.get("attachment_ids", [])
+        if attachment_ids:
+            from pathlib import Path
+            from datetime import datetime
+            from app.models.conversation import MessageAttachment
+
+            for att_id in attachment_ids:
+                # 从 attachment_id 推断文件路径
+                # attachment_id 格式: "att_<file_id>"
+                # 文件路径格式: storage/uploads/{session_id}/{timestamp}_{file_id}.ext
+
+                # 搜索匹配的文件
+                upload_dir = Path("storage/uploads") / session_id
+                if upload_dir.exists():
+                    file_id = att_id.replace("att_", "")
+                    matching_files = list(upload_dir.glob(f"*_{file_id}.*"))
+                    if matching_files:
+                        file_path = matching_files[0]
+                        # 推断 MIME 类型
+                        ext = file_path.suffix.lower()
+                        mime_map = {
+                            ".png": "image/png",
+                            ".jpg": "image/jpeg",
+                            ".jpeg": "image/jpeg",
+                            ".gif": "image/gif",
+                            ".webp": "image/webp",
+                        }
+                        mime_type = mime_map.get(ext, "image/png")
+
+                        attachments.append(MessageAttachment(
+                            id=att_id,
+                            type="image",
+                            mime_type=mime_type,
+                            file_path=str(file_path),
+                            file_size=file_path.stat().st_size if file_path.exists() else 0,
+                            created_at=datetime.now(),
+                        ))
+
         return Message(
             id=payload["message_id"],
             session_id=session_id,
@@ -400,4 +440,5 @@ class MessageRepository(BaseRepository[Message]):
             display_mode=payload["display_mode"],
             content_text=payload.get("content_text", ""),
             payload_json=_coerce_payload_json(payload.get("payload_json")),
+            attachments=attachments,
         )

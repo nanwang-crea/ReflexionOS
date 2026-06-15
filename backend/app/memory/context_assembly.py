@@ -20,7 +20,33 @@ class ContextAssemblyResult(BaseModel):
 def _message_to_seed_dict(message: Any) -> list[dict[str, Any]]:
     if message.message_type == MessageType.TOOL_TRACE:
         return _tool_trace_to_paired_seeds(message)
-    return [{"role": str(message.role), "content": str(message.content_text)}]
+
+    # 基础消息内容
+    base_msg = {"role": str(message.role), "content": str(message.content_text)}
+
+    # 如果有附件，转换为多模态消息
+    if hasattr(message, 'attachments') and message.attachments:
+        from app.services.attachment_service import convert_attachments_to_content_parts
+
+        # 构建多模态内容
+        content_parts = []
+
+        # 添加文本部分
+        if message.content_text and message.content_text.strip():
+            from app.llm.base import LLMContentPart
+            content_parts.append(
+                LLMContentPart(type="text", text=message.content_text).model_dump(exclude_none=True)
+            )
+
+        # 添加图片部分
+        image_parts = convert_attachments_to_content_parts(message.attachments)
+        for part in image_parts:
+            content_parts.append(part.model_dump(exclude_none=True))
+
+        if content_parts:
+            base_msg["content"] = content_parts
+
+    return [base_msg]
 
 
 def _tool_trace_to_paired_seeds(message: Any) -> list[dict[str, Any]]:

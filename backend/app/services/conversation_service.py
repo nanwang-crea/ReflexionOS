@@ -205,6 +205,7 @@ class ConversationService:
         provider_id: str,
         model_id: str,
         workspace_ref: str | None,
+        attachment_ids: list[str] | None = None,
     ) -> StartTurnResult:
         with self.acquire_session_write_lock(session_id):
             session = self.session_repo.get(session_id)
@@ -217,6 +218,23 @@ class ConversationService:
             run_id = new_run_id()
             user_message_id = new_message_id()
             next_turn_index = self.turn_repo.next_turn_index(session_id)
+
+            # 构建消息 payload，包含附件信息
+            message_payload = {
+                "message_id": user_message_id,
+                "turn_id": turn_id,
+                "run_id": None,
+                "role": MessageRole.USER,
+                "message_type": "user_message",
+                "turn_message_index": 1,
+                "display_mode": "default",
+                "content_text": content,
+                "payload_json": {},
+            }
+
+            # 如果有附件，添加到 payload
+            if attachment_ids:
+                message_payload["attachment_ids"] = attachment_ids
 
             self.append_events_locked(
                 session_id,
@@ -238,17 +256,7 @@ class ConversationService:
                         turn_id=turn_id,
                         message_id=user_message_id,
                         event_type=EventType.MESSAGE_CREATED,
-                        payload_json={
-                            "message_id": user_message_id,
-                            "turn_id": turn_id,
-                            "run_id": None,
-                            "role": MessageRole.USER,
-                            "message_type": "user_message",
-                            "turn_message_index": 1,
-                            "display_mode": "default",
-                            "content_text": content,
-                            "payload_json": {},
-                        },
+                        payload_json=message_payload,
                     ),
                     ConversationEvent(
                         id=new_event_id(),

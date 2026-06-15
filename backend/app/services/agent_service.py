@@ -202,6 +202,7 @@ class AgentService:
         content: str,
         provider_id: str | None = None,
         model_id: str | None = None,
+        attachment_ids: list[str] | None = None,
     ) -> StartTurnResult:
         project = self.project_repo.get(project_id)
         if not project:
@@ -224,6 +225,7 @@ class AgentService:
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
             workspace_ref=project.path,
+            attachment_ids=attachment_ids or [],
         )
 
         seed_events = self.conversation_service.list_events_after(session_id, before_seq)

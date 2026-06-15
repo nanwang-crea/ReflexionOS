@@ -131,6 +131,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 provider_id = msg_data.get("provider_id")
                 model_id = msg_data.get("model_id")
+                attachment_ids = msg_data.get("attachment_ids", [])
 
                 try:
                     snapshot = conversation_service.get_snapshot(session_id)
@@ -140,6 +141,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                         content=content,
                         provider_id=provider_id,
                         model_id=model_id,
+                        attachment_ids=attachment_ids,
                     )
                 except ValueError as exc:
                     await _send_error(websocket, code="invalid_request", message=str(exc))
