@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { skillApi, type SkillListParams, type SkillListResponse } from '../api/skill.api'
+import { skillApi, type SkillListParams } from '../api/skill.api'
 import type { Skill } from '@/types/skill'
 
 const ITEMS_PER_PAGE = 20
@@ -67,7 +67,7 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
   useEffect(() => {
     setOffset(0)
     loadSkills(true)
-  }, [category, pluginName, search])
+  }, [category, pluginName, search, loadSkills])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {

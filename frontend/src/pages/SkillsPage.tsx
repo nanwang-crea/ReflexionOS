@@ -43,7 +43,6 @@ export default function SkillsPage() {
     skills,
     loading,
     error,
-    total,
     hasMore,
     loadMore,
     refresh: refreshSkills,
