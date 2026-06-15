@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.api.websocket_manager import ws_manager
+from app.api.websocket_manager import send_ws_json, ws_manager
 from app.app_services import agent_service
 from app.models.session import SessionUpdate
 from app.services.conversation_service import conversation_service
@@ -15,53 +15,42 @@ router = APIRouter(tags=["websocket"])
 
 
 async def _send_error(websocket: WebSocket, *, code: str, message: str):
-    await websocket.send_json(
-        {
-            "type": "conversation:error",
-            "data": {
-                "code": code,
-                "message": message,
-            },
-        }
-    )
+    await send_ws_json(websocket, {
+        "type": "conversation:error",
+        "data": {"code": code, "message": message},
+    })
 
 
 async def _send_synced(websocket: WebSocket, *, session_id: str):
     snapshot = conversation_service.get_snapshot(session_id)
-    await websocket.send_json(
-        {
-            "type": "conversation:synced",
-            "data": {
-                "session_id": session_id,
-                "last_event_seq": snapshot.session.last_event_seq,
-            },
-        }
-    )
+    await send_ws_json(websocket, {
+        "type": "conversation:synced",
+        "data": {
+            "session_id": session_id,
+            "last_event_seq": snapshot.session.last_event_seq,
+        },
+    })
 
 
 async def _send_resync_required(websocket: WebSocket, *, session_id: str, after_seq: int):
-    await websocket.send_json(
-        {
-            "type": "conversation:resync_required",
-            "data": {
-                "session_id": session_id,
-                "after_seq": after_seq,
-                "reason": "stale_after_seq",
-            },
-        }
-    )
+    await send_ws_json(websocket, {
+        "type": "conversation:resync_required",
+        "data": {
+            "session_id": session_id,
+            "after_seq": after_seq,
+            "reason": "stale_after_seq",
+        },
+    })
 
 
 async def _send_live_state(websocket: WebSocket, *, session_id: str):
     live_state = agent_service.get_live_state(session_id)
     if live_state is None:
         return
-    await websocket.send_json(
-        {
-            "type": "conversation:live_state",
-            "data": live_state,
-        }
-    )
+    await send_ws_json(websocket, {
+        "type": "conversation:live_state",
+        "data": live_state,
+    })
 
 
 @router.websocket("/ws/sessions/{session_id}/conversation")
@@ -105,12 +94,10 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     continue
 
                 for event in events:
-                    await websocket.send_json(
-                        {
-                            "type": "conversation:event",
-                            "data": event.model_dump(mode="json"),
-                        }
-                    )
+                    await send_ws_json(websocket, {
+                        "type": "conversation:event",
+                        "data": event.model_dump(mode="json"),
+                    })
 
                 try:
                     await _send_live_state(websocket, session_id=session_id)
@@ -262,7 +249,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                         session_id,
                         SessionUpdate(agent_mode=mode),
                     )
-                    await websocket.send_json({
+                    await send_ws_json(websocket, {
                         "type": "session:mode_changed",
                         "data": {"session_id": session_id, "mode": mode},
                     })
@@ -289,7 +276,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                         PlanFileSync().delete(plan_path)
                     else:
                         raise ValueError("缺少有效的 path 参数")
-                    await websocket.send_json({
+                    await send_ws_json(websocket, {
                         "type": "plan:cleared",
                         "data": {"path": plan_path},
                     })

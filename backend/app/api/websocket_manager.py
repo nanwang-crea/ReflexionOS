@@ -7,13 +7,20 @@ from fastapi import WebSocket
 logger = logging.getLogger(__name__)
 
 
-class DateTimeEncoder(json.JSONEncoder):
-    """处理 datetime 对象的 JSON 编码器"""
+def json_dumps(data: object) -> str:
+    """统一的 JSON 序列化，处理 datetime 等非标准类型"""
+    return json.dumps(data, ensure_ascii=False, default=_json_default)
 
-    def default(self, obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        return super().default(obj)
+
+def _json_default(obj: object) -> str:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+async def send_ws_json(websocket: WebSocket, data: object) -> None:
+    """统一的 WebSocket JSON 发送，所有 WebSocket 消息都应走这个函数"""
+    await websocket.send_text(json_dumps(data))
 
 
 class ConnectionManager:
@@ -48,10 +55,8 @@ class ConnectionManager:
         if session_id not in self.active_connections:
             return
 
-        message = json.dumps(
+        message = json_dumps(
             {"type": event_type, "data": data, "timestamp": datetime.now().isoformat()},
-            ensure_ascii=False,
-            cls=DateTimeEncoder,
         )
 
         disconnected = []
