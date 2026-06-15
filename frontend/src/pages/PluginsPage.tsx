@@ -84,7 +84,7 @@ export default function PluginsPage() {
       setShowInstallDialog(false)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '安装失败'
+      const msg = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (error as Error)?.message || '安装失败'
       useToastStore.getState().addToast('warning', `安装失败: ${msg}`)
     } finally {
       setInstalling(false)
@@ -101,7 +101,7 @@ export default function PluginsPage() {
       }
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '卸载失败'
+      const msg = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (error as Error)?.message || '卸载失败'
       useToastStore.getState().addToast('warning', `卸载失败: ${msg}`)
     } finally {
       setUninstalling(null)
@@ -115,7 +115,7 @@ export default function PluginsPage() {
       useToastStore.getState().addToast('info', `插件 ${name} 更新成功`)
       await loadPlugins()
     } catch (error: unknown) {
-      const msg = (error as any)?.response?.data?.detail || (error as Error)?.message || '更新失败'
+      const msg = (error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (error as Error)?.message || '更新失败'
       useToastStore.getState().addToast('warning', `更新失败: ${msg}`)
     } finally {
       setUpdating(null)
