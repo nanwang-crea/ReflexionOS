@@ -47,6 +47,11 @@ export function useSkillList(options: UseSkillListOptions = {}): UseSkillListRet
 
       const response = await skillApi.list(params)
 
+      // 检查响应格式
+      if (!response.data || !response.data.items) {
+        throw new Error('Invalid API response format')
+      }
+
       if (resetOffset) {
         setSkills(response.data.items)
       } else {
