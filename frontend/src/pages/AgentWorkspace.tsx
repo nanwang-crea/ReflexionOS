@@ -146,8 +146,8 @@ export default function AgentWorkspace() {
     (files: File[]) => {
       if (viewModel.selection.modelId && !supportsVision(viewModel.selection.modelId)) {
         useToastStore.getState().addToast(
-          'warning',
-          '当前模型可能不支持图片分析，建议切换到 gpt-4o 等模型'
+          'info',
+          '当前模型可能不支持图片分析'
         )
       }
       try {

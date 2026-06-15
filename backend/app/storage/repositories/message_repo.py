@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 
 from sqlalchemy import and_, case, func, or_
 
@@ -55,14 +56,21 @@ class MessageRepository(BaseRepository[Message]):
             with self.db.get_session() as managed_session:
                 return self.create(message, db_session=managed_session)
 
-        data = message.model_dump()
+        # 使用 mode="json" 确保所有 datetime 被序列化为字符串
+        data = message.model_dump(mode="json")
+
+        # 但 SQLAlchemy 的 DateTime 列需要 datetime 对象，所以转回来
+        data["created_at"] = message.created_at
+        data["updated_at"] = message.updated_at
+        if message.completed_at is not None:
+            data["completed_at"] = message.completed_at
+
         # Convert attachments list to JSON string for storage
         if "attachments" in data:
-            attachments = data.pop("attachments")
-            if attachments:
-                data["attachments_json"] = json.dumps(
-                    [att.model_dump(mode="json") if hasattr(att, "model_dump") else att for att in attachments]
-                )
+            attachments_data = data.pop("attachments")
+            if attachments_data:
+                # 已经是 mode="json" 序列化的结果，直接转 JSON 字符串
+                data["attachments_json"] = json.dumps(attachments_data)
             else:
                 data["attachments_json"] = None
 
@@ -419,13 +427,17 @@ class MessageRepository(BaseRepository[Message]):
                         }
                         mime_type = mime_map.get(ext, "image/png")
 
+                        # 使用文件的实际创建时间，而不是 datetime.now()
+                        from datetime import datetime as dt
+                        file_ctime = dt.fromtimestamp(file_path.stat().st_ctime)
+
                         attachments.append(MessageAttachment(
                             id=att_id,
                             type="image",
                             mime_type=mime_type,
                             file_path=str(file_path),
                             file_size=file_path.stat().st_size if file_path.exists() else 0,
-                            created_at=datetime.now(),
+                            created_at=file_ctime,
                         ))
 
         return Message(
