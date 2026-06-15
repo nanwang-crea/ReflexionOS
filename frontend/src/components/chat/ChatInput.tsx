@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Send, Square } from 'lucide-react'
+import { Image as ImageIcon, Loader2, Send, Square } from 'lucide-react'
 import { RunningIndicator } from '@/components/workspace/RunningIndicator'
+import { ImagePreview } from '@/components/chat/ImagePreview'
+import type { PendingAttachment } from '@/features/conversation/hooks/useImageUpload'
 
 interface ChatSelectOption {
   id: string
@@ -26,6 +28,10 @@ interface ChatInputProps {
   runtimeStatusLabel?: string | null
   agentMode?: 'build' | 'plan'
   onModeChange?: (mode: 'build' | 'plan') => void
+  onImageAdd?: (files: File[]) => void
+  attachments?: PendingAttachment[]
+  onRemoveAttachment?: (id: string) => void
+  onRetryAttachment?: (id: string) => void
 }
 
 export function ChatInput({ 
@@ -46,11 +52,17 @@ export function ChatInput({
   runtimeStatusLabel = null,
   agentMode = 'build',
   onModeChange,
+  onImageAdd,
+  attachments = [],
+  onRemoveAttachment,
+  onRetryAttachment,
 }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
   const [isComposing, setIsComposing] = useState(false)
+  const [isDragOver, setIsDragOver] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     const textarea = textareaRef.current
@@ -61,7 +73,7 @@ export function ChatInput({
   }, [value])
   
   const handleSend = () => {
-    if (value.trim() && !disabled && !isLoading) {
+    if ((value.trim() || attachments.length > 0) && !disabled && !isLoading) {
       onSend(value.trim())
       setValue('')
     }
@@ -77,13 +89,75 @@ export function ChatInput({
       handleSend()
     }
   }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onImageAdd) return
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const imageFiles: File[] = []
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault()
+      onImageAdd(imageFiles)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (onImageAdd) setIsDragOver(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+
+    if (!onImageAdd) return
+
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith('image/')
+    )
+    if (files.length > 0) {
+      onImageAdd(files)
+    }
+  }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!onImageAdd) return
+    const files = Array.from(e.target.files || []).filter((f) =>
+      f.type.startsWith('image/')
+    )
+    if (files.length > 0) {
+      onImageAdd(files)
+    }
+    e.target.value = ''
+  }
   
   return (
     <div className="relative">
       <motion.div
-        className="relative overflow-hidden rounded-2xl border-2 border-edge bg-surface-primary focus-within:border-accent transition-all duration-200"
+        className={`relative overflow-hidden rounded-2xl border-2 bg-surface-primary focus-within:border-accent transition-all duration-200 ${
+          isDragOver ? 'border-accent bg-accent/5' : 'border-edge'
+        }`}
         animate={{ scale: isFocused ? 1.01 : 1 }}
         transition={{ duration: 0.2 }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
       >
         {runtimeStatusLabel && (
           <RunningIndicator
@@ -93,6 +167,11 @@ export function ChatInput({
             barDataAttr="data-chat-running-bar"
           />
         )}
+        <ImagePreview
+          attachments={attachments}
+          onRemove={onRemoveAttachment ?? (() => {})}
+          onRetry={onRetryAttachment ?? (() => {})}
+        />
         <textarea
           ref={textareaRef}
           value={value}
@@ -102,7 +181,8 @@ export function ChatInput({
           onCompositionStart={() => setIsComposing(true)}
           onCompositionEnd={() => setIsComposing(false)}
           onKeyDown={handleKeyDown}
-          placeholder={placeholder}
+          onPaste={handlePaste}
+          placeholder={attachments.length > 0 ? '添加图片说明（可选）...' : placeholder}
           disabled={disabled || isLoading}
           rows={1}
           className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary"
@@ -122,6 +202,27 @@ export function ChatInput({
             >
               {agentMode === 'plan' ? 'PLAN' : 'BUILD'}
             </button>
+            {onImageAdd && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={disabled || isLoading}
+                  className="rounded-full p-1.5 text-content-muted hover:text-content-secondary hover:bg-surface-tertiary transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  title="上传图片（或粘贴/拖拽图片）"
+                >
+                  <ImageIcon className="h-4 w-4" />
+                </button>
+              </>
+            )}
             {providerOptions.length > 0 ? (
               <>
                  <label className="flex w-full items-center gap-2 text-xs text-content-muted sm:w-auto">
@@ -188,7 +289,7 @@ export function ChatInput({
               <motion.button
                 type="button"
                 onClick={handleSend}
-                disabled={!value.trim() || disabled || isLoading}
+                disabled={(!value.trim() && attachments.length === 0) || disabled || isLoading}
                 className="flex h-8 items-center justify-center rounded-xl bg-accent px-4 font-medium text-white shadow-lg shadow-accent/30 transition focus:ring-2 focus:ring-accent/50 outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted disabled:shadow-none"
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
