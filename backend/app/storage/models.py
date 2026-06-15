@@ -106,6 +106,7 @@ class MessageModel(Base):
     display_mode: Mapped[str] = mapped_column(String, nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    attachments_json: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)

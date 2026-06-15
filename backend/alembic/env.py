@@ -1,3 +1,4 @@
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -9,6 +10,12 @@ config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Expand ~ in database URL
+db_url = config.get_main_option("sqlalchemy.url")
+if db_url and "~" in db_url:
+    db_url = db_url.replace("~", os.path.expanduser("~"))
+    config.set_main_option("sqlalchemy.url", db_url)
 
 target_metadata = Base.metadata
 

@@ -92,6 +92,16 @@ class Run(BaseModel):
     error_message: str | None = None
 
 
+class MessageAttachment(BaseModel):
+    """消息附件"""
+    id: str
+    type: str  # image, file
+    mime_type: str
+    file_path: str
+    file_size: int
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class Message(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -106,6 +116,7 @@ class Message(BaseModel):
     display_mode: str
     content_text: str = ""
     payload_json: dict = Field(default_factory=dict)
+    attachments: list[MessageAttachment] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
