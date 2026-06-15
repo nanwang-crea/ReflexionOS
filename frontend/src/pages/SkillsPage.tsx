@@ -23,13 +23,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   uncategorized: '未分类',
 }
 
-function getSourceLabel(skill: Skill): { label: string; type: 'builtin' | 'installed' | 'local' } {
-  if (skill.source) return { label: skill.source, type: 'installed' }
-  if (skill.install_path?.includes('.reflexion')) return { label: '全局安装', type: 'installed' }
-  if (skill.install_path?.includes('skills/')) return { label: '项目内置', type: 'builtin' }
-  return { label: '本地', type: 'local' }
-}
-
 export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([])
   const [categories, setCategories] = useState<SkillCategories>({})
@@ -330,7 +323,15 @@ export default function SkillsPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {displayedSkills.map((skill) => {
-              const src = getSourceLabel(skill)
+              const pluginType = getPluginType(skill)
+              const pluginDisplayName = getPluginDisplayName(skill)
+              const pluginBadgeStyle =
+                pluginType === 'builtin'
+                  ? 'bg-green-500/10 text-green-400'
+                  : pluginType === 'installed'
+                    ? 'bg-blue-500/10 text-blue-400'
+                    : 'bg-surface-tertiary text-content-muted'
+              const showIcon = pluginType === 'builtin' || pluginType === 'installed'
               return (
                 <div key={skill.name}>
                     <div
@@ -346,16 +347,10 @@ export default function SkillsPage() {
                             {CATEGORY_LABELS[skill.category] || skill.category}
                           </span>
                           <span
-                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${
-                              src.type === 'installed'
-                                ? 'bg-blue-500/10 text-blue-400'
-                                : src.type === 'builtin'
-                                  ? 'bg-green-500/10 text-green-400'
-                                  : 'bg-surface-tertiary text-content-muted'
-                            }`}
+                            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${pluginBadgeStyle}`}
                           >
-                            {src.type === 'installed' && <Globe className="h-3 w-3" />}
-                            {src.label}
+                            {showIcon && (pluginType === 'builtin' ? <Code2 className="h-3 w-3" /> : <Globe className="h-3 w-3" />)}
+                            {pluginDisplayName}
                           </span>
                         </div>
                         <p className="mt-2 line-clamp-2 text-[15px] leading-7 text-content-muted">
