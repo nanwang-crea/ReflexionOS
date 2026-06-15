@@ -11,11 +11,13 @@ logger = logging.getLogger(__name__)
 
 def convert_attachments_to_content_parts(
     attachments: list[MessageAttachment],
+    supports_vision: bool | None = None,
 ) -> list[LLMContentPart]:
     """将消息附件转换为 LLM 内容部分
 
     Args:
         attachments: 消息附件列表
+        supports_vision: 模型是否支持视觉能力 (None=未探测, True=支持, False=不支持)
 
     Returns:
         LLMContentPart 列表
@@ -25,6 +27,13 @@ def convert_attachments_to_content_parts(
     for attachment in attachments:
         if attachment.type != "image":
             logger.warning(f"跳过非图片附件: {attachment.type}")
+            continue
+
+        # 如果明确不支持 vision，跳过图片
+        if supports_vision is False:
+            logger.warning(
+                f"模型不支持视觉能力，跳过图片附件: {attachment.file_path}"
+            )
             continue
 
         # 判断是本地文件还是外部 URL

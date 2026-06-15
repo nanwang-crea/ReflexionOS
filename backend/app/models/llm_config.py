@@ -20,6 +20,10 @@ class ProviderModelConfig(BaseModel):
     model_name: str
     context_window: int = 128000
     enabled: bool = True
+    # Model capabilities (None = not probed, True/False = known)
+    supports_vision: bool | None = None
+    supports_tools: bool | None = True
+    supports_reasoning: bool | None = True
 
 
 class ProviderInstanceConfig(BaseModel):
@@ -82,6 +86,10 @@ class ResolvedLLMConfig(BaseModel):
     base_url: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
+    # Model capabilities (inherited from ProviderModelConfig)
+    supports_vision: bool | None = None
+    supports_tools: bool | None = True
+    supports_reasoning: bool | None = True
 
 
 class ProviderConnectionTestRequest(BaseModel):
@@ -100,3 +108,5 @@ class ProviderConnectionTestResult(BaseModel):
     model_id: str
     model: str
     message: str
+    # Capability probe results
+    supports_vision: bool | None = None

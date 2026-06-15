@@ -5,6 +5,10 @@ export interface ProviderModel {
   display_name: string
   model_name: string
   enabled: boolean
+  // Model capabilities (null = not probed, true/false = known)
+  supports_vision?: boolean | null
+  supports_tools?: boolean | null
+  supports_reasoning?: boolean | null
 }
 
 export interface ProviderInstance {
@@ -36,4 +40,5 @@ export interface ProviderConnectionTestResult {
   model_id: string
   model: string
   message: string
+  supports_vision?: boolean | null
 }

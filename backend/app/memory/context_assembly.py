@@ -17,7 +17,7 @@ class ContextAssemblyResult(BaseModel):
     supplemental_block: str | None = None
 
 
-def _message_to_seed_dict(message: Any) -> list[dict[str, Any]]:
+def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> list[dict[str, Any]]:
     if message.message_type == MessageType.TOOL_TRACE:
         return _tool_trace_to_paired_seeds(message)
 
@@ -39,7 +39,7 @@ def _message_to_seed_dict(message: Any) -> list[dict[str, Any]]:
             )
 
         # 添加图片部分
-        image_parts = convert_attachments_to_content_parts(message.attachments)
+        image_parts = convert_attachments_to_content_parts(message.attachments, supports_vision)
         for part in image_parts:
             content_parts.append(part.model_dump(exclude_none=True))
 
@@ -157,6 +157,7 @@ class ContextAssembler:
         max_seed_messages: int = 8,
         max_tool_traces: int = 20,
         scan_limit: int = 200,
+        supports_vision: bool | None = None,
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []
 
@@ -220,7 +221,7 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         )
         recent_messages: list[dict[str, Any]] = []
         for msg in candidates:
-            recent_messages.extend(_message_to_seed_dict(msg))
+            recent_messages.extend(_message_to_seed_dict(msg, supports_vision))
 
         return build_context_assembly(
             static_blocks=static_blocks,

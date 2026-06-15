@@ -197,7 +197,19 @@ export function useSettingsPageController(options?: {
   }, [dialogService, providerActions, resetDraft, selectedSavedProvider])
 
   const handleTestConnection = useCallback(async () => {
-    await providerActions.testProviderConnection(draftProvider)
+    const result = await providerActions.testProviderConnection(draftProvider)
+
+    // Update draft with probed capabilities
+    if (result?.modelId && result.supports_vision !== undefined) {
+      setDraftProvider((current) => ({
+        ...current,
+        models: current.models.map((model) =>
+          model.id === result.modelId
+            ? { ...model, supports_vision: result.supports_vision }
+            : model
+        ),
+      }))
+    }
   }, [draftProvider, providerActions])
 
   const handleDefaultProviderChange = useCallback((providerId: string) => {

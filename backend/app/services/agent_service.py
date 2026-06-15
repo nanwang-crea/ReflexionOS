@@ -499,6 +499,7 @@ class AgentService:
                 project_path=project_path,
                 current_turn_id=turn_id,
                 current_user_input=task,
+                supports_vision=resolved_llm.supports_vision,
             )
             loop_result = await execution_loop.run(
                 task=task,

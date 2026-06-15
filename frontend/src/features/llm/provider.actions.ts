@@ -124,12 +124,19 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
           type: 'success',
           message: `${response.data.message}，模型：${response.data.model}`,
         })
+
+        // Return the updated capability info so controller can update draft
+        return {
+          modelId: response.data.model_id,
+          supports_vision: response.data.supports_vision,
+        }
       } catch (error: unknown) {
         console.error('Failed to test provider connection:', error)
         options.onTestResult({
           type: 'error',
           message: getErrorMessage(error, '连接测试失败'),
         })
+        return null
       } finally {
         options.setTesting(false)
       }

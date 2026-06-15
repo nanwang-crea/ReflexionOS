@@ -91,3 +91,34 @@ def test_skip_non_image_attachment():
 
     # 应该跳过非图片附件
     assert len(parts) == 0
+
+
+def test_skip_images_when_vision_not_supported():
+    """测试当模型不支持 vision 时跳过图片"""
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".png", delete=False) as f:
+        f.write(b"fake png data")
+        temp_path = f.name
+
+    try:
+        attachment = MessageAttachment(
+            id="att_test",
+            type="image",
+            mime_type="image/png",
+            file_path=temp_path,
+            file_size=13,
+            created_at=datetime.now()
+        )
+
+        # supports_vision = False 应该跳过图片
+        parts = convert_attachments_to_content_parts([attachment], supports_vision=False)
+        assert len(parts) == 0
+
+        # supports_vision = True 应该转换图片
+        parts = convert_attachments_to_content_parts([attachment], supports_vision=True)
+        assert len(parts) == 1
+
+        # supports_vision = None 应该转换图片（向后兼容）
+        parts = convert_attachments_to_content_parts([attachment], supports_vision=None)
+        assert len(parts) == 1
+    finally:
+        Path(temp_path).unlink(missing_ok=True)

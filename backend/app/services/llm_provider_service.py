@@ -48,6 +48,9 @@ class LLMProviderService:
             model_name=model_name,
             context_window=model.context_window,
             enabled=model.enabled,
+            supports_vision=model.supports_vision,
+            supports_tools=model.supports_tools,
+            supports_reasoning=model.supports_reasoning,
         )
 
     def _normalize_provider(self, provider: ProviderInstanceConfig) -> ProviderInstanceConfig:
@@ -184,6 +187,9 @@ class LLMProviderService:
             base_url=provider.base_url,
             temperature=temperature,
             max_tokens=max_tokens,
+            supports_vision=selected_model.supports_vision,
+            supports_tools=selected_model.supports_tools,
+            supports_reasoning=selected_model.supports_reasoning,
         )
 
     def get_llm_settings(self) -> LLMSettings:
@@ -295,6 +301,8 @@ class LLMProviderService:
             base_url=resolved.base_url if resolved.base_url else None,
             default_headers=browser_like_default_headers(),
         )
+
+        # Text-only request test
         await client.chat.completions.create(
             model=resolved.model,
             messages=[{"role": MessageRole.USER, "content": "ping"}],
@@ -302,13 +310,99 @@ class LLMProviderService:
             max_tokens=1,
         )
 
+        # Vision capability probe
+        supports_vision = await self._probe_vision_capability(client, resolved.model)
+
+        # Update model config with probe result
+        if supports_vision is not None:
+            await self._update_model_capability(
+                normalized_provider.id,
+                resolved.model_id,
+                supports_vision=supports_vision
+            )
+
         return ProviderConnectionTestResult(
             provider_id=resolved.provider_id,
             provider_type=resolved.provider_type,
             model_id=resolved.model_id,
             model=resolved.model,
             message="连接测试成功",
+            supports_vision=supports_vision,
         )
+
+    async def _probe_vision_capability(self, client: AsyncOpenAI, model: str) -> bool | None:
+        """Probe vision capability by sending a minimal image request.
+
+        Returns:
+            True if vision is supported
+            False if vision is explicitly not supported (400/invalid_request_error)
+            None if probe failed due to network/auth issues (keep unknown state)
+        """
+        # Minimal 1x1 PNG (red pixel)
+        TINY_PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+        try:
+            await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": MessageRole.USER,
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/png;base64,{TINY_PNG_B64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                temperature=0,
+                max_tokens=1,
+            )
+            return True
+        except Exception as e:
+            # Check if it's a clear "not supported" error
+            error_str = str(e).lower()
+            if any(keyword in error_str for keyword in [
+                "does not support",
+                "invalid_request_error",
+                "image",
+                "vision",
+                "multimodal",
+                "content type",
+            ]):
+                return False
+            # Network/auth/other errors - keep state as None
+            return None
+
+    async def _update_model_capability(
+        self,
+        provider_id: str,
+        model_id: str,
+        supports_vision: bool | None = None
+    ) -> None:
+        """Update model capability fields and persist to config."""
+        settings = self.get_llm_settings().model_copy(deep=True)
+
+        provider = next(
+            (p for p in settings.providers if p.id == provider_id),
+            None
+        )
+        if not provider:
+            return
+
+        model = next(
+            (m for m in provider.models if m.id == model_id),
+            None
+        )
+        if not model:
+            return
+
+        if supports_vision is not None:
+            model.supports_vision = supports_vision
+
+        self._persist_llm_settings(settings)
 
     def resolve_llm_config(
         self, provider_id: str | None = None, model_id: str | None = None

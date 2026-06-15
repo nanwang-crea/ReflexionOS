@@ -191,6 +191,23 @@ export function ProviderPanel() {
                       删除
                     </button>
                   </div>
+
+                  {/* Capability indicators */}
+                  <div className="mt-2 flex gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      model.supports_vision === true
+                        ? 'bg-status-success-soft text-status-success'
+                        : model.supports_vision === false
+                        ? 'bg-status-error-soft text-status-error'
+                        : 'bg-surface-tertiary text-content-muted'
+                    }`}>
+                      Vision: {
+                        model.supports_vision === true ? 'Enabled'
+                        : model.supports_vision === false ? 'Disabled'
+                        : 'Auto'
+                      }
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>
