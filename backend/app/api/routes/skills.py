@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.orchestration.package_resolver import PackageResolver, PackageSpecifier
@@ -29,8 +29,8 @@ class SkillListResponse(BaseModel):
 
 @router.get("/", response_model=SkillListResponse)
 async def list_skills(
-    offset: int = 0,
-    limit: int = 24,
+    offset: int = Query(default=0, ge=0, description="偏移量"),
+    limit: int = Query(default=24, ge=1, le=100, description="每页大小"),
     category: Optional[str] = None,
     plugin_name: Optional[str] = None,
     search: Optional[str] = None,
