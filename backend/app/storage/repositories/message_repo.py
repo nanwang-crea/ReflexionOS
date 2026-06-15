@@ -4,11 +4,10 @@ import logging
 from sqlalchemy import and_, case, func, or_
 
 from app.errors import NotFoundValueError
-from app.models.conversation import Message, MessageType, StreamState
+from app.models.conversation import Message, MessageAttachment, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
 
 from .base_repo import BaseRepository
-
 
 logger = logging.getLogger(__name__)
 
@@ -17,12 +16,57 @@ class MessageRepository(BaseRepository[Message]):
     def __init__(self, db):
         super().__init__(db, Message)
 
+    def _to_domain(self, model) -> Message | None:
+        """Override to handle attachments_json conversion"""
+        if model is None:
+            return None
+
+        data = {
+            "id": model.id,
+            "session_id": model.session_id,
+            "turn_id": model.turn_id,
+            "run_id": model.run_id,
+            "turn_message_index": model.turn_message_index,
+            "role": model.role,
+            "message_type": model.message_type,
+            "stream_state": model.stream_state,
+            "display_mode": model.display_mode,
+            "content_text": model.content_text,
+            "payload_json": model.payload_json,
+            "created_at": model.created_at,
+            "updated_at": model.updated_at,
+            "completed_at": model.completed_at,
+        }
+
+        # Convert attachments_json to attachments list
+        if hasattr(model, "attachments_json") and model.attachments_json:
+            try:
+                attachments_data = json.loads(model.attachments_json)
+                data["attachments"] = [MessageAttachment(**att) for att in attachments_data]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                data["attachments"] = []
+        else:
+            data["attachments"] = []
+
+        return Message(**data)
+
     def create(self, message: Message, *, db_session=None) -> Message:
         if db_session is None:
             with self.db.get_session() as managed_session:
                 return self.create(message, db_session=managed_session)
 
-        model = MessageModel(**message.model_dump())
+        data = message.model_dump()
+        # Convert attachments list to JSON string for storage
+        if "attachments" in data:
+            attachments = data.pop("attachments")
+            if attachments:
+                data["attachments_json"] = json.dumps(
+                    [att.model_dump() if hasattr(att, "model_dump") else att for att in attachments]
+                )
+            else:
+                data["attachments_json"] = None
+
+        model = MessageModel(**data)
         db_session.add(model)
         db_session.flush()
         db_session.refresh(model)
@@ -185,6 +229,10 @@ class MessageRepository(BaseRepository[Message]):
         model.stream_state = message.stream_state.value
         model.content_text = message.content_text
         model.payload_json = message.payload_json
+        if message.attachments:
+            model.attachments_json = json.dumps([att.model_dump() for att in message.attachments])
+        else:
+            model.attachments_json = None
         model.updated_at = message.updated_at
         model.completed_at = message.completed_at
         db_session.flush()

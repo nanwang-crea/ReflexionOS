@@ -61,13 +61,13 @@ except ImportError:
     _BrowserTool = None  # type: ignore[assignment,misc]
     logger.warning("playwright 未安装，BrowserTool 不可用")
 
+from .cleanup_service import CleanupService
 from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
 from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
-
 
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
@@ -105,6 +105,7 @@ class AgentService:
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
+        self._upload_cleanup_task: asyncio.Task | None = None
         self._browser_tools: dict[str, _BrowserTool] = {}
         self._browser_tools_lock = threading.Lock()
         self.project_repo = project_repo or ProjectRepository(db)
@@ -326,6 +327,10 @@ class AgentService:
             self._event_cleanup_loop(cleanup_interval_seconds),
             name="conversation-event-cleanup",
         )
+        self._upload_cleanup_task = asyncio.create_task(
+            self._upload_cleanup_loop(),
+            name="upload-cleanup",
+        )
 
     async def stop_background_tasks(self) -> None:
         cleanup_task = self._cleanup_task
@@ -335,6 +340,13 @@ class AgentService:
         cleanup_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await cleanup_task
+
+        upload_cleanup_task = self._upload_cleanup_task
+        if upload_cleanup_task is not None:
+            self._upload_cleanup_task = None
+            upload_cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await upload_cleanup_task
 
     async def cleanup_browser_for_session(self, session_id: str) -> None:
         """清理指定 session 的 BrowserTool 资源。
@@ -370,6 +382,16 @@ class AgentService:
             except Exception:
                 logger.exception("清理 conversation_events 失败")
             await asyncio.sleep(cleanup_interval_seconds)
+
+    async def _upload_cleanup_loop(self) -> None:
+        """图片清理循环"""
+        cleanup_service = CleanupService()
+        while True:
+            try:
+                await asyncio.to_thread(cleanup_service.cleanup_old_uploads_sync, max_age_days=1)
+            except Exception:
+                logger.exception("清理上传文件失败")
+            await asyncio.sleep(3600)  # 每小时执行一次
 
     async def _run_turn(
         self,
