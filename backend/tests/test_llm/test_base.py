@@ -1,4 +1,4 @@
-from app.llm.base import LLMMessage, LLMResponse
+from app.llm.base import LLMContentPart, LLMMessage, LLMResponse
 
 
 class TestLLMMessage:
@@ -13,6 +13,105 @@ class TestLLMMessage:
         msg_dict = message.to_dict()
 
         assert msg_dict == {"role": "user", "content": "Hello"}
+
+    def test_message_multimodal(self):
+        """测试多模态消息"""
+        message = LLMMessage(
+            role="user",
+            content=[
+                LLMContentPart(type="text", text="分析这张图片"),
+                LLMContentPart(
+                    type="image_url",
+                    image_url={"url": "data:image/png;base64,abc123"}
+                )
+            ]
+        )
+        assert isinstance(message.content, list)
+        assert len(message.content) == 2
+        assert message.content[0].type == "text"
+        assert message.content[1].type == "image_url"
+
+    def test_message_multimodal_to_dict(self):
+        """测试多模态消息的 to_dict 方法"""
+        message = LLMMessage(
+            role="user",
+            content=[
+                LLMContentPart(type="text", text="Hello"),
+                LLMContentPart(
+                    type="image_url",
+                    image_url={"url": "data:image/png;base64,abc"}
+                )
+            ]
+        )
+        msg_dict = message.to_dict()
+
+        assert msg_dict["role"] == "user"
+        assert isinstance(msg_dict["content"], list)
+        assert len(msg_dict["content"]) == 2
+        assert msg_dict["content"][0] == {"type": "text", "text": "Hello"}
+        assert msg_dict["content"][1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc"}
+        }
+
+
+class TestLLMContentPart:
+    def test_content_part_text(self):
+        """测试文本内容部分"""
+        part = LLMContentPart(type="text", text="Hello")
+        assert part.type == "text"
+        assert part.text == "Hello"
+        assert part.image_url is None
+
+    def test_content_part_image(self):
+        """测试图片内容部分"""
+        part = LLMContentPart(
+            type="image_url",
+            image_url={"url": "data:image/png;base64,abc"}
+        )
+        assert part.type == "image_url"
+        assert part.text is None
+        assert part.image_url == {"url": "data:image/png;base64,abc"}
+
+    def test_message_multimodal(self):
+        """测试多模态消息"""
+        message = LLMMessage(
+            role="user",
+            content=[
+                LLMContentPart(type="text", text="分析这张图片"),
+                LLMContentPart(
+                    type="image_url",
+                    image_url={"url": "data:image/png;base64,abc123"}
+                )
+            ]
+        )
+        assert isinstance(message.content, list)
+        assert len(message.content) == 2
+        assert message.content[0].type == "text"
+        assert message.content[1].type == "image_url"
+
+    def test_message_multimodal_to_dict(self):
+        """测试多模态消息的 to_dict 方法"""
+        message = LLMMessage(
+            role="user",
+            content=[
+                LLMContentPart(type="text", text="Hello"),
+                LLMContentPart(
+                    type="image_url",
+                    image_url={"url": "data:image/png;base64,abc"}
+                )
+            ]
+        )
+        msg_dict = message.to_dict()
+
+        assert msg_dict["role"] == "user"
+        assert isinstance(msg_dict["content"], list)
+        assert len(msg_dict["content"]) == 2
+        assert msg_dict["content"][0] == {"type": "text", "text": "Hello"}
+        assert msg_dict["content"][1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc"}
+        }
 
 
 class TestLLMResponse:

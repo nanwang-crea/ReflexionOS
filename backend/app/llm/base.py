@@ -30,18 +30,29 @@ class LLMToolDefinition(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
+class LLMContentPart(BaseModel):
+    """多模态内容部分"""
+
+    type: str  # text, image_url
+    text: str | None = None
+    image_url: dict | None = None  # {"url": "data:image/png;base64,..."}
+
+
 class LLMMessage(BaseModel):
     """统一的消息结构"""
 
     role: str
-    content: str | None = None
+    content: str | list[LLMContentPart] | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     tool_call_id: str | None = None  # 用于 tool 角色消息
 
     def to_dict(self) -> dict[str, Any]:
         result = {"role": self.role}
         if self.content:
-            result["content"] = self.content
+            if isinstance(self.content, str):
+                result["content"] = self.content
+            else:
+                result["content"] = [part.model_dump(exclude_none=True) for part in self.content]
         if self.tool_calls:
             result["tool_calls"] = [tc.model_dump() for tc in self.tool_calls]
         if self.tool_call_id:
