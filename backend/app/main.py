@@ -16,6 +16,7 @@ from app.api.routes import (
     sessions,
     skills,
     ui_settings,
+    upload,
     websocket,
 )
 from app.app_services import agent_service
@@ -124,6 +125,7 @@ app.include_router(websocket.router)
 app.include_router(files.router)
 app.include_router(git.router)
 app.include_router(browser_screenshot.router)
+app.include_router(upload.router)
 
 
 @app.get("/")
