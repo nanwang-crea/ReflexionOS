@@ -947,11 +947,14 @@ Answer ONLY "yes" or "no".\
 
     async def _call_llm(self, context: LoopContext) -> LLMResponse:
         """
-        调用 LLM（使用原生工具调用），特定条件下重试空响应
+        调用 LLM 并处理响应
 
-        仅在 finish_reason=length 或流式错误时重试（这些是临时问题）。
-        finish_reason=stop 但内容为空时不再重试（国产模型常见的内容审核/拒绝，
-        重试只会浪费 token 和产生幽灵消息）。
+        职责：
+        1. 上下文压力检查与压缩
+        2. 调用 adapter 的 stream_collect 获取响应
+        3. 处理空响应（注入任务提醒、overflow 压缩）
+        4. Prefill 合并
+        5. 发射指标事件
 
         Args:
             context: 执行上下文
@@ -959,7 +962,7 @@ Answer ONLY "yes" or "no".\
         Returns:
             LLMResponse: LLM 响应
         """
-        # Check context pressure and compact if needed
+        # 1. 上下文压力检查
         if context.compressor.check_pressure(
             self.context_window,
             config_manager.settings.execution.tier3_ratio,
@@ -969,173 +972,138 @@ Answer ONLY "yes" or "no".\
                 summarizer=self._create_summarizer(),
             )
 
-        for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
-            tools = (
-                self.tool_definitions.for_plan_mode()
-                if context.agent_mode == "plan"
-                else self.tool_definitions.for_context(context)
-            )
-            messages = self.message_builder.build(context)
-            call_started_at = time.perf_counter()
-            first_chunk_latency: float | None = None
+        tools = (
+            self.tool_definitions.for_plan_mode()
+            if context.agent_mode == "plan"
+            else self.tool_definitions.for_context(context)
+        )
+        messages = self.message_builder.build(context)
+        call_started_at = time.perf_counter()
+        first_chunk_latency: float | None = None
 
-            content_parts = []
-            reasoning_parts = []
-            tool_calls = []
-            finish_reason = "stop"
+        # 2. 调用 adapter 流式收集（不处理空响应重试，由我们自己处理）
+        async def on_content_with_latency(c: str) -> None:
+            nonlocal first_chunk_latency
+            if first_chunk_latency is None:
+                first_chunk_latency = time.perf_counter() - call_started_at
+            await self._emit("llm:content", {"content": c})
 
-            async for chunk in self.llm.stream_complete(messages, tools):
-                if first_chunk_latency is None:
-                    first_chunk_latency = time.perf_counter() - call_started_at
-                if chunk.type == "content" and chunk.content:
-                    content_parts.append(chunk.content)
-                    await self._emit("llm:content", {"content": chunk.content})
-                elif chunk.type == "reasoning" and chunk.reasoning_content:
-                    reasoning_parts.append(chunk.reasoning_content)
-                    await self._emit(
-                        "llm:reasoning", {"reasoning_content": chunk.reasoning_content}
-                    )
-                elif chunk.type == "tool_calls":
-                    tool_calls = chunk.tool_calls
-                    finish_reason = chunk.finish_reason or "tool_calls"
-                    break
-                elif chunk.type == "done":
-                    finish_reason = chunk.finish_reason or "stop"
-                    break
-                elif chunk.type == "error":
-                    await self._emit_llm_metrics(
-                        context=context,
-                        messages=messages,
-                        tools=tools,
-                        attempt=attempt + 1,
-                        call_started_at=call_started_at,
-                        first_chunk_latency=first_chunk_latency,
-                        finish_reason="error",
-                        content_chars=sum(len(part) for part in content_parts),
-                        reasoning_chars=sum(len(part) for part in reasoning_parts),
-                        tool_call_count=len(tool_calls),
-                        error=chunk.error or "LLM 流式调用失败",
-                    )
-                    if attempt < self.MAX_EMPTY_RESPONSE_RETRIES - 1:
-                        logger.warning(
-                            "LLM 流式错误 (attempt %d/%d): %s, 重试中",
-                            attempt + 1,
-                            self.MAX_EMPTY_RESPONSE_RETRIES,
-                            chunk.error,
-                        )
-                        break
-                    raise RuntimeError(chunk.error or "LLM 流式调用失败")
+        response = await self.llm.stream_collect(
+            messages,
+            tools,
+            on_content=on_content_with_latency,
+            on_reasoning=lambda r: self._emit(
+                "llm:reasoning", {"reasoning_content": r}
+            ),
+            max_empty_retries=0,
+        )
 
-            response = LLMResponse(
-                content="".join(content_parts),
-                reasoning_content="".join(reasoning_parts) or None,
-                tool_calls=tool_calls,
-                finish_reason=finish_reason,
-                model=self.llm.get_model_name(),
-            )
-            await self._emit_llm_metrics(
-                context=context,
-                messages=messages,
-                tools=tools,
-                attempt=attempt + 1,
-                call_started_at=call_started_at,
-                first_chunk_latency=first_chunk_latency,
-                finish_reason=finish_reason,
-                content_chars=len(response.content or ""),
-                reasoning_chars=len(response.reasoning_content or ""),
-                tool_call_count=len(response.tool_calls),
+        # 3. 发射指标
+        await self._emit_llm_metrics(
+            context=context,
+            messages=messages,
+            tools=tools,
+            attempt=1,
+            call_started_at=call_started_at,
+            first_chunk_latency=first_chunk_latency,
+            finish_reason=response.finish_reason,
+            content_chars=len(response.content or ""),
+            reasoning_chars=len(response.reasoning_content or ""),
+            tool_call_count=len(response.tool_calls),
+        )
+
+        # 4. 处理空响应
+        if not response.has_content and not response.has_tool_calls:
+            response = await self._handle_empty_response(
+                context, response, messages, tools, call_started_at
             )
 
-            if response.has_content or response.has_tool_calls:
-                prefill = context.metadata.pop("_prefill_assistant", None)
-                merged_content = response.content
-                if prefill:
-                    if merged_content:
-                        merged_content = prefill + merged_content
-                    else:
-                        merged_content = prefill
+        # 5. Prefill 合并
+        prefill = context.metadata.pop("_prefill_assistant", None)
+        if prefill:
+            merged_content = (prefill + (response.content or "")) if response.content else prefill
+            response = response.model_copy(update={"content": merged_content or None})
 
-                context.add_message(
-                    MessageRole.ASSISTANT,
-                    content=merged_content or None,
-                    tool_calls=[
-                        tool_call.model_dump() for tool_call in response.tool_calls
-                    ],
-                )
+        # 6. 添加到上下文
+        context.add_message(
+            MessageRole.ASSISTANT,
+            content=response.content or None,
+            tool_calls=[tc.model_dump() for tc in response.tool_calls],
+        )
 
-                logger.info(
-                    "LLM 响应: %s | tool_calls: %s",
-                    response.content[:50] if response.content else "(无内容)",
-                    [tc.name for tc in response.tool_calls],
-                )
-                return response
+        logger.info(
+            "LLM 响应: %s | tool_calls: %s",
+            (response.content or "")[:50] or "(无内容)",
+            [tc.name for tc in response.tool_calls],
+        )
+        return response
 
-            if finish_reason == "stop":
-                if attempt == 0 and context.task:
-                    logger.warning(
-                        "LLM 返回空响应且 finish_reason=stop (attempt %d/%d), model=%s — "
-                        "注入任务提醒后重试一次",
-                        attempt + 1,
-                        self.MAX_EMPTY_RESPONSE_RETRIES,
-                        self.llm.get_model_name(),
-                    )
-                    context.add_message(
-                        MessageRole.USER,
-                        f"[System] The model produced no output. Please continue the task using tools. "
-                        f"Original task: {context.task}",
-                    )
-                    continue
-                logger.warning(
-                    "LLM 返回空响应且 finish_reason=stop (attempt %d/%d), model=%s — "
-                    "重试后仍为空，放弃",
-                    attempt + 1,
-                    self.MAX_EMPTY_RESPONSE_RETRIES,
-                    self.llm.get_model_name(),
-                )
-                break
+    async def _handle_empty_response(
+        self,
+        context: LoopContext,
+        response: LLMResponse,
+        messages: list[LLMMessage],
+        tools: list,
+        call_started_at: float,
+    ) -> LLMResponse:
+        """
+        处理 LLM 空响应
 
-            if finish_reason == "length":
-                logger.warning(
-                    "LLM 空响应且 finish_reason=length (attempt %d/%d), model=%s — "
-                    "max_tokens 可能不足",
-                    attempt + 1,
-                    self.MAX_EMPTY_RESPONSE_RETRIES,
-                    self.llm.get_model_name(),
-                )
+        策略：
+        - finish_reason=stop: 注入任务提醒后重试一次
+        - finish_reason=length: 压缩上下文后重试一次
 
-                # API overflow handling: try compaction then retry once
-                if (
-                    self._overflow_retry_count < 1
-                    and context.compressor.get_total_tokens() > 0
-                ):
-                    self._overflow_retry_count += 1
-                    logger.info("Attempting overflow compaction + retry")
-                    try:
-                        await context.compressor.compact_tier3(
-                            task=context.task,
-                            summarizer=self._create_summarizer(),
-                        )
-                        context.compressor.prune_tool_outputs(
-                            protect_recent_groups=config_manager.settings.execution.prune_protect_groups,
-                            minimum_recovery_tokens=1,
-                        )
-                    except Exception:
-                        logger.exception("Overflow compaction failed")
-                    return await self._call_llm(context)
+        Returns:
+            LLMResponse: 可能是空响应，调用方需继续处理
+        """
+        finish_reason = response.finish_reason
 
+        if finish_reason == "stop":
+            # 注入任务提醒后重试一次
             logger.warning(
-                "LLM 空响应 (attempt %d/%d), finish_reason=%s, model=%s",
-                attempt + 1,
-                self.MAX_EMPTY_RESPONSE_RETRIES,
-                finish_reason,
+                "LLM 空响应且 finish_reason=stop, model=%s — 注入任务提醒后重试",
                 self.llm.get_model_name(),
             )
+            context.add_message(
+                MessageRole.USER,
+                f"[System] The model produced no output. Please continue the task using tools. "
+                f"Original task: {context.task}",
+            )
+            # 重新构建消息（包含新注入的任务提醒）
+            messages = self.message_builder.build(context)
+            response = await self.llm.stream_collect(
+                messages, tools, max_empty_retries=0
+            )
+            # 重试后有内容，添加到上下文并返回
+            if response.has_content or response.has_tool_calls:
+                context.add_message(
+                    MessageRole.ASSISTANT,
+                    content=response.content or None,
+                    tool_calls=[tc.model_dump() for tc in response.tool_calls],
+                )
+            return response
 
-        logger.error(
-            "LLM 空响应, finish_reason=%s, model=%s",
-            finish_reason,
-            self.llm.get_model_name(),
-        )
+        elif finish_reason == "length":
+            # Overflow 处理：压缩上下文后重试
+            logger.warning(
+                "LLM 空响应且 finish_reason=length, model=%s — 尝试压缩上下文",
+                self.llm.get_model_name(),
+            )
+            if self._overflow_retry_count < 1 and context.compressor.get_total_tokens() > 0:
+                self._overflow_retry_count += 1
+                try:
+                    await context.compressor.compact_tier3(
+                        task=context.task,
+                        summarizer=self._create_summarizer(),
+                    )
+                    context.compressor.prune_tool_outputs(
+                        protect_recent_groups=config_manager.settings.execution.prune_protect_groups,
+                        minimum_recovery_tokens=1,
+                    )
+                except Exception:
+                    logger.exception("Overflow compaction failed")
+                return await self._call_llm(context)
+
         return response
 
     async def _emit_llm_metrics(

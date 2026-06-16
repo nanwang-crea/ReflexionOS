@@ -1,6 +1,6 @@
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from enum import Enum
 from typing import Any
 
@@ -118,3 +118,72 @@ class UniversalLLMInterface(ABC):
     def get_model_name(self) -> str:
         """获取当前使用的模型名称"""
         pass
+
+    async def stream_collect(
+        self,
+        messages: list[LLMMessage],
+        tools: list[LLMToolDefinition] | None = None,
+        *,
+        on_content: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+        max_empty_retries: int = 3,
+    ) -> LLMResponse:
+        """
+        流式调用并收集完整响应
+
+        封装了流式收集和空响应重试逻辑，调用方只需关心结果。
+
+        Args:
+            messages: 消息列表
+            tools: 工具定义列表
+            on_content: 内容回调（用于实时推送）
+            on_reasoning: 推理内容回调
+            max_empty_retries: 空响应最大重试次数
+
+        Returns:
+            LLMResponse: 完整响应
+        """
+        for attempt in range(max_empty_retries + 1):
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls: list[LLMToolCall] = []
+            finish_reason = "stop"
+
+            async for chunk in self.stream_complete(messages, tools):
+                if chunk.type == "content" and chunk.content:
+                    content_parts.append(chunk.content)
+                    if on_content:
+                        await on_content(chunk.content)
+                elif chunk.type == "reasoning" and chunk.reasoning_content:
+                    reasoning_parts.append(chunk.reasoning_content)
+                    if on_reasoning:
+                        await on_reasoning(chunk.reasoning_content)
+                elif chunk.type == "tool_calls":
+                    tool_calls = chunk.tool_calls
+                    finish_reason = chunk.finish_reason or "tool_calls"
+                    break
+                elif chunk.type == "done":
+                    finish_reason = chunk.finish_reason or "stop"
+                    break
+                elif chunk.type == "error":
+                    if attempt < max_empty_retries:
+                        break
+                    raise RuntimeError(chunk.error or "LLM 流式调用失败")
+
+            response = LLMResponse(
+                content="".join(content_parts),
+                reasoning_content="".join(reasoning_parts) or None,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                model=self.get_model_name(),
+            )
+
+            # 有内容或工具调用，直接返回
+            if response.has_content or response.has_tool_calls:
+                return response
+
+            # 空响应重试
+            if attempt < max_empty_retries:
+                continue
+
+        return response

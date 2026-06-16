@@ -8,7 +8,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.rapid_loop import RapidExecutionLoop
-from app.llm.base import LLMToolCall, MessageRole, StreamChunk
+from app.llm.base import LLMResponse, LLMToolCall, MessageRole, StreamChunk
 from app.llm.retry import LLMRetryExhaustedError
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.plan_tool import PlanTool
@@ -158,6 +158,55 @@ class TestRapidExecutionLoop:
     def mock_llm(self):
         llm = AsyncMock()
         llm.get_model_name = lambda: "gpt-4"
+
+        async def stream_collect(
+            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3
+        ):
+            """默认 stream_collect 实现，调用 stream_complete 并收集响应"""
+            for attempt in range(max_empty_retries + 1):
+                content_parts = []
+                reasoning_parts = []
+                tool_calls = []
+                finish_reason = "stop"
+
+                async for chunk in llm.stream_complete(messages, tools):
+                    if chunk.type == "content" and chunk.content:
+                        content_parts.append(chunk.content)
+                        if on_content:
+                            await on_content(chunk.content)
+                    elif chunk.type == "reasoning" and chunk.reasoning_content:
+                        reasoning_parts.append(chunk.reasoning_content)
+                        if on_reasoning:
+                            await on_reasoning(chunk.reasoning_content)
+                    elif chunk.type == "tool_calls":
+                        tool_calls = chunk.tool_calls
+                        finish_reason = chunk.finish_reason or "tool_calls"
+                        break
+                    elif chunk.type == "done":
+                        finish_reason = chunk.finish_reason or "stop"
+                        break
+                    elif chunk.type == "error":
+                        if attempt < max_empty_retries:
+                            break
+                        raise RuntimeError(chunk.error or "LLM 流式调用失败")
+
+                response = LLMResponse(
+                    content="".join(content_parts),
+                    reasoning_content="".join(reasoning_parts) or None,
+                    tool_calls=tool_calls,
+                    finish_reason=finish_reason,
+                    model=llm.get_model_name(),
+                )
+
+                if response.has_content or response.has_tool_calls:
+                    return response
+
+                if attempt < max_empty_retries:
+                    continue
+
+            return response
+
+        llm.stream_collect = stream_collect
         return llm
 
     @pytest.fixture
@@ -1574,14 +1623,68 @@ class TestDoomLoopDetection:
 
 
 class TestHardenedLoopIntegration:
+    @staticmethod
+    def _create_mock_llm():
+        """创建带有 stream_collect 实现的 mock LLM"""
+        llm = AsyncMock()
+        llm.get_model_name = lambda: "test-model"
+
+        async def stream_collect(
+            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3
+        ):
+            for attempt in range(max_empty_retries + 1):
+                content_parts = []
+                reasoning_parts = []
+                tool_calls = []
+                finish_reason = "stop"
+
+                async for chunk in llm.stream_complete(messages, tools):
+                    if chunk.type == "content" and chunk.content:
+                        content_parts.append(chunk.content)
+                        if on_content:
+                            await on_content(chunk.content)
+                    elif chunk.type == "reasoning" and chunk.reasoning_content:
+                        reasoning_parts.append(chunk.reasoning_content)
+                        if on_reasoning:
+                            await on_reasoning(chunk.reasoning_content)
+                    elif chunk.type == "tool_calls":
+                        tool_calls = chunk.tool_calls
+                        finish_reason = chunk.finish_reason or "tool_calls"
+                        break
+                    elif chunk.type == "done":
+                        finish_reason = chunk.finish_reason or "stop"
+                        break
+                    elif chunk.type == "error":
+                        if attempt < max_empty_retries:
+                            break
+                        raise RuntimeError(chunk.error or "LLM 流式调用失败")
+
+                response = LLMResponse(
+                    content="".join(content_parts),
+                    reasoning_content="".join(reasoning_parts) or None,
+                    tool_calls=tool_calls,
+                    finish_reason=finish_reason,
+                    model=llm.get_model_name(),
+                )
+
+                if response.has_content or response.has_tool_calls:
+                    return response
+
+                if attempt < max_empty_retries:
+                    continue
+
+            return response
+
+        llm.stream_collect = stream_collect
+        return llm
+
     @pytest.mark.asyncio
     async def test_doom_loop_detection_triggers_on_repeated_write_calls(self):
         registry = ToolRegistry()
         tool = FailingTool()
         registry.register(tool)
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
         call_count = 0
 
         async def mock_stream(messages, tools):
@@ -1607,8 +1710,7 @@ class TestHardenedLoopIntegration:
         registry = ToolRegistry()
         registry.register(ReadOnlyFileTool())
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
         phase = 0
 
         async def mock_stream(messages, tools):
@@ -1643,8 +1745,7 @@ class TestHardenedLoopIntegration:
         registry.register(MockTool())
         registry.register(PlanTool())
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
         call_count = 0
 
         async def mock_stream(messages, tools):
@@ -1713,8 +1814,7 @@ class TestHardenedLoopIntegration:
         registry.register(MockTool())
         registry.register(PlanTool())
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
         call_count = 0
 
         async def mock_stream(messages, tools):
@@ -1789,8 +1889,7 @@ class TestHardenedLoopIntegration:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
         captured_calls = []
         call_index = [0]
 
@@ -1861,8 +1960,7 @@ class TestHardenedLoopIntegration:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
 
         call_count = [0]
 
@@ -1920,8 +2018,7 @@ class TestHardenedLoopIntegration:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        llm = AsyncMock()
-        llm.get_model_name = lambda: "test-model"
+        llm = self._create_mock_llm()
 
         from app.execution.context_manager import LoopContext
 
