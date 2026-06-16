@@ -39,27 +39,27 @@ def test_execution_settings_prune_defaults():
 def test_loop_context_tracks_total_tokens():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "Hello world")
-    assert ctx.total_tokens > 0
+    assert ctx.compressor.get_total_tokens() > 0
 
 
 def test_loop_context_total_tokens_accumulates():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "First message")
-    tokens_after_first = ctx.total_tokens
+    tokens_after_first = ctx.compressor.get_total_tokens()
     ctx.add_message("assistant", "Second message")
-    assert ctx.total_tokens > tokens_after_first
+    assert ctx.compressor.get_total_tokens() > tokens_after_first
 
 
 def test_loop_context_compacted_summary_default_none():
     ctx = LoopContext(task="hello")
-    assert ctx.compacted_summary is None
+    assert ctx.compressor.get_compacted_summary() is None
 
 
 def test_loop_context_group_count():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "First message")
     ctx.add_message("assistant", "Response")
-    assert ctx.group_count >= 2
+    assert ctx.compressor.get_group_count() >= 2
 
 
 def test_loop_context_group_count_with_tool_group():
@@ -71,7 +71,7 @@ def test_loop_context_group_count_with_tool_group():
         tool_calls=[{"id": "c1", "name": "read_file", "arguments": {}}],
     )
     ctx.add_message("tool", "file contents", tool_call_id="c1")
-    assert ctx.group_count >= 2
+    assert ctx.compressor.get_group_count() >= 2
 
 
 def test_prune_tool_outputs_clears_old_tool_content():
@@ -84,11 +84,11 @@ def test_prune_tool_outputs_clears_old_tool_content():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    tokens_before = ctx.total_tokens
-    recovered = ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
+    tokens_before = ctx.compressor.get_total_tokens()
+    recovered = ctx.compressor.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
     assert recovered > 0
-    assert ctx.total_tokens < tokens_before
-    tool_msgs = [m for m in ctx.messages if m["role"] == MessageRole.TOOL]
+    assert ctx.compressor.get_total_tokens() < tokens_before
+    tool_msgs = [m for m in ctx.compressor.get_messages() if m["role"] == MessageRole.TOOL]
     cleared = [m for m in tool_msgs if m.get("content") == "[Old tool result content cleared]"]
     assert len(cleared) > 0
 
@@ -98,7 +98,7 @@ def test_prune_tool_outputs_respects_minimum_recovery():
     ctx.add_message("user", "Small task")
     ctx.add_message("assistant", "Done")
     ctx.add_message("tool", "small output", tool_call_id="c1")
-    recovered = ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=20_000)
+    recovered = ctx.compressor.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=20_000)
     assert recovered == 0
 
 
@@ -112,8 +112,8 @@ def test_prune_tool_outputs_protects_recent_groups():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    ctx.prune_tool_outputs(protect_recent_groups=3, minimum_recovery_tokens=1)
-    grouped = LoopMessageBuilder._group_messages_static(ctx.messages)
+    ctx.compressor.prune_tool_outputs(protect_recent_groups=3, minimum_recovery_tokens=1)
+    grouped = ctx.compressor.get_groups()
     recent_tool_msgs = []
     for group in grouped[-3:]:
         for msg in group:
@@ -207,7 +207,7 @@ def test_task_anchor_not_duplicated_in_recent():
 def test_compacted_summary_injected():
     builder = _make_builder()
     ctx = LoopContext(task="Fix bug")
-    ctx.compacted_summary = "User's original intent: Fix bug\nOperations performed: read foo.py"
+    ctx.compressor.set_compacted_summary("User's original intent: Fix bug\nOperations performed: read foo.py")
     ctx.add_message("user", "Fix bug")
     ctx.add_message("assistant", "Working on it")
     messages = builder.build(ctx)
@@ -267,7 +267,7 @@ def test_tier2_handles_pruned_tool_outputs():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
+    ctx.compressor.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
     messages = builder.build(ctx)
     cleared_msgs = [
         m for m in messages
