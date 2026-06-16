@@ -97,6 +97,23 @@ class RapidExecutionLoop:
     def set_approval_result(self, result: dict | None) -> None:
         self.approval_flow.set_approval_result(result)
 
+    def _create_summarizer(self) -> Callable[[str, str], Awaitable[str]]:
+        """创建摘要生成器回调（解耦 LLM 依赖）"""
+        async def summarizer(task: str, transcript: str) -> str:
+            system_prompt = self.prompt_manager.get_midrun_compression_system_prompt()
+            user_prompt = self.prompt_manager.get_midrun_compression_prompt(
+                task=task,
+                transcript=transcript,
+                existing_summary=self.context.compressor.get_compacted_summary(),
+            )
+            response = await self.llm.complete([
+                LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                LLMMessage(role=MessageRole.USER, content=user_prompt),
+            ], tools=None)
+            return (response.content or "").strip()
+
+        return summarizer
+
     # -- phase handlers ---------------------------------------------------
 
     async def _handle_planning(
@@ -438,7 +455,7 @@ class RapidExecutionLoop:
 
         # Pruning: lightweight context recovery after each tool execution round
         settings = config_manager.settings.execution
-        context.prune_tool_outputs(
+        context.compressor.prune_tool_outputs(
             protect_recent_groups=settings.prune_protect_groups,
             minimum_recovery_tokens=settings.prune_minimum_recovery_tokens,
         )
@@ -741,7 +758,7 @@ class RapidExecutionLoop:
 
         finally:
             if context is not None:
-                loop_result.compacted_summary = context.compacted_summary
+                loop_result.compacted_summary = context.compressor.get_compacted_summary()
 
                 if context.plan is not None:
                     if context.plan_file_path:
@@ -894,7 +911,15 @@ Answer ONLY "yes" or "no".\
         Returns:
             LLMResponse: LLM 响应
         """
-        await self._compact_context(context)
+        # Check context pressure and compact if needed
+        if context.compressor.check_pressure(
+            self.context_window,
+            config_manager.settings.execution.tier3_ratio,
+        ):
+            await context.compressor.compact_tier3(
+                task=context.task,
+                summarizer=self._create_summarizer(),
+            )
 
         for attempt in range(self.MAX_EMPTY_RESPONSE_RETRIES):
             tools = (
@@ -1027,12 +1052,15 @@ Answer ONLY "yes" or "no".\
                 )
 
                 # API overflow handling: try compaction then retry once
-                if self._overflow_retry_count < 1 and context.total_tokens > 0:
+                if self._overflow_retry_count < 1 and context.compressor.get_total_tokens() > 0:
                     self._overflow_retry_count += 1
                     logger.info("Attempting overflow compaction + retry")
                     try:
-                        await self._compact_tier3(context)
-                        context.prune_tool_outputs(
+                        await context.compressor.compact_tier3(
+                            task=context.task,
+                            summarizer=self._create_summarizer(),
+                        )
+                        context.compressor.prune_tool_outputs(
                             protect_recent_groups=config_manager.settings.execution.prune_protect_groups,
                             minimum_recovery_tokens=1,
                         )
@@ -1093,79 +1121,6 @@ Answer ONLY "yes" or "no".\
         if error:
             payload["error"] = error
         await self._emit("metrics:llm_call", payload)
-
-    async def _compact_context(self, context: LoopContext) -> None:
-        """
-        检测上下文 token 压力，超阈值时触发逐级压缩：
-        - total_tokens > tier3_threshold → Tier 3 LLM 摘要压缩
-        - Tier 2 截断由 LoopMessageBuilder._build_tier2_messages() 在 build 时自动处理
-        阈值根据 model context window 动态计算。
-        """
-        settings = config_manager.settings.execution
-        usable = self.context_window - settings.compaction_buffer
-        tier3_threshold = int(usable * settings.tier3_ratio)
-        if context.total_tokens <= tier3_threshold:
-            return
-        await self._compact_tier3(context)
-
-    async def _compact_tier3(self, context: LoopContext) -> None:
-        """
-        Tier 3 压缩：将窗口外的旧消息经 LLM 压缩为摘要，替换 context.messages。
-        - 使用 llm.complete()（非流式、无 tools），不走 _call_llm 避免递归
-        - 压缩结果存入 context.compacted_summary，摘要中包含 [可 session_recall 取回] 标记
-        - 保留最近 N 组消息不变，旧消息从 context.messages 移除（DB 原始消息不受影响）
-        - 压缩失败时降级跳过，不中断 run
-        """
-        try:
-            grouped = self.message_builder._group_messages(context.messages)
-            if len(grouped) <= self.MAX_CONTEXT_GROUPS:
-                return
-
-            older_groups = grouped[: -self.MAX_CONTEXT_GROUPS]
-            older_messages = [msg for group in older_groups for msg in group]
-
-            transcript_parts = []
-            for msg in older_messages:
-                content = msg.get("content", "")
-                if isinstance(content, str) and content.strip():
-                    role = msg.get("role", "unknown")
-                    transcript_parts.append(f"[{role}] {content[:2000]}")
-
-            transcript = "\n\n".join(transcript_parts)
-
-            system_prompt = self.prompt_manager.get_midrun_compression_system_prompt()
-            user_prompt = self.prompt_manager.get_midrun_compression_prompt(
-                task=context.task,
-                transcript=transcript,
-                existing_summary=context.compacted_summary,
-            )
-
-            from app.llm.base import LLMMessage, MessageRole
-            response = await self.llm.complete(
-                [
-                    LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
-                    LLMMessage(role=MessageRole.USER, content=user_prompt),
-                ],
-                tools=None,
-            )
-
-            content = (response.content or "").strip()
-            if not content:
-                logger.warning("Tier 3 compaction returned empty, skipping")
-                return
-
-            context.compacted_summary = content
-
-            recent_groups = grouped[-self.MAX_CONTEXT_GROUPS :]
-            context.messages = [msg for group in recent_groups for msg in group]
-            context.recalculate_tokens()
-
-            logger.info(
-                "Tier 3 compaction completed. Summary length=%d, remaining messages=%d, tokens=%d",
-                len(content), len(context.messages), context.total_tokens,
-            )
-        except Exception:
-            logger.exception("Tier 3 compaction failed, skipping")
 
     async def _get_final_summary(self, context: LoopContext) -> str:
         """
