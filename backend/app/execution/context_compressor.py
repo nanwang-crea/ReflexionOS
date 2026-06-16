@@ -183,3 +183,313 @@ class ContextCompressor:
     def get_group_count(self) -> int:
         """获取当前分组数"""
         return self._group_count
+
+    # ========== Token 管理 ==========
+
+    def calculate_tokens(self, messages: list[dict]) -> int:
+        """计算消息列表的 token 数"""
+        return count_messages_tokens(messages)
+
+    def recalculate_tokens(self) -> None:
+        """重新计算总 token 数（用于 Tier 3 压缩后）"""
+        self._total_tokens = count_messages_tokens(self._messages)
+
+    def get_total_tokens(self) -> int:
+        """获取当前总 token 数"""
+        return self._total_tokens
+
+    def check_pressure(self, context_window: int, tier3_ratio: float) -> bool:
+        """
+        检查是否需要触发 Tier 3 压缩
+
+        Args:
+            context_window: 模型的上下文窗口大小
+            tier3_ratio: Tier 3 阈值比例（如 0.85 表示 85% 窗口）
+
+        Returns:
+            True 表示需要压缩
+        """
+        tier3_threshold = int(context_window * tier3_ratio)
+        return self._total_tokens > tier3_threshold
+
+    # ========== Tier 1: 完整保留 ==========
+
+    def get_recent_messages(self, max_groups: int | None = None) -> list[dict]:
+        """
+        获取 Tier 1 最近 N 组消息（完整保留，包括多模态内容）
+
+        Args:
+            max_groups: 保留的最大分组数，默认使用 self.max_context_groups
+
+        Returns:
+            展平后的消息列表（保持原始格式）
+        """
+        if not self._messages:
+            return []
+
+        max_groups = max_groups or self.max_context_groups
+        grouped = self.group_messages(self._messages)
+
+        # 保留最近 N 组
+        recent_groups = grouped[-max_groups:]
+
+        # 展平为消息列表
+        flat_messages = []
+        for group in recent_groups:
+            flat_messages.extend(group.messages)
+
+        return flat_messages
+
+    # ========== Tier 2: 截断可见 ==========
+
+    def build_tier2_messages(self) -> list[LLMMessage]:
+        """
+        构建 Tier 2 消息：超出窗口的旧消息逐条截断但始终可见
+
+        处理规则：
+        - 只处理超出 max_context_groups 的旧分组
+        - tool output 超过 tool_output_max_chars 时 head+tail 截断
+        - 标记 [session_recall can retrieve] 提示可回溯
+        - 保持原始消息角色，确保 tool_call_id / tool_calls 关联不被破坏
+
+        Returns:
+            LLMMessage 列表（可直接用于 LLM 调用）
+        """
+        grouped = self.group_messages(self._messages)
+
+        # 如果总分组数不超过窗口，无需 Tier 2
+        if len(grouped) <= self.max_context_groups:
+            return []
+
+        # 只处理超出窗口的旧分组
+        older_groups = grouped[:-self.max_context_groups]
+        tier2: list[LLMMessage] = []
+
+        for group in older_groups:
+            for msg in group.messages:
+                content = msg.get("content")
+
+                # 空内容的 assistant 消息（只有 tool_calls）
+                if not isinstance(content, str) or not content.strip():
+                    if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
+                        tool_calls_list = msg.get("tool_calls", [])
+                        tier2.append(LLMMessage(
+                            role=MessageRole.ASSISTANT,
+                            content=content,
+                            tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else None,
+                        ))
+                    continue
+
+                # tool 消息：截断长输出
+                if msg["role"] == MessageRole.TOOL:
+                    # 已被裁剪的保持原样
+                    if content == "[Old tool result content cleared]":
+                        tier2.append(LLMMessage(
+                            role=MessageRole.TOOL,
+                            content=content,
+                            tool_call_id=msg.get("tool_call_id"),
+                        ))
+                        continue
+
+                    # 超长输出：head+tail 截断
+                    if len(content) > self.tool_output_max_chars:
+                        content = truncate_head_tail(
+                            content,
+                            self.tool_output_max_chars,
+                            head_chars=1_600,
+                            tail_chars=600,
+                            reason="session_recall retrieve",
+                        )
+
+                    tier2.append(LLMMessage(
+                        role=MessageRole.TOOL,
+                        content=content,
+                        tool_call_id=msg.get("tool_call_id"),
+                    ))
+
+                # assistant 消息（有 tool_calls 或纯文本）
+                elif msg["role"] == MessageRole.ASSISTANT:
+                    tool_calls_list = msg.get("tool_calls", [])
+                    tier2.append(LLMMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=content,
+                        tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else None,
+                    ))
+
+                # user 消息：保留所有（包括多模态内容）
+                elif msg["role"] == MessageRole.USER:
+                    tier2.append(LLMMessage(role=MessageRole.USER, content=content))
+
+        return tier2
+
+    # ========== Tier 3: LLM 摘要 ==========
+
+    async def compact_tier3(
+        self,
+        task: str,
+        summarizer: Callable[[str, str], Awaitable[str]],
+    ) -> None:
+        """
+        Tier 3 压缩：将窗口外的旧消息经 LLM 压缩为摘要
+
+        处理流程：
+        1. 提取超出窗口的旧消息
+        2. 构建 transcript（角色 + 内容，截断过长内容）
+        3. 调用 summarizer 回调生成摘要
+        4. 更新 _compacted_summary
+        5. 从 _messages 中移除旧消息，保留最近 N 组
+        6. 重新计算 token 数
+
+        Args:
+            task: 当前任务描述（用于摘要提示词）
+            summarizer: 摘要生成回调函数
+                        签名：async (task: str, transcript: str) -> str
+                        调用方负责构建 prompt 并调用 LLM
+
+        注意：
+        - 压缩失败时静默跳过，不中断 run
+        - 摘要包含 [可 session_recall 取回] 标记
+        - DB 中的原始消息不受影响
+        """
+        try:
+            grouped = self.group_messages(self._messages)
+
+            # 如果分组数不超过窗口，无需压缩
+            if len(grouped) <= self.max_context_groups:
+                return
+
+            # 提取旧消息
+            older_groups = grouped[:-self.max_context_groups]
+            older_messages = []
+            for group in older_groups:
+                older_messages.extend(group.messages)
+
+            # 构建 transcript
+            transcript_parts = []
+            for msg in older_messages:
+                content = msg.get("content", "")
+                if isinstance(content, str) and content.strip():
+                    role = msg.get("role", "unknown")
+                    # 截断过长内容
+                    truncated_content = content[:2000] if len(content) > 2000 else content
+                    transcript_parts.append(f"[{role}] {truncated_content}")
+
+            transcript = "\n\n".join(transcript_parts)
+
+            # 调用 summarizer 回调生成摘要
+            summary = await summarizer(task, transcript)
+
+            if not summary or not summary.strip():
+                logger.warning("Tier 3 compaction returned empty summary, skipping")
+                return
+
+            # 更新摘要
+            self._compacted_summary = summary.strip()
+
+            # 移除旧消息，保留最近 N 组
+            recent_groups = grouped[-self.max_context_groups:]
+            self._messages = []
+            for group in recent_groups:
+                self._messages.extend(group.messages)
+
+            # 重新计算 token
+            self.recalculate_tokens()
+
+            logger.info(
+                "Tier 3 compaction completed. Summary length=%d, remaining messages=%d, tokens=%d",
+                len(summary), len(self._messages), self._total_tokens,
+            )
+
+        except Exception as e:
+            logger.exception("Tier 3 compaction failed: %s, skipping", e)
+
+    def get_compacted_summary(self) -> str | None:
+        """获取 Tier 3 压缩摘要"""
+        return self._compacted_summary
+
+    # ========== 轻量裁剪 ==========
+
+    def prune_tool_outputs(
+        self,
+        protect_recent_groups: int = 2,
+        minimum_recovery_tokens: int = 20_000,
+        protected_tool_names: set[str] | None = None,
+    ) -> int:
+        """
+        轻量裁剪：清除旧 tool output 的 content，回收 token
+
+        处理规则：
+        - 保护最近 N 组消息不被裁剪
+        - 只有回收量 >= minimum_recovery_tokens 才执行
+        - 受保护的工具（如 skill）不被裁剪
+        - 将 content 替换为 "[Old tool result content cleared]"
+
+        Args:
+            protect_recent_groups: 保护的最近分组数
+            minimum_recovery_tokens: 最小回收 token 数（避免频繁小量裁剪）
+            protected_tool_names: 受保护的工具名称集合（默认 {"skill"}）
+
+        Returns:
+            实际回收的 token 数
+        """
+        if protected_tool_names is None:
+            protected_tool_names = {"skill"}
+
+        grouped = self.group_messages(self._messages)
+
+        # 如果分组数不超过保护数，无需裁剪
+        if len(grouped) <= protect_recent_groups:
+            return 0
+
+        # 计算可回收的 token 和候选消息
+        older_groups = grouped[:-protect_recent_groups]
+        reclaimable = 0
+        candidates: list[tuple[int, dict]] = []
+
+        for group in older_groups:
+            for msg in group.messages:
+                if msg["role"] != MessageRole.TOOL:
+                    continue
+
+                content = msg.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    continue
+
+                # 已被裁剪的跳过
+                if content == "[Old tool result content cleared]":
+                    continue
+
+                # 检查是否受保护
+                is_protected = False
+                for tc in group.messages[0].get("tool_calls", []) if group.messages else []:
+                    if tc.get("name") in protected_tool_names:
+                        is_protected = True
+                        break
+
+                if is_protected:
+                    continue
+
+                # 计算 token
+                msg_tokens = count_messages_tokens([msg])
+                reclaimable += msg_tokens
+                candidates.append((msg_tokens, msg))
+
+        # 如果回收量不足，不执行
+        if reclaimable < minimum_recovery_tokens:
+            return 0
+
+        # 执行裁剪
+        recovered = 0
+        for msg_tokens, msg in candidates:
+            msg["content"] = "[Old tool result content cleared]"
+            recovered += msg_tokens
+
+        # 重新计算总 token
+        self.recalculate_tokens()
+
+        logger.info(
+            "Pruned %d tool outputs, recovered ~%d tokens, remaining total_tokens=%d",
+            len(candidates), recovered, self._total_tokens,
+        )
+
+        return recovered
