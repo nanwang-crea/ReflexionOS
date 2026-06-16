@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 
 from app.storage.database import db
 from app.storage.repositories.session_repo import SessionRepository
+from app.services.attachment_service import get_attachment_service
 
 router = APIRouter(prefix="/api", tags=["upload"])
 session_repo = SessionRepository(db)
@@ -64,8 +65,6 @@ async def get_attachment(session_id: str, attachment_id: str):
         raise HTTPException(404, "会话不存在")
 
     # 使用 AttachmentService 查找文件
-    from app.services.attachment_service import get_attachment_service
-
     attachment_service = get_attachment_service()
     file_path = attachment_service.find_attachment_file(session_id, attachment_id)
 

@@ -7,6 +7,7 @@ from sqlalchemy import and_, case, func, or_
 from app.errors import NotFoundValueError
 from app.models.conversation import Message, MessageAttachment, MessageType, StreamState
 from app.storage.models import MessageModel, TurnModel
+from app.services.attachment_service import get_attachment_service
 
 from .base_repo import BaseRepository
 
@@ -404,8 +405,6 @@ class MessageRepository(BaseRepository[Message]):
         attachments = []
         attachment_ids = payload.get("attachment_ids", [])
         if attachment_ids:
-            from app.services.attachment_service import get_attachment_service
-
             attachment_service = get_attachment_service()
             for att_id in attachment_ids:
                 attachment = attachment_service.build_attachment_metadata(session_id, att_id)

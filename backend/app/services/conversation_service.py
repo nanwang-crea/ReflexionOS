@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from threading import Lock, RLock
+import logging
 
 from app.errors import NotFoundValueError
 from app.ids import new_event_id, new_message_id, new_run_id, new_turn_id
@@ -23,8 +24,11 @@ from app.storage.repositories.message_search_document_repo import MessageSearchD
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
+from app.services.attachment_service import get_attachment_service
 
 from .conversation_projection import ConversationProjection
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationService:
@@ -235,11 +239,8 @@ class ConversationService:
             # 如果有附件，添加到 payload
             if attachment_ids:
                 message_payload["attachment_ids"] = attachment_ids
-                # 使用 AttachmentService 构建附件元数据
-                from app.services.attachment_service import get_attachment_service
-                import logging
-                logger = logging.getLogger(__name__)
 
+                # 使用 AttachmentService 构建附件元数据
                 attachment_service = get_attachment_service()
                 attachments_data = attachment_service.build_attachments_for_message(
                     session_id,
