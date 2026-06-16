@@ -270,7 +270,7 @@ class ContextCompressor:
                 content = msg.get("content")
 
                 # 空内容的 assistant 消息（只有 tool_calls）
-                if not isinstance(content, str) or not content.strip():
+                if content is None or (isinstance(content, str) and not content.strip()):
                     if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
                         tool_calls_list = msg.get("tool_calls", [])
                         tier2.append(LLMMessage(
@@ -392,6 +392,9 @@ class ContextCompressor:
             for group in recent_groups:
                 self._messages.extend(group.messages)
 
+            # 更新分组计数
+            self._group_count = len(recent_groups)
+
             # 重新计算 token
             self.recalculate_tokens()
 
@@ -459,12 +462,17 @@ class ContextCompressor:
                 if content == "[Old tool result content cleared]":
                     continue
 
-                # 检查是否受保护
+                # 检查是否受保护 - 查找组内的 assistant 消息
                 is_protected = False
-                for tc in group.messages[0].get("tool_calls", []) if group.messages else []:
-                    if tc.get("name") in protected_tool_names:
-                        is_protected = True
-                        break
+                tool_call_msg = next(
+                    (m for m in group.messages if m["role"] == MessageRole.ASSISTANT),
+                    None
+                )
+                if tool_call_msg:
+                    for tc in tool_call_msg.get("tool_calls", []):
+                        if tc.get("name") in protected_tool_names:
+                            is_protected = True
+                            break
 
                 if is_protected:
                     continue
