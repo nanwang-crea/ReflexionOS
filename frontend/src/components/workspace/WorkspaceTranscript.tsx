@@ -612,6 +612,7 @@ export function WorkspaceTranscript({
               onEditCancel={handleEditCancel}
               onEditSubmit={handleEditSubmit}
               showActions={!!onEditMessage}
+              attachments={message.attachments}
             />
           </div>
         )

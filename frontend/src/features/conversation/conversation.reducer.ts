@@ -514,7 +514,10 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     const displayMode = typeof p.display_mode === 'string' ? p.display_mode : 'default'
     const contentText = typeof p.content_text === 'string' ? p.content_text : ''
     const payloadJson = isRecord(p.payload_json) ? p.payload_json : {}
-    
+
+    // 处理附件数据
+    const attachments = Array.isArray(p.attachments) ? p.attachments : undefined
+
     const newMessage: ConversationMessage = {
       id: messageId,
       sessionId: event.sessionId,
@@ -527,6 +530,7 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
       displayMode,
       contentText,
       payloadJson,
+      attachments,
       createdAt: event.createdAt,
       updatedAt: event.createdAt,
       completedAt: null,

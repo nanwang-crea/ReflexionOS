@@ -235,6 +235,42 @@ class ConversationService:
             # 如果有附件，添加到 payload
             if attachment_ids:
                 message_payload["attachment_ids"] = attachment_ids
+                # 同时添加完整的附件数据给前端使用
+                from pathlib import Path
+                from datetime import datetime as dt
+                from app.models.conversation import MessageAttachment
+
+                attachments_data = []
+                for att_id in attachment_ids:
+                    upload_dir = Path("storage/uploads") / session_id
+                    if upload_dir.exists():
+                        file_id = att_id.replace("att_", "")
+                        matching_files = list(upload_dir.glob(f"*_{file_id}.*"))
+                        if matching_files:
+                            file_path = matching_files[0]
+                            ext = file_path.suffix.lower()
+                            mime_map = {
+                                ".png": "image/png",
+                                ".jpg": "image/jpeg",
+                                ".jpeg": "image/jpeg",
+                                ".gif": "image/gif",
+                                ".webp": "image/webp",
+                            }
+                            mime_type = mime_map.get(ext, "image/png")
+                            file_ctime = dt.fromtimestamp(file_path.stat().st_ctime)
+
+                            attachment = MessageAttachment(
+                                id=att_id,
+                                type="image",
+                                mime_type=mime_type,
+                                file_path=str(file_path),
+                                file_size=file_path.stat().st_size,
+                                created_at=file_ctime,
+                            )
+                            attachments_data.append(attachment.model_dump(mode="json"))
+
+                if attachments_data:
+                    message_payload["attachments"] = attachments_data
 
             self.append_events_locked(
                 session_id,

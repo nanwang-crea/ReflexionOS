@@ -4,7 +4,11 @@ import { useToastStore } from '@/shared/stores/toast.store'
 
 interface MessageAttachment {
   id: string
-  mimeType?: string
+  type: string
+  mimeType: string
+  filePath: string
+  fileSize: number
+  createdAt: string
 }
 
 interface UserMessageItemProps {
@@ -32,6 +36,17 @@ export const UserMessageItem = memo(function UserMessageItem({
   showActions,
   attachments = [],
 }: UserMessageItemProps) {
+  // 从 filePath 中提取 session_id 和 attachment_id
+  const getImageUrl = (attachment: MessageAttachment) => {
+    // filePath 格式: storage/uploads/{session_id}/{timestamp}_{file_id}.ext
+    const pathParts = attachment.filePath.split('/')
+    if (pathParts.length >= 3) {
+      const sessionId = pathParts[2]
+      return `/api/sessions/${sessionId}/attachments/${attachment.id}`
+    }
+    return ''
+  }
+
   return (
     <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
       {attachments.length > 0 && !isEditing && (
@@ -41,9 +56,15 @@ export const UserMessageItem = memo(function UserMessageItem({
               key={att.id}
               className="h-20 w-20 overflow-hidden rounded-lg border border-edge-subtle bg-surface-tertiary flex items-center justify-center"
             >
-              <span className="text-xs text-content-muted">
-                {att.mimeType?.startsWith('image/') ? '🖼️' : '📎'}
-              </span>
+              {att.mimeType?.startsWith('image/') ? (
+                <img
+                  src={getImageUrl(att)}
+                  alt="attachment"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-xs text-content-muted">📎</span>
+              )}
             </div>
           ))}
           {attachments.length > 4 && (

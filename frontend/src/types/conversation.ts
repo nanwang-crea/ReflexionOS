@@ -95,6 +95,14 @@ export interface ConversationMessage {
   displayMode: string
   contentText: string
   payloadJson: Record<string, unknown>
+  attachments?: Array<{
+    id: string
+    type: string
+    mimeType: string
+    filePath: string
+    fileSize: number
+    createdAt: string
+  }>
   createdAt: string
   updatedAt: string
   completedAt: string | null
