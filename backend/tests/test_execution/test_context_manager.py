@@ -39,8 +39,8 @@ class TestLoopContext:
         context.add_message("user", "你好")
         context.add_message("assistant", "你好，有什么可以帮助你的？")
 
-        assert len(context.messages) == 2
-        assert context.messages[-1]["content"] == "你好，有什么可以帮助你的？"
+        assert len(context.compressor.get_messages()) == 2
+        assert context.compressor.get_messages()[-1]["content"] == "你好，有什么可以帮助你的？"
 
     def test_from_run_input_filters_history_messages_and_adds_current_task(self):
         context = LoopContext.from_run_input(
@@ -64,7 +64,7 @@ class TestLoopContext:
         assert context.run_id == "run-123"
         assert context.supplemental_context == "当前目标: 修 memory"
         assert context.system_sections == ["AGENTS instructions"]
-        assert [(message["role"], message.get("content")) for message in context.messages] == [
+        assert [(message["role"], message.get("content")) for message in context.compressor.get_messages()] == [
             ("user", "上一轮需求"),
             ("assistant", "上一轮结论"),
             ("tool", "tool output"),
@@ -83,7 +83,7 @@ class TestLoopContext:
             ],
         )
 
-        msgs = context.messages
+        msgs = context.compressor.get_messages()
         assert msgs[0]["role"] == "assistant"
         assert msgs[0]["tool_calls"][0]["name"] == "file"
         assert msgs[0].get("content") is None
@@ -106,8 +106,8 @@ class TestLoopContext:
             ],
         )
 
-        assert len(context.messages) == 1
-        assert context.messages[0]["role"] == "user"
+        assert len(context.compressor.get_messages()) == 1
+        assert context.compressor.get_messages()[0]["role"] == "user"
 
     def test_from_run_input_deduplicates_task_with_last_user_seed(self):
         context = LoopContext.from_run_input(
@@ -118,7 +118,7 @@ class TestLoopContext:
             ],
         )
 
-        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        user_msgs = [m for m in context.compressor.get_messages() if m["role"] == "user"]
         assert len(user_msgs) == 1
         assert user_msgs[0]["content"] == "继续"
 
@@ -131,7 +131,7 @@ class TestLoopContext:
             ],
         )
 
-        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        user_msgs = [m for m in context.compressor.get_messages() if m["role"] == "user"]
         assert len(user_msgs) == 2
         assert user_msgs[0]["content"] == "旧任务"
         assert user_msgs[1]["content"] == "新任务"
