@@ -1,4 +1,5 @@
 """上下文压缩器 - 统一管理消息状态和三级压缩模型"""
+import copy
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -117,8 +118,8 @@ class ContextCompressor:
             self._group_count += 1
 
     def get_messages(self) -> list[dict]:
-        """获取所有消息（只读副本）"""
-        return self._messages.copy()
+        """获取所有消息（深拷贝副本）"""
+        return copy.deepcopy(self._messages)
 
     def get_message_count(self) -> int:
         """获取消息总数"""
@@ -129,3 +130,4 @@ class ContextCompressor:
         self._messages.clear()
         self._total_tokens = 0
         self._group_count = 0
+        self._compacted_summary = None
