@@ -48,6 +48,14 @@ interface ConversationMessageDto {
   display_mode: string
   content_text: string
   payload_json: Record<string, unknown>
+  attachments?: Array<{
+    id: string
+    type: string
+    mime_type: string
+    file_path: string
+    file_size: number
+    created_at: string
+  }>
   created_at: string
   updated_at: string
   completed_at: string | null
@@ -106,6 +114,14 @@ function toConversationMessage(dto: ConversationMessageDto): ConversationMessage
     displayMode: dto.display_mode,
     contentText: dto.content_text,
     payloadJson: dto.payload_json,
+    attachments: dto.attachments?.map(att => ({
+      id: att.id,
+      type: att.type,
+      mimeType: att.mime_type,
+      filePath: att.file_path,
+      fileSize: att.file_size,
+      createdAt: att.created_at,
+    })),
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     completedAt: dto.completed_at,
