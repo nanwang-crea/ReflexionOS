@@ -68,3 +68,64 @@ class ContextCompressor:
         self._group_count: int = 0                   # 消息分组计数
         self.max_context_groups = max_context_groups
         self.tool_output_max_chars = tool_output_max_chars
+
+    # ========== 消息管理（增删查）==========
+
+    def add_message(
+        self,
+        role: str,
+        content: str | list[dict] | None = None,
+        tool_calls: list[dict] | None = None,
+        tool_call_id: str | None = None,
+    ) -> None:
+        """
+        添加消息（支持多模态内容）
+
+        自动处理：
+        - Token 计算（增量）
+        - 分组计数更新
+        - 时间戳添加
+
+        Args:
+            role: 消息角色 (user/assistant/tool/system)
+            content: 消息内容（支持纯文本或多模态 list）
+            tool_calls: 工具调用列表
+            tool_call_id: 工具调用 ID
+        """
+        message: dict = {"role": role, "timestamp": datetime.now().isoformat()}
+
+        if content is not None:
+            message["content"] = content
+        if tool_calls:
+            message["tool_calls"] = tool_calls
+        if tool_call_id:
+            message["tool_call_id"] = tool_call_id
+
+        self._messages.append(message)
+
+        # 增量计算 token
+        msg_tokens = count_messages_tokens([message])
+        self._total_tokens += msg_tokens
+
+        # 更新分组计数
+        if role == MessageRole.ASSISTANT and tool_calls:
+            self._group_count += 1
+        elif role == MessageRole.TOOL:
+            # tool 消息归入当前组，不增加计数
+            pass
+        else:
+            self._group_count += 1
+
+    def get_messages(self) -> list[dict]:
+        """获取所有消息（只读副本）"""
+        return self._messages.copy()
+
+    def get_message_count(self) -> int:
+        """获取消息总数"""
+        return len(self._messages)
+
+    def clear_messages(self) -> None:
+        """清空所有消息（用于测试或重置）"""
+        self._messages.clear()
+        self._total_tokens = 0
+        self._group_count = 0
