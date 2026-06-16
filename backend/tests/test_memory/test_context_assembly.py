@@ -1,6 +1,7 @@
 from app.memory.context_assembly import ContextAssembler, build_context_assembly
 from app.memory.continuation import build_continuation_artifact
 from app.models.conversation import (
+    MessageAttachment,
     Message,
     MessageType,
     StreamState,
@@ -19,6 +20,7 @@ def test_context_assembly_builds_static_recent_and_supplemental_layers():
     result = build_context_assembly(
         static_blocks=["AGENTS", "USER", "MEMORY"],
         recent_messages=[{"role": "user", "content": "最近消息"}],
+        current_turn_message=None,
         supplemental_block="当前目标: 继续实现 recall",
     )
 

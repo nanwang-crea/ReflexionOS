@@ -107,6 +107,7 @@ vi.mock('@/hooks/useCurrentSessionViewModel', () => ({
     configured: true,
     loaded: true,
     selection: { providerId: null, modelId: null },
+    selectedModels: [],
     headerProps: {},
     transcriptProps: {},
     inputProps: {},
@@ -114,7 +115,7 @@ vi.mock('@/hooks/useCurrentSessionViewModel', () => ({
 }))
 
 vi.mock('@/hooks/useSendMessage', () => ({
-  useSendMessage: () => ({ sendMessage: vi.fn() }),
+  useSendMessage: () => ({ sendMessage: vi.fn(), ensureSession: vi.fn() }),
 }))
 
 describe('AgentWorkspace', () => {

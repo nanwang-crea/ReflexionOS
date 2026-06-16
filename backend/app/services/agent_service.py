@@ -507,6 +507,7 @@ class AgentService:
                 run_id=run_id,
                 session_id=session_id,
                 seed_messages=assembly.recent_messages,
+                current_turn_message=assembly.current_turn_message,
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
                 agent_mode=agent_mode,

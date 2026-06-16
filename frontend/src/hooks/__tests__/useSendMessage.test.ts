@@ -127,6 +127,41 @@ describe('createSendMessage', () => {
       modelId: 'model-a',
     })
   })
+
+  it('allows image-only turns when attachment ids are present', async () => {
+    const startTurn = vi.fn().mockResolvedValue(undefined)
+
+    const sendMessage = createSendMessage({
+      currentProject: { id: 'project-1', name: 'Project', path: '/tmp/project' },
+      currentSession: {
+        id: 'session-4',
+        projectId: 'project-1',
+        title: 'Images',
+        preferredProviderId: 'provider-a',
+        preferredModelId: 'model-a',
+        lastEventSeq: 0,
+        activeTurnId: null,
+        createdAt: '2026-04-21T00:00:00Z',
+        updatedAt: '2026-04-21T00:00:00Z',
+      },
+      configured: true,
+      selection: { providerId: 'provider-a', modelId: 'model-a' },
+      createSession: vi.fn(),
+      writeSessionPreferences: vi.fn().mockResolvedValue(undefined),
+      startTurn,
+      notify: vi.fn(),
+    })
+
+    await sendMessage('', ['att-1', 'att-2'])
+
+    expect(startTurn).toHaveBeenCalledWith({
+      sessionId: 'session-4',
+      message: '',
+      providerId: 'provider-a',
+      modelId: 'model-a',
+      attachmentIds: ['att-1', 'att-2'],
+    })
+  })
 })
 
 const {

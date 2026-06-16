@@ -2,15 +2,7 @@ import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { getApiBaseUrl } from '@/services/runtimeConfig'
-
-interface MessageAttachment {
-  id: string
-  type: string
-  mimeType: string
-  filePath: string
-  fileSize: number
-  createdAt: string
-}
+import type { ConversationAttachment } from '@/types/conversation'
 
 interface UserMessageItemProps {
   messageId: string
@@ -23,7 +15,7 @@ interface UserMessageItemProps {
   onEditCancel: () => void
   onEditSubmit: () => void
   showActions: boolean
-  attachments?: MessageAttachment[]
+  attachments?: ConversationAttachment[]
 }
 
 export const UserMessageItem = memo(function UserMessageItem({
@@ -41,8 +33,19 @@ export const UserMessageItem = memo(function UserMessageItem({
 }: UserMessageItemProps) {
   const apiBaseUrl = getApiBaseUrl()
 
-  const getImageUrl = (attachment: MessageAttachment) =>
-    `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}`
+  const getImageUrl = (attachment: ConversationAttachment) => {
+    if (attachment.url) {
+      if (attachment.url.startsWith('http://') || attachment.url.startsWith('https://')) {
+        return attachment.url
+      }
+      if (attachment.url.startsWith('/')) {
+        return `${apiBaseUrl}${attachment.url}`
+      }
+      return attachment.url
+    }
+
+    return `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}`
+  }
 
   return (
     <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">

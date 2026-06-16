@@ -4,6 +4,7 @@ from typing import Any
 
 from app.execution.models import LoopStep
 from app.execution.plan_engine import Plan
+from app.llm.base import LLMContentPart
 from app.llm.base import MessageRole
 from app.llm.token_counter import count_messages_tokens
 
@@ -37,6 +38,7 @@ class LoopContext:
         # 消息分组计数，assistant+tool_calls 开启一组，用于判断窗口溢出
         self.group_count: int = 0
         self.metadata: dict[str, Any] = {}
+        self.has_multimodal_current_turn: bool = False
 
     @classmethod
     def from_run_input(
@@ -48,6 +50,7 @@ class LoopContext:
         session_id: str | None = None,
         agent_mode: str = "build",
         seed_messages: list[dict[str, Any]] | None = None,
+        current_turn_message: dict[str, Any] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
     ) -> "LoopContext":
@@ -81,22 +84,35 @@ class LoopContext:
                 continue
 
             content = seeded.get("content")
-            if not isinstance(content, str):
-                continue
-            content = content.strip()
-            if not content:
+            if isinstance(content, str):
+                content = content.strip()
+                if not content:
+                    continue
+            elif isinstance(content, list):
+                if not content:
+                    continue
+            else:
                 continue
 
             context.add_message(role, content, tool_call_id=tool_call_id)
 
         context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []
-        last_user_msg = next(
-            (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
-            None,
-        )
-        if not (last_user_msg and last_user_msg.get("content") == task):
-            context.add_message("user", task)
+        current_turn_content = current_turn_message.get("content") if current_turn_message else None
+        if current_turn_message:
+            context.has_multimodal_current_turn = isinstance(current_turn_content, list)
+            context.add_message(
+                str(current_turn_message.get("role") or MessageRole.USER),
+                current_turn_content,
+                tool_call_id=current_turn_message.get("tool_call_id"),
+            )
+        else:
+            last_user_msg = next(
+                (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
+                None,
+            )
+            if not (last_user_msg and last_user_msg.get("content") == task):
+                context.add_message("user", task)
         return context
 
     def update_history(self, action: Any, result: str) -> None:
@@ -115,7 +131,7 @@ class LoopContext:
     def add_message(
         self,
         role: str,
-        content: str | None = None,
+        content: str | list[dict[str, Any]] | list[LLMContentPart] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_call_id: str | None = None,
     ) -> None:

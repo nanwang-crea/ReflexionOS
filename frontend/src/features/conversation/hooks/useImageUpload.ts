@@ -1,3 +1,9 @@
+/**
+ * useImageUpload manages pending image attachments before a turn is sent.
+ *
+ * It validates selection limits, generates preview URLs for the chat input, and
+ * uploads images to the session-scoped backend endpoint right before send.
+ */
 import { useCallback, useState } from 'react'
 
 export interface PendingAttachment {
@@ -6,11 +12,15 @@ export interface PendingAttachment {
   previewUrl: string
 }
 
+export const MAX_ATTACHMENTS_PER_MESSAGE = 4
 const MAX_FILE_SIZE = 10 * 1024 * 1024
 const MAX_DIMENSION = 2048
 const COMPRESS_THRESHOLD = 1024 * 1024
 
 async function compressImage(file: File): Promise<File> {
+  /**
+   * Compresses large images in-browser to keep upload latency and payload size bounded.
+   */
   if (file.size <= COMPRESS_THRESHOLD) {
     return file
   }
@@ -69,6 +79,9 @@ async function uploadFile(
   sessionId: string,
   file: File,
 ): Promise<{ attachment_id: string }> {
+  /**
+   * Uploads one file to the backend attachment endpoint for a specific session.
+   */
   const formData = new FormData()
   formData.append('file', file)
 
@@ -88,6 +101,9 @@ async function uploadFile(
 export function useImageUpload(sessionId: string | null) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
 
+  /**
+   * Adds new local images to the pending queue while enforcing size/count limits.
+   */
   const addFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))
     if (imageFiles.length === 0) return
@@ -95,6 +111,9 @@ export function useImageUpload(sessionId: string | null) {
     const oversized = imageFiles.filter((f) => f.size > MAX_FILE_SIZE)
     if (oversized.length > 0) {
       throw new Error(`图片大小超过限制（最大 10MB）：${oversized.map((f) => f.name).join(', ')}`)
+    }
+    if (attachments.length + imageFiles.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw new Error(`单次最多发送 ${MAX_ATTACHMENTS_PER_MESSAGE} 张图片`)
     }
 
     const newAttachments: PendingAttachment[] = imageFiles.map((file) => ({
@@ -104,8 +123,11 @@ export function useImageUpload(sessionId: string | null) {
     }))
 
     setAttachments((prev) => [...prev, ...newAttachments])
-  }, [])
+  }, [attachments.length])
 
+  /**
+   * Removes one pending attachment and releases its preview URL.
+   */
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id)
@@ -116,6 +138,9 @@ export function useImageUpload(sessionId: string | null) {
     })
   }, [])
 
+  /**
+   * Clears the full pending queue after a successful send or explicit user reset.
+   */
   const clearAttachments = useCallback(() => {
     setAttachments((prev) => {
       prev.forEach((a) => {
@@ -125,15 +150,22 @@ export function useImageUpload(sessionId: string | null) {
     })
   }, [])
 
-  const uploadAll = useCallback(async (): Promise<string[]> => {
-    if (!sessionId || attachments.length === 0) return []
+  /**
+   * Uploads every pending attachment against the resolved target session.
+   */
+  const uploadAll = useCallback(async (targetSessionId?: string | null): Promise<string[]> => {
+    const resolvedSessionId = targetSessionId ?? sessionId
+    if (!resolvedSessionId || attachments.length === 0) return []
+    if (attachments.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+      throw new Error(`单次最多发送 ${MAX_ATTACHMENTS_PER_MESSAGE} 张图片`)
+    }
 
     const uploadedIds: string[] = []
 
     for (const attachment of attachments) {
       try {
         const compressed = await compressImage(attachment.file)
-        const result = await uploadFile(sessionId, compressed)
+        const result = await uploadFile(resolvedSessionId, compressed)
         uploadedIds.push(result.attachment_id)
       } catch (err) {
         const msg = err instanceof Error ? err.message : '上传失败'

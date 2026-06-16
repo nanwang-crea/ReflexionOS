@@ -14,6 +14,7 @@ from app.services.conversation_service import ConversationService
 class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
     recent_messages: list[dict[str, Any]]
+    current_turn_message: dict[str, Any] | None = None
     supplemental_block: str | None = None
 
 
@@ -96,8 +97,15 @@ def build_context_assembly(
     *,
     static_blocks: list[str],
     recent_messages: list[dict[str, Any]],
+    current_turn_message: dict[str, Any] | None,
     supplemental_block: str | None,
 ) -> ContextAssemblyResult:
+    """Normalize assembled context while preserving multimodal message payloads.
+
+    `recent_messages` may contain plain-text content or OpenAI-style multimodal
+    content-part lists. We only coerce scalars to strings; list content must stay
+    structured so downstream LLM adapters can still send image_url parts.
+    """
     result_messages: list[dict[str, Any]] = []
     for message in recent_messages:
         role = str(message.get("role") or "").strip()
@@ -106,11 +114,13 @@ def build_context_assembly(
         raw_content = message.get("content")
         if raw_content is None:
             content = ""
+        elif isinstance(raw_content, list):
+            content = raw_content
         else:
             content = str(raw_content)
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
-        has_content = content.strip() or tool_calls
+        has_content = (bool(content) if isinstance(content, list) else content.strip()) or tool_calls
         if not has_content:
             continue
         entry: dict[str, Any] = {"role": role, "content": content}
@@ -123,6 +133,7 @@ def build_context_assembly(
     return ContextAssemblyResult(
         system_sections=[block for block in static_blocks if str(block or "").strip()],
         recent_messages=result_messages,
+        current_turn_message=current_turn_message,
         supplemental_block=supplemental_block.strip() if supplemental_block else None,
     )
 
@@ -202,14 +213,28 @@ When a skill clearly matches your current task, load it first using the 'skill' 
                 )
 
         # 3) Supplemental block: latest continuation artifact (SQL-level query).
+        current_turn_message: dict[str, Any] | None = None
+        if current_turn_id:
+            current_root_message = self.conversation_service.message_repo.get_user_message_by_turn(
+                current_turn_id
+            )
+            if current_root_message is not None:
+                current_turn_seeds = _message_to_seed_dict(current_root_message, supports_vision)
+                if current_turn_seeds:
+                    current_turn_message = current_turn_seeds[0]
+
         artifact = self.conversation_service.get_latest_continuation_artifact(
             session_id
         )
-        supplemental_block = (
-            artifact.content_text.strip()
-            if artifact and (artifact.content_text or "").strip()
-            else None
+        # Do not inject the previous continuation artifact ahead of a new multimodal turn.
+        # Otherwise a stale "I cannot see images" summary can override the current image input.
+        should_skip_supplemental = bool(
+            current_turn_message
+            and isinstance(current_turn_message.get("content"), list)
         )
+        supplemental_block = None
+        if not should_skip_supplemental and artifact and (artifact.content_text or "").strip():
+            supplemental_block = artifact.content_text.strip()
 
         # 4) Recent seed candidates (SQL-level filter + slice).
         candidates = self.conversation_service.list_recent_seed_candidates(
@@ -226,5 +251,6 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         return build_context_assembly(
             static_blocks=static_blocks,
             recent_messages=recent_messages,
+            current_turn_message=current_turn_message,
             supplemental_block=supplemental_block,
         )

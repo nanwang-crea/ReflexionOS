@@ -1,3 +1,9 @@
+/**
+ * AgentWorkspace renders the main desktop conversation surface for a project session.
+ *
+ * It wires transcript state, runtime actions, file/code panels, and the chat
+ * input together, including the phase-1 image upload flow for user messages.
+ */
 import { useCallback, useEffect, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { CodeTab } from '@/components/workspace/CodeTab'
@@ -15,7 +21,7 @@ import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import { useImageUpload } from '@/features/conversation/hooks/useImageUpload'
-import { supportsVision } from '@/constants/visionModels'
+import { supportsVisionModel } from '@/constants/visionModels'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
@@ -54,6 +60,9 @@ export default function AgentWorkspace() {
   const createTerminal = useTerminalStore((s) => s.createTerminal)
   const currentProject = useProjectStore((s) => s.currentProject)
 
+  /**
+   * Switches between build and plan mode from keyboard shortcuts.
+   */
   const toggleMode = useCallback(() => {
     if (!currentSessionId || isRunning) return
     const newMode: AgentMode = agentMode === 'build' ? 'plan' : 'build'
@@ -92,6 +101,9 @@ export default function AgentWorkspace() {
 
   // ChatInputFrame is a flex sibling (not overlay), so no dynamic inset needed
 
+  /**
+   * Opens files referenced by execution receipts in the code panel.
+   */
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const args = detail.arguments
     if (!args || typeof args !== 'object') return
@@ -127,7 +139,7 @@ export default function AgentWorkspace() {
       denyTool(payload.runId, payload.approvalId)
     },
   })
-  const { sendMessage } = useSendMessage({
+  const { sendMessage, ensureSession } = useSendMessage({
     currentSession: viewModel.currentSession,
     configured: viewModel.configured,
     selection: viewModel.selection,
@@ -142,9 +154,13 @@ export default function AgentWorkspace() {
     uploadAll,
   } = useImageUpload(currentSessionId ?? null)
 
+  /**
+   * Adds selected images to the pending upload queue after validating model support.
+   */
   const handleImageAdd = useCallback(
     (files: File[]) => {
-      if (viewModel.selection.modelId && !supportsVision(viewModel.selection.modelId)) {
+      const selectedModel = viewModel.selectedModels.find((model) => model.id === viewModel.selection.modelId) ?? null
+      if (viewModel.selection.modelId && !supportsVisionModel(selectedModel)) {
         useToastStore.getState().addToast(
           'info',
           '当前模型可能不支持图片分析'
@@ -157,21 +173,42 @@ export default function AgentWorkspace() {
         useToastStore.getState().addToast('error', msg)
       }
     },
-    [viewModel.selection.modelId, addFiles]
+    [viewModel.selectedModels, viewModel.selection.modelId, addFiles]
   )
 
+  /**
+   * Uploads pending images first when needed, then sends the turn against the same session.
+   *
+   * The first image-only turn must create the session before uploads so the files
+   * land under the correct session directory and the websocket turn reuses it.
+   */
   const handleSend = useCallback(
     async (message: string) => {
       try {
-        const attachmentIds = await uploadAll()
-        await sendMessage(message, attachmentIds.length > 0 ? attachmentIds : undefined)
+        const hasPendingAttachments = attachments.length > 0
+        if (!hasPendingAttachments) {
+          await sendMessage(message)
+          return
+        }
+
+        const targetSession = await ensureSession()
+        if (!targetSession) {
+          return
+        }
+
+        const attachmentIds = await uploadAll(targetSession.id)
+        await sendMessage(
+          message,
+          attachmentIds.length > 0 ? attachmentIds : undefined,
+          targetSession,
+        )
         clearAttachments()
       } catch (err) {
         const msg = err instanceof Error ? err.message : '发送失败'
         useToastStore.getState().addToast('error', msg)
       }
     },
-    [sendMessage, uploadAll, clearAttachments]
+    [attachments.length, clearAttachments, ensureSession, sendMessage, uploadAll]
   )
 
   return (

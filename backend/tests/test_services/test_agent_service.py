@@ -1037,6 +1037,244 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
     assert captured["system_sections"] == ["STATIC"]
 
 
+"""
+@pytest.mark.asyncio
+async def test_run_turn_passes_multimodal_seed_messages_into_execution_loop(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="闇€姹傝璁?)
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    captured = {}
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
+
+        async def run(self, **kwargs):
+            captured.update(kwargs)
+            await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
+
+    multimodal_seed = [
+        {"type": "text", "text": "请看图"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+    ]
+    service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
+        system_sections=["STATIC"],
+        recent_messages=[{"role": "user", "content": multimodal_seed}],
+        supplemental_block=None,
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert captured["seed_messages"] == [{"role": "user", "content": multimodal_seed}]
+"""
+
+
+@pytest.mark.asyncio
+async def test_run_turn_passes_multimodal_seed_messages_into_execution_loop(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="Multimodal Session")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    captured = {}
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
+
+        async def run(self, **kwargs):
+            captured.update(kwargs)
+            await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
+
+    # Keep the content-part list intact so the LLM adapter still receives image_url parts.
+    multimodal_seed = [
+        {"type": "text", "text": "Please inspect this image"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+    ]
+    service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
+        system_sections=["STATIC"],
+        recent_messages=[{"role": "user", "content": multimodal_seed}],
+        supplemental_block=None,
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert captured["seed_messages"] == [{"role": "user", "content": multimodal_seed}]
+
+
+@pytest.mark.asyncio
+async def test_run_turn_passes_current_turn_multimodal_message_into_execution_loop(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="Multimodal Current Turn")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    captured = {}
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.event_callback = kwargs["event_callback"]
+            self.tool_registry = kwargs.get("tool_registry")
+
+        async def run(self, **kwargs):
+            captured.update(kwargs)
+            await self.event_callback("run:complete", {})
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+    monkeypatch.setattr(service, "_generate_and_persist_continuation_artifact", AsyncMock())
+
+    current_turn_message = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Please inspect this image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+        ],
+    }
+    service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
+        system_sections=["STATIC"],
+        recent_messages=[{"role": "assistant", "content": "history"}],
+        current_turn_message=current_turn_message,
+        supplemental_block=None,
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="Please inspect this image",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert captured["current_turn_message"] == current_turn_message
+
+
 @pytest.mark.asyncio
 async def test_run_turn_persists_llm_generated_continuation_artifact(monkeypatch, tmp_path):
     project_root = tmp_path / "project-root"

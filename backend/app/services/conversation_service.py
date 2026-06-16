@@ -24,7 +24,7 @@ from app.storage.repositories.message_search_document_repo import MessageSearchD
 from app.storage.repositories.run_repo import RunRepository
 from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
-from app.services.attachment_service import get_attachment_service
+from app.services.attachment_service import MAX_MESSAGE_ATTACHMENTS, get_attachment_service
 
 from .conversation_projection import ConversationProjection
 
@@ -218,6 +218,19 @@ class ConversationService:
             if session.active_turn_id is not None:
                 raise ValueError("会话已有活跃轮次，不能重复创建")
 
+            normalized_attachment_ids = attachment_ids or []
+            if not isinstance(normalized_attachment_ids, list):
+                raise ValueError("attachment_ids must be a list")
+            if any(
+                not isinstance(attachment_id, str) or not attachment_id.strip()
+                for attachment_id in normalized_attachment_ids
+            ):
+                raise ValueError("attachment_ids must contain non-empty strings")
+            if len(normalized_attachment_ids) > MAX_MESSAGE_ATTACHMENTS:
+                raise ValueError(f"attachment_ids exceeds limit: max {MAX_MESSAGE_ATTACHMENTS}")
+            if not content.strip() and not normalized_attachment_ids:
+                raise ValueError("content cannot be empty without attachments")
+
             turn_id = new_turn_id()
             run_id = new_run_id()
             user_message_id = new_message_id()
@@ -237,20 +250,20 @@ class ConversationService:
             }
 
             # 如果有附件，添加到 payload
-            if attachment_ids:
-                message_payload["attachment_ids"] = attachment_ids
+            if normalized_attachment_ids:
+                message_payload["attachment_ids"] = normalized_attachment_ids
 
                 # 使用 AttachmentService 构建附件元数据
                 attachment_service = get_attachment_service()
                 attachments_data = attachment_service.build_attachments_for_message(
                     session_id,
-                    attachment_ids
+                    normalized_attachment_ids
                 )
 
                 # 总是设置 attachments 字段
                 message_payload["attachments"] = attachments_data
                 logger.info(
-                    f"start_turn: session={session_id}, attachment_ids={attachment_ids}, "
+                    f"start_turn: session={session_id}, attachment_ids={normalized_attachment_ids}, "
                     f"找到 {len(attachments_data)} 个附件"
                 )
             else:

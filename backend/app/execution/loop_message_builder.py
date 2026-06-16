@@ -110,7 +110,7 @@ class LoopMessageBuilder:
         # Task Anchor: 首轮注入，之后按 task_anchor_interval 周期性注入
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
         should_inject_anchor = False
-        if context.group_count <= 1:
+        if context.group_count <= 1 and not context.has_multimodal_current_turn:
             should_inject_anchor = True
         elif self.task_anchor_interval > 0 and context.group_count % self.task_anchor_interval == 0:
             last_injected_group = context.metadata.get("_last_anchor_group", 0)

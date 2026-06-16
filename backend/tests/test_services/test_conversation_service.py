@@ -437,6 +437,40 @@ def test_start_turn_rejects_when_active_turn_exists(tmp_path):
         )
 
 
+def test_start_turn_allows_image_only_messages_when_attachments_exist(tmp_path, monkeypatch):
+    import importlib
+
+    from app.services.attachment_service import AttachmentService
+
+    conversation_service_module = importlib.import_module("app.services.conversation_service")
+    message_repo_module = importlib.import_module("app.storage.repositories.message_repo")
+
+    db = Database(str(tmp_path / "conversation-service-image-only.db"))
+    service = ConversationService(db=db)
+    service.session_repo.create(Session(id="session-1", project_id="project-1", title="浼氳瘽"))
+
+    upload_base_dir = tmp_path / "uploads"
+    session_upload_dir = upload_base_dir / "session-1"
+    session_upload_dir.mkdir(parents=True)
+    (session_upload_dir / "image_test123.png").write_bytes(b"fake-png")
+
+    monkeypatch.setattr(conversation_service_module, "get_attachment_service", lambda: AttachmentService(upload_base_dir))
+    monkeypatch.setattr(message_repo_module, "get_attachment_service", lambda: AttachmentService(upload_base_dir))
+
+    started = service.start_turn(
+        session_id="session-1",
+        content="",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=None,
+        attachment_ids=["att_test123"],
+    )
+
+    assert started.user_message.content_text == ""
+    assert len(started.user_message.attachments) == 1
+    assert started.user_message.attachments[0].id == "att_test123"
+
+
 def test_cancel_run_on_terminal_run_keeps_state_and_noop(tmp_path):
     db = Database(str(tmp_path / "conversation-service-cancel-terminal.db"))
     service = ConversationService(db=db)
