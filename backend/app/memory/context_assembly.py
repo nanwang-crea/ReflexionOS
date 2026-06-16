@@ -156,7 +156,6 @@ class ContextAssembler:
         project_id: str,
         project_path: str | None = None,
         current_turn_id: str | None = None,
-        current_user_input: str | None = None,
         max_seed_messages: int = 8,
         max_tool_traces: int = 20,
         scan_limit: int = 200,

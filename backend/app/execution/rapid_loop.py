@@ -625,6 +625,7 @@ class RapidExecutionLoop:
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
         agent_mode: str = "build",
+        task_content: str | list[dict] | None = None,
     ) -> LoopResult:
         """
         执行任务
@@ -656,6 +657,7 @@ class RapidExecutionLoop:
             seed_messages=seed_messages,
             supplemental_context=supplemental_context,
             system_sections=system_sections,
+            task_content=task_content,
         )
 
         rt = RuntimeState()

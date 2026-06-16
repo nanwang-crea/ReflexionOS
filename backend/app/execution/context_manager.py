@@ -13,8 +13,9 @@ logger = logging.getLogger(__name__)
 class LoopContext:
     """Agent loop 上下文"""
 
-    def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None, agent_mode: str = "build", session_id: str | None = None):
+    def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None, agent_mode: str = "build", session_id: str | None = None, task_content: str | list[dict] | None = None):
         self.task = task
+        self.task_content = task_content or task
         self.project_path = project_path
         self.run_id = run_id or f"run-{id(self)}"
         self.session_id = session_id or self.run_id
@@ -50,8 +51,9 @@ class LoopContext:
         seed_messages: list[dict[str, Any]] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
+        task_content: str | list[dict] | None = None,
     ) -> "LoopContext":
-        context = cls(task=task, project_path=project_path, run_id=run_id, agent_mode=agent_mode, session_id=session_id)
+        context = cls(task=task, project_path=project_path, run_id=run_id, agent_mode=agent_mode, session_id=session_id, task_content=task_content)
 
         allowed_seed_roles = {MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL}
         for seeded in seed_messages or []:

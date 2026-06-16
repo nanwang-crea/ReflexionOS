@@ -498,11 +498,28 @@ class AgentService:
                 project_id=project_id,
                 project_path=project_path,
                 current_turn_id=turn_id,
-                current_user_input=task,
                 supports_vision=resolved_llm.supports_vision,
             )
+
+            # 构建当前 turn 用户消息的多模态 content（含图片）
+            task_content: str | list[dict] = task
+            user_message = self.conversation_service.message_repo.get_user_message_by_turn(turn_id)
+            if user_message and user_message.attachments:
+                from app.services.attachment_service import convert_attachments_to_content_parts
+                content_parts = []
+                if task.strip():
+                    content_parts.append({"type": "text", "text": task})
+                image_parts = convert_attachments_to_content_parts(
+                    user_message.attachments, resolved_llm.supports_vision
+                )
+                for part in image_parts:
+                    content_parts.append(part.model_dump(exclude_none=True))
+                if content_parts:
+                    task_content = content_parts
+
             loop_result = await execution_loop.run(
                 task=task,
+                task_content=task_content,
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,

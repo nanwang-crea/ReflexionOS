@@ -143,7 +143,7 @@ class LoopMessageBuilder:
                 continue
             messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
 
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+        messages.append(LLMMessage(role=MessageRole.USER, content=context.task_content))
 
         return messages
 
@@ -189,7 +189,7 @@ class LoopMessageBuilder:
             messages.append(LLMMessage(role=msg["role"], content=content))
 
         # Task Anchor: 在最终总结时重新注入原始任务，确保回答围绕用户需求
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task))
+        messages.append(LLMMessage(role=MessageRole.USER, content=context.task_content))
 
         return messages
 
