@@ -113,7 +113,9 @@ def test_normal_definitions_expose_plan_schema_when_plan_exists():
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
 
     assert [definition.name for definition in definitions] == ["mock", "plan"]
-    plan_definition = next(definition for definition in definitions if definition.name == "plan")
+    plan_definition = next(
+        definition for definition in definitions if definition.name == "plan"
+    )
     parameters = plan_definition.parameters
     assert "steps" in parameters.get("properties", {})
     assert "goal" in parameters.get("properties", {})
@@ -132,7 +134,13 @@ def test_context_definitions_start_with_exploration_tools_only():
 
     definitions = RuntimeToolDefinitions(registry).for_context(context)
 
-    assert [definition.name for definition in definitions] == ["skill", "file", "grep", "glob", "memory"]
+    assert [definition.name for definition in definitions] == [
+        "skill",
+        "file",
+        "grep",
+        "glob",
+        "memory",
+    ]
 
 
 def build_plan_mode_registry() -> ToolRegistry:
@@ -171,10 +179,13 @@ def test_plan_mode_definitions_only_include_plan_mode_tools():
 
 def test_skill_tool_available_on_first_turn():
     from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+
     assert "skill" in DEFAULT_TOOL_SET_CONFIG.exploration_tools
+
 
 def test_skill_tool_in_tool_order():
     from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+
     assert "skill" in DEFAULT_TOOL_SET_CONFIG.tool_order
     assert DEFAULT_TOOL_SET_CONFIG.tool_order.index("skill") == 0
 

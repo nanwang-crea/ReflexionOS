@@ -31,14 +31,20 @@ class LoopMessageBuilder:
         self.task_anchor_interval = task_anchor_interval
 
     @staticmethod
-    def _inject_context_sections(context: LoopContext, messages: list[LLMMessage]) -> None:
+    def _inject_context_sections(
+        context: LoopContext, messages: list[LLMMessage]
+    ) -> None:
         """注入三层上下文中的静态层：system sections + supplemental context"""
         for section in context.system_sections or []:
             if str(section or "").strip():
-                messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(section)))
+                messages.append(
+                    LLMMessage(role=MessageRole.SYSTEM, content=str(section))
+                )
         supplemental = context.supplemental_context
         if supplemental and str(supplemental).strip():
-            messages.append(LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip()))
+            messages.append(
+                LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip())
+            )
 
     def build(self, context: LoopContext) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""
@@ -73,8 +79,13 @@ class LoopMessageBuilder:
                 )
             )
 
-        if context.compressor.get_compacted_summary() and context.compressor.get_group_count() > 1:
-            last_continue_group = context.metadata.get("_last_compaction_continue_group", 0)
+        if (
+            context.compressor.get_compacted_summary()
+            and context.compressor.get_group_count() > 1
+        ):
+            last_continue_group = context.metadata.get(
+                "_last_compaction_continue_group", 0
+            )
             if last_continue_group != context.compressor.get_group_count():
                 messages.append(
                     LLMMessage(
@@ -82,7 +93,9 @@ class LoopMessageBuilder:
                         content=f"Continue the task using tools. Original task: {context.task}",
                     )
                 )
-                context.metadata["_last_compaction_continue_group"] = context.compressor.get_group_count()
+                context.metadata["_last_compaction_continue_group"] = (
+                    context.compressor.get_group_count()
+                )
 
         # Tier 2: 超出窗口的旧消息，逐条截断但始终可见
         tier2_messages = context.compressor.build_tier2_messages()
@@ -91,7 +104,9 @@ class LoopMessageBuilder:
 
         # Tier 1: 最近 N 组消息，完整保真
         for msg in context.compressor.get_recent_messages():
-            tool_calls = [LLMToolCall(**tool_call) for tool_call in msg.get("tool_calls", [])]
+            tool_calls = [
+                LLMToolCall(**tool_call) for tool_call in msg.get("tool_calls", [])
+            ]
             messages.append(
                 LLMMessage(
                     role=msg["role"],
@@ -111,15 +126,25 @@ class LoopMessageBuilder:
         # 注意：首轮不需要注入 Task Anchor，因为用户的初始消息（含图片）已经在 context.messages 中
         should_inject_anchor = False
         if context.compressor.get_group_count() > 1:  # 只在非首轮时考虑注入
-            if self.task_anchor_interval > 0 and context.compressor.get_group_count() % self.task_anchor_interval == 0:
+            if (
+                self.task_anchor_interval > 0
+                and context.compressor.get_group_count() % self.task_anchor_interval
+                == 0
+            ):
                 last_injected_group = context.metadata.get("_last_anchor_group", 0)
                 if last_injected_group != context.compressor.get_group_count():
                     should_inject_anchor = True
-                    context.metadata["_last_anchor_group"] = context.compressor.get_group_count()
+                    context.metadata["_last_anchor_group"] = (
+                        context.compressor.get_group_count()
+                    )
 
         if should_inject_anchor:
             # 周期性提醒任务，使用纯文本即可
-            messages.append(LLMMessage(role=MessageRole.USER, content=f"[Task Reminder] {context.task}"))
+            messages.append(
+                LLMMessage(
+                    role=MessageRole.USER, content=f"[Task Reminder] {context.task}"
+                )
+            )
 
         prefill = context.metadata.get("_prefill_assistant")
         if prefill:
@@ -130,7 +155,8 @@ class LoopMessageBuilder:
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
         messages = [
             LLMMessage(
-                role=MessageRole.SYSTEM, content=self.prompt_manager.get_initial_plan_prompt()
+                role=MessageRole.SYSTEM,
+                content=self.prompt_manager.get_initial_plan_prompt(),
             )
         ]
 
@@ -182,13 +208,23 @@ class LoopMessageBuilder:
             if msg["role"] == MessageRole.TOOL:
                 if isinstance(content, str) and content.strip():
                     messages.append(
-                        LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
+                        LLMMessage(
+                            role=MessageRole.TOOL,
+                            content=content,
+                            tool_call_id=msg.get("tool_call_id"),
+                        )
                     )
                 continue
 
             if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
                 tool_calls = [LLMToolCall(**tc) for tc in msg["tool_calls"]]
-                messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=content, tool_calls=tool_calls))
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=content,
+                        tool_calls=tool_calls,
+                    )
+                )
                 continue
 
             messages.append(LLMMessage(role=msg["role"], content=content))

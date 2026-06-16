@@ -20,7 +20,9 @@ class PlanFileSync:
         root = project_path or os.getcwd()
         return os.path.join(root, ".reflexion", "plans")
 
-    def write(self, plan: Plan, session_id: str, project_path: str | None = None) -> str:
+    def write(
+        self, plan: Plan, session_id: str, project_path: str | None = None
+    ) -> str:
         base = self._resolve_base_dir(project_path)
         os.makedirs(base, exist_ok=True)
         filename = f"{session_id}.md"
@@ -63,7 +65,10 @@ class PlanFileSync:
         base = self._resolve_base_dir(project_path)
         resolved = os.path.realpath(path)
         base_resolved = os.path.realpath(base)
-        if not resolved.startswith(base_resolved + os.sep) and resolved != base_resolved:
+        if (
+            not resolved.startswith(base_resolved + os.sep)
+            and resolved != base_resolved
+        ):
             raise ValueError(f"路径超出计划目录: {path}")
         return resolved
 
@@ -109,7 +114,12 @@ class PlanFileSync:
         for path in md_files:
             file_age = now - os.path.getmtime(path)
             if file_age > max_age_seconds:
-                logger.debug("跳过过期计划文件 (%.1fh > %dh): %s", file_age / 3600, max_age_hours, path)
+                logger.debug(
+                    "跳过过期计划文件 (%.1fh > %dh): %s",
+                    file_age / 3600,
+                    max_age_hours,
+                    path,
+                )
                 continue
             plan = self.read(path)
             if plan and not plan.is_complete:

@@ -13,7 +13,11 @@ if getattr(sys, "frozen", False):
 else:
     _BASE_DIR = Path(__file__).parent
 
-PROMPTS_DIR = _BASE_DIR / "app" / "execution" / "prompts" if getattr(sys, "frozen", False) else Path(__file__).parent / "prompts"
+PROMPTS_DIR = (
+    _BASE_DIR / "app" / "execution" / "prompts"
+    if getattr(sys, "frozen", False)
+    else Path(__file__).parent / "prompts"
+)
 
 
 class PromptFamily(str, Enum):
@@ -75,7 +79,12 @@ TEMPLATES_MANIFEST: list[dict] = [
     {
         "name": "error",
         "file": "error.txt",
-        "variables": ["tool", "error", "original_args_section", "available_actions_section"],
+        "variables": [
+            "tool",
+            "error",
+            "original_args_section",
+            "available_actions_section",
+        ],
         "family_specific": True,
     },
     {
@@ -145,7 +154,8 @@ class PromptManager:
                 variables=entry["variables"],
             )
 
-    _DEFAULT_SOUL_MD = textwrap.dedent("""\
+    _DEFAULT_SOUL_MD = textwrap.dedent(
+        """\
         ## Identity
 
         You are a pragmatic workspace agent collaborating with the user in the same project.
@@ -166,9 +176,11 @@ class PromptManager:
 
         - Prefer the smallest correct change.
         - Respect existing patterns unless they block the task.
-    """)
+    """
+    )
 
-    _DEFAULT_AGENT_MD = textwrap.dedent("""\
+    _DEFAULT_AGENT_MD = textwrap.dedent(
+        """\
         ## Instruction Priority
 
         - Follow the user's explicit instructions first.
@@ -219,7 +231,8 @@ class PromptManager:
         ## Override Semantics
 
         - Project-level `.reflexion` rules override global defaults for this repository.
-    """)
+    """
+    )
 
     def _read_optional_text(self, path: Path) -> str:
         try:
@@ -234,7 +247,9 @@ class PromptManager:
         try:
             reflexion_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
-            logger.warning("Failed to create global .reflexion directory: %s", reflexion_dir)
+            logger.warning(
+                "Failed to create global .reflexion directory: %s", reflexion_dir
+            )
             return
 
         soul_path = reflexion_dir / "soul.md"
@@ -242,14 +257,18 @@ class PromptManager:
 
         if not soul_path.exists():
             try:
-                soul_path.write_text(self._DEFAULT_SOUL_MD.strip() + "\n", encoding="utf-8")
+                soul_path.write_text(
+                    self._DEFAULT_SOUL_MD.strip() + "\n", encoding="utf-8"
+                )
                 logger.info("Initialized global overlay: %s", soul_path)
             except OSError:
                 logger.warning("Failed to create global soul.md: %s", soul_path)
 
         if not agent_path.exists():
             try:
-                agent_path.write_text(self._DEFAULT_AGENT_MD.strip() + "\n", encoding="utf-8")
+                agent_path.write_text(
+                    self._DEFAULT_AGENT_MD.strip() + "\n", encoding="utf-8"
+                )
                 logger.info("Initialized global overlay: %s", agent_path)
             except OSError:
                 logger.warning("Failed to create global agent.md: %s", agent_path)
@@ -262,15 +281,19 @@ class PromptManager:
         ]
         if project_root:
             root = Path(project_root)
-            paths.extend([
-                root / ".reflexion" / "soul.md",
-                root / ".reflexion" / "agent.md",
-            ])
+            paths.extend(
+                [
+                    root / ".reflexion" / "soul.md",
+                    root / ".reflexion" / "agent.md",
+                ]
+            )
         return paths
 
     @staticmethod
     def _join_sections(sections: list[str]) -> str:
-        normalized = [section.strip() for section in sections if str(section or "").strip()]
+        normalized = [
+            section.strip() for section in sections if str(section or "").strip()
+        ]
         return "\n\n".join(normalized)
 
     def register_template(self, name: str, template: str, variables: list[str]):
@@ -299,7 +322,9 @@ class PromptManager:
             is_git_repo=str(is_git_repo),
         )
         sections = [base_prompt]
-        sections.extend(self._read_optional_text(path) for path in self._overlay_paths(project_root))
+        sections.extend(
+            self._read_optional_text(path) for path in self._overlay_paths(project_root)
+        )
         if coding_mode:
             sections.append(self.get_template("coding_appendix").render())
         return self._join_sections(sections)
@@ -326,13 +351,19 @@ class PromptManager:
         available_actions: list[str] | None = None,
     ) -> str:
         if original_args:
-            args_lines = [f"  - {k}: {v!r}" for k, v in original_args.items() if v is not None]
-            original_args_section = "- Arguments you used:\n" + "\n".join(args_lines) if args_lines else ""
+            args_lines = [
+                f"  - {k}: {v!r}" for k, v in original_args.items() if v is not None
+            ]
+            original_args_section = (
+                "- Arguments you used:\n" + "\n".join(args_lines) if args_lines else ""
+            )
         else:
             original_args_section = ""
 
         if available_actions:
-            available_actions_section = f"- Available actions for {tool}: {', '.join(available_actions)}"
+            available_actions_section = (
+                f"- Available actions for {tool}: {', '.join(available_actions)}"
+            )
         else:
             available_actions_section = ""
 
@@ -360,7 +391,9 @@ class PromptManager:
         existing_summary: str | None = None,
     ) -> str:
         if existing_summary:
-            existing_summary_block = f"[Existing summary]\n{existing_summary}\n\n[New conversation]"
+            existing_summary_block = (
+                f"[Existing summary]\n{existing_summary}\n\n[New conversation]"
+            )
         else:
             existing_summary_block = ""
         return self.get_template("midrun_compress_input").render(

@@ -2,7 +2,11 @@ from pathlib import Path
 
 import pytest
 
-from app.execution.prompt_manager import PromptFamily, PromptManager, classify_prompt_family
+from app.execution.prompt_manager import (
+    PromptFamily,
+    PromptManager,
+    classify_prompt_family,
+)
 
 
 PROMPTS_DIR = Path(__file__).parents[2] / "app" / "execution" / "prompts"
@@ -29,17 +33,27 @@ class TestPromptManager:
         assert "Plan rules" in prompt
         assert "Task Planning" in prompt
 
-    def test_get_system_prompt_merges_global_and_project_overlays(self, tmp_path, monkeypatch):
+    def test_get_system_prompt_merges_global_and_project_overlays(
+        self, tmp_path, monkeypatch
+    ):
         home = tmp_path / "home"
         monkeypatch.setenv("HOME", str(home))
         (home / ".reflexion").mkdir(parents=True)
-        (home / ".reflexion" / "soul.md").write_text("## Identity\nGlobal soul", encoding="utf-8")
-        (home / ".reflexion" / "agent.md").write_text("## Evidence First\nGlobal agent", encoding="utf-8")
+        (home / ".reflexion" / "soul.md").write_text(
+            "## Identity\nGlobal soul", encoding="utf-8"
+        )
+        (home / ".reflexion" / "agent.md").write_text(
+            "## Evidence First\nGlobal agent", encoding="utf-8"
+        )
 
         project_root = tmp_path / "project"
         (project_root / ".reflexion").mkdir(parents=True)
-        (project_root / ".reflexion" / "soul.md").write_text("## Identity\nProject soul", encoding="utf-8")
-        (project_root / ".reflexion" / "agent.md").write_text("## Completion Rules\nProject agent", encoding="utf-8")
+        (project_root / ".reflexion" / "soul.md").write_text(
+            "## Identity\nProject soul", encoding="utf-8"
+        )
+        (project_root / ".reflexion" / "agent.md").write_text(
+            "## Completion Rules\nProject agent", encoding="utf-8"
+        )
 
         manager = PromptManager(model_name="gpt-4o")
         prompt = manager.get_system_prompt(
@@ -84,7 +98,9 @@ class TestPromptManager:
         assert "Coding mode stopping rules" in prompt
         assert "status update is not completion" in prompt
         assert "unfinished work" in prompt
-        assert "You MUST continue using tools until the task is fully complete" in prompt
+        assert (
+            "You MUST continue using tools until the task is fully complete" in prompt
+        )
 
     def test_coding_appendix_prompt_assets_define_coding_mode_rules(self):
         default_appendix = PROMPTS_DIR / "coding_appendix.txt"
@@ -93,8 +109,12 @@ class TestPromptManager:
         assert default_appendix.exists()
         assert glm_appendix.exists()
 
-        assert "Coding mode stopping rules" in default_appendix.read_text(encoding="utf-8")
-        assert "status update is not completion" in default_appendix.read_text(encoding="utf-8")
+        assert "Coding mode stopping rules" in default_appendix.read_text(
+            encoding="utf-8"
+        )
+        assert "status update is not completion" in default_appendix.read_text(
+            encoding="utf-8"
+        )
         assert "unfinished work" in default_appendix.read_text(encoding="utf-8")
         assert "编码模式停止规则" in glm_appendix.read_text(encoding="utf-8")
 
@@ -113,7 +133,10 @@ class TestPromptManager:
     def test_initial_plan_prompt_matches_plan_tool_protocol(self, manager):
         prompt = manager.get_initial_plan_prompt()
 
-        assert "Call the plan tool only if the task clearly needs 3 or more distinct execution steps" in prompt
+        assert (
+            "Call the plan tool only if the task clearly needs 3 or more distinct execution steps"
+            in prompt
+        )
         assert "respond exactly: NO_PLAN" in prompt
         assert "status to in_progress" in prompt
 
@@ -121,26 +144,34 @@ class TestPromptManager:
         prompt = manager.get_final_response_prompt(task="Fix the prompt stack")
 
         assert "Fix the prompt stack" in prompt
-        assert "Do not write the final answer if the active plan still has unfinished steps" in prompt
+        assert (
+            "Do not write the final answer if the active plan still has unfinished steps"
+            in prompt
+        )
 
-    def test_final_response_prompt_warns_against_unverified_coding_completion(self, manager):
+    def test_final_response_prompt_warns_against_unverified_coding_completion(
+        self, manager
+    ):
         prompt = manager.get_final_response_prompt(task="Implement feature X")
 
         assert "verification" in prompt.lower()
-        assert "do not claim the work is complete" in prompt.lower() or "do not claim" in prompt.lower()
+        assert (
+            "do not claim the work is complete" in prompt.lower()
+            or "do not claim" in prompt.lower()
+        )
         assert "continue execution" in prompt.lower()
 
     def test_get_error_prompt(self, manager):
-        prompt = manager.get_error_prompt(
-            error="File not found", tool="file"
-        )
+        prompt = manager.get_error_prompt(error="File not found", tool="file")
 
         assert "File not found" in prompt
         assert "file" in prompt
         assert "How to fix" in prompt
 
     def test_register_custom_template(self, manager):
-        manager.register_template(name="custom", template="Custom: $content", variables=["content"])
+        manager.register_template(
+            name="custom", template="Custom: $content", variables=["content"]
+        )
 
         template = manager.get_template("custom")
         result = template.render(content="test")
@@ -237,14 +268,18 @@ class TestClassifyPromptFamily:
 class TestPromptFamilySelection:
     def test_default_family_uses_english_prompts(self):
         manager = PromptManager(model_name="gpt-4o")
-        prompt = manager.get_system_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
+        prompt = manager.get_system_prompt(
+            working_directory="/p", platform="darwin", is_git_repo=True
+        )
         assert "autonomous coding agent" not in prompt
         assert "shared workspace" in prompt.lower() or "same project" in prompt.lower()
         assert "Instruction Priority" in prompt
 
     def test_glm_family_uses_chinese_prompts(self):
         manager = PromptManager(model_name="glm-4-plus")
-        prompt = manager.get_system_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
+        prompt = manager.get_system_prompt(
+            working_directory="/p", platform="darwin", is_git_repo=True
+        )
         assert "协作" in prompt
         assert "自主编程智能体" not in prompt
         assert "计划契约" in prompt
@@ -279,7 +314,9 @@ class TestPromptFamilySelection:
 
     def test_glm_family_plan_mode_prompt_matches_runtime_protocol(self):
         manager = PromptManager(model_name="glm-4-plus")
-        prompt = manager.get_plan_mode_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
+        prompt = manager.get_plan_mode_prompt(
+            working_directory="/p", platform="darwin", is_git_repo=True
+        )
 
         assert "澄清门" in prompt
         assert "先穷尽可观察证据，再向用户提问" in prompt
@@ -295,15 +332,21 @@ class TestPromptFamilySelection:
 
     def test_non_glm_chinese_models_fall_back_to_default(self):
         manager = PromptManager(model_name="qwen-plus")
-        prompt = manager.get_system_prompt(working_directory="/p", platform="darwin", is_git_repo=True)
+        prompt = manager.get_system_prompt(
+            working_directory="/p", platform="darwin", is_git_repo=True
+        )
         assert "autonomous coding agent" not in prompt
 
 
 def test_project_reflexion_overlay_content_is_included(tmp_path):
     project_root = tmp_path / "project"
     (project_root / ".reflexion").mkdir(parents=True)
-    (project_root / ".reflexion" / "soul.md").write_text("## Identity\nProject overlay identity", encoding="utf-8")
-    (project_root / ".reflexion" / "agent.md").write_text("## Completion Rules\nProject overlay rules", encoding="utf-8")
+    (project_root / ".reflexion" / "soul.md").write_text(
+        "## Identity\nProject overlay identity", encoding="utf-8"
+    )
+    (project_root / ".reflexion" / "agent.md").write_text(
+        "## Completion Rules\nProject overlay rules", encoding="utf-8"
+    )
 
     manager = PromptManager(model_name="gpt-4o")
     prompt = manager.get_system_prompt(

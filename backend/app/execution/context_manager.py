@@ -41,6 +41,7 @@ class LoopContext:
         self.plan_file_path: str | None = None
         # Context compressor (三级上下文模型)
         from app.config.settings import config_manager
+
         self.compressor = ContextCompressor(
             max_context_groups=10,
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
@@ -157,7 +158,11 @@ class LoopContext:
     def update_history(self, action: Any, result: str) -> None:
         """更新执行历史"""
         self.history.append(
-            {"action": action, "result": result, "timestamp": datetime.now().isoformat()}
+            {
+                "action": action,
+                "result": result,
+                "timestamp": datetime.now().isoformat(),
+            }
         )
         logger.debug("更新执行历史")
 

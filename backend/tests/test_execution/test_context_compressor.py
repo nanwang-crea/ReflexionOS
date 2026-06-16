@@ -1,4 +1,5 @@
 """上下文压缩器单元测试"""
+
 import pytest
 from app.execution.context_compressor import ContextCompressor, MessageGroup
 from app.llm.base import MessageRole
@@ -245,11 +246,15 @@ def test_prune_tool_outputs_clears_old_content():
         )
         compressor.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
 
-    recovered = compressor.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
+    recovered = compressor.prune_tool_outputs(
+        protect_recent_groups=2, minimum_recovery_tokens=1
+    )
 
     assert recovered > 0
     messages = compressor.get_messages()
-    cleared = [m for m in messages if m.get("content") == "[Old tool result content cleared]"]
+    cleared = [
+        m for m in messages if m.get("content") == "[Old tool result content cleared]"
+    ]
     assert len(cleared) > 0
 
 
@@ -369,7 +374,10 @@ def test_build_tier2_messages_truncates_long_outputs():
     assert tier2_messages[1].role == "tool"
     # tool 输出应该被截断
     assert len(tier2_messages[1].content) < 500
-    assert "session_recall" in tier2_messages[1].content or "truncated" in tier2_messages[1].content
+    assert (
+        "session_recall" in tier2_messages[1].content
+        or "truncated" in tier2_messages[1].content
+    )
 
 
 def test_build_tier2_messages_preserves_tool_call_id():
@@ -494,7 +502,11 @@ def test_message_group_first_message_role():
     """测试 MessageGroup 的 first_message_role 属性"""
     group = MessageGroup(
         messages=[
-            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "name": "read", "arguments": {}}]},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "c1", "name": "read", "arguments": {}}],
+            },
             {"role": "tool", "content": "output", "tool_call_id": "c1"},
         ],
         token_count=100,
@@ -654,10 +666,13 @@ def test_prune_already_cleared_messages():
     compressor.add_message("user", "recent message")
 
     # 第一次裁剪
-    recovered1 = compressor.prune_tool_outputs(protect_recent_groups=1, minimum_recovery_tokens=1)
+    recovered1 = compressor.prune_tool_outputs(
+        protect_recent_groups=1, minimum_recovery_tokens=1
+    )
     assert recovered1 > 0
 
     # 第二次裁剪应该跳过已清除的消息
-    recovered2 = compressor.prune_tool_outputs(protect_recent_groups=0, minimum_recovery_tokens=1)
+    recovered2 = compressor.prune_tool_outputs(
+        protect_recent_groups=0, minimum_recovery_tokens=1
+    )
     assert recovered2 == 0
-

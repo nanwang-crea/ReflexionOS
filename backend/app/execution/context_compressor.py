@@ -1,4 +1,5 @@
 """上下文压缩器 - 统一管理消息状态和三级压缩模型"""
+
 import copy
 import logging
 from collections.abc import Awaitable, Callable
@@ -22,8 +23,9 @@ class MessageGroup:
     - 后续的 tool 消息归入当前组
     - 其他消息（user, assistant 纯文本）单独成组
     """
+
     messages: list[dict]  # 该组的所有消息
-    token_count: int      # 预计算的 token 数，避免重复计算
+    token_count: int  # 预计算的 token 数，避免重复计算
 
     @property
     def has_tool_calls(self) -> bool:
@@ -63,10 +65,10 @@ class ContextCompressor:
             max_context_groups: Tier 1 保留的最大分组数
             tool_output_max_chars: Tier 2 截断时保留的最大字符数
         """
-        self._messages: list[dict] = []              # 所有消息
-        self._compacted_summary: str | None = None   # Tier 3 压缩摘要
-        self._total_tokens: int = 0                  # 当前总 token 数
-        self._group_count: int = 0                   # 消息分组计数
+        self._messages: list[dict] = []  # 所有消息
+        self._compacted_summary: str | None = None  # Tier 3 压缩摘要
+        self._total_tokens: int = 0  # 当前总 token 数
+        self._group_count: int = 0  # 消息分组计数
         self.max_context_groups = max_context_groups
         self.tool_output_max_chars = tool_output_max_chars
 
@@ -159,7 +161,9 @@ class ContextCompressor:
                 active_tool_group = [msg]
                 # 预计算该消息的 token
                 token_count = count_messages_tokens([msg])
-                grouped.append(MessageGroup(messages=active_tool_group, token_count=token_count))
+                grouped.append(
+                    MessageGroup(messages=active_tool_group, token_count=token_count)
+                )
                 continue
 
             # tool 消息归入当前组
@@ -262,7 +266,7 @@ class ContextCompressor:
             return []
 
         # 只处理超出窗口的旧分组
-        older_groups = grouped[:-self.max_context_groups]
+        older_groups = grouped[: -self.max_context_groups]
         tier2: list[LLMMessage] = []
 
         for group in older_groups:
@@ -270,25 +274,35 @@ class ContextCompressor:
                 content = msg.get("content")
 
                 # 空内容的 assistant 消息（只有 tool_calls）
-                if content is None or (isinstance(content, str) and not content.strip()):
+                if content is None or (
+                    isinstance(content, str) and not content.strip()
+                ):
                     if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
                         tool_calls_list = msg.get("tool_calls", [])
-                        tier2.append(LLMMessage(
-                            role=MessageRole.ASSISTANT,
-                            content=content,
-                            tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else None,
-                        ))
+                        tier2.append(
+                            LLMMessage(
+                                role=MessageRole.ASSISTANT,
+                                content=content,
+                                tool_calls=(
+                                    [LLMToolCall(**tc) for tc in tool_calls_list]
+                                    if tool_calls_list
+                                    else None
+                                ),
+                            )
+                        )
                     continue
 
                 # tool 消息：截断长输出
                 if msg["role"] == MessageRole.TOOL:
                     # 已被裁剪的保持原样
                     if content == "[Old tool result content cleared]":
-                        tier2.append(LLMMessage(
-                            role=MessageRole.TOOL,
-                            content=content,
-                            tool_call_id=msg.get("tool_call_id"),
-                        ))
+                        tier2.append(
+                            LLMMessage(
+                                role=MessageRole.TOOL,
+                                content=content,
+                                tool_call_id=msg.get("tool_call_id"),
+                            )
+                        )
                         continue
 
                     # 超长输出：head+tail 截断
@@ -301,20 +315,28 @@ class ContextCompressor:
                             reason="session_recall retrieve",
                         )
 
-                    tier2.append(LLMMessage(
-                        role=MessageRole.TOOL,
-                        content=content,
-                        tool_call_id=msg.get("tool_call_id"),
-                    ))
+                    tier2.append(
+                        LLMMessage(
+                            role=MessageRole.TOOL,
+                            content=content,
+                            tool_call_id=msg.get("tool_call_id"),
+                        )
+                    )
 
                 # assistant 消息（有 tool_calls 或纯文本）
                 elif msg["role"] == MessageRole.ASSISTANT:
                     tool_calls_list = msg.get("tool_calls", [])
-                    tier2.append(LLMMessage(
-                        role=MessageRole.ASSISTANT,
-                        content=content,
-                        tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else [],
-                    ))
+                    tier2.append(
+                        LLMMessage(
+                            role=MessageRole.ASSISTANT,
+                            content=content,
+                            tool_calls=(
+                                [LLMToolCall(**tc) for tc in tool_calls_list]
+                                if tool_calls_list
+                                else []
+                            ),
+                        )
+                    )
 
                 # user 消息：保留所有（包括多模态内容）
                 elif msg["role"] == MessageRole.USER:
@@ -359,7 +381,7 @@ class ContextCompressor:
                 return
 
             # 提取旧消息
-            older_groups = grouped[:-self.max_context_groups]
+            older_groups = grouped[: -self.max_context_groups]
             older_messages = []
             for group in older_groups:
                 older_messages.extend(group.messages)
@@ -371,7 +393,9 @@ class ContextCompressor:
                 if isinstance(content, str) and content.strip():
                     role = msg.get("role", "unknown")
                     # 截断过长内容
-                    truncated_content = content[:2000] if len(content) > 2000 else content
+                    truncated_content = (
+                        content[:2000] if len(content) > 2000 else content
+                    )
                     transcript_parts.append(f"[{role}] {truncated_content}")
 
             transcript = "\n\n".join(transcript_parts)
@@ -387,7 +411,7 @@ class ContextCompressor:
             self._compacted_summary = summary.strip()
 
             # 移除旧消息，保留最近 N 组
-            recent_groups = grouped[-self.max_context_groups:]
+            recent_groups = grouped[-self.max_context_groups :]
             self._messages = []
             for group in recent_groups:
                 self._messages.extend(group.messages)
@@ -400,7 +424,9 @@ class ContextCompressor:
 
             logger.info(
                 "Tier 3 compaction completed. Summary length=%d, remaining messages=%d, tokens=%d",
-                len(summary), len(self._messages), self._total_tokens,
+                len(summary),
+                len(self._messages),
+                self._total_tokens,
             )
 
         except Exception as e:
@@ -470,7 +496,7 @@ class ContextCompressor:
                 is_protected = False
                 tool_call_msg = next(
                     (m for m in group.messages if m["role"] == MessageRole.ASSISTANT),
-                    None
+                    None,
                 )
                 if tool_call_msg:
                     for tc in tool_call_msg.get("tool_calls", []):
@@ -501,7 +527,9 @@ class ContextCompressor:
 
         logger.info(
             "Pruned %d tool outputs, recovered ~%d tokens, remaining total_tokens=%d",
-            len(candidates), recovered, self._total_tokens,
+            len(candidates),
+            recovered,
+            self._total_tokens,
         )
 
         return recovered

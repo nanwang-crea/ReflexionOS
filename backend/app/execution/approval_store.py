@@ -67,7 +67,8 @@ class PendingApprovalStore:
     def list_pending_approval_ids_for_session(self, session_id: str) -> list[str]:
         with self._lock:
             return [
-                aid for aid, pending in self._approvals.items()
+                aid
+                for aid, pending in self._approvals.items()
                 if pending.session_id == session_id and pending.status == "pending"
             ]
 

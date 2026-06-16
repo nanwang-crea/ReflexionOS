@@ -131,7 +131,10 @@ class FailingTool(BaseTool):
         return {
             "name": self.name,
             "description": self.description,
-            "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+            "parameters": {
+                "type": "object",
+                "properties": {"action": {"type": "string"}},
+            },
         }
 
     async def execute(self, args):
@@ -145,7 +148,9 @@ class TestRapidExecutionLoop:
             yield StreamChunk(type="content", content=content)
 
         if tool_calls:
-            yield StreamChunk(type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason)
+            yield StreamChunk(
+                type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason
+            )
         else:
             yield StreamChunk(type="done", finish_reason=finish_reason)
 
@@ -163,7 +168,9 @@ class TestRapidExecutionLoop:
 
     @pytest.fixture
     def execution_loop(self, mock_llm, tool_registry):
-        return RapidExecutionLoop(llm=mock_llm, tool_registry=tool_registry, max_steps=5)
+        return RapidExecutionLoop(
+            llm=mock_llm, tool_registry=tool_registry, max_steps=5
+        )
 
     @pytest.mark.asyncio
     async def test_execution_with_finish(self, execution_loop, mock_llm):
@@ -243,7 +250,9 @@ class TestRapidExecutionLoop:
 
             if call_index == 1:
                 async for chunk in self._stream_response(
-                    content="先读取 README", tool_calls=[tool_call], finish_reason="tool_calls"
+                    content="先读取 README",
+                    tool_calls=[tool_call],
+                    finish_reason="tool_calls",
                 ):
                     yield chunk
             else:
@@ -281,12 +290,16 @@ class TestRapidExecutionLoop:
         registry = ToolRegistry()
         registry.register(MockTool())
         registry.register(PlanTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=5)
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm, tool_registry=registry, max_steps=5
+        )
 
         seeded_plan = Plan(
             goal="修复循环执行",
             steps=[
-                PlanStep(content="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(
+                    content="定位根因", status="completed", findings="已确认状态问题"
+                ),
                 PlanStep(content="修改执行循环", status="in_progress"),
                 PlanStep(content="验证结果", status="pending"),
             ],
@@ -300,18 +313,23 @@ class TestRapidExecutionLoop:
         execution_loop._bootstrap_plan = bootstrap_with_plan
 
         call_count = [0]
+
         async def mock_stream(messages, tools=None):
             call_count[0] += 1
             if tools is not None and call_count[0] == 1:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    tool_calls=[
+                        LLMToolCall(name="mock", arguments={"path": "README.md"})
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
                 return
             if tools is not None and call_count[0] == 2:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "src/app.ts"})],
+                    tool_calls=[
+                        LLMToolCall(name="mock", arguments={"path": "src/app.ts"})
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
@@ -323,11 +341,19 @@ class TestRapidExecutionLoop:
                             name="plan",
                             arguments={
                                 "steps": [
-                                    {"content": "定位根因", "status": "completed", "findings": "已确认状态问题"},
-                                    {"content": "修改执行循环", "status": "completed", "findings": "已完成修改并验证关键文件"},
+                                    {
+                                        "content": "定位根因",
+                                        "status": "completed",
+                                        "findings": "已确认状态问题",
+                                    },
+                                    {
+                                        "content": "修改执行循环",
+                                        "status": "completed",
+                                        "findings": "已完成修改并验证关键文件",
+                                    },
                                     {"content": "验证结果", "status": "in_progress"},
                                 ],
-                            }
+                            },
                         )
                     ],
                     finish_reason="tool_calls",
@@ -355,12 +381,16 @@ class TestRapidExecutionLoop:
         registry = ToolRegistry()
         registry.register(MockTool())
         registry.register(PlanTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=6)
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm, tool_registry=registry, max_steps=6
+        )
 
         seeded_plan = Plan(
             goal="修复循环执行",
             steps=[
-                PlanStep(content="定位根因", status="completed", findings="已确认状态问题"),
+                PlanStep(
+                    content="定位根因", status="completed", findings="已确认状态问题"
+                ),
                 PlanStep(content="修改执行循环", status="in_progress"),
                 PlanStep(content="验证结果", status="pending"),
             ],
@@ -379,7 +409,9 @@ class TestRapidExecutionLoop:
             call_count[0] += 1
             if tools is not None and call_count[0] == 1:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    tool_calls=[
+                        LLMToolCall(name="mock", arguments={"path": "README.md"})
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
@@ -391,18 +423,28 @@ class TestRapidExecutionLoop:
                             name="plan",
                             arguments={
                                 "steps": [
-                                    {"content": "定位根因", "status": "completed", "findings": "已确认状态问题"},
-                                    {"content": "修改执行循环", "status": "completed", "findings": "修改已完成"},
+                                    {
+                                        "content": "定位根因",
+                                        "status": "completed",
+                                        "findings": "已确认状态问题",
+                                    },
+                                    {
+                                        "content": "修改执行循环",
+                                        "status": "completed",
+                                        "findings": "修改已完成",
+                                    },
                                     {"content": "验证结果", "status": "in_progress"},
                                 ],
-                            }
+                            },
                         )
                     ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
                 return
-            async for chunk in self._stream_response(content="计划已更新，继续下一步。"):
+            async for chunk in self._stream_response(
+                content="计划已更新，继续下一步。"
+            ):
                 yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -415,7 +457,9 @@ class TestRapidExecutionLoop:
         assert result.result == "计划已更新，继续下一步。"
 
     @pytest.mark.asyncio
-    async def test_tier3_compaction_keeps_recent_context_groups(self, execution_loop, mock_llm):
+    async def test_tier3_compaction_keeps_recent_context_groups(
+        self, execution_loop, mock_llm
+    ):
         context = LoopContext(task="summarize old context")
         for i in range(12):
             context.add_message("user", f"message {i}")
@@ -424,11 +468,13 @@ class TestRapidExecutionLoop:
             return "summary [session_recall can retrieve]"
 
         await context.compressor.compact_tier3(
-            task=context.task,
-            summarizer=mock_summarizer
+            task=context.task, summarizer=mock_summarizer
         )
 
-        assert context.compressor.get_compacted_summary() == "summary [session_recall can retrieve]"
+        assert (
+            context.compressor.get_compacted_summary()
+            == "summary [session_recall can retrieve]"
+        )
         messages = context.compressor.get_messages()
         # With max_context_groups=10, should keep last 10 messages (messages 2-11)
         assert [msg["content"] for msg in messages] == [
@@ -459,7 +505,9 @@ class TestRapidExecutionLoop:
                 async for chunk in self._stream_response(content=""):
                     yield chunk
             else:
-                async for chunk in self._stream_response(content="项目采用前后端分离结构。"):
+                async for chunk in self._stream_response(
+                    content="项目采用前后端分离结构。"
+                ):
                     yield chunk
 
         mock_llm.stream_complete = mock_stream
@@ -499,7 +547,9 @@ class TestRapidExecutionLoop:
             supplemental_context="当前目标: 修 memory",
         )
 
-        contents = [message.content for message in captured["messages"] if message.content]
+        contents = [
+            message.content for message in captured["messages"] if message.content
+        ]
         assert "继续处理" in contents
         assert "上一轮需求" in contents
         assert "上一轮结论" in contents
@@ -531,7 +581,9 @@ class TestRapidExecutionLoop:
     async def test_read_only_batch_is_deduplicated_and_capped(self, mock_llm):
         registry = ToolRegistry()
         registry.register(ReadOnlyFileTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm, tool_registry=registry, max_steps=10
+        )
 
         call_count = [0]
 
@@ -540,12 +592,24 @@ class TestRapidExecutionLoop:
             if call_count[0] == 1:
                 async for chunk in self._stream_response(
                     tool_calls=[
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "a.ts"}),
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "a.ts"}),
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "b.ts"}),
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "c.ts"}),
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "d.ts"}),
-                        LLMToolCall(name="file", arguments={"action": "read", "path": "e.ts"}),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "a.ts"}
+                        ),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "a.ts"}
+                        ),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "b.ts"}
+                        ),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "c.ts"}
+                        ),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "d.ts"}
+                        ),
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "e.ts"}
+                        ),
                     ],
                     finish_reason="tool_calls",
                 ):
@@ -561,7 +625,12 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.COMPLETED
         assert len(result.steps) == 4
-        assert [step.args["path"] for step in result.steps] == ["a.ts", "b.ts", "c.ts", "d.ts"]
+        assert [step.args["path"] for step in result.steps] == [
+            "a.ts",
+            "b.ts",
+            "c.ts",
+            "d.ts",
+        ]
 
     @pytest.mark.asyncio
     async def test_investigation_budget_allows_additional_read_only_passes_when_each_adds_new_facts(
@@ -570,7 +639,9 @@ class TestRapidExecutionLoop:
     ):
         registry = ToolRegistry()
         registry.register(ReadOnlyFileTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=10)
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm, tool_registry=registry, max_steps=10
+        )
 
         call_count = [0]
 
@@ -578,7 +649,12 @@ class TestRapidExecutionLoop:
             call_count[0] += 1
             if tools is not None and call_count[0] <= 3:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": f"{call_count[0]}.ts"})],
+                    tool_calls=[
+                        LLMToolCall(
+                            name="file",
+                            arguments={"action": "read", "path": f"{call_count[0]}.ts"},
+                        )
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
@@ -602,7 +678,9 @@ class TestRapidExecutionLoop:
     ):
         registry = ToolRegistry()
         registry.register(ReadOnlyFileTool())
-        execution_loop = RapidExecutionLoop(llm=mock_llm, tool_registry=registry, max_steps=20)
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm, tool_registry=registry, max_steps=20
+        )
 
         call_count = [0]
 
@@ -610,7 +688,11 @@ class TestRapidExecutionLoop:
             call_count[0] += 1
             if tools is not None:
                 async for chunk in self._stream_response(
-                    tool_calls=[LLMToolCall(name="file", arguments={"action": "read", "path": "same.ts"})],
+                    tool_calls=[
+                        LLMToolCall(
+                            name="file", arguments={"action": "read", "path": "same.ts"}
+                        )
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
@@ -630,14 +712,19 @@ class TestRapidExecutionLoop:
         assert result.result == "执行完成（达到最大步数）"
 
     @pytest.mark.asyncio
-    async def test_event_callback_emits_tool_start_and_result(self, mock_llm, tool_registry):
+    async def test_event_callback_emits_tool_start_and_result(
+        self, mock_llm, tool_registry
+    ):
         events = []
 
         async def callback(event_type, data):
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=2, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback,
         )
         call_count = [0]
 
@@ -686,7 +773,9 @@ class TestRapidExecutionLoop:
 
         await execution_loop.run("检查性能指标")
 
-        metrics_event = next(event for event in events if event["type"] == "metrics:llm_call")
+        metrics_event = next(
+            event for event in events if event["type"] == "metrics:llm_call"
+        )
         assert metrics_event["data"]["model"] == "gpt-4"
         assert metrics_event["data"]["attempt"] == 1
         assert metrics_event["data"]["prompt_tokens"] > 0
@@ -697,7 +786,9 @@ class TestRapidExecutionLoop:
         assert metrics_event["data"]["content_chars"] == 2
 
     @pytest.mark.asyncio
-    async def test_tool_approval_required_pauses_run_without_error_recovery(self, mock_llm):
+    async def test_tool_approval_required_pauses_run_without_error_recovery(
+        self, mock_llm
+    ):
         registry = ToolRegistry()
         registry.register(ApprovalTool())
         events = []
@@ -752,15 +843,21 @@ class TestRapidExecutionLoop:
         assert "run:complete" not in event_types
         assert len(captured_calls) == 1
 
-        tool_start_event = next(event for event in events if event["type"] == "tool:start")
+        tool_start_event = next(
+            event for event in events if event["type"] == "tool:start"
+        )
         assert tool_start_event["data"]["tool_call_id"] == tool_call.id
 
-        approval_event = next(event for event in events if event["type"] == "approval:required")
+        approval_event = next(
+            event for event in events if event["type"] == "approval:required"
+        )
         assert approval_event["data"]["tool_call_id"] == tool_call.id
         assert approval_event["data"]["approval_id"] == "approval-1"
 
     @pytest.mark.asyncio
-    async def test_approval_required_without_metadata_fails_instead_of_waiting(self, mock_llm):
+    async def test_approval_required_without_metadata_fails_instead_of_waiting(
+        self, mock_llm
+    ):
         registry = ToolRegistry()
         registry.register(MissingApprovalMetadataTool())
         events = []
@@ -775,7 +872,9 @@ class TestRapidExecutionLoop:
             max_steps=3,
             event_callback=callback,
         )
-        tool_call = LLMToolCall(name="missing_approval_metadata", arguments={"value": 1})
+        tool_call = LLMToolCall(
+            name="missing_approval_metadata", arguments={"value": 1}
+        )
 
         async def mock_stream(messages, tools=None):
             captured_calls.append(messages)
@@ -801,7 +900,9 @@ class TestRapidExecutionLoop:
         assert "approval metadata" in result.steps[-1].error
         assert len(captured_calls) == 2
 
-        tool_message = next(message for message in captured_calls[1] if message.role == "tool")
+        tool_message = next(
+            message for message in captured_calls[1] if message.role == "tool"
+        )
         assert tool_message.tool_call_id == tool_call.id
         assert "approval metadata" in tool_message.content
 
@@ -810,7 +911,9 @@ class TestRapidExecutionLoop:
         assert event_types.count("tool:error") == 1
 
     @pytest.mark.asyncio
-    async def test_initial_plan_preflight_emits_plan_without_streaming_preface(self, mock_llm):
+    async def test_initial_plan_preflight_emits_plan_without_streaming_preface(
+        self, mock_llm
+    ):
         import shutil
         from app.execution.plan_file_sync import PlanFileSync
 
@@ -836,6 +939,7 @@ class TestRapidExecutionLoop:
 
         async def mock_complete(messages, tools=None):
             from app.llm.base import LLMResponse
+
             captured_tools.append(tools)
             return LLMResponse(
                 content="我先制定计划。",
@@ -883,7 +987,9 @@ class TestRapidExecutionLoop:
         main_plan_tool = next(tool for tool in captured_tools[1] if tool.name == "plan")
 
     @pytest.mark.asyncio
-    async def test_initial_plan_preflight_can_decline_and_keep_normal_streaming(self, mock_llm):
+    async def test_initial_plan_preflight_can_decline_and_keep_normal_streaming(
+        self, mock_llm
+    ):
         import shutil
         from app.execution.plan_file_sync import PlanFileSync
 
@@ -909,6 +1015,7 @@ class TestRapidExecutionLoop:
 
         async def mock_complete(messages, tools=None):
             from app.llm.base import LLMResponse
+
             captured_tools.append(tools)
             return LLMResponse(
                 content="NO_PLAN",
@@ -931,7 +1038,8 @@ class TestRapidExecutionLoop:
         assert result.result == "直接回答。"
         assert not any(event["type"] == "plan:updated" for event in events)
         assert any(
-            event["type"] == "llm:content" and event["data"].get("content") == "直接回答。"
+            event["type"] == "llm:content"
+            and event["data"].get("content") == "直接回答。"
             for event in events
         )
         main_tool_names = [tool.name for tool in captured_tools[1]]
@@ -946,7 +1054,10 @@ class TestRapidExecutionLoop:
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=5, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=5,
+            event_callback=callback,
         )
 
         async def mock_stream(messages, tools=None):
@@ -975,7 +1086,10 @@ class TestRapidExecutionLoop:
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=2, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback,
         )
 
         call_count = [0]
@@ -1016,7 +1130,10 @@ class TestRapidExecutionLoop:
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=2, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=2,
+            event_callback=callback,
         )
 
         async def mock_stream(messages, tools=None):
@@ -1026,7 +1143,9 @@ class TestRapidExecutionLoop:
 
         mock_llm.stream_complete = mock_stream
 
-        task = asyncio.create_task(execution_loop.run("请检查项目结构", run_id="run-cancel-test"))
+        task = asyncio.create_task(
+            execution_loop.run("请检查项目结构", run_id="run-cancel-test")
+        )
         await asyncio.sleep(0)
         task.cancel()
 
@@ -1048,7 +1167,10 @@ class TestRapidExecutionLoop:
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=3, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=3,
+            event_callback=callback,
         )
 
         async def mock_stream(messages, tools=None):
@@ -1069,14 +1191,19 @@ class TestRapidExecutionLoop:
         assert "run:error" not in event_types
 
     @pytest.mark.asyncio
-    async def test_failed_execution_emits_execution_error_event(self, mock_llm, tool_registry):
+    async def test_failed_execution_emits_execution_error_event(
+        self, mock_llm, tool_registry
+    ):
         events = []
 
         async def callback(event_type, data):
             events.append({"type": event_type, "data": data})
 
         execution_loop = RapidExecutionLoop(
-            llm=mock_llm, tool_registry=tool_registry, max_steps=3, event_callback=callback
+            llm=mock_llm,
+            tool_registry=tool_registry,
+            max_steps=3,
+            event_callback=callback,
         )
 
         call_count = [0]
@@ -1086,7 +1213,9 @@ class TestRapidExecutionLoop:
             if call_count[0] == 1:
                 async for chunk in self._stream_response(
                     content="先执行工具",
-                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "README.md"})],
+                    tool_calls=[
+                        LLMToolCall(name="mock", arguments={"path": "README.md"})
+                    ],
                     finish_reason="tool_calls",
                 ):
                     yield chunk
@@ -1145,7 +1274,9 @@ class TestRapidExecutionLoop:
         }
 
     @pytest.mark.asyncio
-    async def test_shell_destructive_command_triggers_approval_through_loop(self, mock_llm):
+    async def test_shell_destructive_command_triggers_approval_through_loop(
+        self, mock_llm
+    ):
         """Shell tool with destructive command should trigger approval flow through the loop."""
         import os
         import tempfile
@@ -1160,7 +1291,9 @@ class TestRapidExecutionLoop:
             root_dir = os.path.realpath(tmpdir)
             path_security = PathSecurity([root_dir], base_dir=root_dir)
             registry = CommandEffectRegistry()
-            shell_tool = ShellTool(ShellSecurity(), path_security, registry, NullSandbox())
+            shell_tool = ShellTool(
+                ShellSecurity(), path_security, registry, NullSandbox()
+            )
 
             tool_registry = ToolRegistry()
             tool_registry.register(shell_tool)
@@ -1178,7 +1311,9 @@ class TestRapidExecutionLoop:
             )
 
             # DESTRUCTIVE command triggers REQUIRE_APPROVAL
-            tool_call = LLMToolCall(name="shell", arguments={"command": "rm -rf build/"})
+            tool_call = LLMToolCall(
+                name="shell", arguments={"command": "rm -rf build/"}
+            )
 
             async def mock_stream(messages, tools=None):
                 async for chunk in self._stream_response(
@@ -1256,11 +1391,13 @@ class TestRapidExecutionLoop:
 
         async def resume_after_delay():
             await asyncio.sleep(0.1)
-            execution_loop.set_approval_result({
-                "success": True,
-                "output": "approved output",
-                "error": None,
-            })
+            execution_loop.set_approval_result(
+                {
+                    "success": True,
+                    "output": "approved output",
+                    "error": None,
+                }
+            )
 
         asyncio.get_event_loop().create_task(resume_after_delay())
 
@@ -1347,7 +1484,8 @@ class TestRapidExecutionLoop:
         # 第一次调用返回失败工具
         async def mock_stream(messages, tools=None):
             async for chunk in self._stream_response(
-                tool_calls=[LLMToolCall(name="fail", arguments={})], finish_reason="tool_calls"
+                tool_calls=[LLMToolCall(name="fail", arguments={})],
+                finish_reason="tool_calls",
             ):
                 yield chunk
 
@@ -1364,13 +1502,19 @@ class TestDoomLoopDetection:
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
         loop = RapidExecutionLoop(
-            llm=llm, tool_registry=registry,
-            max_steps=50, context_window=128000,
+            llm=llm,
+            tool_registry=registry,
+            max_steps=50,
+            context_window=128000,
         )
         context = LoopContext(task="test")
 
-        tc1 = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
-        tc2 = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
+        tc1 = LLMToolCall(
+            id="c1", name="file", arguments={"action": "read", "path": "a.py"}
+        )
+        tc2 = LLMToolCall(
+            id="c2", name="file", arguments={"action": "read", "path": "b.py"}
+        )
         tc3 = LLMToolCall(id="c3", name="grep", arguments={"pattern": "error"})
 
         loop._record_tool_signature(context, tc1)
@@ -1385,12 +1529,16 @@ class TestDoomLoopDetection:
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
         loop = RapidExecutionLoop(
-            llm=llm, tool_registry=registry,
-            max_steps=50, context_window=128000,
+            llm=llm,
+            tool_registry=registry,
+            max_steps=50,
+            context_window=128000,
         )
         context = LoopContext(task="test")
 
-        tc = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
+        tc = LLMToolCall(
+            id="c1", name="file", arguments={"action": "read", "path": "a.py"}
+        )
 
         loop._record_tool_signature(context, tc)
         assert not loop._is_doom_loop(context)
@@ -1404,13 +1552,19 @@ class TestDoomLoopDetection:
         llm = MagicMock()
         llm.get_model_name.return_value = "test-model"
         loop = RapidExecutionLoop(
-            llm=llm, tool_registry=registry,
-            max_steps=50, context_window=128000,
+            llm=llm,
+            tool_registry=registry,
+            max_steps=50,
+            context_window=128000,
         )
         context = LoopContext(task="test")
 
-        tc_a = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
-        tc_b = LLMToolCall(id="c2", name="file", arguments={"action": "read", "path": "b.py"})
+        tc_a = LLMToolCall(
+            id="c1", name="file", arguments={"action": "read", "path": "a.py"}
+        )
+        tc_b = LLMToolCall(
+            id="c2", name="file", arguments={"action": "read", "path": "b.py"}
+        )
 
         loop._record_tool_signature(context, tc_a)
         loop._record_tool_signature(context, tc_a)
@@ -1433,11 +1587,17 @@ class TestHardenedLoopIntegration:
         async def mock_stream(messages, tools):
             nonlocal call_count
             call_count += 1
-            tc = LLMToolCall(id=f"c{call_count}", name="failing", arguments={"action": "try"})
-            yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+            tc = LLMToolCall(
+                id=f"c{call_count}", name="failing", arguments={"action": "try"}
+            )
+            yield StreamChunk(
+                type="tool_calls", tool_calls=[tc], finish_reason="tool_calls"
+            )
 
         llm.stream_complete = mock_stream
-        loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=20, context_window=128000)
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=20, context_window=128000
+        )
 
         result = await loop.run(task="test doom loop integration")
         assert result.status in (LoopStatus.COMPLETED, LoopStatus.FAILED)
@@ -1455,14 +1615,22 @@ class TestHardenedLoopIntegration:
             nonlocal phase
             phase += 1
             if phase == 1:
-                tc = LLMToolCall(id="c1", name="file", arguments={"action": "read", "path": "a.py"})
-                yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+                tc = LLMToolCall(
+                    id="c1", name="file", arguments={"action": "read", "path": "a.py"}
+                )
+                yield StreamChunk(
+                    type="tool_calls", tool_calls=[tc], finish_reason="tool_calls"
+                )
             else:
-                yield StreamChunk(type="content", content="You can now write the code yourself!")
+                yield StreamChunk(
+                    type="content", content="You can now write the code yourself!"
+                )
                 yield StreamChunk(type="done", finish_reason="stop")
 
         llm.stream_complete = mock_stream
-        loop = RapidExecutionLoop(llm=llm, tool_registry=registry, max_steps=20, context_window=128000)
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=20, context_window=128000
+        )
 
         result = await loop.run(task="implement feature X")
         assert result.status in (LoopStatus.COMPLETED, LoopStatus.FAILED)
@@ -1483,18 +1651,26 @@ class TestHardenedLoopIntegration:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                tc = LLMToolCall(id="c1", name="plan", arguments={
-                    "goal": "Fix bug",
-                    "steps": [
-                        {"content": "Analyze", "status": "in_progress"},
-                        {"content": "Fix", "status": "pending"},
-                        {"content": "Test", "status": "pending"},
-                    ],
-                })
-                yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+                tc = LLMToolCall(
+                    id="c1",
+                    name="plan",
+                    arguments={
+                        "goal": "Fix bug",
+                        "steps": [
+                            {"content": "Analyze", "status": "in_progress"},
+                            {"content": "Fix", "status": "pending"},
+                            {"content": "Test", "status": "pending"},
+                        ],
+                    },
+                )
+                yield StreamChunk(
+                    type="tool_calls", tool_calls=[tc], finish_reason="tool_calls"
+                )
             elif call_count == 2:
                 tc = LLMToolCall(id="c2", name="mock", arguments={"query": "test"})
-                yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls", tool_calls=[tc], finish_reason="tool_calls"
+                )
             else:
                 yield StreamChunk(type="content", content="I have analyzed the issue.")
                 yield StreamChunk(type="done", finish_reason="stop")
@@ -1507,8 +1683,11 @@ class TestHardenedLoopIntegration:
             events.append({"type": event_type, "data": data})
 
         loop = RapidExecutionLoop(
-            llm=llm, tool_registry=registry, max_steps=20,
-            context_window=128000, event_callback=callback,
+            llm=llm,
+            tool_registry=registry,
+            max_steps=20,
+            context_window=128000,
+            event_callback=callback,
         )
 
         result = await loop.run(task="fix the auth bug")
@@ -1517,8 +1696,10 @@ class TestHardenedLoopIntegration:
         # The loop either completed with nudged content or kept going
         # Check that a nudge was injected (user message about plan not complete)
         user_msgs = [
-            e for e in events
-            if e["type"] == "tool:result" and "NOT complete" in (e["data"].get("output") or "")
+            e
+            for e in events
+            if e["type"] == "tool:result"
+            and "NOT complete" in (e["data"].get("output") or "")
         ]
         # At minimum, the plan tool should have been called
         plan_events = [e for e in events if e["type"] == "plan:updated"]
@@ -1540,23 +1721,38 @@ class TestHardenedLoopIntegration:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                tc = LLMToolCall(id="c1", name="plan", arguments={
-                    "goal": "Fix bug",
-                    "steps": [
-                        {"content": "Analyze", "status": "completed", "findings": "Found issue"},
-                        {"content": "Fix", "status": "blocked"},
-                        {"content": "Test", "status": "pending"},
-                    ],
-                })
-                yield StreamChunk(type="tool_calls", tool_calls=[tc], finish_reason="tool_calls")
+                tc = LLMToolCall(
+                    id="c1",
+                    name="plan",
+                    arguments={
+                        "goal": "Fix bug",
+                        "steps": [
+                            {
+                                "content": "Analyze",
+                                "status": "completed",
+                                "findings": "Found issue",
+                            },
+                            {"content": "Fix", "status": "blocked"},
+                            {"content": "Test", "status": "pending"},
+                        ],
+                    },
+                )
+                yield StreamChunk(
+                    type="tool_calls", tool_calls=[tc], finish_reason="tool_calls"
+                )
             else:
-                yield StreamChunk(type="content", content="The fix step is blocked — I need user clarification on which approach to use. Which do you prefer: option A or option B?")
+                yield StreamChunk(
+                    type="content",
+                    content="The fix step is blocked — I need user clarification on which approach to use. Which do you prefer: option A or option B?",
+                )
                 yield StreamChunk(type="done", finish_reason="stop")
 
         llm.stream_complete = mock_stream
 
         loop = RapidExecutionLoop(
-            llm=llm, tool_registry=registry, max_steps=10,
+            llm=llm,
+            tool_registry=registry,
+            max_steps=10,
             context_window=128000,
         )
 
@@ -1564,7 +1760,11 @@ class TestHardenedLoopIntegration:
 
         # Should be COMPLETED — blocked step + clarification question means it's OK to stop
         assert result.status == LoopStatus.COMPLETED
-        assert "clarification" in result.result.lower() or "option" in result.result.lower() or "blocked" in result.result.lower()
+        assert (
+            "clarification" in result.result.lower()
+            or "option" in result.result.lower()
+            or "blocked" in result.result.lower()
+        )
 
     @pytest.mark.asyncio
     async def test_premature_stop_injects_assistant_prefill(self):
@@ -1599,12 +1799,20 @@ class TestHardenedLoopIntegration:
             call_index[0] += 1
 
             if call_index[0] == 1:
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={"path": "a.py"})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "a.py"})],
+                    finish_reason="tool_calls",
+                )
             elif call_index[0] == 2:
                 yield StreamChunk(type="content", content="I'll now edit the file.")
                 yield StreamChunk(type="done", finish_reason="stop")
             elif call_index[0] == 3:
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={"path": "b.py"})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "b.py"})],
+                    finish_reason="tool_calls",
+                )
             else:
                 yield StreamChunk(type="content", content="Task complete.")
                 yield StreamChunk(type="done", finish_reason="stop")
@@ -1619,7 +1827,9 @@ class TestHardenedLoopIntegration:
         assert len(captured_calls) >= 3
         nudge_messages = captured_calls[2]
         has_user_nudge = any(
-            "NOT complete" in (m.content or "") for m in nudge_messages if m.role == "user"
+            "NOT complete" in (m.content or "")
+            for m in nudge_messages
+            if m.role == "user"
         )
         has_assistant_prefill = any(
             m.role == "assistant" and "continue" in (m.content or "").lower()
@@ -1655,15 +1865,24 @@ class TestHardenedLoopIntegration:
         llm.get_model_name = lambda: "test-model"
 
         call_count = [0]
+
         async def mock_stream(messages, tools=None):
             call_count[0] += 1
             if call_count[0] == 1:
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={"path": "a.py"})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "a.py"})],
+                    finish_reason="tool_calls",
+                )
             elif call_count[0] == 2:
                 yield StreamChunk(type="content", content="I'll edit the file now.")
                 yield StreamChunk(type="done", finish_reason="stop")
             elif call_count[0] == 3:
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={"path": "b.py"})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[LLMToolCall(name="mock", arguments={"path": "b.py"})],
+                    finish_reason="tool_calls",
+                )
             else:
                 yield StreamChunk(type="content", content="All done!")
                 yield StreamChunk(type="done", finish_reason="stop")
@@ -1705,6 +1924,7 @@ class TestHardenedLoopIntegration:
         llm.get_model_name = lambda: "test-model"
 
         from app.execution.context_manager import LoopContext
+
         original_add = LoopContext.add_message
         added_messages = []
 
@@ -1713,16 +1933,27 @@ class TestHardenedLoopIntegration:
             return original_add(self, role, content=content, **kwargs)
 
         call_count = [0]
+
         async def mock_stream(messages, tools=None):
             call_count[0] += 1
             if call_count[0] == 1:
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[LLMToolCall(name="mock", arguments={})],
+                    finish_reason="tool_calls",
+                )
             elif call_count[0] == 2:
                 yield StreamChunk(type="content", content="Stopping now.")
                 yield StreamChunk(type="done", finish_reason="stop")
             elif call_count[0] == 3:
                 yield StreamChunk(type="content", content=" Continuing with tools.")
-                yield StreamChunk(type="tool_calls", tool_calls=[LLMToolCall(name="mock", arguments={"path": "different.py"})], finish_reason="tool_calls")
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[
+                        LLMToolCall(name="mock", arguments={"path": "different.py"})
+                    ],
+                    finish_reason="tool_calls",
+                )
             else:
                 yield StreamChunk(type="content", content="Done")
                 yield StreamChunk(type="done", finish_reason="stop")
@@ -1738,8 +1969,17 @@ class TestHardenedLoopIntegration:
         finally:
             LoopContext.add_message = original_add
 
-        merged = [m for m in added_messages if m["role"] == "assistant" and m.get("content") and "continue" in m["content"].lower()]
+        merged = [
+            m
+            for m in added_messages
+            if m["role"] == "assistant"
+            and m.get("content")
+            and "continue" in m["content"].lower()
+        ]
         assert len(merged) > 0
         prefill_part = "I'll continue"
         continuation_part = "Continuing with tools"
-        assert any(prefill_part in m["content"] and continuation_part in m["content"] for m in merged)
+        assert any(
+            prefill_part in m["content"] and continuation_part in m["content"]
+            for m in merged
+        )

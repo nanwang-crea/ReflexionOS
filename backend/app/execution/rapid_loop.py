@@ -22,7 +22,13 @@ from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.execution.tool_call_executor import ToolCallExecutor
-from app.llm.base import LLMMessage, LLMResponse, LLMToolCall, MessageRole, UniversalLLMInterface
+from app.llm.base import (
+    LLMMessage,
+    LLMResponse,
+    LLMToolCall,
+    MessageRole,
+    UniversalLLMInterface,
+)
 from app.llm.retry import LLMRetryExhaustedError
 from app.llm.token_counter import count_messages_tokens
 from app.tools.registry import ToolRegistry
@@ -99,6 +105,7 @@ class RapidExecutionLoop:
 
     def _create_summarizer(self) -> Callable[[str, str], Awaitable[str]]:
         """创建摘要生成器回调（解耦 LLM 依赖）"""
+
         async def summarizer(task: str, transcript: str) -> str:
             system_prompt = self.prompt_manager.get_midrun_compression_system_prompt()
             user_prompt = self.prompt_manager.get_midrun_compression_prompt(
@@ -106,10 +113,13 @@ class RapidExecutionLoop:
                 transcript=transcript,
                 existing_summary=self.context.compressor.get_compacted_summary(),
             )
-            response = await self.llm.complete([
-                LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
-                LLMMessage(role=MessageRole.USER, content=user_prompt),
-            ], tools=None)
+            response = await self.llm.complete(
+                [
+                    LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                    LLMMessage(role=MessageRole.USER, content=user_prompt),
+                ],
+                tools=None,
+            )
             return (response.content or "").strip()
 
         return summarizer
@@ -158,7 +168,7 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """验证停止决策是否合理"""
-        
+
         logger.info(
             "验证停止决策: has_executed_tools=%s, has_plan=%s, plan_complete=%s, has_content=%s",
             rt.has_executed_tools,
@@ -166,7 +176,7 @@ class RapidExecutionLoop:
             context.plan.is_complete if context.plan else "N/A",
             rt.response.has_content,
         )
-        
+
         # 没执行过工具 - 纯问答，可以停止
         if not rt.has_executed_tools:
             if rt.response.has_content:
@@ -177,11 +187,15 @@ class RapidExecutionLoop:
                 # 空响应处理
                 if rt.response.finish_reason == "length":
                     result.status = LoopStatus.COMPLETED
-                    result.result = "模型输出被截断（max_tokens 不足），请尝试增大 max_tokens 配置"
+                    result.result = (
+                        "模型输出被截断（max_tokens 不足），请尝试增大 max_tokens 配置"
+                    )
                     return LoopPhase.DONE
                 if rt.response.finish_reason == "stop":
                     result.status = LoopStatus.COMPLETED
-                    result.result = "模型未返回有效内容（可能触发了内容审核），请调整输入或更换模型"
+                    result.result = (
+                        "模型未返回有效内容（可能触发了内容审核），请调整输入或更换模型"
+                    )
                     return LoopPhase.DONE
                 rt.consecutive_failures += 1
                 if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
@@ -190,24 +204,24 @@ class RapidExecutionLoop:
                         "请检查模型配置或更换模型"
                     )
                 return LoopPhase.PLANNING
-        
+
         # 执行过工具，检查计划状态
         if context.plan and not context.plan.is_complete:
             # 检查是否是合理的停止（等待用户输入）
             blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
             current_step = context.plan.current_step
-            
+
             if blocked_steps and not current_step:
                 # 有阻塞步骤且没有进行中的步骤 - 合理停止
                 result.status = LoopStatus.COMPLETED
                 result.result = rt.response.content or "需要更多信息才能继续"
                 return LoopPhase.DONE
-            
+
             # 计划未完成但停止了 - 询问确认
             logger.info("计划未完成但 LLM 停止，询问是否继续")
             return await self._ask_continue_or_stop(context, rt)
-        
-        # 没计划或计划完成 
+
+        # 没计划或计划完成
         if rt.response.has_content:
             # 正常完成
             result.status = LoopStatus.COMPLETED
@@ -223,23 +237,23 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """询问 LLM：计划未完成，确定要停止吗？"""
-        
+
         # 先把 assistant 的响应加到上下文
         if rt.response.has_content:
             context.add_message("assistant", content=rt.response.content)
-        
+
         # 防止无限循环：检查是否已经询问过
         nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
         if nudge_count >= 5:
             # 已经问过 2 次了，强制进入总结
             logger.warning("计划未完成但 LLM 持续停止，强制进入总结阶段")
             return LoopPhase.FINAL_SUMMARY
-        
+
         context.metadata["_plan_incomplete_nudge_count"] = nudge_count + 1
-        
+
         pending = [s for s in context.plan.steps if s.status == "pending"]
         completed = [s for s in context.plan.steps if s.status == "completed"]
-        
+
         prompt = (
             f"Your plan has {len(pending)} pending steps (out of {len(context.plan.steps)} total, "
             f"{len(completed)} completed):\n"
@@ -253,17 +267,21 @@ class RapidExecutionLoop:
         context.metadata["_prefill_assistant"] = "I'll continue working on the plan. "
         return LoopPhase.PLANNING
 
-    def _record_tool_signature(self, context: LoopContext, tool_call: LLMToolCall) -> None:
+    def _record_tool_signature(
+        self, context: LoopContext, tool_call: LLMToolCall
+    ) -> None:
         sig = f"{tool_call.name}:{json.dumps(tool_call.arguments, sort_keys=True)}"
-        recent_sigs: list[str] = context.metadata.setdefault("_recent_tool_signatures", [])
+        recent_sigs: list[str] = context.metadata.setdefault(
+            "_recent_tool_signatures", []
+        )
         recent_sigs.append(sig)
         if len(recent_sigs) > self.DOOM_LOOP_THRESHOLD * 2:
-            recent_sigs[:] = recent_sigs[-self.DOOM_LOOP_THRESHOLD * 2:]
+            recent_sigs[:] = recent_sigs[-self.DOOM_LOOP_THRESHOLD * 2 :]
 
     def _is_doom_loop(self, context: LoopContext) -> bool:
         recent_sigs: list[str] = context.metadata.get("_recent_tool_signatures", [])
         if len(recent_sigs) >= self.DOOM_LOOP_THRESHOLD:
-            tail = recent_sigs[-self.DOOM_LOOP_THRESHOLD:]
+            tail = recent_sigs[-self.DOOM_LOOP_THRESHOLD :]
             if len(set(tail)) == 1:
                 return True
         return False
@@ -288,10 +306,13 @@ class RapidExecutionLoop:
                 result.steps.append(step)
                 context.add_step(step)
                 if step.status == StepStatus.SUCCESS:
-                    await self._emit("plan:exit_requested", {
-                        "run_id": result.id,
-                        "summary": step.args.get("summary", ""),
-                    })
+                    await self._emit(
+                        "plan:exit_requested",
+                        {
+                            "run_id": result.id,
+                            "summary": step.args.get("summary", ""),
+                        },
+                    )
                     context.metadata["plan_exit_requested"] = True
                     context.metadata["plan_exit_summary"] = step.args.get("summary", "")
                 return LoopPhase.PLANNING
@@ -353,9 +374,13 @@ class RapidExecutionLoop:
         ):
             # 如果有未完成的计划，推动LLM继续执行而不是强制总结
             if context.plan and not context.plan.is_complete:
-                pending_count = sum(1 for s in context.plan.steps if s.status == "pending")
-                in_progress_count = sum(1 for s in context.plan.steps if s.status == "in_progress")
-                
+                pending_count = sum(
+                    1 for s in context.plan.steps if s.status == "pending"
+                )
+                in_progress_count = sum(
+                    1 for s in context.plan.steps if s.status == "in_progress"
+                )
+
                 nudge_prompt = (
                     f"[Investigation Budget Limit] You've reached the maximum number of read-only operations ({self.MAX_READ_ONLY_PASSES} passes). "
                     f"Your plan has {pending_count} pending and {in_progress_count} in-progress steps remaining.\n\n"
@@ -366,10 +391,14 @@ class RapidExecutionLoop:
                     f"Do NOT continue reading files without making progress."
                 )
                 context.add_message("user", nudge_prompt)
-                logger.info("达到最大只读轮次(%d)但计划未完成，推动LLM继续执行: pending=%d, in_progress=%d", 
-                           self.MAX_READ_ONLY_PASSES, pending_count, in_progress_count)
+                logger.info(
+                    "达到最大只读轮次(%d)但计划未完成，推动LLM继续执行: pending=%d, in_progress=%d",
+                    self.MAX_READ_ONLY_PASSES,
+                    pending_count,
+                    in_progress_count,
+                )
                 return LoopPhase.PLANNING
-            
+
             # 没有计划或计划已完成，才进入强制总结
             context.metadata["investigation_budget_exhausted"] = True
             logger.info("达到最大只读轮次(%d)，进入总结阶段", self.MAX_READ_ONLY_PASSES)
@@ -451,7 +480,9 @@ class RapidExecutionLoop:
 
         # Sync plan file after plan tool changes
         if context.plan and context.plan_file_path:
-            self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
+            self.plan_file_sync.sync(
+                context.plan, context.plan_file_path, project_path=context.project_path
+            )
 
         # Pruning: lightweight context recovery after each tool execution round
         settings = config_manager.settings.execution
@@ -578,7 +609,9 @@ class RapidExecutionLoop:
             tool_instance = self._tool_registry.get(last_step.tool)
             if tool_instance:
                 schema = tool_instance.get_schema()
-                action_prop = schema.get("parameters", {}).get("properties", {}).get("action", {})
+                action_prop = (
+                    schema.get("parameters", {}).get("properties", {}).get("action", {})
+                )
                 if "enum" in action_prop:
                     available_actions = action_prop["enum"]
 
@@ -712,7 +745,10 @@ class RapidExecutionLoop:
                 rt.phase = await handler(context, loop_result, rt)
 
             # 超过最大步数
-            if rt.step_num >= self.max_steps and loop_result.status != LoopStatus.WAITING_FOR_APPROVAL:
+            if (
+                rt.step_num >= self.max_steps
+                and loop_result.status != LoopStatus.WAITING_FOR_APPROVAL
+            ):
                 loop_result.status = LoopStatus.COMPLETED
                 loop_result.result = loop_result.result or "执行完成（达到最大步数）"
                 logger.warning("执行达到最大步数")
@@ -758,11 +794,17 @@ class RapidExecutionLoop:
 
         finally:
             if context is not None:
-                loop_result.compacted_summary = context.compressor.get_compacted_summary()
+                loop_result.compacted_summary = (
+                    context.compressor.get_compacted_summary()
+                )
 
                 if context.plan is not None:
                     if context.plan_file_path:
-                        self.plan_file_sync.sync(context.plan, context.plan_file_path, project_path=context.project_path)
+                        self.plan_file_sync.sync(
+                            context.plan,
+                            context.plan_file_path,
+                            project_path=context.project_path,
+                        )
                     await self._emit("plan:updated", context.plan.to_dict())
 
             self._runtime = None
@@ -808,16 +850,19 @@ class RapidExecutionLoop:
             recovered_plan is not None,
             recovered_plan.goal[:80] if recovered_plan else "N/A",
         )
-        
+
         if recovered_plan:
             is_relevant = await self._check_plan_relevance(context, recovered_plan)
             logger.info("Bootstrap plan: 相关性检查结果=%s", is_relevant)
-            
+
             if is_relevant:
                 context.plan = recovered_plan
                 context.plan_file_path = plan_tool._file_path
                 await self._emit("plan:updated", context.plan.to_dict())
-                await self._emit("plan:recovered", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+                await self._emit(
+                    "plan:recovered",
+                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
+                )
                 logger.info("已恢复计划: %s", recovered_plan.goal[:80])
                 return
             else:
@@ -827,13 +872,16 @@ class RapidExecutionLoop:
                     context.task[:80],
                 )
                 plan_tool.discard()
-                await self._emit("plan:discarded", {"path": plan_tool._file_path, "goal": recovered_plan.goal})
+                await self._emit(
+                    "plan:discarded",
+                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
+                )
 
         # No plan or discarded, create new one via LLM
         tools = self.tool_definitions.for_initial_plan()
         messages = self.message_builder.build_initial_plan(context)
         response = await self.llm.complete(messages, tools)
-        
+
         for tool_call in response.tool_calls:
             if tool_call.name != plan_tool.name:
                 continue
@@ -944,7 +992,9 @@ Answer ONLY "yes" or "no".\
                     await self._emit("llm:content", {"content": chunk.content})
                 elif chunk.type == "reasoning" and chunk.reasoning_content:
                     reasoning_parts.append(chunk.reasoning_content)
-                    await self._emit("llm:reasoning", {"reasoning_content": chunk.reasoning_content})
+                    await self._emit(
+                        "llm:reasoning", {"reasoning_content": chunk.reasoning_content}
+                    )
                 elif chunk.type == "tool_calls":
                     tool_calls = chunk.tool_calls
                     finish_reason = chunk.finish_reason or "tool_calls"
@@ -1008,7 +1058,9 @@ Answer ONLY "yes" or "no".\
                 context.add_message(
                     "assistant",
                     content=merged_content or None,
-                    tool_calls=[tool_call.model_dump() for tool_call in response.tool_calls],
+                    tool_calls=[
+                        tool_call.model_dump() for tool_call in response.tool_calls
+                    ],
                 )
 
                 logger.info(
@@ -1052,7 +1104,10 @@ Answer ONLY "yes" or "no".\
                 )
 
                 # API overflow handling: try compaction then retry once
-                if self._overflow_retry_count < 1 and context.compressor.get_total_tokens() > 0:
+                if (
+                    self._overflow_retry_count < 1
+                    and context.compressor.get_total_tokens() > 0
+                ):
                     self._overflow_retry_count += 1
                     logger.info("Attempting overflow compaction + retry")
                     try:
@@ -1099,9 +1154,11 @@ Answer ONLY "yes" or "no".\
         error: str | None = None,
     ) -> None:
         message_dicts = [
-            message.model_dump(exclude_none=True)
-            if hasattr(message, "model_dump")
-            else dict(message)
+            (
+                message.model_dump(exclude_none=True)
+                if hasattr(message, "model_dump")
+                else dict(message)
+            )
             for message in messages
         ]
         payload = {
@@ -1110,7 +1167,9 @@ Answer ONLY "yes" or "no".\
             "attempt": attempt,
             "duration": time.perf_counter() - call_started_at,
             "first_chunk_latency": first_chunk_latency,
-            "prompt_tokens": count_messages_tokens(message_dicts, self.llm.get_model_name()),
+            "prompt_tokens": count_messages_tokens(
+                message_dicts, self.llm.get_model_name()
+            ),
             "message_count": len(messages),
             "tool_count": len(tools or []),
             "finish_reason": finish_reason,
@@ -1132,7 +1191,9 @@ Answer ONLY "yes" or "no".\
         Returns:
             str: 最终回答内容
         """
-        context.add_message("user", self.prompt_manager.get_final_response_prompt(context.task))
+        context.add_message(
+            "user", self.prompt_manager.get_final_response_prompt(context.task)
+        )
 
         messages = self.message_builder.build_final_summary(context)
 

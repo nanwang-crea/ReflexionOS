@@ -1,4 +1,5 @@
 """端到端测试：验证用户上传图片后，模型在所有轮次都能看到图片"""
+
 import pytest
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
@@ -12,15 +13,13 @@ def test_end_to_end_multimodal_flow():
     验证图片在所有轮次都能正确传递给 LLM
     """
     builder = LoopMessageBuilder(
-        prompt_manager=PromptManager(),
-        max_context_groups=3,
-        task_anchor_interval=5
+        prompt_manager=PromptManager(), max_context_groups=3, task_anchor_interval=5
     )
 
     # 用户上传图片并提问
     task_content = [
         {"type": "text", "text": "这张图片里有什么？"},
-        {"type": "image_url", "url": "data:image/png;base64,iVBORw0KGgoAAAANS..."}
+        {"type": "image_url", "url": "data:image/png;base64,iVBORw0KGgoAAAANS..."},
     ]
 
     # === 第 1 轮：用户提问 ===
@@ -52,7 +51,9 @@ def test_end_to_end_multimodal_flow():
 
     # === 第 3 轮：模型调用工具 ===
     tool_call = LLMToolCall(id="call_1", name="file", arguments={"action": "read"})
-    context.add_message("assistant", content="让我读取相关文件", tool_calls=[tool_call.model_dump()])
+    context.add_message(
+        "assistant", content="让我读取相关文件", tool_calls=[tool_call.model_dump()]
+    )
     context.add_message("tool", content="文件内容...", tool_call_id=tool_call.id)
 
     messages_r3 = builder.build(context)
@@ -66,7 +67,9 @@ def test_end_to_end_multimodal_flow():
     # Add more messages to reach group_count = 5 (task_anchor_interval)
     for i in range(2):
         tc = LLMToolCall(id=f"call_{i+2}", name="tool", arguments={})
-        context.add_message("assistant", content=f"步骤 {i+2}", tool_calls=[tc.model_dump()])
+        context.add_message(
+            "assistant", content=f"步骤 {i+2}", tool_calls=[tc.model_dump()]
+        )
         context.add_message("tool", content=f"输出 {i+2}", tool_call_id=tc.id)
 
     context.metadata = {}
@@ -75,8 +78,11 @@ def test_end_to_end_multimodal_flow():
 
     # 验证：第 5 轮应该有纯文本的 Task Reminder
     task_reminders = [
-        m for m in messages_r5
-        if m.role == MessageRole.USER and isinstance(m.content, str) and "[Task Reminder]" in m.content
+        m
+        for m in messages_r5
+        if m.role == MessageRole.USER
+        and isinstance(m.content, str)
+        and "[Task Reminder]" in m.content
     ]
     assert len(task_reminders) == 1, "第 5 轮应该有 Task Reminder"
     assert "这张图片里有什么" in task_reminders[0].content
@@ -96,13 +102,10 @@ def test_multimodal_content_survives_context_assembly():
             "role": "user",
             "content": [
                 {"type": "text", "text": "分析这个错误"},
-                {"type": "image_url", "url": "data:image/png;base64,screenshot"}
-            ]
+                {"type": "image_url", "url": "data:image/png;base64,screenshot"},
+            ],
         },
-        {
-            "role": "assistant",
-            "content": "我看到了错误截图"
-        }
+        {"role": "assistant", "content": "我看到了错误截图"},
     ]
 
     # 创建新的上下文，模拟新一轮的请求
@@ -113,10 +116,7 @@ def test_multimodal_content_survives_context_assembly():
         agent_mode="code",
     )
 
-    builder = LoopMessageBuilder(
-        prompt_manager=PromptManager(),
-        max_context_groups=5
-    )
+    builder = LoopMessageBuilder(prompt_manager=PromptManager(), max_context_groups=5)
 
     messages = builder.build(context)
 
@@ -127,7 +127,12 @@ def test_multimodal_content_survives_context_assembly():
     assert len(multimodal_msgs) >= 1, "历史中的多模态消息应该被保留"
     # 找到带截图的那条消息
     screenshot_msgs = [
-        m for m in multimodal_msgs
-        if any(p.get("url", "").endswith("screenshot") for p in m.content if isinstance(p, dict))
+        m
+        for m in multimodal_msgs
+        if any(
+            p.get("url", "").endswith("screenshot")
+            for p in m.content
+            if isinstance(p, dict)
+        )
     ]
     assert len(screenshot_msgs) == 1, "带截图的消息应该被正确保留"

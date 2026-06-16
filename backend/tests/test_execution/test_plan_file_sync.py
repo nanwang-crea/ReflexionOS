@@ -51,7 +51,9 @@ def test_delete_removes_file():
 def test_find_recovery_plan():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Recover me", steps=[PlanStep(content="S1", status="in_progress")])
+        plan = Plan(
+            goal="Recover me", steps=[PlanStep(content="S1", status="in_progress")]
+        )
         sync.write(plan, session_id="sess-recover")
         found = sync.find_recovery_plan()
         assert found is not None
@@ -67,12 +69,20 @@ def test_find_recovery_plan_no_files():
 def test_sync_updates_file():
     with tempfile.TemporaryDirectory() as tmpdir:
         sync = PlanFileSync(base_dir=tmpdir)
-        plan = Plan(goal="Test", steps=[PlanStep(content="S1", status="in_progress"), PlanStep(content="S2", status="pending")])
+        plan = Plan(
+            goal="Test",
+            steps=[
+                PlanStep(content="S1", status="in_progress"),
+                PlanStep(content="S2", status="pending"),
+            ],
+        )
         path = sync.write(plan, session_id="sess-sync")
-        plan.replace_from([
-            PlanStep(content="S1", status="completed", findings="completed step 1"),
-            PlanStep(content="S2", status="in_progress"),
-        ])
+        plan.replace_from(
+            [
+                PlanStep(content="S1", status="completed", findings="completed step 1"),
+                PlanStep(content="S2", status="in_progress"),
+            ]
+        )
         sync.sync(plan, path)
         recovered = sync.read(path)
         assert recovered is not None

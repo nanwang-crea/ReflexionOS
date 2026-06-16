@@ -41,7 +41,9 @@ class ToolCallExecutor:
             return action in ("get", "list", "search")
         return False
 
-    def prepare_read_only_batch(self, tool_calls: list[LLMToolCall]) -> list[LLMToolCall]:
+    def prepare_read_only_batch(
+        self, tool_calls: list[LLMToolCall]
+    ) -> list[LLMToolCall]:
         deduped: list[LLMToolCall] = []
         seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
 
@@ -56,9 +58,13 @@ class ToolCallExecutor:
 
         return deduped
 
-    def _read_only_signature(self, tool_call: LLMToolCall) -> tuple[str, tuple[tuple[str, str], ...]]:
+    def _read_only_signature(
+        self, tool_call: LLMToolCall
+    ) -> tuple[str, tuple[tuple[str, str], ...]]:
         normalized_args = tuple(
-            sorted((str(key), repr(value)) for key, value in tool_call.arguments.items())
+            sorted(
+                (str(key), repr(value)) for key, value in tool_call.arguments.items()
+            )
         )
         return tool_call.name, normalized_args
 
@@ -105,7 +111,9 @@ class ToolCallExecutor:
                 step.error = error_msg
                 step.duration = 0.0
                 context.update_history(tool_call, error_msg)
-                context.add_message("tool", content=error_msg, tool_call_id=tool_call.id)
+                context.add_message(
+                    "tool", content=error_msg, tool_call_id=tool_call.id
+                )
                 return step
 
             missing = self._validate_required_args(tool, tool_call.arguments)
@@ -159,15 +167,40 @@ class ToolCallExecutor:
                 if not result.error:
                     tool_output = tool_output + rc_info
                 else:
-                    tool_output = tool_output + rc_info if not tool_output.endswith(rc_info) else tool_output
-            _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+                    tool_output = (
+                        tool_output + rc_info
+                        if not tool_output.endswith(rc_info)
+                        else tool_output
+                    )
+            _VISIBLE_DATA_KEYS = {
+                "content",
+                "result",
+                "path",
+                "url",
+                "title",
+                "tab_id",
+                "tabs",
+                "active_tab_id",
+                "width",
+                "height",
+            }
             _MAX_CONTENT_LEN = 8000
             if result.data:
-                visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
-                if "content" in visible and isinstance(visible["content"], str) and len(visible["content"]) > _MAX_CONTENT_LEN:
-                    visible["content"] = visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
+                visible = {
+                    k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS
+                }
+                if (
+                    "content" in visible
+                    and isinstance(visible["content"], str)
+                    and len(visible["content"]) > _MAX_CONTENT_LEN
+                ):
+                    visible["content"] = (
+                        visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
+                    )
                 if visible:
-                    tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+                    tool_output = (
+                        tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+                    )
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",

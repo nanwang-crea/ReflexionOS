@@ -51,15 +51,21 @@ class Plan:
             # steps when reconstructing the plan — this is a known behavioral issue.
             logger.warning(
                 "Plan update dropped %d completed steps, auto-recovering: %s",
-                len(dropped), dropped,
+                len(dropped),
+                dropped,
             )
-            preserved = [s for s in self.steps if s.status == "completed" and s.content in dropped]
+            preserved = [
+                s
+                for s in self.steps
+                if s.status == "completed" and s.content in dropped
+            ]
             new_steps = preserved + new_steps
         self.steps = new_steps
         if goal is not None:
             self.goal = goal
         just_completed = [
-            s.content for s in new_steps
+            s.content
+            for s in new_steps
             if s.status == "completed" and s.content not in old_completed
         ]
         just_started = None
@@ -73,7 +79,9 @@ class Plan:
         }
 
     def completed_findings(self) -> list[str]:
-        return [s.findings for s in self.steps if s.status == "completed" and s.findings]
+        return [
+            s.findings for s in self.steps if s.status == "completed" and s.findings
+        ]
 
     def render_for_context(self) -> str:
         lines = [f"## 执行计划\n目标: {self.goal}", ""]
@@ -104,7 +112,7 @@ class Plan:
         for line in text.splitlines():
             line = line.rstrip()
             if line.startswith("goal:"):
-                goal = line[len("goal:"):].strip()
+                goal = line[len("goal:") :].strip()
                 continue
             step_match = re.match(r"^-\s*\[(\w+)\]\s*(.+)$", line)
             if step_match:
