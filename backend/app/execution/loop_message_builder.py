@@ -4,7 +4,6 @@ import sys
 from app.execution.context_manager import LoopContext
 from app.execution.prompt_manager import PromptManager
 from app.llm.base import LLMMessage, LLMToolCall, MessageRole
-from app.memory.text_compaction import truncate_head_tail
 
 
 class LoopMessageBuilder:
@@ -66,32 +65,32 @@ class LoopMessageBuilder:
         self._inject_context_sections(context, messages)
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
-        if context.compacted_summary:
+        if context.compressor.get_compacted_summary():
             messages.append(
                 LLMMessage(
                     role=MessageRole.SYSTEM,
-                    content=f"[Compacted historical context]\n{context.compacted_summary}",
+                    content=f"[Compacted historical context]\n{context.compressor.get_compacted_summary()}",
                 )
             )
 
-        if context.compacted_summary and context.group_count > 1:
+        if context.compressor.get_compacted_summary() and context.compressor.get_group_count() > 1:
             last_continue_group = context.metadata.get("_last_compaction_continue_group", 0)
-            if last_continue_group != context.group_count:
+            if last_continue_group != context.compressor.get_group_count():
                 messages.append(
                     LLMMessage(
                         role=MessageRole.USER,
                         content=f"Continue the task using tools. Original task: {context.task}",
                     )
                 )
-                context.metadata["_last_compaction_continue_group"] = context.group_count
+                context.metadata["_last_compaction_continue_group"] = context.compressor.get_group_count()
 
         # Tier 2: 超出窗口的旧消息，逐条截断但始终可见
-        tier2_messages = self._build_tier2_messages(context)
+        tier2_messages = context.compressor.build_tier2_messages()
         for msg in tier2_messages:
             messages.append(msg)
 
         # Tier 1: 最近 N 组消息，完整保真
-        for msg in self.recent_context_messages(context):
+        for msg in context.compressor.get_recent_messages():
             tool_calls = [LLMToolCall(**tool_call) for tool_call in msg.get("tool_calls", [])]
             messages.append(
                 LLMMessage(
@@ -111,12 +110,12 @@ class LoopMessageBuilder:
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
         # 注意：首轮不需要注入 Task Anchor，因为用户的初始消息（含图片）已经在 context.messages 中
         should_inject_anchor = False
-        if context.group_count > 1:  # 只在非首轮时考虑注入
-            if self.task_anchor_interval > 0 and context.group_count % self.task_anchor_interval == 0:
+        if context.compressor.get_group_count() > 1:  # 只在非首轮时考虑注入
+            if self.task_anchor_interval > 0 and context.compressor.get_group_count() % self.task_anchor_interval == 0:
                 last_injected_group = context.metadata.get("_last_anchor_group", 0)
-                if last_injected_group != context.group_count:
+                if last_injected_group != context.compressor.get_group_count():
                     should_inject_anchor = True
-                    context.metadata["_last_anchor_group"] = context.group_count
+                    context.metadata["_last_anchor_group"] = context.compressor.get_group_count()
 
         if should_inject_anchor:
             # 周期性提醒任务，使用纯文本即可
@@ -137,7 +136,7 @@ class LoopMessageBuilder:
 
         self._inject_context_sections(context, messages)
 
-        for msg in self.recent_context_messages(context):
+        for msg in context.compressor.get_recent_messages():
             if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:
                 continue
             if not msg.get("content"):
@@ -167,18 +166,18 @@ class LoopMessageBuilder:
 
         self._inject_context_sections(context, messages)
 
-        if context.compacted_summary:
+        if context.compressor.get_compacted_summary():
             messages.append(
                 LLMMessage(
                     role=MessageRole.SYSTEM,
-                    content=f"[Compacted historical context]\n{context.compacted_summary}",
+                    content=f"[Compacted historical context]\n{context.compressor.get_compacted_summary()}",
                 )
             )
 
-        for msg in self._build_tier2_messages(context):
+        for msg in context.compressor.build_tier2_messages():
             messages.append(msg)
 
-        for msg in self.recent_context_messages(context):
+        for msg in context.compressor.get_recent_messages():
             content = msg.get("content")
             if msg["role"] == MessageRole.TOOL:
                 if isinstance(content, str) and content.strip():
@@ -203,85 +202,6 @@ class LoopMessageBuilder:
 
         return messages
 
-    def _build_tier2_messages(self, context: LoopContext) -> list[LLMMessage]:
-        """
-        构建 Tier 2 消息：超出窗口的旧消息逐条截断但始终可见。
-        tool output 超过 tool_output_max_chars 时 head+tail 截断并标记 [session_recall can retrieve]。
-        保持原始消息角色，确保 tool_call_id / tool_calls 关联不被破坏。
-        """
-        grouped = self._group_messages(context.messages)
-        if len(grouped) <= self.max_context_groups:
-            return []
-
-        older_groups = grouped[: -self.max_context_groups]
-        tier2: list[LLMMessage] = []
-
-        for group in older_groups:
-            for msg in group:
-                content = msg.get("content")
-                if not isinstance(content, str) or not content.strip():
-                    if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
-                        tool_calls_list = msg.get("tool_calls")
-                        kwargs: dict = {"role": MessageRole.ASSISTANT, "content": content}
-                        if tool_calls_list:
-                            kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
-                        tier2.append(LLMMessage(**kwargs))
-                    continue
-
-                if msg["role"] == MessageRole.TOOL:
-                    if content == "[Old tool result content cleared]":
-                        tier2.append(
-                            LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
-                        )
-                        continue
-                    if len(content) > self.tool_output_max_chars:
-                        content = truncate_head_tail(
-                            content,
-                            self.tool_output_max_chars,
-                            head_chars=1_600,
-                            tail_chars=600,
-                            reason="session_recall retrieve",
-                        )
-                    tier2.append(
-                        LLMMessage(role=MessageRole.TOOL, content=content, tool_call_id=msg.get("tool_call_id"))
-                    )
-                elif msg["role"] == MessageRole.ASSISTANT:
-                    tool_calls_list = msg.get("tool_calls")
-                    kwargs: dict = {"role": MessageRole.ASSISTANT, "content": content}
-                    if tool_calls_list:
-                        kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
-                    tier2.append(LLMMessage(**kwargs))
-                elif msg["role"] == MessageRole.USER:
-                    # 保留所有用户消息（包括多模态内容）
-                    tier2.append(LLMMessage(role=MessageRole.USER, content=content))
-
-        return tier2
-
-    def recent_context_messages(self, context: LoopContext) -> list[dict]:
-        """获取 Tier 1 最近 N 组消息（完整保留，包括多模态内容）"""
-        if not context.messages:
-            return []
-
-        grouped_messages: list[list[dict]] = []
-        active_tool_group: list[dict] | None = None
-
-        for msg in context.messages:
-            if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
-                active_tool_group = [msg]
-                grouped_messages.append(active_tool_group)
-                continue
-
-            if msg["role"] == MessageRole.TOOL and active_tool_group is not None:
-                active_tool_group.append(msg)
-                continue
-
-            active_tool_group = None
-            grouped_messages.append([msg])
-
-        recent_groups = grouped_messages[-self.max_context_groups :]
-        flat = [message for group in recent_groups for message in group]
-        return flat
-
     @staticmethod
     def _build_plan_status(plan) -> str:
         """构建轻量级计划状态注入，每轮调用，~50 tokens"""
@@ -297,24 +217,3 @@ class LoopMessageBuilder:
             f"({completed}/{total} completed) → "
             f"work on this step, then call plan to mark it completed."
         )
-
-    def _group_messages(self, messages: list[dict]) -> list[list[dict]]:
-        """将消息按 assistant+tool_calls 开组的方式分组，确保 tool_call 与 tool output 不被拆分"""
-        return self._group_messages_static(messages)
-
-    @staticmethod
-    def _group_messages_static(messages: list[dict]) -> list[list[dict]]:
-        """将消息按 assistant+tool_calls 开组的方式分组，确保 tool_call 与 tool output 不被拆分"""
-        grouped: list[list[dict]] = []
-        active_tool_group: list[dict] | None = None
-        for msg in messages:
-            if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
-                active_tool_group = [msg]
-                grouped.append(active_tool_group)
-                continue
-            if msg["role"] == MessageRole.TOOL and active_tool_group is not None:
-                active_tool_group.append(msg)
-                continue
-            active_tool_group = None
-            grouped.append([msg])
-        return grouped
