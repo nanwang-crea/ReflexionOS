@@ -313,7 +313,7 @@ class ContextCompressor:
                     tier2.append(LLMMessage(
                         role=MessageRole.ASSISTANT,
                         content=content,
-                        tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else None,
+                        tool_calls=[LLMToolCall(**tc) for tc in tool_calls_list] if tool_calls_list else [],
                     ))
 
                 # user 消息：保留所有（包括多模态内容）
@@ -409,6 +409,10 @@ class ContextCompressor:
     def get_compacted_summary(self) -> str | None:
         """获取 Tier 3 压缩摘要"""
         return self._compacted_summary
+
+    def set_compacted_summary(self, summary: str | None) -> None:
+        """设置 Tier 3 压缩摘要（用于测试或手动设置）"""
+        self._compacted_summary = summary
 
     # ========== 轻量裁剪 ==========
 

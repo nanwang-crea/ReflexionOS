@@ -42,7 +42,6 @@ def test_end_to_end_multimodal_flow():
 
     # === 第 2 轮：模型回复 ===
     context.add_message("assistant", "我看到图片中有一只猫")
-    context.group_count = 2
 
     messages_r2 = builder.build(context)
     user_msgs_r2 = [m for m in messages_r2 if m.role == MessageRole.USER]
@@ -55,7 +54,6 @@ def test_end_to_end_multimodal_flow():
     tool_call = LLMToolCall(id="call_1", name="file", arguments={"action": "read"})
     context.add_message("assistant", content="让我读取相关文件", tool_calls=[tool_call.model_dump()])
     context.add_message("tool", content="文件内容...", tool_call_id=tool_call.id)
-    context.group_count = 3
 
     messages_r3 = builder.build(context)
     user_msgs_r3 = [m for m in messages_r3 if m.role == MessageRole.USER]
@@ -65,12 +63,12 @@ def test_end_to_end_multimodal_flow():
     assert len(multimodal_msgs_r3) == 1, "第 3 轮应该依然能看到用户的图片"
 
     # === 第 5 轮：触发周期性 Task Anchor ===
+    # Add more messages to reach group_count = 5 (task_anchor_interval)
     for i in range(2):
         tc = LLMToolCall(id=f"call_{i+2}", name="tool", arguments={})
         context.add_message("assistant", content=f"步骤 {i+2}", tool_calls=[tc.model_dump()])
         context.add_message("tool", content=f"输出 {i+2}", tool_call_id=tc.id)
 
-    context.group_count = 5
     context.metadata = {}
 
     messages_r5 = builder.build(context)

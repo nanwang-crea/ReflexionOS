@@ -36,7 +36,6 @@ class TestMultimodalMessageFlow:
 
         # 模拟用户消息已添加到 context.messages
         context.add_message("user", context.task_content)
-        context.group_count = 1
 
         messages = builder.build(context)
 
@@ -71,7 +70,6 @@ class TestMultimodalMessageFlow:
         # 模拟多轮对话
         context.add_message("user", context.task_content)
         context.add_message("assistant", "这是一张...")
-        context.group_count = 2
 
         messages = builder.build(context)
 
@@ -96,7 +94,13 @@ class TestMultimodalMessageFlow:
         # 模拟对话到第 5 轮（但不超过 max_context_groups=3 的窗口）
         context.add_message("assistant", "第 1 次回复", tool_calls=[{"id": "tc1", "name": "tool1", "arguments": {}}])
         context.add_message("tool", "工具输出", tool_call_id="tc1")
-        context.group_count = 5  # 等于 task_anchor_interval
+        # Add more messages to reach group_count = 5
+        context.add_message("assistant", "第 2 次回复", tool_calls=[{"id": "tc2", "name": "tool2", "arguments": {}}])
+        context.add_message("tool", "工具输出2", tool_call_id="tc2")
+        context.add_message("assistant", "第 3 次回复", tool_calls=[{"id": "tc3", "name": "tool3", "arguments": {}}])
+        context.add_message("tool", "工具输出3", tool_call_id="tc3")
+        context.add_message("assistant", "第 4 次回复", tool_calls=[{"id": "tc4", "name": "tool4", "arguments": {}}])
+        context.add_message("tool", "工具输出4", tool_call_id="tc4")
         context.metadata = {}
 
         messages = builder.build(context)
@@ -124,7 +128,6 @@ class TestMultimodalMessageFlow:
             session_id="test_session"
         )
         context.add_message("user", context.task_content)
-        context.group_count = 3  # 不是 5 的倍数
 
         messages = builder.build(context)
 

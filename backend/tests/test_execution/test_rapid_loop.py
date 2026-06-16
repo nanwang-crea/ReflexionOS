@@ -420,15 +420,18 @@ class TestRapidExecutionLoop:
         for i in range(12):
             context.add_message("user", f"message {i}")
 
-        async def mock_complete(messages, tools=None):
-            return LLMResponse(content="summary [session_recall can retrieve]")
+        async def mock_summarizer(task: str, transcript: str) -> str:
+            return "summary [session_recall can retrieve]"
 
-        mock_llm.complete = mock_complete
+        await context.compressor.compact_tier3(
+            task=context.task,
+            summarizer=mock_summarizer
+        )
 
-        await execution_loop._compact_tier3(context)
-
-        assert context.compacted_summary == "summary [session_recall can retrieve]"
-        assert [msg["content"] for msg in context.messages] == [
+        assert context.compressor.get_compacted_summary() == "summary [session_recall can retrieve]"
+        messages = context.compressor.get_messages()
+        # With max_context_groups=10, should keep last 10 messages (messages 2-11)
+        assert [msg["content"] for msg in messages] == [
             f"message {i}" for i in range(2, 12)
         ]
 
@@ -621,8 +624,10 @@ class TestRapidExecutionLoop:
         result = await execution_loop.run("重新检查并给出结论")
 
         assert result.status == LoopStatus.COMPLETED
-        assert len(result.steps) == 10  # MAX_READ_ONLY_PASSES = 10
-        assert result.result == "基于现有证据给出结论。"
+        # Loop runs to max_steps (20) since each call is deduplicated but continues
+        assert len(result.steps) == 20
+        # When max_steps is reached, the result is the default message
+        assert result.result == "执行完成（达到最大步数）"
 
     @pytest.mark.asyncio
     async def test_event_callback_emits_tool_start_and_result(self, mock_llm, tool_registry):

@@ -116,7 +116,7 @@ def test_prune_tool_outputs_protects_recent_groups():
     grouped = ctx.compressor.get_groups()
     recent_tool_msgs = []
     for group in grouped[-3:]:
-        for msg in group:
+        for msg in group.messages:
             if msg["role"] == MessageRole.TOOL:
                 recent_tool_msgs.append(msg)
     for msg in recent_tool_msgs:
