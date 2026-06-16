@@ -36,3 +36,35 @@ class MessageGroup:
     def first_message_role(self) -> str:
         """返回组内第一条消息的角色"""
         return self.messages[0]["role"] if self.messages else ""
+
+
+class ContextCompressor:
+    """
+    上下文压缩器 - 统一管理消息状态和三级压缩模型
+
+    三级压缩模型：
+    - Tier 1: 完整保真 - 最近 N 组消息，原文不改
+    - Tier 2: 截断但可见 - 超出窗口的旧消息逐条截断，每条仍在 context 中
+    - Tier 3: LLM 摘要 - 极端压力时旧消息压缩为摘要，细节可 session_recall 回溯
+    """
+
+    # ========== 初始化 ==========
+
+    def __init__(
+        self,
+        max_context_groups: int = 10,
+        tool_output_max_chars: int = 2_400,
+    ):
+        """
+        初始化压缩器
+
+        Args:
+            max_context_groups: Tier 1 保留的最大分组数
+            tool_output_max_chars: Tier 2 截断时保留的最大字符数
+        """
+        self._messages: list[dict] = []              # 所有消息
+        self._compacted_summary: str | None = None   # Tier 3 压缩摘要
+        self._total_tokens: int = 0                  # 当前总 token 数
+        self._group_count: int = 0                   # 消息分组计数
+        self.max_context_groups = max_context_groups
+        self.tool_output_max_chars = tool_output_max_chars
