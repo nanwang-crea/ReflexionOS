@@ -105,12 +105,15 @@ def build_context_assembly(
             continue
         raw_content = message.get("content")
         if raw_content is None:
-            content = ""
+            content: str | list = ""
+        elif isinstance(raw_content, list):
+            # 多模态内容（text + image_url），保留 list 格式
+            content = raw_content
         else:
             content = str(raw_content)
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
-        has_content = content.strip() or tool_calls
+        has_content = (isinstance(content, list) and len(content) > 0) or (isinstance(content, str) and content.strip()) or tool_calls
         if not has_content:
             continue
         entry: dict[str, Any] = {"role": role, "content": content}
