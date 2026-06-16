@@ -1,10 +1,9 @@
 """端到端测试：验证用户上传图片后，模型在所有轮次都能看到图片"""
 
-import pytest
 from app.execution.context_manager import LoopContext
 from app.execution.loop_message_builder import LoopMessageBuilder
 from app.execution.prompt_manager import PromptManager
-from app.llm.base import MessageRole, LLMToolCall
+from app.llm.base import LLMToolCall, MessageRole
 
 
 def test_end_to_end_multimodal_flow():
@@ -40,7 +39,7 @@ def test_end_to_end_multimodal_flow():
     assert "image/png" in multimodal_msgs[0].content[1]["url"]
 
     # === 第 2 轮：模型回复 ===
-    context.add_message("assistant", "我看到图片中有一只猫")
+    context.add_message(MessageRole.ASSISTANT, "我看到图片中有一只猫")
 
     messages_r2 = builder.build(context)
     user_msgs_r2 = [m for m in messages_r2 if m.role == MessageRole.USER]
@@ -52,9 +51,9 @@ def test_end_to_end_multimodal_flow():
     # === 第 3 轮：模型调用工具 ===
     tool_call = LLMToolCall(id="call_1", name="file", arguments={"action": "read"})
     context.add_message(
-        "assistant", content="让我读取相关文件", tool_calls=[tool_call.model_dump()]
+        MessageRole.ASSISTANT, content="让我读取相关文件", tool_calls=[tool_call.model_dump()]
     )
-    context.add_message("tool", content="文件内容...", tool_call_id=tool_call.id)
+    context.add_message(MessageRole.TOOL, content="文件内容...", tool_call_id=tool_call.id)
 
     messages_r3 = builder.build(context)
     user_msgs_r3 = [m for m in messages_r3 if m.role == MessageRole.USER]
@@ -68,9 +67,9 @@ def test_end_to_end_multimodal_flow():
     for i in range(2):
         tc = LLMToolCall(id=f"call_{i+2}", name="tool", arguments={})
         context.add_message(
-            "assistant", content=f"步骤 {i+2}", tool_calls=[tc.model_dump()]
+            MessageRole.ASSISTANT, content=f"步骤 {i+2}", tool_calls=[tc.model_dump()]
         )
-        context.add_message("tool", content=f"输出 {i+2}", tool_call_id=tc.id)
+        context.add_message(MessageRole.TOOL, content=f"输出 {i+2}", tool_call_id=tc.id)
 
     context.metadata = {}
 

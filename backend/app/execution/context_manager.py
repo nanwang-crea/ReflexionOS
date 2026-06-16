@@ -6,7 +6,6 @@ from app.execution.context_compressor import ContextCompressor
 from app.execution.models import LoopStep
 from app.execution.plan_engine import Plan
 from app.llm.base import MessageRole
-from app.llm.token_counter import count_messages_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +128,11 @@ class LoopContext:
         # 确保最后一条消息是当前的用户任务（避免重复）
         # 支持多模态 task_content（带图片）或纯文本 task
         last_user_msg = next(
-            (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
+            (
+                m
+                for m in reversed(context.compressor.get_messages())
+                if m["role"] == MessageRole.USER
+            ),
             None,
         )
 
@@ -151,7 +154,7 @@ class LoopContext:
                 should_add = True
 
         if should_add:
-            context.add_message("user", current_content)
+            context.add_message(MessageRole.USER, current_content)
 
         return context
 
@@ -172,51 +175,9 @@ class LoopContext:
         self.current_step_number = step.step_number
         logger.info("添加执行步骤 %s: %s", step.step_number, step.tool)
 
-    @property
-    def messages(self) -> list[dict[str, Any]]:
-        """向后兼容：获取消息列表"""
-        return self.compressor.get_messages()
-
-    @property
-    def total_tokens(self) -> int:
-        """向后兼容：获取总 token 数"""
-        return self.compressor.get_total_tokens()
-
-    @property
-    def compacted_summary(self) -> str | None:
-        """向后兼容：获取压缩摘要"""
-        return self.compressor.get_compacted_summary()
-
-    @compacted_summary.setter
-    def compacted_summary(self, value: str | None) -> None:
-        """向后兼容：设置压缩摘要"""
-        self.compressor._compacted_summary = value
-
-    @property
-    def group_count(self) -> int:
-        """向后兼容：获取消息分组计数"""
-        return self.compressor.get_group_count()
-
-    def recalculate_tokens(self) -> None:
-        """向后兼容：重新计算 token 数"""
-        self.compressor.recalculate_tokens()
-
-    def prune_tool_outputs(
-        self,
-        protect_recent_groups: int = 2,
-        minimum_recovery_tokens: int = 20_000,
-        protected_tool_names: set[str] | None = None,
-    ) -> int:
-        """向后兼容：裁剪工具输出"""
-        return self.compressor.prune_tool_outputs(
-            protect_recent_groups=protect_recent_groups,
-            minimum_recovery_tokens=minimum_recovery_tokens,
-            protected_tool_names=protected_tool_names,
-        )
-
     def add_message(
         self,
-        role: str,
+        role: MessageRole,
         content: str | list[dict] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_call_id: str | None = None,

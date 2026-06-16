@@ -34,7 +34,7 @@ class TestMultimodalMessageFlow:
         )
 
         # 模拟用户消息已添加到 context.messages
-        context.add_message("user", context.task_content)
+        context.add_message(MessageRole.USER, context.task_content)
 
         messages = builder.build(context)
 
@@ -75,8 +75,8 @@ class TestMultimodalMessageFlow:
         )
 
         # 模拟多轮对话
-        context.add_message("user", context.task_content)
-        context.add_message("assistant", "这是一张...")
+        context.add_message(MessageRole.USER, context.task_content)
+        context.add_message(MessageRole.ASSISTANT, "这是一张...")
 
         messages = builder.build(context)
 
@@ -101,33 +101,33 @@ class TestMultimodalMessageFlow:
             session_id="test_session",
         )
 
-        context.add_message("user", context.task_content)
+        context.add_message(MessageRole.USER, context.task_content)
         # 模拟对话到第 5 轮（但不超过 max_context_groups=3 的窗口）
         context.add_message(
-            "assistant",
+            MessageRole.ASSISTANT,
             "第 1 次回复",
             tool_calls=[{"id": "tc1", "name": "tool1", "arguments": {}}],
         )
-        context.add_message("tool", "工具输出", tool_call_id="tc1")
+        context.add_message(MessageRole.TOOL, "工具输出", tool_call_id="tc1")
         # Add more messages to reach group_count = 5
         context.add_message(
-            "assistant",
+            MessageRole.ASSISTANT,
             "第 2 次回复",
             tool_calls=[{"id": "tc2", "name": "tool2", "arguments": {}}],
         )
-        context.add_message("tool", "工具输出2", tool_call_id="tc2")
+        context.add_message(MessageRole.TOOL, "工具输出2", tool_call_id="tc2")
         context.add_message(
-            "assistant",
+            MessageRole.ASSISTANT,
             "第 3 次回复",
             tool_calls=[{"id": "tc3", "name": "tool3", "arguments": {}}],
         )
-        context.add_message("tool", "工具输出3", tool_call_id="tc3")
+        context.add_message(MessageRole.TOOL, "工具输出3", tool_call_id="tc3")
         context.add_message(
-            "assistant",
+            MessageRole.ASSISTANT,
             "第 4 次回复",
             tool_calls=[{"id": "tc4", "name": "tool4", "arguments": {}}],
         )
-        context.add_message("tool", "工具输出4", tool_call_id="tc4")
+        context.add_message(MessageRole.TOOL, "工具输出4", tool_call_id="tc4")
         context.metadata = {}
 
         messages = builder.build(context)
@@ -162,7 +162,7 @@ class TestMultimodalMessageFlow:
             agent_mode="code",
             session_id="test_session",
         )
-        context.add_message("user", context.task_content)
+        context.add_message(MessageRole.USER, context.task_content)
 
         messages = builder.build(context)
 
@@ -197,7 +197,7 @@ class TestMultimodalMessageFlow:
         )
 
         # 用户消息应该包含多模态内容
-        user_msgs = [m for m in context.messages if m["role"] == MessageRole.USER]
+        user_msgs = [m for m in context.compressor.get_messages() if m["role"] == MessageRole.USER]
         assert len(user_msgs) == 1
         assert isinstance(user_msgs[0]["content"], list)
         assert len(user_msgs[0]["content"]) == 2
@@ -225,6 +225,6 @@ class TestMultimodalMessageFlow:
         )
 
         # 历史中的多模态消息应该被保留
-        user_msgs = [m for m in context.messages if m["role"] == MessageRole.USER]
+        user_msgs = [m for m in context.compressor.get_messages() if m["role"] == MessageRole.USER]
         multimodal_msgs = [m for m in user_msgs if isinstance(m["content"], list)]
         assert len(multimodal_msgs) >= 1, "历史中的多模态消息应该被保留"

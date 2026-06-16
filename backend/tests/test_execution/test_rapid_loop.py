@@ -8,7 +8,7 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopResult, LoopStatus, StepStatus
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.rapid_loop import RapidExecutionLoop
-from app.llm.base import LLMResponse, LLMToolCall, StreamChunk
+from app.llm.base import LLMToolCall, MessageRole, StreamChunk
 from app.llm.retry import LLMRetryExhaustedError
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.plan_tool import PlanTool
@@ -462,7 +462,7 @@ class TestRapidExecutionLoop:
     ):
         context = LoopContext(task="summarize old context")
         for i in range(12):
-            context.add_message("user", f"message {i}")
+            context.add_message(MessageRole.USER, f"message {i}")
 
         async def mock_summarizer(task: str, transcript: str) -> str:
             return "summary [session_recall can retrieve]"

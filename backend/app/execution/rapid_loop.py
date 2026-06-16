@@ -240,7 +240,7 @@ class RapidExecutionLoop:
 
         # 先把 assistant 的响应加到上下文
         if rt.response.has_content:
-            context.add_message("assistant", content=rt.response.content)
+            context.add_message(MessageRole.ASSISTANT, content=rt.response.content)
 
         # 防止无限循环：检查是否已经询问过
         nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
@@ -263,7 +263,7 @@ class RapidExecutionLoop:
             "B) Update the plan to mark steps as completed/blocked if the work is actually done."
         )
 
-        context.add_message("user", prompt)
+        context.add_message(MessageRole.USER, prompt)
         context.metadata["_prefill_assistant"] = "I'll continue working on the plan. "
         return LoopPhase.PLANNING
 
@@ -390,7 +390,7 @@ class RapidExecutionLoop:
                     f"- Or call plan tool to mark steps as blocked if you need user input\n\n"
                     f"Do NOT continue reading files without making progress."
                 )
-                context.add_message("user", nudge_prompt)
+                context.add_message(MessageRole.USER, nudge_prompt)
                 logger.info(
                     "达到最大只读轮次(%d)但计划未完成，推动LLM继续执行: pending=%d, in_progress=%d",
                     self.MAX_READ_ONLY_PASSES,
@@ -421,7 +421,7 @@ class RapidExecutionLoop:
                         f"search terms, different files, or move on "
                         f"to the next step."
                     )
-                    context.add_message("user", doom_prompt)
+                    context.add_message(MessageRole.USER, doom_prompt)
                     rt.consecutive_failures = 0
                     context.metadata.setdefault("_recent_tool_signatures", []).clear()
                     return LoopPhase.PLANNING
@@ -470,7 +470,7 @@ class RapidExecutionLoop:
                     f"- If you are stuck, mark the step as blocked in the plan tool.\n"
                     f"- Do NOT retry with the same parameters again."
                 )
-                context.add_message("user", doom_prompt)
+                context.add_message(MessageRole.USER, doom_prompt)
                 rt.consecutive_failures = 0
                 context.metadata.setdefault("_recent_tool_signatures", []).clear()
                 return LoopPhase.PLANNING
@@ -520,7 +520,7 @@ class RapidExecutionLoop:
             result.status = LoopStatus.RESUMING
             tool_output = approval.output or approval.error or ""
             context.add_message(
-                "tool",
+                MessageRole.TOOL,
                 content=tool_output,
                 tool_call_id=step.tool_call_id,
             )
@@ -623,7 +623,7 @@ class RapidExecutionLoop:
         )
 
         # 添加错误信息到上下文
-        context.add_message("user", error_prompt)
+        context.add_message(MessageRole.USER, error_prompt)
 
         # 重置连续失败计数
         rt.consecutive_failures = 0
@@ -643,7 +643,7 @@ class RapidExecutionLoop:
         injection = f"Plan approved. Begin executing. {summary}"
         if context.plan_file_path:
             injection += f"\nPlan file: {context.plan_file_path}"
-        context.add_message("user", injection)
+        context.add_message(MessageRole.USER, injection)
 
     async def confirm_plan_exit_from_external(self, run_id: str) -> None:
         """Called externally when user confirms plan_exit via WebSocket."""
@@ -891,7 +891,7 @@ class RapidExecutionLoop:
                 context.plan_file_path = plan_tool._file_path
                 await self._emit("plan:updated", context.plan.to_dict())
             elif result.error:
-                context.add_message("system", f"初始计划创建失败: {result.error}")
+                context.add_message(MessageRole.SYSTEM, f"初始计划创建失败: {result.error}")
             return
 
     async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
@@ -1056,7 +1056,7 @@ Answer ONLY "yes" or "no".\
                         merged_content = prefill
 
                 context.add_message(
-                    "assistant",
+                    MessageRole.ASSISTANT,
                     content=merged_content or None,
                     tool_calls=[
                         tool_call.model_dump() for tool_call in response.tool_calls
@@ -1080,7 +1080,7 @@ Answer ONLY "yes" or "no".\
                         self.llm.get_model_name(),
                     )
                     context.add_message(
-                        "user",
+                        MessageRole.USER,
                         f"[System] The model produced no output. Please continue the task using tools. "
                         f"Original task: {context.task}",
                     )
@@ -1192,7 +1192,7 @@ Answer ONLY "yes" or "no".\
             str: 最终回答内容
         """
         context.add_message(
-            "user", self.prompt_manager.get_final_response_prompt(context.task)
+            MessageRole.USER, self.prompt_manager.get_final_response_prompt(context.task)
         )
 
         messages = self.message_builder.build_final_summary(context)

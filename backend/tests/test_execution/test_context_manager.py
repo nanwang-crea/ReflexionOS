@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.execution.context_manager import LoopContext
+from app.llm.base import MessageRole
 
 
 class TestLoopContext:
@@ -39,8 +40,8 @@ class TestLoopContext:
     def test_add_message(self):
         context = LoopContext(task="测试任务")
 
-        context.add_message("user", "你好")
-        context.add_message("assistant", "你好，有什么可以帮助你的？")
+        context.add_message(MessageRole.USER, "你好")
+        context.add_message(MessageRole.ASSISTANT, "你好，有什么可以帮助你的？")
 
         assert len(context.compressor.get_messages()) == 2
         assert (
