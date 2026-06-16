@@ -262,7 +262,6 @@ class OpenAIAdapter(UniversalLLMInterface):
         for msg in messages:
             openai_msg: dict[str, Any] = {"role": msg.role}
 
-            # 多模态内容
             if isinstance(msg.content, list):
                 openai_msg["content"] = [
                     self._convert_content_part(part) for part in msg.content
@@ -289,14 +288,17 @@ class OpenAIAdapter(UniversalLLMInterface):
 
         return openai_messages
 
-    def _convert_content_part(self, part) -> dict:
-        """转换内容部分"""
-        if part.type == "text":
-            return {"type": "text", "text": part.text}
-        elif part.type == "image_url":
-            return {"type": "image_url", "image_url": part.image_url}
+    def _convert_content_part(self, part: dict) -> dict:
+        """将内部格式的内容部分转换为 OpenAI API 格式"""
+        part_type = part.get("type")
+        if part_type == "text":
+            return {"type": "text", "text": part.get("text", "")}
+        elif part_type == "image_url":
+            # 内部格式: {"type": "image_url", "url": "..."} → OpenAI: {"type": "image_url", "image_url": {"url": "..."}}
+            url = part.get("url") or part.get("image_url", {}).get("url")
+            return {"type": "image_url", "image_url": {"url": url}}
         else:
-            raise ValueError(f"未知的内容类型: {part.type}")
+            raise ValueError(f"未知的内容类型: {part_type}")
 
     def _convert_tools(self, tools: list[LLMToolDefinition]) -> list[dict[str, Any]]:
         """将内部工具定义转换为 OpenAI 格式"""

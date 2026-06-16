@@ -109,16 +109,17 @@ class LoopMessageBuilder:
 
         # Task Anchor: 首轮注入，之后按 task_anchor_interval 周期性注入
         # FINAL_SUMMARY 阶段由 build_final_summary 单独处理。
+        # 注意：首轮不需要注入 Task Anchor，因为用户的初始消息（含图片）已经在 context.messages 中
         should_inject_anchor = False
-        if context.group_count <= 1:
-            should_inject_anchor = True
-        elif self.task_anchor_interval > 0 and context.group_count % self.task_anchor_interval == 0:
-            last_injected_group = context.metadata.get("_last_anchor_group", 0)
-            if last_injected_group != context.group_count:
-                should_inject_anchor = True
-                context.metadata["_last_anchor_group"] = context.group_count
+        if context.group_count > 1:  # 只在非首轮时考虑注入
+            if self.task_anchor_interval > 0 and context.group_count % self.task_anchor_interval == 0:
+                last_injected_group = context.metadata.get("_last_anchor_group", 0)
+                if last_injected_group != context.group_count:
+                    should_inject_anchor = True
+                    context.metadata["_last_anchor_group"] = context.group_count
 
         if should_inject_anchor:
+            # 周期性提醒任务，使用纯文本即可
             messages.append(LLMMessage(role=MessageRole.USER, content=f"[Task Reminder] {context.task}"))
 
         prefill = context.metadata.get("_prefill_assistant")
@@ -143,7 +144,12 @@ class LoopMessageBuilder:
                 continue
             messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
 
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task_content))
+        # 添加当前任务（支持多模态内容）
+        task_content = context.task_content
+        if isinstance(task_content, list):
+            valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
+            task_content = valid if valid else ""
+        messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
 
         return messages
 
@@ -188,8 +194,12 @@ class LoopMessageBuilder:
 
             messages.append(LLMMessage(role=msg["role"], content=content))
 
-        # Task Anchor: 在最终总结时重新注入原始任务，确保回答围绕用户需求
-        messages.append(LLMMessage(role=MessageRole.USER, content=context.task_content))
+        # Task Anchor: 在最终总结时重新注入原始任务，确保回答围绕用户需求（支持多模态内容）
+        task_content = context.task_content
+        if isinstance(task_content, list):
+            valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
+            task_content = valid if valid else ""
+        messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
 
         return messages
 
@@ -242,14 +252,13 @@ class LoopMessageBuilder:
                         kwargs["tool_calls"] = [LLMToolCall(**tc) for tc in tool_calls_list]
                     tier2.append(LLMMessage(**kwargs))
                 elif msg["role"] == MessageRole.USER:
-                    if content == context.task and context.group_count <= 1:
-                        continue
+                    # 保留所有用户消息（包括多模态内容）
                     tier2.append(LLMMessage(role=MessageRole.USER, content=content))
 
         return tier2
 
     def recent_context_messages(self, context: LoopContext) -> list[dict]:
-        """获取 Tier 1 最近 N 组消息。当 Task Anchor 会注入时（group_count <= 1），跳过重复的 task user 消息。"""
+        """获取 Tier 1 最近 N 组消息（完整保留，包括多模态内容）"""
         if not context.messages:
             return []
 
@@ -271,12 +280,7 @@ class LoopMessageBuilder:
 
         recent_groups = grouped_messages[-self.max_context_groups :]
         flat = [message for group in recent_groups for message in group]
-        # 仅在 anchor 会注入时过滤重复，避免中间轮次丢失用户消息
-        should_dedup_task = context.group_count <= 1
-        return [
-            m for m in flat
-            if not (should_dedup_task and m["role"] == MessageRole.USER and m.get("content") == context.task)
-        ]
+        return flat
 
     @staticmethod
     def _build_plan_status(plan) -> str:

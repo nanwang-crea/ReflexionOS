@@ -109,10 +109,15 @@ class LoopContext:
                 continue
 
             content = seeded.get("content")
-            if not isinstance(content, str):
-                continue
-            content = content.strip()
-            if not content:
+            # 支持多模态内容（list）和纯文本（str）
+            if isinstance(content, str):
+                content = content.strip()
+                if not content:
+                    continue
+            elif isinstance(content, list):
+                # 多模态内容（文本 + 图片），保持原样
+                pass
+            else:
                 continue
 
             context.add_message(role, content, tool_call_id=tool_call_id)
@@ -121,12 +126,32 @@ class LoopContext:
         context.system_sections = system_sections or []
 
         # 确保最后一条消息是当前的用户任务（避免重复）
+        # 支持多模态 task_content（带图片）或纯文本 task
         last_user_msg = next(
             (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
             None,
         )
-        if not (last_user_msg and last_user_msg.get("content") == task):
-            context.add_message("user", task)
+
+        # 使用 task_content（支持多模态）而不是 task（纯文本）
+        current_content = task_content or task
+
+        # 判断是否需要添加当前消息（避免重复）
+        should_add = True
+        if last_user_msg:
+            last_content = last_user_msg.get("content")
+            # 如果都是字符串，比较内容
+            if isinstance(current_content, str) and isinstance(last_content, str):
+                should_add = current_content != last_content
+            # 如果都是列表（多模态），比较内容
+            elif isinstance(current_content, list) and isinstance(last_content, list):
+                should_add = current_content != last_content
+            # 类型不同，认为是不同的消息
+            else:
+                should_add = True
+
+        if should_add:
+            context.add_message("user", current_content)
+
         return context
 
     def update_history(self, action: Any, result: str) -> None:
@@ -145,11 +170,20 @@ class LoopContext:
     def add_message(
         self,
         role: str,
-        content: str | None = None,
+        content: str | list[dict] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_call_id: str | None = None,
     ) -> None:
-        """添加消息"""
+        """添加消息（支持多模态内容）
+
+        Args:
+            role: 消息角色
+            content: 消息内容，支持：
+                - str: 纯文本
+                - list[dict]: 多模态内容（如 [{"type": "text", "text": "..."}, {"type": "image_url", "url": "..."}]）
+            tool_calls: 工具调用列表
+            tool_call_id: 工具调用 ID
+        """
         message: dict[str, Any] = {"role": role, "timestamp": datetime.now().isoformat()}
 
         if content is not None:

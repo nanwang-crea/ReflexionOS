@@ -33,15 +33,11 @@ def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> 
 
         # 添加文本部分
         if message.content_text and message.content_text.strip():
-            from app.llm.base import LLMContentPart
-            content_parts.append(
-                LLMContentPart(type="text", text=message.content_text).model_dump(exclude_none=True)
-            )
+            content_parts.append({"type": "text", "text": message.content_text})
 
         # 添加图片部分
         image_parts = convert_attachments_to_content_parts(message.attachments, supports_vision)
-        for part in image_parts:
-            content_parts.append(part.model_dump(exclude_none=True))
+        content_parts.extend(image_parts)
 
         if content_parts:
             base_msg["content"] = content_parts

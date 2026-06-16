@@ -514,8 +514,7 @@ class AgentService:
                 image_parts = convert_attachments_to_content_parts(
                     user_message.attachments, resolved_llm.supports_vision
                 )
-                for part in image_parts:
-                    content_parts.append(part.model_dump(exclude_none=True))
+                content_parts.extend(image_parts)
                 if content_parts:
                     task_content = content_parts
 

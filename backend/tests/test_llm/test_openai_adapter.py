@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
-from app.llm.base import LLMContentPart, LLMMessage, LLMToolCall
+from app.llm.base import LLMMessage, LLMToolCall
 from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 
@@ -488,16 +488,13 @@ class TestOpenAIAdapter:
         assert response.finish_reason == "tool_calls"
 
     def test_convert_multimodal_messages(self, openai_adapter):
-        """测试多模态消息转换"""
+        """测试多模态消息转换（内部格式 → OpenAI 格式）"""
         messages = [
             LLMMessage(
                 role="user",
                 content=[
-                    LLMContentPart(type="text", text="分析这张图片"),
-                    LLMContentPart(
-                        type="image_url",
-                        image_url={"url": "data:image/png;base64,abc123"}
-                    )
+                    {"type": "text", "text": "分析这张图片"},
+                    {"type": "image_url", "url": "data:image/png;base64,abc123"},
                 ]
             )
         ]
@@ -508,7 +505,9 @@ class TestOpenAIAdapter:
         assert converted[0]["role"] == "user"
         assert isinstance(converted[0]["content"], list)
         assert len(converted[0]["content"]) == 2
-        assert converted[0]["content"][0]["type"] == "text"
-        assert converted[0]["content"][0]["text"] == "分析这张图片"
-        assert converted[0]["content"][1]["type"] == "image_url"
-        assert converted[0]["content"][1]["image_url"]["url"] == "data:image/png;base64,abc123"
+        assert converted[0]["content"][0] == {"type": "text", "text": "分析这张图片"}
+        # image_url 应被转换为 OpenAI 嵌套格式
+        assert converted[0]["content"][1] == {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,abc123"}
+        }
