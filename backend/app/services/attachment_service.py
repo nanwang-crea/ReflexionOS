@@ -142,6 +142,38 @@ class AttachmentService:
 
         return attachments_data
 
+    def cleanup_session_attachments(self, session_id: str) -> int:
+        """清理会话的所有附件文件
+
+        Args:
+            session_id: 会话 ID
+
+        Returns:
+            删除的文件数量
+        """
+        session_dir = self.get_session_upload_dir(session_id)
+
+        if not session_dir.exists():
+            logger.debug(f"会话上传目录不存在，无需清理: {session_dir}")
+            return 0
+
+        deleted_count = 0
+        try:
+            # 删除目录下的所有文件
+            for file_path in session_dir.iterdir():
+                if file_path.is_file():
+                    file_path.unlink()
+                    deleted_count += 1
+                    logger.debug(f"删除附件文件: {file_path}")
+
+            # 删除空目录
+            session_dir.rmdir()
+            logger.info(f"清理会话附件完成: session={session_id}, 删除 {deleted_count} 个文件")
+        except Exception as e:
+            logger.error(f"清理会话附件失败: session={session_id}, error={e}", exc_info=True)
+
+        return deleted_count
+
 
 # 全局单例
 _attachment_service = AttachmentService()
