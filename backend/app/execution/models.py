@@ -76,4 +76,3 @@ class RuntimeState:
     approval_resume_event: asyncio.Event = field(default_factory=asyncio.Event)
     approval_result: dict | None = None
     read_only_passes_used: int = 0
-    _plan_exit_confirmed: bool = False

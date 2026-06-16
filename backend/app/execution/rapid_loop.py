@@ -133,11 +133,6 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """PLANNING 阶段：调用 LLM 决策，决定下一阶段。"""
-        # Check for plan_exit confirmation
-        if rt._plan_exit_confirmed:
-            rt._plan_exit_confirmed = False
-            await self._confirm_plan_exit(context, rt)
-
         self._overflow_retry_count = 0
         rt.response = await self._call_llm(context)
 
@@ -297,25 +292,6 @@ class RapidExecutionLoop:
 
         read_only_calls = []
         write_calls = []
-
-        # Handle plan_exit — emit event, wait for user confirmation
-        for tool_call in list(rt.response.tool_calls):
-            if tool_call.name == "plan_exit":
-                rt.step_num += 1
-                step = await self.tool_executor.execute(tool_call, context, rt.step_num)
-                result.steps.append(step)
-                context.add_step(step)
-                if step.status == StepStatus.SUCCESS:
-                    await self._emit(
-                        "plan:exit_requested",
-                        {
-                            "run_id": result.id,
-                            "summary": step.args.get("summary", ""),
-                        },
-                    )
-                    context.metadata["plan_exit_requested"] = True
-                    context.metadata["plan_exit_summary"] = step.args.get("summary", "")
-                return LoopPhase.PLANNING
 
         for tool_call in rt.response.tool_calls:
             if self.tool_executor._is_read_only_call(tool_call):
@@ -634,21 +610,6 @@ class RapidExecutionLoop:
             return LoopPhase.FINAL_SUMMARY
 
         return LoopPhase.PLANNING
-
-    async def _confirm_plan_exit(self, context: LoopContext, rt: RuntimeState) -> None:
-        """Handle user confirmation of plan_exit — switch to build mode."""
-        context.agent_mode = "build"
-        context.metadata.pop("plan_exit_requested", None)
-        summary = context.metadata.pop("plan_exit_summary", "")
-        injection = f"Plan approved. Begin executing. {summary}"
-        if context.plan_file_path:
-            injection += f"\nPlan file: {context.plan_file_path}"
-        context.add_message(MessageRole.USER, injection)
-
-    async def confirm_plan_exit_from_external(self, run_id: str) -> None:
-        """Called externally when user confirms plan_exit via WebSocket."""
-        if self._runtime is not None:
-            self._runtime._plan_exit_confirmed = True
 
     async def _handle_final_summary(
         self,

@@ -2,7 +2,6 @@ from app.execution.context_manager import LoopContext
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.tools.base import BaseTool, ToolResult
-from app.tools.plan_exit_tool import PlanExitTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
@@ -152,16 +151,14 @@ def build_plan_mode_registry() -> ToolRegistry:
     registry.register(SessionRecallLikeTool())
     registry.register(ExploreLikeTool())
     registry.register(PlanTool())
-    registry.register(PlanExitTool())
     return registry
 
 
-def test_plan_mode_definitions_expose_plan_schema_and_plan_exit():
+def test_plan_mode_definitions_expose_plan_schema():
     definitions = RuntimeToolDefinitions(build_plan_mode_registry()).for_plan_mode()
 
     names = [definition.name for definition in definitions]
     assert "plan" in names
-    assert "plan_exit" in names
 
     plan_definition = next(d for d in definitions if d.name == "plan")
     parameters = plan_definition.parameters

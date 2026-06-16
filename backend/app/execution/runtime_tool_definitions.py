@@ -73,8 +73,6 @@ class RuntimeToolDefinitions:
         return [self.tool_registry.definition_from_schema(plan_tool.get_schema())]
 
     def for_plan_mode(self) -> list[LLMToolDefinition]:
-        from app.tools.plan_exit_tool import PlanExitTool
-
         definitions: list[LLMToolDefinition] = []
         for name in self._ordered_tool_names():
             if name not in self.config.plan_mode_tools:
@@ -84,12 +82,6 @@ class RuntimeToolDefinitions:
                 continue
             definitions.append(
                 self.tool_registry.definition_from_schema(tool.get_schema())
-            )
-
-        plan_exit = self.tool_registry.get("plan_exit")
-        if isinstance(plan_exit, PlanExitTool):
-            definitions.append(
-                self.tool_registry.definition_from_schema(plan_exit.get_schema())
             )
 
         return definitions

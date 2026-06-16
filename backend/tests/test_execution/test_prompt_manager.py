@@ -128,7 +128,6 @@ class TestPromptManager:
         assert "Clarification gate" in prompt
         assert "You must exhaust observable evidence before asking the user" in prompt
         assert "Prefer 3-6 steps" in prompt
-        assert "call plan_exit" in prompt
 
     def test_initial_plan_prompt_matches_plan_tool_protocol(self, manager):
         prompt = manager.get_initial_plan_prompt()
@@ -320,7 +319,6 @@ class TestPromptFamilySelection:
 
         assert "澄清门" in prompt
         assert "先穷尽可观察证据，再向用户提问" in prompt
-        assert "调用 plan_exit" in prompt
 
     def test_glm_initial_plan_prompt_matches_plan_tool_protocol(self):
         manager = PromptManager(model_name="glm-4-plus")
