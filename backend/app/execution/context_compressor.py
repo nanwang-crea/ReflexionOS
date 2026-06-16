@@ -131,3 +131,55 @@ class ContextCompressor:
         self._total_tokens = 0
         self._group_count = 0
         self._compacted_summary = None
+
+    # ========== 分组逻辑 ==========
+
+    @staticmethod
+    def group_messages(messages: list[dict]) -> list[MessageGroup]:
+        """
+        将消息按 assistant+tool_calls 开组的方式分组
+
+        分组规则：
+        - assistant 消息（带 tool_calls）开启新组
+        - 后续的 tool 消息归入当前组，直到遇到非 tool 消息
+        - 其他消息单独成组
+
+        Args:
+            messages: 原始消息列表
+
+        Returns:
+            分组后的 MessageGroup 列表，每组包含消息和预计算的 token 数
+        """
+        grouped: list[MessageGroup] = []
+        active_tool_group: list[dict] | None = None
+
+        for msg in messages:
+            # assistant 消息（带 tool_calls）开启新组
+            if msg["role"] == MessageRole.ASSISTANT and msg.get("tool_calls"):
+                active_tool_group = [msg]
+                # 预计算该消息的 token
+                token_count = count_messages_tokens([msg])
+                grouped.append(MessageGroup(messages=active_tool_group, token_count=token_count))
+                continue
+
+            # tool 消息归入当前组
+            if msg["role"] == MessageRole.TOOL and active_tool_group is not None:
+                active_tool_group.append(msg)
+                # 累加 token 到当前组
+                grouped[-1].token_count += count_messages_tokens([msg])
+                continue
+
+            # 其他消息单独成组
+            active_tool_group = None
+            token_count = count_messages_tokens([msg])
+            grouped.append(MessageGroup(messages=[msg], token_count=token_count))
+
+        return grouped
+
+    def get_groups(self) -> list[MessageGroup]:
+        """获取当前消息的分组（包含 token 预计算）"""
+        return self.group_messages(self._messages)
+
+    def get_group_count(self) -> int:
+        """获取当前分组数"""
+        return self._group_count
