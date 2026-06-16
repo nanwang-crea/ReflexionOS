@@ -489,7 +489,7 @@ class TestRapidExecutionLoop:
 
         await execution_loop.run(
             "继续处理",
-            seed_messages=[
+            history_messages=[
                 {"role": "user", "content": "上一轮需求"},
                 {"role": "assistant", "content": "上一轮结论"},
             ],

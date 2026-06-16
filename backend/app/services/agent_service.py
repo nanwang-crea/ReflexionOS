@@ -502,6 +502,8 @@ class AgentService:
             )
 
             # 构建当前 turn 用户消息的多模态 content（含图片）
+            # task: 纯文本任务描述，用于日志和标识
+            # task_content: 实际传给 LLM 的内容，默认等于 task，但如果有图片附件则构造成多模态格式
             task_content: str | list[dict] = task
             user_message = self.conversation_service.message_repo.get_user_message_by_turn(turn_id)
             if user_message and user_message.attachments:
@@ -523,7 +525,7 @@ class AgentService:
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                seed_messages=assembly.recent_messages,
+                history_messages=assembly.recent_messages,
                 supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
                 agent_mode=agent_mode,

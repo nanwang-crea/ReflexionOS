@@ -621,7 +621,7 @@ class RapidExecutionLoop:
         run_id: str | None = None,
         session_id: str | None = None,
         created_at: datetime | None = None,
-        seed_messages: list[dict[str, str]] | None = None,
+        history_messages: list[dict[str, str]] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
         agent_mode: str = "build",
@@ -631,8 +631,19 @@ class RapidExecutionLoop:
         执行任务
 
         Args:
-            task: 任务描述
+            task: 任务描述（纯文本），用于日志记录、事件发送、生成会话标题
+            task_content: 实际传递给 LLM 的内容。
+                         - 默认等于 task（纯文本场景）
+                         - 当用户上传图片时，会是多模态格式的 list[dict]，如：
+                           [{"type": "text", "text": "..."}, {"type": "image_url", "url": "..."}]
             project_path: 项目路径
+            run_id: 运行 ID
+            session_id: 会话 ID
+            created_at: 创建时间
+            history_messages: 历史对话消息（来自 context assembler 的 recent_messages）
+            supplemental_context: 补充上下文（如项目文档、CLAUDE.md 等）
+            system_sections: 系统提示词片段列表
+            agent_mode: Agent 模式（build/plan 等）
 
         Returns:
             LoopResult: 执行结果
@@ -654,7 +665,7 @@ class RapidExecutionLoop:
             run_id=loop_result.id,
             session_id=session_id,
             agent_mode=agent_mode,
-            seed_messages=seed_messages,
+            history_messages=history_messages,
             supplemental_context=supplemental_context,
             system_sections=system_sections,
             task_content=task_content,

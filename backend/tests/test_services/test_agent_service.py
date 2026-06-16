@@ -1032,7 +1032,7 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
         model_id="model-a",
     )
 
-    assert captured["seed_messages"] == [{"role": "user", "content": "seeded"}]
+    assert captured["history_messages"] == [{"role": "user", "content": "seeded"}]
     assert captured["supplemental_context"] == "handoff"
     assert captured["system_sections"] == ["STATIC"]
 

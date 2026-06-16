@@ -42,12 +42,12 @@ class TestLoopContext:
         assert len(context.messages) == 2
         assert context.messages[-1]["content"] == "你好，有什么可以帮助你的？"
 
-    def test_from_run_input_filters_seed_messages_and_adds_current_task(self):
+    def test_from_run_input_filters_history_messages_and_adds_current_task(self):
         context = LoopContext.from_run_input(
             task="继续处理",
             project_path="/tmp/reflexion",
             run_id="run-123",
-            seed_messages=[
+            history_messages=[
                 {"role": "user", "content": "上一轮需求"},
                 {"role": "assistant", "content": "  上一轮结论  "},
                 {"role": "system", "content": "should be ignored"},
@@ -71,10 +71,10 @@ class TestLoopContext:
             ("user", "继续处理"),
         ]
 
-    def test_from_run_input_supports_tool_calls_in_seed_messages(self):
+    def test_from_run_input_supports_tool_calls_in_history_messages(self):
         context = LoopContext.from_run_input(
             task="继续",
-            seed_messages=[
+            history_messages=[
                 {"role": "assistant", "content": "", "tool_calls": [
                     {"id": "call_001", "name": "file", "arguments": {"action": "read", "path": "a.py"}},
                 ]},
@@ -101,7 +101,7 @@ class TestLoopContext:
     def test_from_run_input_skips_tool_message_without_tool_call_id(self):
         context = LoopContext.from_run_input(
             task="继续",
-            seed_messages=[
+            history_messages=[
                 {"role": "tool", "content": "orphan tool result"},
             ],
         )
@@ -112,7 +112,7 @@ class TestLoopContext:
     def test_from_run_input_deduplicates_task_with_last_user_seed(self):
         context = LoopContext.from_run_input(
             task="继续",
-            seed_messages=[
+            history_messages=[
                 {"role": "assistant", "content": "正在分析..."},
                 {"role": "user", "content": "继续"},
             ],
@@ -125,7 +125,7 @@ class TestLoopContext:
     def test_from_run_input_appends_task_when_last_user_seed_differs(self):
         context = LoopContext.from_run_input(
             task="新任务",
-            seed_messages=[
+            history_messages=[
                 {"role": "user", "content": "旧任务"},
                 {"role": "assistant", "content": "完成了"},
             ],

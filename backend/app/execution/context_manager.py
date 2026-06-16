@@ -13,9 +13,17 @@ logger = logging.getLogger(__name__)
 class LoopContext:
     """Agent loop 上下文"""
 
-    def __init__(self, task: str, project_path: str | None = None, run_id: str | None = None, agent_mode: str = "build", session_id: str | None = None, task_content: str | list[dict] | None = None):
-        self.task = task
-        self.task_content = task_content or task
+    def __init__(
+        self,
+        task: str,
+        project_path: str | None = None,
+        run_id: str | None = None,
+        agent_mode: str = "build",
+        session_id: str | None = None,
+        task_content: str | list[dict] | None = None,
+    ):
+        self.task = task  # 任务描述（纯文本），用于标识和日志
+        self.task_content = task_content or task  # 实际传递给 LLM 的内容（支持多模态）
         self.project_path = project_path
         self.run_id = run_id or f"run-{id(self)}"
         self.session_id = session_id or self.run_id
@@ -48,15 +56,33 @@ class LoopContext:
         run_id: str | None = None,
         session_id: str | None = None,
         agent_mode: str = "build",
-        seed_messages: list[dict[str, Any]] | None = None,
+        history_messages: list[dict[str, Any]] | None = None,
         supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
         task_content: str | list[dict] | None = None,
     ) -> "LoopContext":
-        context = cls(task=task, project_path=project_path, run_id=run_id, agent_mode=agent_mode, session_id=session_id, task_content=task_content)
+        """
+        从运行输入构造 LoopContext
 
+        Args:
+            task: 任务描述（纯文本）
+            task_content: 实际传递给 LLM 的内容（支持多模态格式）
+            history_messages: 历史对话消息，用于恢复上下文
+            supplemental_context: 补充上下文（如项目文档）
+            system_sections: 系统提示词片段列表
+        """
+        context = cls(
+            task=task,
+            project_path=project_path,
+            run_id=run_id,
+            agent_mode=agent_mode,
+            session_id=session_id,
+            task_content=task_content,
+        )
+
+        # 过滤并添加历史消息到 context.messages
         allowed_seed_roles = {MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL}
-        for seeded in seed_messages or []:
+        for seeded in history_messages or []:
             if not isinstance(seeded, dict):
                 continue
             role = str(seeded.get("role") or "").strip().lower()
@@ -93,6 +119,8 @@ class LoopContext:
 
         context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []
+
+        # 确保最后一条消息是当前的用户任务（避免重复）
         last_user_msg = next(
             (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
             None,
