@@ -10,6 +10,7 @@ const HEALTH_PATH = '/health'
 const SHUTDOWN_TIMEOUT_MS = 5000
 const PACKAGED_BACKEND_DIR = 'backend-bin'
 const PACKAGED_BACKEND_NAME = 'reflexion-backend'
+const MAX_BACKEND_LOG_CHARS = 8000
 
 function probeHealth(timeoutMs = 1500) {
   return new Promise((resolve) => {
@@ -117,6 +118,7 @@ class BackendManager {
     this.state = 'stopped'
     this.error = null
     this.managed = false
+    this.recentOutput = ''
     this.backendExecutablePath = this.appIsPackaged && this.resourcesPath
       ? resolvePackagedBackendExecutable(this.resourcesPath)
       : null
@@ -136,7 +138,23 @@ class BackendManager {
       pid: this.childProcess ? this.childProcess.pid : null,
       managed: this.managed,
       error: this.error,
+      recentOutput: this.recentOutput,
     }
+  }
+
+  appendOutput(source, chunk) {
+    const text = Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk)
+    const prefixed = `[${source}] ${text}`
+    this.recentOutput = `${this.recentOutput}${prefixed}`.slice(-MAX_BACKEND_LOG_CHARS)
+  }
+
+  buildErrorWithOutput(message) {
+    const output = this.recentOutput.trim()
+    if (!output) {
+      return message
+    }
+
+    return `${message}\n\nRecent backend output:\n${output}`
   }
 
   async start() {
@@ -166,6 +184,7 @@ class BackendManager {
     this.state = 'starting'
     this.error = null
     this.managed = true
+    this.recentOutput = ''
 
     const launchPlan = buildBackendLaunchPlan({
       appIsPackaged: this.appIsPackaged,
@@ -182,11 +201,11 @@ class BackendManager {
     })
 
     this.childProcess.stdout.on('data', (chunk) => {
-      process.stdout.write(`[backend] ${chunk}`)
+      this.appendOutput('backend:stdout', chunk)
     })
 
     this.childProcess.stderr.on('data', (chunk) => {
-      process.stderr.write(`[backend] ${chunk}`)
+      this.appendOutput('backend:stderr', chunk)
     })
 
     this.childProcess.on('exit', (code, signal) => {
@@ -197,7 +216,7 @@ class BackendManager {
       }
 
       this.state = 'error'
-      this.error = `后端进程已退出 (code=${code}, signal=${signal})`
+      this.error = this.buildErrorWithOutput(`后端进程已退出 (code=${code}, signal=${signal})`)
     })
 
     return this.waitUntilHealthy()
@@ -221,7 +240,7 @@ class BackendManager {
     }
 
     this.state = 'error'
-    this.error = this.error || '后端启动超时，请确认已安装 backend 依赖。'
+    this.error = this.error || this.buildErrorWithOutput('后端启动超时，请确认已安装 backend 依赖。')
     throw new Error(this.error)
   }
 

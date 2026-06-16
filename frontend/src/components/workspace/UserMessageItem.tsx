@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
+import { getApiBaseUrl } from '@/services/runtimeConfig'
 
 interface MessageAttachment {
   id: string
@@ -13,6 +14,7 @@ interface MessageAttachment {
 
 interface UserMessageItemProps {
   messageId: string
+  sessionId: string
   contentText: string
   onEdit: (messageId: string, contentText: string) => void
   isEditing: boolean
@@ -26,6 +28,7 @@ interface UserMessageItemProps {
 
 export const UserMessageItem = memo(function UserMessageItem({
   messageId,
+  sessionId,
   contentText,
   onEdit,
   isEditing,
@@ -36,16 +39,10 @@ export const UserMessageItem = memo(function UserMessageItem({
   showActions,
   attachments = [],
 }: UserMessageItemProps) {
-  // 从 filePath 中提取 session_id 和 attachment_id
-  const getImageUrl = (attachment: MessageAttachment) => {
-    // filePath 格式: storage/uploads/{session_id}/{timestamp}_{file_id}.ext
-    const pathParts = attachment.filePath.split('/')
-    if (pathParts.length >= 3) {
-      const sessionId = pathParts[2]
-      return `/api/sessions/${sessionId}/attachments/${attachment.id}`
-    }
-    return ''
-  }
+  const apiBaseUrl = getApiBaseUrl()
+
+  const getImageUrl = (attachment: MessageAttachment) =>
+    `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}`
 
   return (
     <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
