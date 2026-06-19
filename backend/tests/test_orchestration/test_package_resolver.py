@@ -35,11 +35,8 @@ class TestPackageSpecifierParse:
         assert spec.url == "/local/path"
 
     def test_parse_pypi_specifier(self):
-        spec = PackageSpecifier.parse("my-plugin")
-        assert spec.name == "my-plugin"
-        assert spec.spec_type == "pypi"
-        assert spec.url == "my-plugin"
-        assert spec.ref == "latest"
+        with pytest.raises(ValueError, match="PyPI packages are not supported"):
+            PackageSpecifier.parse("my-plugin")
 
     @pytest.mark.parametrize(
         "raw",
@@ -186,7 +183,7 @@ class TestPackageResolverResolve:
             ref="latest",
         )
 
-        with pytest.raises(ValueError, match="PyPI packages not yet supported"):
+        with pytest.raises(ValueError, match="PyPI packages are not supported"):
             resolver.resolve(spec)
 
 

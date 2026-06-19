@@ -23,7 +23,9 @@ class TestSkillsAPI:
     def test_list_skills_empty(self):
         resp = client.get("/api/skills/")
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
 
     def test_list_skills_with_data(self):
         skill_registry.register_skill(
@@ -32,9 +34,9 @@ class TestSkillsAPI:
         resp = client.get("/api/skills/")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 1
-        assert data[0]["name"] == "test-skill"
-        assert "content" not in data[0]
+        assert len(data["items"]) == 1
+        assert data["items"][0]["name"] == "test-skill"
+        assert "content" not in data["items"][0]
 
     def test_get_skill_detail(self):
         skill_registry.register_skill(

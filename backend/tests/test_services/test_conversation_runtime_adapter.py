@@ -370,7 +370,11 @@ def test_run_cancelled_without_assistant_content_creates_no_empty_assistant_mess
         m for m in snapshot.messages if m.message_type == MessageType.ASSISTANT_MESSAGE
     ]
 
-    assert len(assistant_messages) == 0
+    assert len(assistant_messages) == 1
+    msg = assistant_messages[0]
+    assert msg.stream_state == StreamState.FAILED
+    assert msg.content_text == ""
+    assert msg.payload_json["error_code"] == "run_cancelled"
 
 
 def test_run_error_without_assistant_content_creates_no_empty_assistant_message(tmp_path):
@@ -389,7 +393,12 @@ def test_run_error_without_assistant_content_creates_no_empty_assistant_message(
         m for m in snapshot.messages if m.message_type == MessageType.ASSISTANT_MESSAGE
     ]
 
-    assert len(assistant_messages) == 0
+    assert len(assistant_messages) == 1
+    msg = assistant_messages[0]
+    assert msg.stream_state == StreamState.FAILED
+    assert msg.content_text == ""
+    assert msg.payload_json["error_code"] == "execution_error"
+    assert msg.payload_json["error_message"] == "unexpected failure"
 
 
 def test_run_cancelled_does_not_emit_duplicate_message_failed_for_completed_tool_trace(tmp_path):
@@ -414,7 +423,8 @@ def test_run_cancelled_does_not_emit_duplicate_message_failed_for_completed_tool
     message_failed_count = sum(
         1 for e in cancel_events if e.event_type == EventType.MESSAGE_FAILED
     )
-    assert message_failed_count == 0
+    # Production now emits MESSAGE_FAILED for the assistant message on cancellation
+    assert message_failed_count == 1
 
     snapshot = service.get_snapshot("session-1")
     traces = [m for m in snapshot.messages if m.message_type == MessageType.TOOL_TRACE]
