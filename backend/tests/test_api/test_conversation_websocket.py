@@ -678,7 +678,8 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     - messages are the primary reading surface (snapshot + context assembly)
     - curated memory persists under settings.memory.base_dir/projects/<project_id>/
     - continuation artifacts are persisted as derived system_notice messages
-      and become supplemental context
+      (context assembly no longer uses supplemental_block; memory refresh
+       is handled by _refresh_memory_sections after MemoryTool writes)
     - recall/search docs index normal messages but exclude continuation artifacts
     """
 
@@ -823,7 +824,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     # Context assembly should pick up:
     # - static blocks: AGENTS.md + curated USER
     # - recent messages: user + assistant messages
-    # - supplemental: latest continuation artifact
     assembler = ContextAssembler(
         conversation_service=ConversationService(db=services.db),
         curated_store=CuratedMemoryStore(base_dir=services.tmp_path / "memories"),
@@ -836,8 +836,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     assert any("Always reply in Chinese" in section for section in assembly.system_sections)
     assert any("默认使用中文回复" in section for section in assembly.system_sections)
     assert assembly.recent_messages
-    assert assembly.supplemental_block is not None
-    assert "当前目标" in assembly.supplemental_block
 
     # Recall reads from normalized derived search docs, and continuation artifacts stay excluded.
     recall = RecallService(db=services.db)

@@ -633,7 +633,6 @@ class RapidExecutionLoop:
         session_id: str | None = None,
         created_at: datetime | None = None,
         history_messages: list[dict[str, str]] | None = None,
-        supplemental_context: str | None = None,
         system_sections: list[str] | None = None,
         agent_mode: str = "build",
         task_content: str | list[dict] | None = None,
@@ -652,7 +651,6 @@ class RapidExecutionLoop:
             session_id: 会话 ID
             created_at: 创建时间
             history_messages: 历史对话消息（来自 context assembler 的 recent_messages）
-            supplemental_context: 补充上下文（如项目文档、CLAUDE.md 等）
             system_sections: 系统提示词片段列表
             agent_mode: Agent 模式（build/plan 等）
 
@@ -677,7 +675,6 @@ class RapidExecutionLoop:
             session_id=session_id,
             agent_mode=agent_mode,
             history_messages=history_messages,
-            supplemental_context=supplemental_context,
             system_sections=system_sections,
             task_content=task_content,
         )

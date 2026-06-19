@@ -32,7 +32,7 @@
 - 增量同步与回放：`conversation_events` 保持 append-only，用于 WebSocket 的 `after_seq` 同步，不作为主阅读面。
 - Curated memory：项目级条目化存储，渲染为 `USER.md` / `MEMORY.md`，目录在 `{memory.base_dir}/projects/<project_id>/`。
 - Recall：读取派生的 `message_search_documents`（由消息投影自动维护，非向量检索）。
-- Continuation artifacts：run 结束后由压缩/收敛步骤生成的 system notice（`kind=continuation_artifact`），作为 supplemental context 注入下一轮执行，并默认从 recall/记忆提升中排除。
+- Continuation artifacts：run 结束后由压缩/收敛步骤生成的 system notice（kind=continuation_artifact），默认从 recall/记忆提升中排除；不再作为 supplemental context 注入下一轮执行（该职责由 MemoryTool + _refresh_memory_sections 替代）。
 
 ## 历史参考
 

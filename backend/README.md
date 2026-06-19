@@ -68,7 +68,7 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
   - 表现为 `message_type=system_notice`，payload 中 `kind=continuation_artifact` 且 `derived=true`
   - 默认 `display_mode=collapsed`
   - 同时带有 `exclude_from_recall=true` / `exclude_from_memory_promotion=true`
-- Context assembly（运行时三层上下文）会把“最新的一条 continuation artifact 内容”作为 supplemental block 注入执行。
+- Context assembly（运行时两层上下文：静态 system sections + recent messages）不再注入 supplemental block；MemoryTool 写入后由 _refresh_memory_sections() 刷新 system_sections 中的 USER/MEMORY 段。
 
 ## 测试
 

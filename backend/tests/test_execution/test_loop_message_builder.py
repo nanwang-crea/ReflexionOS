@@ -55,7 +55,6 @@ def test_build_messages_does_not_duplicate_initial_user_task():
 def test_build_messages_places_current_task_after_history():
     builder = build_message_builder()
     context = LoopContext(task="继续当前任务")
-    context.supplemental_context = "当前目标: 修复消息上下文"
     context.add_message(MessageRole.USER, "上一轮需求")
     context.add_message(MessageRole.ASSISTANT, "上一轮结论")
     context.add_message(MessageRole.USER, "继续当前任务")
@@ -74,7 +73,6 @@ def test_initial_plan_messages_include_only_text_conversation_context():
     context = LoopContext(task="继续处理")
     tool_call = LLMToolCall(id="call_alpha", name="mock", arguments={})
     context.system_sections = ["AGENTS instructions"]
-    context.supplemental_context = "当前目标: 修 memory"
     context.add_message(MessageRole.USER, "上一轮需求")
     context.add_message(MessageRole.ASSISTANT, "上一轮结论", tool_calls=[tool_call.model_dump()])
     context.add_message(MessageRole.TOOL, "tool output", tool_call_id=tool_call.id)
@@ -84,7 +82,6 @@ def test_initial_plan_messages_include_only_text_conversation_context():
 
     contents = [message.content for message in messages if message.content]
     assert "AGENTS instructions" in contents
-    assert "当前目标: 修 memory" in contents
     assert "上一轮需求" in contents
     assert "上一轮结论" in contents
     assert "tool output" not in contents

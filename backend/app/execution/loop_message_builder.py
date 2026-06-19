@@ -34,17 +34,12 @@ class LoopMessageBuilder:
     def _inject_context_sections(
         context: LoopContext, messages: list[LLMMessage]
     ) -> None:
-        """注入三层上下文中的静态层：system sections + supplemental context"""
+        """注入三层上下文中的静态层：system sections"""
         for section in context.system_sections or []:
             if str(section or "").strip():
                 messages.append(
                     LLMMessage(role=MessageRole.SYSTEM, content=str(section))
                 )
-        supplemental = context.supplemental_context
-        if supplemental and str(supplemental).strip():
-            messages.append(
-                LLMMessage(role=MessageRole.SYSTEM, content=str(supplemental).strip())
-            )
 
     def build(self, context: LoopContext) -> list[LLMMessage]:
         """构建完整的三级上下文消息列表，供 LLM 调用使用"""

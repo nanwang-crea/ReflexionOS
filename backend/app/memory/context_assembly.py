@@ -14,7 +14,6 @@ from app.services.conversation_service import ConversationService
 class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
     recent_messages: list[dict[str, Any]]
-    supplemental_block: str | None = None
 
 
 def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> list[dict[str, Any]]:
@@ -92,7 +91,6 @@ def build_context_assembly(
     *,
     static_blocks: list[str],
     recent_messages: list[dict[str, Any]],
-    supplemental_block: str | None,
 ) -> ContextAssemblyResult:
     result_messages: list[dict[str, Any]] = []
     for message in recent_messages:
@@ -122,16 +120,14 @@ def build_context_assembly(
     return ContextAssemblyResult(
         system_sections=[block for block in static_blocks if str(block or "").strip()],
         recent_messages=result_messages,
-        supplemental_block=supplemental_block.strip() if supplemental_block else None,
     )
 
 
 class ContextAssembler:
     """
-    Build the three-layer context assembly used by runtime execution:
+    Build the context assembly used by runtime execution:
     - static system sections (AGENTS/USER/MEMORY)
     - recent seeded messages (conversation history)
-    - supplemental block (latest continuation artifact)
     """
 
     def __init__(
@@ -199,17 +195,7 @@ When a skill clearly matches your current task, load it first using the 'skill' 
                     self.curated_store.render_markdown(project_id=project_id, target=target)
                 )
 
-        # 3) Supplemental block: latest continuation artifact (SQL-level query).
-        artifact = self.conversation_service.get_latest_continuation_artifact(
-            session_id
-        )
-        supplemental_block = (
-            artifact.content_text.strip()
-            if artifact and (artifact.content_text or "").strip()
-            else None
-        )
-
-        # 4) Recent seed candidates (SQL-level filter + slice).
+        # 3) Recent seed candidates (SQL-level filter + slice).
         candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,
@@ -224,5 +210,4 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         return build_context_assembly(
             static_blocks=static_blocks,
             recent_messages=recent_messages,
-            supplemental_block=supplemental_block,
         )

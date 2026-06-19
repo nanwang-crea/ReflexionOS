@@ -523,7 +523,6 @@ class AgentService:
                 run_id=run_id,
                 session_id=session_id,
                 history_messages=assembly.recent_messages,
-                supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
                 agent_mode=agent_mode,
             )

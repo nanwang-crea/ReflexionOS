@@ -62,14 +62,12 @@ class TestLoopContext:
                 {"role": "tool", "content": "tool output", "tool_call_id": "call_001"},
                 "bad seed",
             ],
-            supplemental_context="当前目标: 修 memory",
             system_sections=["AGENTS instructions"],
         )
 
         assert context.task == "继续处理"
         assert context.project_path == "/tmp/reflexion"
         assert context.run_id == "run-123"
-        assert context.supplemental_context == "当前目标: 修 memory"
         assert context.system_sections == ["AGENTS instructions"]
         assert [
             (message["role"], message.get("content"))

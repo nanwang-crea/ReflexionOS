@@ -593,7 +593,6 @@ class TestRapidExecutionLoop:
                 {"role": "user", "content": "上一轮需求"},
                 {"role": "assistant", "content": "上一轮结论"},
             ],
-            supplemental_context="当前目标: 修 memory",
         )
 
         contents = [
@@ -602,7 +601,6 @@ class TestRapidExecutionLoop:
         assert "继续处理" in contents
         assert "上一轮需求" in contents
         assert "上一轮结论" in contents
-        assert any("当前目标: 修 memory" in content for content in contents)
         assert captured["messages"][-1].role == "user"
         assert captured["messages"][-1].content == "继续处理"
 

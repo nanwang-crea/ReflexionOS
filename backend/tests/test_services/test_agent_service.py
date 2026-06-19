@@ -1018,7 +1018,6 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
     service.context_assembler.build_for_session = lambda **_: ContextAssemblyResult(
         system_sections=["STATIC"],
         recent_messages=[{"role": "user", "content": "seeded"}],
-        supplemental_block="handoff",
     )
 
     await service._run_turn(
@@ -1033,7 +1032,6 @@ async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch,
     )
 
     assert captured["history_messages"] == [{"role": "user", "content": "seeded"}]
-    assert captured["supplemental_context"] == "handoff"
     assert captured["system_sections"] == ["STATIC"]
 
 
