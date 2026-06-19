@@ -49,7 +49,7 @@ export const UserMessageItem = memo(function UserMessageItem({
 
   return (
     <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
-      {attachments.length > 0 && !isEditing && (
+      {attachments.length > 0 && (
         <div className="mb-2 flex max-w-[min(720px,calc(100%_-_16px))] flex-wrap gap-1.5">
           {attachments.slice(0, 4).map((att) => (
             <div

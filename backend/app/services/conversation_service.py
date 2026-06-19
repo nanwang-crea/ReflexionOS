@@ -461,9 +461,12 @@ class ConversationService:
             if is_user_message:
                 keep_turn = False
                 content = new_content if new_content else message.content_text
+                # 保留原始用户消息的附件
+                original_attachment_ids = [att.id for att in message.attachments]
             else:
                 keep_turn = True
                 content = new_content
+                original_attachment_ids = []
 
             deleted_turn_ids, surviving_user_content = self.truncate_after_message(
                 session_id=session_id,
@@ -496,6 +499,7 @@ class ConversationService:
                 provider_id=provider_id,
                 model_id=model_id,
                 workspace_ref=workspace_ref,
+                attachment_ids=original_attachment_ids or None,
             )
 
     def get_run(self, run_id: str) -> "Run | None":
