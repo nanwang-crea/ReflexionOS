@@ -133,10 +133,11 @@ class TestPromptManager:
         prompt = manager.get_initial_plan_prompt()
 
         assert (
-            "Call the plan tool only if the task clearly needs 3 or more distinct execution steps"
+            "Call the plan tool ONLY if the task clearly needs 3 or more distinct execution steps"
             in prompt
         )
-        assert "respond exactly: NO_PLAN" in prompt
+        assert "respond with exactly and only the word: NO_PLAN" in prompt
+        assert "Do NOT add any explanation" in prompt
         assert "status to in_progress" in prompt
 
     def test_final_response_prompt_requires_no_unfinished_plan_steps(self, manager):
@@ -325,7 +326,8 @@ class TestPromptFamilySelection:
         prompt = manager.get_initial_plan_prompt()
 
         assert "只有在任务明确需要 3 个或更多不同执行步骤时才调用 plan 工具" in prompt
-        assert "精确回复：NO_PLAN" in prompt
+        assert "精确回复且仅回复：NO_PLAN" in prompt
+        assert "不要在 NO_PLAN 后添加任何解释" in prompt
         assert "status 必须设为 in_progress" in prompt
 
     def test_non_glm_chinese_models_fall_back_to_default(self):

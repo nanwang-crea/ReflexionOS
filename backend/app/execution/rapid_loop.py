@@ -840,6 +840,16 @@ class RapidExecutionLoop:
         messages = self.message_builder.build_initial_plan(context)
         response = await self.llm.complete(messages, tools)
 
+        # Check for NO_PLAN response (task doesn't need a plan)
+        response_text = response.content or ""
+        if (
+            isinstance(response_text, str)
+            and response_text.strip().upper().startswith("NO_PLAN")
+            and not response.tool_calls
+        ):
+            logger.info("Bootstrap plan: LLM decided NO_PLAN for this task")
+            return
+
         for tool_call in response.tool_calls:
             if tool_call.name != plan_tool.name:
                 continue
