@@ -143,31 +143,12 @@ def test_midrun_compress_system_prompt():
     assert "Decisions already made" in prompt
 
 
-def test_continuation_compress_system_prompt_preserves_plan_anchor():
-    pm = PromptManager()
-    prompt = pm.get_continuation_compression_system_prompt()
-
-    assert "Current goal" in prompt
-    assert "Active plan constraints" in prompt
-    assert "single next action" in prompt
-    assert "Do not suggest asking the user unless" in prompt
-
-
 def test_glm_midrun_compress_system_prompt_preserves_plan_anchor():
     pm = PromptManager(model_name="glm-4-plus")
     prompt = pm.get_midrun_compression_system_prompt()
 
     assert "活动计划约束" in prompt
     assert "已做决定" in prompt
-
-
-def test_glm_continuation_compress_system_prompt_preserves_plan_anchor():
-    pm = PromptManager(model_name="glm-4-plus")
-    prompt = pm.get_continuation_compression_system_prompt()
-
-    assert "活动计划约束" in prompt
-    assert "唯一下一动作" in prompt
-    assert "不要建议向用户提问，除非" in prompt
 
 
 def test_midrun_compress_input_prompt():

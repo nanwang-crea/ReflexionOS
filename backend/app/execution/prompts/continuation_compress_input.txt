@@ -1,7 +1,0 @@
-Use this input to generate the Continuation Artifact.
-
-Task (current user input):
-$task
-
-Transcript (oldest to newest, may include tool traces):
-$transcript

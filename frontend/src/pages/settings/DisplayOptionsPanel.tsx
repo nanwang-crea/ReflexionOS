@@ -31,7 +31,6 @@ function ToggleSwitch({
 }
 
 export function DisplayOptionsPanel() {
-  const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
   const showProcessExpanded = useSettingsStore((s) => s.showProcessExpanded)
   const autoCollapseProcess = useSettingsStore((s) => s.autoCollapseProcess)
   const uiSettingsLoaded = useSettingsStore((s) => s.uiSettingsLoaded)
@@ -42,7 +41,6 @@ export function DisplayOptionsPanel() {
     uiSettingsApi.get()
       .then((res) => {
         setUISetting({
-          showContinuationNotices: res.data.show_continuation_notices,
           showProcessExpanded: res.data.show_process_expanded,
           autoCollapseProcess: res.data.auto_collapse_process,
         })
@@ -52,48 +50,29 @@ export function DisplayOptionsPanel() {
       })
   }, [uiSettingsLoaded, setUISetting])
 
-  const handleToggle = useCallback(async (key: 'show_continuation_notices' | 'show_process_expanded' | 'auto_collapse_process') => {
-    const current = key === 'show_continuation_notices'
-      ? showContinuationNotices
-      : key === 'show_process_expanded'
-        ? showProcessExpanded
-        : autoCollapseProcess
+  const handleToggle = useCallback(async (key: 'show_process_expanded' | 'auto_collapse_process') => {
+    const current = key === 'show_process_expanded'
+      ? showProcessExpanded
+      : autoCollapseProcess
     const next = !current
     try {
       await uiSettingsApi.update({
-        show_continuation_notices: key === 'show_continuation_notices' ? next : showContinuationNotices,
         show_process_expanded: key === 'show_process_expanded' ? next : showProcessExpanded,
         auto_collapse_process: key === 'auto_collapse_process' ? next : autoCollapseProcess,
       })
       setUISetting({
-        showContinuationNotices: key === 'show_continuation_notices' ? next : showContinuationNotices,
         showProcessExpanded: key === 'show_process_expanded' ? next : showProcessExpanded,
         autoCollapseProcess: key === 'auto_collapse_process' ? next : autoCollapseProcess,
       })
     } catch {
       useToastStore.getState().addToast('error', '保存 UI 设置失败')
     }
-  }, [showContinuationNotices, showProcessExpanded, autoCollapseProcess, setUISetting])
+  }, [showProcessExpanded, autoCollapseProcess, setUISetting])
 
   return (
     <div className="space-y-6">
       <div className="rounded-lg border border-edge bg-surface-primary p-6">
         <h3 className="mb-4 text-lg font-semibold text-content-primary">聊天显示</h3>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-content-secondary">显示延续摘要通知</p>
-            <p className="mt-1 text-sm text-content-muted">
-              开启后，对话上下文压缩时会在聊天中显示摘要通知
-            </p>
-          </div>
-          <ToggleSwitch
-            checked={showContinuationNotices}
-            onChange={() => { void handleToggle('show_continuation_notices') }}
-          />
-        </div>
-
-        <hr className="my-5 border-edge" />
 
         <div className="flex items-center justify-between">
           <div>

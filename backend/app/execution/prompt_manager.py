@@ -88,18 +88,6 @@ TEMPLATES_MANIFEST: list[dict] = [
         "family_specific": True,
     },
     {
-        "name": "continuation_compress_system",
-        "file": "continuation_compress_system.txt",
-        "variables": [],
-        "family_specific": True,
-    },
-    {
-        "name": "continuation_compress_input",
-        "file": "continuation_compress_input.txt",
-        "variables": ["task", "transcript"],
-        "family_specific": True,
-    },
-    {
         "name": "midrun_compress_system",
         "file": "midrun_compress_system.txt",
         "variables": [],
@@ -402,11 +390,4 @@ class PromptManager:
             existing_summary_block=existing_summary_block,
         )
 
-    def get_continuation_compression_prompt(self, *, task: str, transcript: str) -> str:
-        return self.get_template("continuation_compress_input").render(
-            task=task or "",
-            transcript=transcript or "",
-        )
 
-    def get_continuation_compression_system_prompt(self) -> str:
-        return self.get_template("continuation_compress_system").render()

@@ -16,8 +16,7 @@ from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
 from app.memory.context_assembly import ContextAssembler
-from app.memory.continuation import build_continuation_artifact
-from app.memory.continuation_builder import ContinuationArtifactBuilder
+
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
@@ -119,7 +118,6 @@ class AgentService:
             conversation_service=self.conversation_service,
             skill_registry=global_skill_registry,
         )
-        self.continuation_builder = ContinuationArtifactBuilder()
         self.trust_store = SessionTrustStore()
 
     def _build_run_tool_registry(
@@ -528,17 +526,6 @@ class AgentService:
             )
             if loop_result.status != LoopStatus.COMPLETED:
                 return
-            try:
-                await self._generate_and_persist_continuation_artifact(
-                    llm=llm,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    task=task,
-                    compacted_summary=loop_result.compacted_summary,
-                )
-            except Exception:
-                logger.exception("Continuation artifact generation failed: run_id=%s", run_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -619,108 +606,6 @@ class AgentService:
             )
         except Exception:
             logger.exception("会话标题更新失败: session_id=%s", session_id)
-
-    async def _generate_and_persist_continuation_artifact(
-        self,
-        *,
-        llm: UniversalLLMInterface,
-        session_id: str,
-        turn_id: str,
-        run_id: str,
-        task: str,
-        compacted_summary: str | None = None,
-    ) -> None:
-        turn_messages = self.conversation_service.list_turn_messages(turn_id)
-        if not turn_messages:
-            logger.warning(
-                "Continuation artifact skipped: no messages for turn %s (可能被编辑/截断删除), run_id=%s",
-                turn_id,
-                run_id,
-            )
-            return
-        prompt_input = self.continuation_builder.build_prompt_input(
-            task=task,
-            messages=turn_messages,
-            existing_summary=compacted_summary,
-        )
-        if not prompt_input.transcript:
-            return
-
-        system_prompt = self.prompt_manager.get_continuation_compression_system_prompt()
-        prompt_input = self.prompt_manager.get_continuation_compression_prompt(
-            task=prompt_input.task,
-            transcript=prompt_input.transcript,
-        )
-        response = await llm.complete(
-            [
-                LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
-                LLMMessage(role=MessageRole.USER, content=prompt_input),
-            ],
-            tools=None,
-        )
-        content = (getattr(response, "content", None) or "").strip()
-        if not content:
-            return
-
-        turn = self.conversation_service.get_turn(turn_id)
-        if turn is None:
-            logger.warning(
-                "Continuation artifact skipped: turn %s no longer exists (可能被编辑/截断删除), run_id=%s",
-                turn_id,
-                run_id,
-            )
-            return
-
-        next_index = self.conversation_service.next_message_index(turn_id)
-        message_id = f"msg-cont-{uuid4().hex[:8]}"
-        artifact = build_continuation_artifact(
-            session_id=session_id,
-            turn_id=turn_id,
-            content_text=content,
-            message_id=message_id,
-            turn_message_index=next_index,
-        )
-
-        events = self.conversation_service.append_events(
-            session_id,
-            [
-                ConversationEvent(
-                    id=new_event_id(),
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=message_id,
-                    event_type=EventType.MESSAGE_CREATED,
-                    payload_json={
-                        "message_id": artifact.id,
-                        "turn_id": artifact.turn_id,
-                        "run_id": artifact.run_id,
-                        "role": artifact.role,
-                        "message_type": artifact.message_type.value,
-                        "turn_message_index": artifact.turn_message_index,
-                        "display_mode": artifact.display_mode,
-                        "content_text": artifact.content_text,
-                        "payload_json": artifact.payload_json,
-                    },
-                ),
-                ConversationEvent(
-                    id=new_event_id(),
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=message_id,
-                    event_type=EventType.MESSAGE_COMPLETED,
-                    payload_json={
-                        "completed_at": artifact.completed_at.isoformat()
-                        if artifact.completed_at
-                        else None
-                    },
-                ),
-            ],
-        )
-
-        if config_manager.should_show_continuation_notices():
-            await self._broadcast_conversation_events(session_id=session_id, events=events)
 
     async def cancel_run(self, run_id: str) -> Run:
         cancel_event = self._cancel_events.get(run_id)

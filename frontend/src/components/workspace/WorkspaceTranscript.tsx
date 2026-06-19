@@ -356,25 +356,13 @@ export function WorkspaceTranscript({
   const userScrolledAwayRef = useRef(false)
   const userScrollIntentRef = useRef(false)
   const hasSeenStartReachedRef = useRef(false)
-  const showContinuationNotices = useSettingsStore((s) => s.showContinuationNotices)
   const showProcessExpanded = useSettingsStore((s) => s.showProcessExpanded)
   const autoCollapseProcess = useSettingsStore((s) => s.autoCollapseProcess)
   const transcriptBottomPadding = getTranscriptBottomPadding(bottomInset)
 
-  const filteredMessages = useMemo(() => {
-    if (showContinuationNotices) return messages
-    return messages.filter((message) => {
-      if (message.messageType === 'system_notice') {
-        const kind = message.payloadJson?.kind
-        if (kind === 'continuation_artifact') return false
-      }
-      return true
-    })
-  }, [messages, showContinuationNotices])
+  const transcriptItems = useMemo(() => buildTranscriptItems(messages), [messages])
 
-  const transcriptItems = useMemo(() => buildTranscriptItems(filteredMessages), [filteredMessages])
-
-  const hasVisibleStreamingMessage = filteredMessages.some((message) => {
+  const hasVisibleStreamingMessage = messages.some((message) => {
     if (message.messageType === 'assistant_message' && message.streamState === 'streaming') {
       return true
     }
@@ -395,8 +383,8 @@ export function WorkspaceTranscript({
   const showReconnectIndicator = isRunning && reconnectLabel !== null
 
   const latestAssistantMessage = useMemo(
-    () => getLatestAssistantMessage(filteredMessages),
-    [filteredMessages]
+    () => getLatestAssistantMessage(messages),
+    [messages]
   )
   const liveThinkingText = latestAssistantMessage ? getAssistantReasoningText(latestAssistantMessage) : ''
   const showThinkingIndicator = (
@@ -515,7 +503,7 @@ export function WorkspaceTranscript({
 
   const prevLastUserMessageIdRef = useRef<string | null>(null)
   useEffect(() => {
-    const lastMessage = filteredMessages[filteredMessages.length - 1]
+    const lastMessage = messages[messages.length - 1]
     const lastUserMsgId = lastMessage?.messageType === 'user_message' ? lastMessage.id : null
     if (lastUserMsgId) {
       const wasUserScrolledAway = userScrolledAwayRef.current
@@ -530,7 +518,7 @@ export function WorkspaceTranscript({
       }
     }
     prevLastUserMessageIdRef.current = lastUserMsgId
-  }, [filteredMessages, scrollToTranscriptBottom])
+  }, [messages, scrollToTranscriptBottom])
 
   const computeItemKey = useCallback((_: number, item: TranscriptItem) => item.id, [])
 

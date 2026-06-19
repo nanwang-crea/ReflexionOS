@@ -522,10 +522,6 @@ class ConversationService:
         """Get a turn by ID."""
         return self.turn_repo.get(turn_id)
 
-    def get_latest_continuation_artifact(self, session_id: str, *, db_session=None) -> Message | None:
-        """Get the most recent continuation artifact for a session."""
-        return self.message_repo.get_latest_continuation_artifact(session_id, db_session=db_session)
-
     def list_recent_seed_candidates(self, session_id: str, **kwargs) -> list[Message]:
         """Return recent messages suitable for context seeding."""
         return self.message_repo.list_recent_seed_candidates(session_id, **kwargs)

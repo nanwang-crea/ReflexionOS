@@ -9,7 +9,6 @@ interface SettingsState {
   defaultModelId: string | null
   configured: boolean
   loaded: boolean
-  showContinuationNotices: boolean
   showProcessExpanded: boolean
   autoCollapseProcess: boolean
   uiSettingsLoaded: boolean
@@ -18,7 +17,6 @@ interface SettingsState {
     selection: DefaultLLMSelection
   }) => void
   setUISetting: (payload: {
-    showContinuationNotices: boolean
     showProcessExpanded: boolean
     autoCollapseProcess: boolean
   }) => void
@@ -31,7 +29,6 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   defaultModelId: null,
   configured: false,
   loaded: false,
-  showContinuationNotices: false,
   showProcessExpanded: true,
   autoCollapseProcess: true,
   uiSettingsLoaded: false,
@@ -45,8 +42,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
     loaded: true,
   }),
 
-  setUISetting: ({ showContinuationNotices, showProcessExpanded, autoCollapseProcess }) => set({
-    showContinuationNotices,
+  setUISetting: ({ showProcessExpanded, autoCollapseProcess }) => set({
     showProcessExpanded,
     autoCollapseProcess,
     uiSettingsLoaded: true,

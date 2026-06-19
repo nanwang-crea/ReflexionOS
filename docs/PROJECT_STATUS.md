@@ -104,13 +104,11 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 |------|--------|------|
 | 策展记忆存储（CuratedMemoryStore） | ✅ 完成 | 292 行，entry-based 存储，JSON 持久化 + Markdown 渲染（USER.md / MEMORY.md），冲突检测，supersede 机制 |
 | 上下文组装（ContextAssembler） | ✅ 完成 | 将记忆内容注入 LLM 上下文 |
-| 会话延续（Continuation） | ✅ 完成 | build_continuation_artifact 跨会话延续 |
-| 延续构建器（ContinuationArtifactBuilder） | ✅ 完成 | 构建会话延续产物 |
 | 消息归一化（MessageNormalizer） | ✅ 完成 | 统一不同来源的消息格式 |
 | 召回服务（RecallService） | ✅ 完成 | 按关键词搜索历史消息（基于 message_search_documents 投影） |
 | 文本压缩（TextCompaction） | ✅ 完成 | 长文本摘要压缩（midrun context compaction） |
 | Payload 工具（payload_utils） | ✅ 完成 | 记忆 payload 处理工具 |
-| 跨会话记忆 | 🔶 部分完成 | 架构已预留（continuation_builder），但跨 session 自动召回和持久化尚未完整打通 |
+| 跨会话记忆 | 🔶 部分完成 | 架构已预留，但跨 session 自动召回和持久化尚未完整打通 |
 | 全局级记忆 | ⬜ 未完成 | CuratedEntry.scope 目前仅接受 "project"，global scope 标记为前向兼容预留 |
 
 ### 2.6 会话与对话管理
