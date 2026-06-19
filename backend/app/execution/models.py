@@ -49,7 +49,7 @@ class LoopResult(BaseModel):
     total_duration: float | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
-    # Tier 3 压缩后的摘要，传递给 post-run continuation builder 复用，避免二次全量压缩
+    # Tier 3 压缩后的摘要，供后续 run 复用，避免二次全量压缩
     compacted_summary: str | None = None
 
 

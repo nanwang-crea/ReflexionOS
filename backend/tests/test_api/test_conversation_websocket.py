@@ -153,7 +153,7 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     A slightly richer fixture than client_with_services:
     - wires AgentService + ConversationService into websocket routes
     - isolates curated memory base_dir to tmp_path
-    - exposes services so tests can assert on pipeline artifacts (continuation + curated memory)
+    - exposes services so tests can assert on pipeline artifacts (compacted summary + curated memory)
     """
 
     from types import SimpleNamespace

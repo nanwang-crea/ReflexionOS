@@ -45,7 +45,7 @@ def client(tmp_path, monkeypatch):
 def client_with_memory_pipeline(tmp_path, monkeypatch):
     """
     API-level fixture that exposes ConversationService so tests can assert on
-    derived message search docs + continuation artifact persistence.
+    derived message search docs + compacted summary persistence.
     """
 
     from types import SimpleNamespace
