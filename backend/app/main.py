@@ -70,13 +70,13 @@ async def lifespan(_app: FastAPI):
         if plugin_settings.plugins:
             from app.api.routes.plugins import _get_resolver_and_loader
 
-            resolver, loader = _get_resolver_and_loader()
+            # 启动时只加载本地已缓存的插件，不触发任何网络操作（clone/fetch）
+            # 用户手动调用 POST /api/plugins/install 或 /update 时才会走 resolve → git clone 的路径
             try:
-                packages = resolver.resolve_all(plugin_settings.plugins)
-                loader.load_all(packages)
+                resolver, loader = _get_resolver_and_loader()
                 plugin_skill_dirs = loader.get_all_skill_dirs()
             except Exception as e:
-                logging.getLogger(__name__).exception("Failed to resolve plugins: %s", e)
+                logging.getLogger(__name__).exception("Failed to load cached plugins: %s", e)
 
         if skill_settings.auto_scan:
             skill_registry.scan_all(plugin_skill_dirs=plugin_skill_dirs)
