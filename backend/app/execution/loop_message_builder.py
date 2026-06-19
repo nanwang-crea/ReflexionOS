@@ -75,7 +75,7 @@ class LoopMessageBuilder:
             messages.append(
                 LLMMessage(
                     role=MessageRole.SYSTEM,
-                    content=f"[Compacted historical context]\n{context.compressor.get_compacted_summary()}",
+                    content=f"[Compacted historical context — session_recall can retrieve full details]\n{context.compressor.get_compacted_summary()}",
                 )
             )
 
@@ -196,7 +196,7 @@ class LoopMessageBuilder:
             messages.append(
                 LLMMessage(
                     role=MessageRole.SYSTEM,
-                    content=f"[Compacted historical context]\n{context.compressor.get_compacted_summary()}",
+                    content=f"[Compacted historical context — session_recall can retrieve full details]\n{context.compressor.get_compacted_summary()}",
                 )
             )
 

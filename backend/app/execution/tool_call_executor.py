@@ -9,6 +9,8 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
+from app.memory.curated_store import CuratedMemoryStore
+from app.tools.memory_tool import MemoryTool
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -241,6 +243,11 @@ class ToolCallExecutor:
                     )
                 await self.emit("plan:updated", context.plan.to_dict())
 
+            # P0 fix: Refresh memory-related system_sections after MemoryTool writes.
+            # Without this, the LLM won't see its own memory changes until the next run.
+            if isinstance(tool, MemoryTool) and result.success:
+                await self._refresh_memory_sections(context)
+
             logger.info(
                 "工具 %s 执行%s",
                 tool_call.name,
@@ -273,3 +280,27 @@ class ToolCallExecutor:
             if key not in arguments or arguments[key] is None:
                 missing.append(key)
         return missing
+
+    @staticmethod
+    async def _refresh_memory_sections(context: LoopContext) -> None:
+        """Re-read curated memory from disk and rebuild memory-related system_sections.
+
+        Called after MemoryTool writes so the LLM sees its own memory changes
+        in the very next turn, without waiting for a new run.
+        """
+        if not context.project_path:
+            return
+
+        store = CuratedMemoryStore(context.project_path)
+        refreshed_sections: list[dict[str, str]] = []
+        for target in ("user", "memory"):
+            md = store.render_markdown(target)
+            if md:
+                refreshed_sections.append({"title": target.upper(), "content": md})
+
+        # Replace only memory-related sections, preserve all others
+        memory_titles = {"USER", "MEMORY"}
+        other_sections = [
+            s for s in context.system_sections if s.get("title", "") not in memory_titles
+        ]
+        context.system_sections = other_sections + refreshed_sections
