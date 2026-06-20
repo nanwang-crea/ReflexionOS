@@ -408,6 +408,24 @@ class AgentService:
         cancel_event = asyncio.Event()
         self._cancel_events[run_id] = cancel_event
 
+        # Check if orchestration should be used
+        from app.execution.orchestrator import OrchestratorConfig, OrchestratorLoop, should_orchestrate
+        orchestrator_config = OrchestratorConfig.from_settings()
+
+        if should_orchestrate(task, orchestrator_config):
+            await self._run_orchestrated_turn(
+                run_id=run_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                task=task,
+                project_id=project_id,
+                project_path=project_path,
+                resolved_llm=resolved_llm,
+                cancel_event=cancel_event,
+                orchestrator_config=orchestrator_config,
+            )
+            return
+
         async def on_llm_retry(exc: Exception, attempt: int, delay: float) -> None:
             logger.warning(
                 "LLM 请求失败 (%s)，第 %d/%d 次重试，%.1fs 后重试: %s",
@@ -534,6 +552,100 @@ class AgentService:
         finally:
             self._runtime_adapters.pop(run_id, None)
             self._execution_loops.pop(run_id, None)
+            self._cancel_events.pop(run_id, None)
+
+    async def _run_orchestrated_turn(
+        self,
+        *,
+        run_id: str,
+        session_id: str,
+        turn_id: str,
+        task: str,
+        project_id: str,
+        project_path: str,
+        resolved_llm: Any,
+        cancel_event: asyncio.Event,
+        orchestrator_config: OrchestratorConfig,
+    ) -> None:
+        """运行编排模式的 turn"""
+        from app.execution.orchestrator import OrchestratorLoop, OrchestrationResult
+
+        llm = LLMAdapterFactory.create(resolved_llm, cancel_event=cancel_event)
+        runtime_adapter = ConversationRuntimeAdapter(
+            conversation_service=self.conversation_service,
+            session_id=session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+        )
+        self._runtime_adapters[run_id] = runtime_adapter
+
+        async def persist_and_broadcast(event_type: str, data: dict) -> None:
+            persisted_events = runtime_adapter.handle_event(event_type, data)
+            live_event = runtime_adapter.build_live_event(event_type, data)
+            if live_event is not None:
+                await self._broadcast_conversation_live_event(
+                    session_id=session_id,
+                    data=live_event,
+                )
+            await self._broadcast_conversation_events(
+                session_id=session_id,
+                events=persisted_events,
+            )
+
+        async def event_callback(event_type: str, data: dict):
+            await persist_and_broadcast(event_type, data)
+
+        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
+        run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
+
+        try:
+            assembly = self.context_assembler.build_for_session(
+                session_id=session_id,
+                project_id=project_id,
+                project_path=project_path,
+                current_turn_id=turn_id,
+                current_user_input=task,
+                supports_vision=resolved_llm.supports_vision,
+            )
+
+            from app.execution.context_manager import LoopContext
+            context = LoopContext.from_run_input(
+                task=task,
+                project_path=project_path,
+                run_id=run_id,
+                session_id=session_id,
+                agent_mode="build",
+                seed_messages=assembly.recent_messages,
+                current_turn_message=assembly.current_turn_message,
+                supplemental_context=assembly.supplemental_block,
+                system_sections=assembly.system_sections,
+            )
+
+            orchestrator = OrchestratorLoop(
+                llm=llm,
+                config=orchestrator_config,
+                context=context,
+                tool_registry=run_tool_registry,
+                event_callback=event_callback,
+            )
+
+            result: OrchestrationResult = await orchestrator.run(task)
+
+            await persist_and_broadcast("orchestration:complete", {
+                "status": result.status,
+                "final_output": result.final_output,
+                "worker_count": len(result.worker_results),
+                "total_tokens": result.total_tokens,
+                "duration_ms": result.total_duration_ms,
+            })
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("编排运行失败: run_id=%s", run_id)
+            await persist_and_broadcast("run:error", {"error": str(exc)})
+        finally:
+            self._runtime_adapters.pop(run_id, None)
             self._cancel_events.pop(run_id, None)
 
     def _register_pending_approval(

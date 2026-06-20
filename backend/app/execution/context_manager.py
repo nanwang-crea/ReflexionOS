@@ -1,3 +1,9 @@
+"""
+文件名: context_manager.py
+作用: 管理 Agent loop 的运行上下文（LoopContext），负责消息历史、token 计数、
+      三级上下文压缩、Plan 引擎状态，以及多 Worker 编排时的 orchestrated / worker_id 标记。
+"""
+
 import logging
 from datetime import datetime
 from typing import Any
@@ -20,7 +26,10 @@ class LoopContext:
         run_id: str | None = None,
         agent_mode: str = "build",
         session_id: str | None = None,
+        *,
         task_content: str | list[dict] | None = None,
+        orchestrated: bool = False,
+        worker_id: str | None = None,
     ):
         self.task = task  # 任务描述（纯文本），用于标识和日志
         self.task_content = task_content or task  # 实际传递给 LLM 的内容（支持多模态）
@@ -28,6 +37,9 @@ class LoopContext:
         self.run_id = run_id or f"run-{id(self)}"
         self.session_id = session_id or self.run_id
         self.agent_mode = agent_mode
+        # 多 Worker 编排字段（T1.2）
+        self.orchestrated = orchestrated
+        self.worker_id = worker_id
         self.history: list[dict[str, Any]] = []
         self.steps: list[LoopStep] = []
         self.current_step_number = 0

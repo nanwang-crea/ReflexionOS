@@ -79,6 +79,31 @@ class BrowserSettings(BaseModel):
     allowed_schemes: list[str] = Field(default=["http", "https"])
 
 
+class OrchestratorSettings(BaseModel):
+    """编排器配置"""
+
+    enabled: bool = Field(default=True, description="是否启用编排")
+    max_workers: int = Field(default=5, ge=1, le=20, description="最大 Worker 数")
+    worker_timeout_s: int = Field(default=300, ge=30, le=3600, description="Worker 超时秒数")
+    max_nesting_depth: int = Field(default=2, ge=1, le=5, description="最大嵌套深度")
+    worker_model: str | None = Field(default=None, description="Worker 使用的模型")
+    synthesis_model: str | None = Field(default=None, description="合成阶段使用的模型")
+    enable_reflection: bool = Field(default=False, description="Worker 是否执行反思")
+    enable_plan_persistence: bool = Field(default=True, description="Worker 计划是否持久化")
+    worker_max_iterations: int = Field(default=5, ge=1, le=50, description="Worker 最大迭代轮数")
+    worker_max_tool_calls: int = Field(default=10, ge=1, le=100, description="Worker 最大工具调用数")
+    max_concurrent_workers: int = Field(default=3, ge=1, le=10, description="Worker 级并发数")
+    max_concurrent_tools: int = Field(default=5, ge=1, le=20, description="工具执行最大并发数")
+    worker_retry_count: int = Field(default=1, ge=0, le=5, description="Worker 失败重试次数")
+    worker_retry_delay_s: int = Field(default=5, ge=1, le=60, description="重试间隔秒数")
+    force_orchestration: bool = Field(default=False, description="强制编排")
+    disable_orchestration: bool = Field(default=False, description="禁用编排")
+    worker_allowed_tools: list[str] = Field(
+        default_factory=lambda: ["file_read", "file_write", "file_edit", "session_recall", "task_complete"],
+        description="Worker 工具白名单"
+    )
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
 
@@ -89,6 +114,7 @@ class AppSettings(BaseModel):
     skill: SkillSettings = SkillSettings()
     plugin: PluginSettings = PluginSettings()
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    orchestrator: OrchestratorSettings = Field(default_factory=OrchestratorSettings)
 
 
 class ConfigManager:
