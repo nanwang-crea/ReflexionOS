@@ -155,21 +155,41 @@ class LoopMessageBuilder:
             )
         ]
 
-        self._inject_context_sections(context, messages)
+        # 注意：计划阶段不注入 system_sections（AGENTS.md、skills、MEMORY等），
+        # 这些上下文对判断"是否需要计划"是噪声，反而让 LLM 倾向于创建不必要的计划。
+        # 主循环 build() 中会注入完整上下文。
 
-        for msg in context.compressor.get_recent_messages():
+        # 从 recent_messages 中提取用户/助手消息
+        # 注意：from_run_input 已保证 recent_messages 中包含当前任务的用户消息，
+        # 无需再追加 task_content，否则会导致重复
+        recent = context.compressor.get_recent_messages()
+        last_user_idx = None
+        for i, msg in enumerate(recent):
             if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:
                 continue
             if not msg.get("content"):
                 continue
             messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
+            if msg["role"] == MessageRole.USER:
+                last_user_idx = len(messages) - 1
 
-        # 添加当前任务（支持多模态内容）
         task_content = context.task_content
-        if isinstance(task_content, list):
+
+        # 如果 recent_messages 中没有用户消息（如单元测试或非标准入口），
+        # 回退到直接使用 task_content
+        if last_user_idx is None and task_content:
+            if isinstance(task_content, list):
+                valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
+                task_content = valid if valid else ""
+            if task_content:
+                messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
+                last_user_idx = len(messages) - 1
+        elif isinstance(task_content, list) and last_user_idx is not None:
+            # 如果 task_content 是多模态（含图片等），替换最后一条用户消息
+            # 因为 recent_messages 中可能只有纯文本版本
             valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
-            task_content = valid if valid else ""
-        messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
+            if valid:
+                messages[last_user_idx] = LLMMessage(role=MessageRole.USER, content=valid)
 
         return messages
 

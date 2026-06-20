@@ -81,7 +81,8 @@ def test_initial_plan_messages_include_only_text_conversation_context():
     messages = builder.build_initial_plan(context)
 
     contents = [message.content for message in messages if message.content]
-    assert "AGENTS instructions" in contents
+    # build_initial_plan 不注入 system_sections，避免噪声干扰 NO_PLAN 判断
+    assert "AGENTS instructions" not in contents
     assert "上一轮需求" in contents
     assert "上一轮结论" in contents
     assert "tool output" not in contents

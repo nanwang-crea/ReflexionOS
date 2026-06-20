@@ -160,35 +160,50 @@ class TestRapidExecutionLoop:
         llm.get_model_name = lambda: "gpt-4"
 
         async def stream_collect(
-            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3
+            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3,
+            track_first_chunk_latency=False,
         ):
             """默认 stream_collect 实现，调用 stream_complete 并收集响应"""
+            first_chunk_latency = None
+            first_chunk_received = False
+
             for attempt in range(max_empty_retries + 1):
                 content_parts = []
                 reasoning_parts = []
                 tool_calls = []
                 finish_reason = "stop"
 
-                async for chunk in llm.stream_complete(messages, tools):
-                    if chunk.type == "content" and chunk.content:
-                        content_parts.append(chunk.content)
-                        if on_content:
-                            await on_content(chunk.content)
-                    elif chunk.type == "reasoning" and chunk.reasoning_content:
-                        reasoning_parts.append(chunk.reasoning_content)
-                        if on_reasoning:
-                            await on_reasoning(chunk.reasoning_content)
-                    elif chunk.type == "tool_calls":
-                        tool_calls = chunk.tool_calls
-                        finish_reason = chunk.finish_reason or "tool_calls"
-                        break
-                    elif chunk.type == "done":
-                        finish_reason = chunk.finish_reason or "stop"
-                        break
-                    elif chunk.type == "error":
-                        if attempt < max_empty_retries:
+                stream = llm.stream_complete(messages, tools)
+                try:
+                    async for chunk in stream:
+                        if chunk.type == "content" and chunk.content:
+                            content_parts.append(chunk.content)
+                            if on_content:
+                                await on_content(chunk.content)
+                            if track_first_chunk_latency and not first_chunk_received:
+                                first_chunk_latency = 0.01
+                                first_chunk_received = True
+                        elif chunk.type == "reasoning" and chunk.reasoning_content:
+                            reasoning_parts.append(chunk.reasoning_content)
+                            if on_reasoning:
+                                await on_reasoning(chunk.reasoning_content)
+                            if track_first_chunk_latency and not first_chunk_received:
+                                first_chunk_latency = 0.01
+                                first_chunk_received = True
+                        elif chunk.type == "tool_calls":
+                            tool_calls = chunk.tool_calls
+                            finish_reason = chunk.finish_reason or "tool_calls"
                             break
-                        raise RuntimeError(chunk.error or "LLM 流式调用失败")
+                        elif chunk.type == "done":
+                            finish_reason = chunk.finish_reason or "stop"
+                            break
+                        elif chunk.type == "error":
+                            if attempt < max_empty_retries:
+                                break
+                            raise RuntimeError(chunk.error or "LLM 流式调用失败")
+                finally:
+                    if hasattr(stream, "aclose"):
+                        await stream.aclose()
 
                 response = LLMResponse(
                     content="".join(content_parts),
@@ -199,12 +214,12 @@ class TestRapidExecutionLoop:
                 )
 
                 if response.has_content or response.has_tool_calls:
-                    return response
+                    return response, first_chunk_latency
 
                 if attempt < max_empty_retries:
                     continue
 
-            return response
+            return response, first_chunk_latency
 
         llm.stream_collect = stream_collect
         return llm
@@ -1009,10 +1024,31 @@ class TestRapidExecutionLoop:
 
         async def mock_stream(messages, tools=None):
             captured_tools.append(tools)
-            async for chunk in self._stream_response(content="开始执行。"):
-                yield chunk
+            # 第一次调用是计划阶段（_bootstrap_plan），需要返回 plan tool_call
+            # 后续调用是主循环，返回纯文本
+            if len(captured_tools) == 1:
+                async for chunk in self._stream_response(
+                    content="我先制定计划。",
+                    tool_calls=[
+                        LLMToolCall(
+                            name="plan",
+                            arguments={
+                                "goal": "修复计划显示",
+                                "steps": [
+                                    {"content": "定位问题", "status": "in_progress"},
+                                    {"content": "修改实现", "status": "pending"},
+                                    {"content": "验证结果", "status": "pending"},
+                                ],
+                            },
+                        )
+                    ],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="开始执行。"):
+                    yield chunk
 
-        mock_llm.complete = mock_complete
         mock_llm.stream_complete = mock_stream
 
         result = await execution_loop.run("请修复计划窗口流式显示和位置")
@@ -1020,7 +1056,20 @@ class TestRapidExecutionLoop:
         assert result.status == LoopStatus.COMPLETED
         assert result.result == "开始执行。"
         event_types = [event["type"] for event in events]
-        assert event_types.index("plan:updated") < event_types.index("llm:content")
+        # _bootstrap_plan 阶段通过 stream_collect 发出 llm:content，然后 plan:updated；
+        # 主循环再发出 llm:content；结束时再发 plan:updated。
+        # 断言：第一个 llm:content 在第一个 plan:updated 之前（bootstrap 流式输出），
+        # 并且至少有一个 llm:content 在第一个 plan:updated 之后（主循环输出）。
+        first_plan_idx = event_types.index("plan:updated")
+        first_content_idx = event_types.index("llm:content")
+        assert first_content_idx < first_plan_idx, (
+            f"llm:content should appear before plan:updated in bootstrap phase, "
+            f"got content at {first_content_idx}, plan at {first_plan_idx}"
+        )
+        main_content_after_plan = next(
+            i for i, t in enumerate(event_types) if t == "llm:content" and i > first_plan_idx
+        )
+        assert first_plan_idx < main_content_after_plan
         plan_event = next(event for event in events if event["type"] == "plan:updated")
         assert plan_event["data"]["goal"] == "修复计划显示"
         step_contents = [step["content"] for step in plan_event["data"]["steps"]]
@@ -1073,10 +1122,15 @@ class TestRapidExecutionLoop:
 
         async def mock_stream(messages, tools=None):
             captured_tools.append(tools)
-            async for chunk in self._stream_response(content="直接回答。"):
-                yield chunk
+            # 第一次调用是计划阶段（_bootstrap_plan），返回 NO_PLAN
+            # 后续调用是主循环，返回纯文本
+            if len(captured_tools) == 1:
+                async for chunk in self._stream_response(content="NO_PLAN"):
+                    yield chunk
+            else:
+                async for chunk in self._stream_response(content="直接回答。"):
+                    yield chunk
 
-        mock_llm.complete = mock_complete
         mock_llm.stream_complete = mock_stream
 
         result = await execution_loop.run("解释一下这个函数")
@@ -1628,8 +1682,12 @@ class TestHardenedLoopIntegration:
         llm.get_model_name = lambda: "test-model"
 
         async def stream_collect(
-            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3
+            messages, tools=None, *, on_content=None, on_reasoning=None, max_empty_retries=3,
+            track_first_chunk_latency=False,
         ):
+            first_chunk_latency = None
+            first_chunk_received = False
+
             for attempt in range(max_empty_retries + 1):
                 content_parts = []
                 reasoning_parts = []
@@ -1641,10 +1699,16 @@ class TestHardenedLoopIntegration:
                         content_parts.append(chunk.content)
                         if on_content:
                             await on_content(chunk.content)
+                        if track_first_chunk_latency and not first_chunk_received:
+                            first_chunk_latency = 0.01
+                            first_chunk_received = True
                     elif chunk.type == "reasoning" and chunk.reasoning_content:
                         reasoning_parts.append(chunk.reasoning_content)
                         if on_reasoning:
                             await on_reasoning(chunk.reasoning_content)
+                        if track_first_chunk_latency and not first_chunk_received:
+                            first_chunk_latency = 0.01
+                            first_chunk_received = True
                     elif chunk.type == "tool_calls":
                         tool_calls = chunk.tool_calls
                         finish_reason = chunk.finish_reason or "tool_calls"
@@ -1666,12 +1730,12 @@ class TestHardenedLoopIntegration:
                 )
 
                 if response.has_content or response.has_tool_calls:
-                    return response
+                    return response, first_chunk_latency
 
                 if attempt < max_empty_retries:
                     continue
 
-            return response
+            return response, first_chunk_latency
 
         llm.stream_collect = stream_collect
         return llm

@@ -838,7 +838,15 @@ class RapidExecutionLoop:
         # No plan or discarded, create new one via LLM
         tools = self.tool_definitions.for_initial_plan()
         messages = self.message_builder.build_initial_plan(context)
-        response = await self.llm.complete(messages, tools)
+
+        # 使用流式调用，让前端在计划阶段也能看到实时输出
+        response, _ = await self.llm.stream_collect(
+            messages,
+            tools,
+            on_content=lambda c: self._emit("llm:content", {"content": c}),
+            on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
+            max_empty_retries=0,
+        )
 
         # Check for NO_PLAN response (task doesn't need a plan)
         response_text = response.content or ""
@@ -947,23 +955,15 @@ Answer ONLY "yes" or "no".\
         )
         messages = self.message_builder.build(context)
         call_started_at = time.perf_counter()
-        first_chunk_latency: float | None = None
 
         # 2. 调用 adapter 流式收集（不处理空响应重试，由我们自己处理）
-        async def on_content_with_latency(c: str) -> None:
-            nonlocal first_chunk_latency
-            if first_chunk_latency is None:
-                first_chunk_latency = time.perf_counter() - call_started_at
-            await self._emit("llm:content", {"content": c})
-
-        response = await self.llm.stream_collect(
+        response, first_chunk_latency = await self.llm.stream_collect(
             messages,
             tools,
-            on_content=on_content_with_latency,
-            on_reasoning=lambda r: self._emit(
-                "llm:reasoning", {"reasoning_content": r}
-            ),
+            on_content=lambda c: self._emit("llm:content", {"content": c}),
+            on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
             max_empty_retries=0,
+            track_first_chunk_latency=True,
         )
 
         # 3. 发射指标
@@ -1039,8 +1039,12 @@ Answer ONLY "yes" or "no".\
             )
             # 重新构建消息（包含新注入的任务提醒）
             messages = self.message_builder.build(context)
-            response = await self.llm.stream_collect(
-                messages, tools, max_empty_retries=0
+            response, _ = await self.llm.stream_collect(
+                messages,
+                tools,
+                on_content=lambda c: self._emit("llm:content", {"content": c}),
+                on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
+                max_empty_retries=0,
             )
             # 重试后有内容，添加到上下文并返回
             if response.has_content or response.has_tool_calls:
