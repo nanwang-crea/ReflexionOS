@@ -724,11 +724,11 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
         runtime.handle_event("llm:content", {"content": "好的，我会默认使用中文回复。"})
         runtime.handle_event("run:complete", {})
 
-        # Write curated memory directly to .reflexion/MEMORY.md
+        # Write curated memory directly to .reflexion/memory.md
         # (previously done via MemoryTool; now the LLM uses edit tool directly)
         reflexion_dir = services.tmp_path / ".reflexion"
         reflexion_dir.mkdir(exist_ok=True)
-        (reflexion_dir / "MEMORY.md").write_text("- 默认使用中文回复。\n", encoding="utf-8")
+        (reflexion_dir / "memory.md").write_text("- 默认使用中文回复。\n", encoding="utf-8")
 
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
         websocket.send_json({"type": "conversation:sync", "data": {"after_seq": before_seq}})
@@ -745,11 +745,11 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     assert any((m.content_text or "").strip() for m in snapshot.messages)
 
     curated_dir = services.tmp_path / ".reflexion"
-    assert (curated_dir / "MEMORY.md").exists()
-    assert "默认使用中文回复。" in (curated_dir / "MEMORY.md").read_text(encoding="utf-8")
+    assert (curated_dir / "memory.md").exists()
+    assert "默认使用中文回复。" in (curated_dir / "memory.md").read_text(encoding="utf-8")
 
     # Context assembly should pick up recent messages.
-    # MEMORY.md content is loaded via PromptManager (same as soul.md / agent.md),
+    # memory.md content is loaded via PromptManager (same as soul.md / agent.md),
     # not in system_sections.
     assembler = ContextAssembler(
         conversation_service=ConversationService(db=services.db),
@@ -762,7 +762,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     assert any("Always reply in Chinese" in section for section in assembly.system_sections)
     assert assembly.recent_messages
 
-    # Verify MEMORY.md is picked up by PromptManager (overlay paths).
+    # Verify memory.md is picked up by PromptManager (overlay paths).
     from app.execution.prompt_manager import PromptManager
     pm = PromptManager()
     system_prompt = pm.get_system_prompt(project_root=str(services.tmp_path))

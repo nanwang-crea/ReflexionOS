@@ -29,7 +29,7 @@ class ExecutionSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    """Curated memory 配置（项目级 MEMORY.md 存储路径）"""
+    """Curated memory 配置（项目级 memory.md 存储路径）"""
 
     base_dir: str = Field(default_factory=lambda: str(Path.home() / ".reflexion" / "memory"))
 

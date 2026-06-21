@@ -34,7 +34,7 @@ Do NOT rewrite the plan mid-execution or switch to side quests.
 - Do not use network-related commands unless required by the task.
 
 ## Memory:
-Persist user preferences, project rules, and key facts across sessions by editing MEMORY.md files.
-- **Global**: `~/.reflexion/MEMORY.md` — applies to all projects.
-- **Project-level**: `{project_root}/.reflexion/MEMORY.md` — applies to the current project, overrides global.
+Persist user preferences, project rules, and key facts across sessions by editing memory.md files.
+- **Global**: `~/.reflexion/memory.md` — applies to all projects.
+- **Project-level**: `{project_root}/.reflexion/memory.md` — applies to the current project, overrides global.
 Use the `edit` tool to add, update, or remove entries. Do NOT write transient context (current task state, one-off instructions, or conversational context that won't matter next session).

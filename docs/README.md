@@ -30,7 +30,7 @@
 
 - 读取对话内容：以 `messages` 为主（HTTP conversation snapshot 与 runtime seed 都基于 messages）。
 - 增量同步与回放：`conversation_events` 保持 append-only，用于 WebSocket 的 `after_seq` 同步，不作为主阅读面。
-- Curated memory：项目级条目化存储，渲染为 `MEMORY.md`，目录在 `{memory.base_dir}/projects/<project_id>/`。
+- Curated memory：项目级条目化存储，渲染为 `memory.md`，目录在 `{memory.base_dir}/projects/<project_id>/`。
 - Recall：读取派生的 `message_search_documents`（由消息投影自动维护，非向量检索）。
 
 ## 历史参考
