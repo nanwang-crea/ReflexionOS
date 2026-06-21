@@ -140,9 +140,11 @@ def test_plan_replace_from_auto_recovers_dropped_completed_steps():
             PlanStep(content="B", status="in_progress"),
         ],
     )
-    changes = plan.replace_from([
-        PlanStep(content="B", status="completed", findings="Done"),
-    ])
+    changes = plan.replace_from(
+        [
+            PlanStep(content="B", status="completed", findings="Done"),
+        ]
+    )
     # Completed step "A" should be auto-recovered, not rejected
     assert len(plan.steps) == 2
     assert plan.steps[0].content == "A"

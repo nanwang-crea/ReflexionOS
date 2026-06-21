@@ -281,16 +281,6 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
-            if msg_type == "plan:exit_confirmed":
-                run_id = msg_data.get("run_id")
-                if not isinstance(run_id, str) or not run_id:
-                    await _send_error(websocket, code="invalid_request", message="run_id 不能为空")
-                    continue
-                try:
-                    await agent_service.confirm_plan_exit(run_id)
-                except ValueError as exc:
-                    await _send_error(websocket, code="not_found", message=str(exc))
-                continue
 
             if msg_type == "plan:clear":
                 try:

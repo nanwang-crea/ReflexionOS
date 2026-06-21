@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from app.execution.context_manager import LoopContext
+from app.llm.base import MessageRole
 
 
 class TestLoopContext:
@@ -25,7 +26,10 @@ class TestLoopContext:
 
         context = LoopContext(task="test task")
         step = LoopStep(
-            step_number=1, tool="file", args={"path": "test.py"}, status=StepStatus.RUNNING
+            step_number=1,
+            tool="file",
+            args={"path": "test.py"},
+            status=StepStatus.RUNNING,
         )
 
         context.add_step(step)
@@ -36,18 +40,18 @@ class TestLoopContext:
     def test_add_message(self):
         context = LoopContext(task="test task")
 
-        context.add_message("user", "hello")
-        context.add_message("assistant", "hi there")
+        context.add_message(MessageRole.USER, "hello")
+        context.add_message(MessageRole.ASSISTANT, "hi there")
 
         assert len(context.messages) == 2
         assert context.messages[-1]["content"] == "hi there"
 
-    def test_from_run_input_filters_seed_messages_and_adds_current_task(self):
+    def test_from_run_input_filters_history_messages_and_adds_current_task(self):
         context = LoopContext.from_run_input(
             task="continue work",
             project_path="/tmp/reflexion",
             run_id="run-123",
-            seed_messages=[
+            history_messages=[
                 {"role": "user", "content": "previous request"},
                 {"role": "assistant", "content": " previous answer "},
                 {"role": "system", "content": "should be ignored"},
@@ -71,14 +75,26 @@ class TestLoopContext:
             ("user", "continue work"),
         ]
 
-    def test_from_run_input_supports_tool_calls_in_seed_messages(self):
+    def test_from_run_input_supports_tool_calls_in_history_messages(self):
         context = LoopContext.from_run_input(
             task="continue",
-            seed_messages=[
-                {"role": "assistant", "content": "", "tool_calls": [
-                    {"id": "call_001", "name": "file", "arguments": {"action": "read", "path": "a.py"}},
-                ]},
-                {"role": "tool", "content": "file content here", "tool_call_id": "call_001"},
+            history_messages=[
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {
+                            "id": "call_001",
+                            "name": "file",
+                            "arguments": {"action": "read", "path": "a.py"},
+                        },
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "content": "file content here",
+                    "tool_call_id": "call_001",
+                },
                 {"role": "assistant", "content": "read complete"},
             ],
         )
@@ -103,27 +119,31 @@ class TestLoopContext:
             "role": "user",
             "content": [
                 {"type": "text", "text": "Please inspect this image"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abc123"},
+                },
             ],
         }
 
         context = LoopContext.from_run_input(
             task="Please inspect this image",
-            seed_messages=[{"role": "assistant", "content": "previous summary"}],
+            history_messages=[{"role": "assistant", "content": "previous summary"}],
             current_turn_message=image_message,
         )
 
         assert context.messages[-1]["role"] == "user"
         assert context.messages[-1]["content"] == image_message["content"]
         assert not any(
-            message["role"] == "user" and message.get("content") == "Please inspect this image"
+            message["role"] == "user"
+            and message.get("content") == "Please inspect this image"
             for message in context.messages
         )
 
     def test_from_run_input_skips_tool_message_without_tool_call_id(self):
         context = LoopContext.from_run_input(
             task="continue",
-            seed_messages=[
+            history_messages=[
                 {"role": "tool", "content": "orphan tool result"},
             ],
         )
@@ -134,7 +154,7 @@ class TestLoopContext:
     def test_from_run_input_deduplicates_task_with_last_user_seed(self):
         context = LoopContext.from_run_input(
             task="continue",
-            seed_messages=[
+            history_messages=[
                 {"role": "assistant", "content": "still analyzing..."},
                 {"role": "user", "content": "continue"},
             ],
@@ -147,7 +167,7 @@ class TestLoopContext:
     def test_from_run_input_appends_task_when_last_user_seed_differs(self):
         context = LoopContext.from_run_input(
             task="new task",
-            seed_messages=[
+            history_messages=[
                 {"role": "user", "content": "old task"},
                 {"role": "assistant", "content": "done"},
             ],

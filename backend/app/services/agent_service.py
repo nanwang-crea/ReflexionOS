@@ -16,8 +16,7 @@ from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
 from app.memory.context_assembly import ContextAssembler
-from app.memory.continuation import build_continuation_artifact
-from app.memory.continuation_builder import ContinuationArtifactBuilder
+
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
@@ -46,7 +45,6 @@ from app.tools.file_tool import FileTool
 from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
 from app.tools.memory_tool import MemoryTool
-from app.tools.plan_exit_tool import PlanExitTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -120,7 +118,6 @@ class AgentService:
             conversation_service=self.conversation_service,
             skill_registry=global_skill_registry,
         )
-        self.continuation_builder = ContinuationArtifactBuilder()
         self.trust_store = SessionTrustStore()
 
     def _build_run_tool_registry(
@@ -166,7 +163,6 @@ class AgentService:
         registry.register(EditTool(path_security))
         registry.register(MemoryTool())
         registry.register(PlanTool())
-        registry.register(PlanExitTool())
         registry.register(ExploreTool(path_security))
         from app.config.settings import config_manager as _cfg_mgr
         _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
@@ -498,33 +494,39 @@ class AgentService:
                 project_id=project_id,
                 project_path=project_path,
                 current_turn_id=turn_id,
-                current_user_input=task,
                 supports_vision=resolved_llm.supports_vision,
             )
+
+            # 构建当前 turn 用户消息的多模态 content（含图片）
+            # task: 纯文本任务描述，用于日志和标识
+            # task_content: 实际传给 LLM 的内容，默认等于 task，但如果有图片附件则构造成多模态格式
+            task_content: str | list[dict] = task
+            user_message = self.conversation_service.message_repo.get_user_message_by_turn(turn_id)
+            if user_message and user_message.attachments:
+                from app.services.attachment_service import convert_attachments_to_content_parts
+                content_parts = []
+                if task.strip():
+                    content_parts.append({"type": "text", "text": task})
+                image_parts = convert_attachments_to_content_parts(
+                    user_message.attachments, resolved_llm.supports_vision
+                )
+                content_parts.extend(image_parts)
+                if content_parts:
+                    task_content = content_parts
+
             loop_result = await execution_loop.run(
                 task=task,
+                task_content=task_content,
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                seed_messages=assembly.recent_messages,
+                history_messages=assembly.recent_messages,
                 current_turn_message=assembly.current_turn_message,
-                supplemental_context=assembly.supplemental_block,
                 system_sections=assembly.system_sections,
                 agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:
                 return
-            try:
-                await self._generate_and_persist_continuation_artifact(
-                    llm=llm,
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    task=task,
-                    compacted_summary=loop_result.compacted_summary,
-                )
-            except Exception:
-                logger.exception("Continuation artifact generation failed: run_id=%s", run_id)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -605,108 +607,6 @@ class AgentService:
             )
         except Exception:
             logger.exception("会话标题更新失败: session_id=%s", session_id)
-
-    async def _generate_and_persist_continuation_artifact(
-        self,
-        *,
-        llm: UniversalLLMInterface,
-        session_id: str,
-        turn_id: str,
-        run_id: str,
-        task: str,
-        compacted_summary: str | None = None,
-    ) -> None:
-        turn_messages = self.conversation_service.list_turn_messages(turn_id)
-        if not turn_messages:
-            logger.warning(
-                "Continuation artifact skipped: no messages for turn %s (可能被编辑/截断删除), run_id=%s",
-                turn_id,
-                run_id,
-            )
-            return
-        prompt_input = self.continuation_builder.build_prompt_input(
-            task=task,
-            messages=turn_messages,
-            existing_summary=compacted_summary,
-        )
-        if not prompt_input.transcript:
-            return
-
-        system_prompt = self.prompt_manager.get_continuation_compression_system_prompt()
-        prompt_input = self.prompt_manager.get_continuation_compression_prompt(
-            task=prompt_input.task,
-            transcript=prompt_input.transcript,
-        )
-        response = await llm.complete(
-            [
-                LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
-                LLMMessage(role=MessageRole.USER, content=prompt_input),
-            ],
-            tools=None,
-        )
-        content = (getattr(response, "content", None) or "").strip()
-        if not content:
-            return
-
-        turn = self.conversation_service.get_turn(turn_id)
-        if turn is None:
-            logger.warning(
-                "Continuation artifact skipped: turn %s no longer exists (可能被编辑/截断删除), run_id=%s",
-                turn_id,
-                run_id,
-            )
-            return
-
-        next_index = self.conversation_service.next_message_index(turn_id)
-        message_id = f"msg-cont-{uuid4().hex[:8]}"
-        artifact = build_continuation_artifact(
-            session_id=session_id,
-            turn_id=turn_id,
-            content_text=content,
-            message_id=message_id,
-            turn_message_index=next_index,
-        )
-
-        events = self.conversation_service.append_events(
-            session_id,
-            [
-                ConversationEvent(
-                    id=new_event_id(),
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=message_id,
-                    event_type=EventType.MESSAGE_CREATED,
-                    payload_json={
-                        "message_id": artifact.id,
-                        "turn_id": artifact.turn_id,
-                        "run_id": artifact.run_id,
-                        "role": artifact.role,
-                        "message_type": artifact.message_type.value,
-                        "turn_message_index": artifact.turn_message_index,
-                        "display_mode": artifact.display_mode,
-                        "content_text": artifact.content_text,
-                        "payload_json": artifact.payload_json,
-                    },
-                ),
-                ConversationEvent(
-                    id=new_event_id(),
-                    session_id=session_id,
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=message_id,
-                    event_type=EventType.MESSAGE_COMPLETED,
-                    payload_json={
-                        "completed_at": artifact.completed_at.isoformat()
-                        if artifact.completed_at
-                        else None
-                    },
-                ),
-            ],
-        )
-
-        if config_manager.should_show_continuation_notices():
-            await self._broadcast_conversation_events(session_id=session_id, events=events)
 
     async def cancel_run(self, run_id: str) -> Run:
         cancel_event = self._cancel_events.get(run_id)
@@ -822,13 +722,6 @@ class AgentService:
             approval_event_type=EventType.APPROVAL_APPROVED,
             decision=decision,
         )
-
-    async def confirm_plan_exit(self, run_id: str) -> None:
-        """Handle user confirmation of plan_exit — switch from plan to build agent."""
-        execution_loop = self._execution_loops.get(run_id)
-        if execution_loop is None:
-            raise ValueError(f"运行不存在: {run_id}")
-        await execution_loop.confirm_plan_exit_from_external(run_id)
 
     async def deny_tool_call(self, *, session_id: str, run_id: str, approval_id: str) -> None:
         await self._decide_tool_call_approval(

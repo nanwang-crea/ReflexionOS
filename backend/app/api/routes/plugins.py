@@ -32,14 +32,8 @@ def _get_resolver_and_loader():
             if installed:
                 _module_loader.load_all(installed)
                 logger.info("Auto-loaded %d installed plugins into singleton loader", len(installed))
-
-                # 扫描插件的技能目录
-                for pkg in installed:
-                    plugin_name = pkg.specifier.name
-                    registration = _module_loader.get_registration(plugin_name)
-                    if registration and registration.skill_dirs:
-                        for d in registration.skill_dirs:
-                            skill_registry.scan_recursive(d, source_type="plugin", plugin_name=plugin_name)
+                # 注意：技能注册由 skill_registry.scan_all() 统一完成，
+                # 不在这里 scan_recursive，避免被后续 scan_all 的 clear() 覆盖
         except Exception:
             logger.exception("Failed to auto-load installed plugins")
     return resolver, _module_loader

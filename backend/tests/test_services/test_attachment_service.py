@@ -29,12 +29,11 @@ def test_convert_local_image_to_base64():
         parts = convert_attachments_to_content_parts([attachment])
 
         assert len(parts) == 1
-        assert parts[0].type == "image_url"
-        assert parts[0].image_url is not None
-        assert parts[0].image_url["url"].startswith("data:image/png;base64,")
+        assert parts[0]["type"] == "image_url"
+        assert parts[0]["url"].startswith("data:image/png;base64,")
 
         # 验证 base64 解码
-        base64_data = parts[0].image_url["url"].split(",")[1]
+        base64_data = parts[0]["url"].split(",")[1]
         decoded = base64.b64decode(base64_data)
         assert decoded == b"fake png data"
     finally:
@@ -55,8 +54,8 @@ def test_convert_external_url():
     parts = convert_attachments_to_content_parts([attachment])
 
     assert len(parts) == 1
-    assert parts[0].type == "image_url"
-    assert parts[0].image_url["url"] == "https://example.com/image.jpg"
+    assert parts[0]["type"] == "image_url"
+    assert parts[0]["url"] == "https://example.com/image.jpg"
 
 
 def test_skip_nonexistent_file():

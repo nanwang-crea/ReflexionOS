@@ -39,27 +39,27 @@ def test_execution_settings_prune_defaults():
 def test_loop_context_tracks_total_tokens():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "Hello world")
-    assert ctx.total_tokens > 0
+    assert ctx.compressor.get_total_tokens() > 0
 
 
 def test_loop_context_total_tokens_accumulates():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "First message")
-    tokens_after_first = ctx.total_tokens
+    tokens_after_first = ctx.compressor.get_total_tokens()
     ctx.add_message("assistant", "Second message")
-    assert ctx.total_tokens > tokens_after_first
+    assert ctx.compressor.get_total_tokens() > tokens_after_first
 
 
 def test_loop_context_compacted_summary_default_none():
     ctx = LoopContext(task="hello")
-    assert ctx.compacted_summary is None
+    assert ctx.compressor.get_compacted_summary() is None
 
 
 def test_loop_context_group_count():
     ctx = LoopContext(task="hello")
     ctx.add_message("user", "First message")
     ctx.add_message("assistant", "Response")
-    assert ctx.group_count >= 2
+    assert ctx.compressor.get_group_count() >= 2
 
 
 def test_loop_context_group_count_with_tool_group():
@@ -71,7 +71,7 @@ def test_loop_context_group_count_with_tool_group():
         tool_calls=[{"id": "c1", "name": "read_file", "arguments": {}}],
     )
     ctx.add_message("tool", "file contents", tool_call_id="c1")
-    assert ctx.group_count >= 2
+    assert ctx.compressor.get_group_count() >= 2
 
 
 def test_prune_tool_outputs_clears_old_tool_content():
@@ -84,12 +84,18 @@ def test_prune_tool_outputs_clears_old_tool_content():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    tokens_before = ctx.total_tokens
-    recovered = ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
+    tokens_before = ctx.compressor.get_total_tokens()
+    recovered = ctx.compressor.prune_tool_outputs(
+        protect_recent_groups=2, minimum_recovery_tokens=1
+    )
     assert recovered > 0
-    assert ctx.total_tokens < tokens_before
-    tool_msgs = [m for m in ctx.messages if m["role"] == MessageRole.TOOL]
-    cleared = [m for m in tool_msgs if m.get("content") == "[Old tool result content cleared]"]
+    assert ctx.compressor.get_total_tokens() < tokens_before
+    tool_msgs = [
+        m for m in ctx.compressor.get_messages() if m["role"] == MessageRole.TOOL
+    ]
+    cleared = [
+        m for m in tool_msgs if m.get("content") == "[Old tool result content cleared]"
+    ]
     assert len(cleared) > 0
 
 
@@ -98,7 +104,9 @@ def test_prune_tool_outputs_respects_minimum_recovery():
     ctx.add_message("user", "Small task")
     ctx.add_message("assistant", "Done")
     ctx.add_message("tool", "small output", tool_call_id="c1")
-    recovered = ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=20_000)
+    recovered = ctx.compressor.prune_tool_outputs(
+        protect_recent_groups=2, minimum_recovery_tokens=20_000
+    )
     assert recovered == 0
 
 
@@ -112,11 +120,13 @@ def test_prune_tool_outputs_protects_recent_groups():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    ctx.prune_tool_outputs(protect_recent_groups=3, minimum_recovery_tokens=1)
-    grouped = LoopMessageBuilder._group_messages_static(ctx.messages)
+    ctx.compressor.prune_tool_outputs(
+        protect_recent_groups=3, minimum_recovery_tokens=1
+    )
+    grouped = ctx.compressor.get_groups()
     recent_tool_msgs = []
     for group in grouped[-3:]:
-        for msg in group:
+        for msg in group.messages:
             if msg["role"] == MessageRole.TOOL:
                 recent_tool_msgs.append(msg)
     for msg in recent_tool_msgs:
@@ -133,31 +143,12 @@ def test_midrun_compress_system_prompt():
     assert "Decisions already made" in prompt
 
 
-def test_continuation_compress_system_prompt_preserves_plan_anchor():
-    pm = PromptManager()
-    prompt = pm.get_continuation_compression_system_prompt()
-
-    assert "Current goal" in prompt
-    assert "Active plan constraints" in prompt
-    assert "single next action" in prompt
-    assert "Do not suggest asking the user unless" in prompt
-
-
 def test_glm_midrun_compress_system_prompt_preserves_plan_anchor():
     pm = PromptManager(model_name="glm-4-plus")
     prompt = pm.get_midrun_compression_system_prompt()
 
     assert "活动计划约束" in prompt
     assert "已做决定" in prompt
-
-
-def test_glm_continuation_compress_system_prompt_preserves_plan_anchor():
-    pm = PromptManager(model_name="glm-4-plus")
-    prompt = pm.get_continuation_compression_system_prompt()
-
-    assert "活动计划约束" in prompt
-    assert "唯一下一动作" in prompt
-    assert "不要建议向用户提问，除非" in prompt
 
 
 def test_midrun_compress_input_prompt():
@@ -207,13 +198,14 @@ def test_task_anchor_not_duplicated_in_recent():
 def test_compacted_summary_injected():
     builder = _make_builder()
     ctx = LoopContext(task="Fix bug")
-    ctx.compacted_summary = "User's original intent: Fix bug\nOperations performed: read foo.py"
+    ctx.compressor.set_compacted_summary(
+        "User's original intent: Fix bug\nOperations performed: read foo.py"
+    )
     ctx.add_message("user", "Fix bug")
     ctx.add_message("assistant", "Working on it")
     messages = builder.build(ctx)
     system_contents = [
-        m.content for m in messages
-        if m.role == MessageRole.SYSTEM and m.content
+        m.content for m in messages if m.role == MessageRole.SYSTEM and m.content
     ]
     assert any("Compacted historical context" in c for c in system_contents if c)
 
@@ -231,7 +223,8 @@ def test_tier2_messages_preserve_tool_role():
         ctx.add_message("tool", long_output, tool_call_id=f"c{i}")
     messages = builder.build(ctx)
     tier2_tool_msgs = [
-        m for m in messages
+        m
+        for m in messages
         if m.role == MessageRole.TOOL and m.content and "truncated" in m.content
     ]
     assert len(tier2_tool_msgs) > 0
@@ -246,13 +239,18 @@ def test_tier2_messages_preserve_assistant_role_with_tool_calls():
         ctx.add_message(
             "assistant",
             f"Reading file {i}",
-            tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {"path": f"src/{i}.py"}}],
+            tool_calls=[
+                {
+                    "id": f"c{i}",
+                    "name": "read_file",
+                    "arguments": {"path": f"src/{i}.py"},
+                }
+            ],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
     messages = builder.build(ctx)
     tier2_assistant_msgs = [
-        m for m in messages
-        if m.role == MessageRole.ASSISTANT and m.tool_calls
+        m for m in messages if m.role == MessageRole.ASSISTANT and m.tool_calls
     ]
     assert len(tier2_assistant_msgs) > 0
 
@@ -267,11 +265,15 @@ def test_tier2_handles_pruned_tool_outputs():
             tool_calls=[{"id": f"c{i}", "name": "read_file", "arguments": {}}],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
-    ctx.prune_tool_outputs(protect_recent_groups=2, minimum_recovery_tokens=1)
+    ctx.compressor.prune_tool_outputs(
+        protect_recent_groups=2, minimum_recovery_tokens=1
+    )
     messages = builder.build(ctx)
     cleared_msgs = [
-        m for m in messages
-        if m.role == MessageRole.TOOL and m.content == "[Old tool result content cleared]"
+        m
+        for m in messages
+        if m.role == MessageRole.TOOL
+        and m.content == "[Old tool result content cleared]"
     ]
     assert len(cleared_msgs) > 0
 
@@ -286,7 +288,11 @@ def test_full_three_tier_flow():
             "assistant",
             f"Reading file {i}",
             tool_calls=[
-                {"id": f"c{i}", "name": "read_file", "arguments": {"path": f"src/{i}.py"}}
+                {
+                    "id": f"c{i}",
+                    "name": "read_file",
+                    "arguments": {"path": f"src/{i}.py"},
+                }
             ],
         )
         ctx.add_message("tool", "A" * 5000, tool_call_id=f"c{i}")
@@ -294,8 +300,7 @@ def test_full_three_tier_flow():
     messages = builder.build(ctx)
 
     has_task_anchor = any(
-        m.role == MessageRole.USER and m.content == task
-        for m in messages
+        m.role == MessageRole.USER and m.content == task for m in messages
     )
     assert has_task_anchor
 
@@ -329,7 +334,11 @@ def test_task_anchor_preserves_original_intent():
     # 中间执行轮次：group_count > 1，不注入 Task Anchor
     messages = builder.build(ctx)
     anchor = next(
-        (m for m in messages if m.role == MessageRole.USER and "SSO" in (m.content or "")),
+        (
+            m
+            for m in messages
+            if m.role == MessageRole.USER and "SSO" in (m.content or "")
+        ),
         None,
     )
     assert anchor is None
@@ -337,7 +346,11 @@ def test_task_anchor_preserves_original_intent():
     # 但在 final summary 中，Task Anchor 重新注入，确保回答围绕原始任务
     summary_messages = builder.build_final_summary(ctx)
     summary_anchor = next(
-        (m for m in summary_messages if m.role == MessageRole.USER and "SSO" in (m.content or "")),
+        (
+            m
+            for m in summary_messages
+            if m.role == MessageRole.USER and "SSO" in (m.content or "")
+        ),
         None,
     )
     assert summary_anchor is not None

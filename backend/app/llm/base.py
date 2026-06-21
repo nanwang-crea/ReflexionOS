@@ -1,6 +1,7 @@
+import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from enum import Enum
 from typing import Any
 
@@ -30,29 +31,18 @@ class LLMToolDefinition(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
-class LLMContentPart(BaseModel):
-    """多模态内容部分"""
-
-    type: str  # text, image_url
-    text: str | None = None
-    image_url: dict | None = None  # {"url": "data:image/png;base64,..."}
-
-
 class LLMMessage(BaseModel):
     """统一的消息结构"""
 
     role: str
-    content: str | list[LLMContentPart] | None = None
+    content: str | list[dict] | None = None
     tool_calls: list[LLMToolCall] = Field(default_factory=list)
     tool_call_id: str | None = None  # 用于 tool 角色消息
 
     def to_dict(self) -> dict[str, Any]:
         result = {"role": self.role}
         if self.content:
-            if isinstance(self.content, str):
-                result["content"] = self.content
-            else:
-                result["content"] = [part.model_dump(exclude_none=True) for part in self.content]
+            result["content"] = self.content
         if self.tool_calls:
             result["tool_calls"] = [tc.model_dump() for tc in self.tool_calls]
         if self.tool_call_id:
@@ -129,3 +119,97 @@ class UniversalLLMInterface(ABC):
     def get_model_name(self) -> str:
         """获取当前使用的模型名称"""
         pass
+
+    async def stream_collect(
+        self,
+        messages: list[LLMMessage],
+        tools: list[LLMToolDefinition] | None = None,
+        *,
+        on_content: Callable[[str], Awaitable[None]] | None = None,
+        on_reasoning: Callable[[str], Awaitable[None]] | None = None,
+        max_empty_retries: int = 3,
+        track_first_chunk_latency: bool = False,
+    ) -> tuple[LLMResponse, float | None]:
+        """
+        流式调用并收集完整响应
+
+        封装了流式收集和空响应重试逻辑，调用方只需关心结果。
+
+        Args:
+            messages: 消息列表
+            tools: 工具定义列表
+            on_content: 内容回调（用于实时推送）
+            on_reasoning: 推理内容回调
+            max_empty_retries: 空响应最大重试次数
+            track_first_chunk_latency: 是否追踪首 chunk 延迟（秒）
+
+        Returns:
+            (LLMResponse, first_chunk_latency) 元组；
+            first_chunk_latency 在 track_first_chunk_latency=False 时为 None。
+        """
+        call_started_at = time.perf_counter() if track_first_chunk_latency else 0.0
+        first_chunk_latency: float | None = None
+        first_chunk_received = False
+
+        for attempt in range(max_empty_retries + 1):
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls: list[LLMToolCall] = []
+            finish_reason = "stop"
+
+            stream = self.stream_complete(messages, tools)
+            try:
+                async for chunk in stream:
+                    if chunk.type == "content" and chunk.content:
+                        content_parts.append(chunk.content)
+                        if on_content:
+                            await on_content(chunk.content)
+                        if (
+                            track_first_chunk_latency
+                            and not first_chunk_received
+                        ):
+                            first_chunk_latency = time.perf_counter() - call_started_at
+                            first_chunk_received = True
+                    elif chunk.type == "reasoning" and chunk.reasoning_content:
+                        reasoning_parts.append(chunk.reasoning_content)
+                        if on_reasoning:
+                            await on_reasoning(chunk.reasoning_content)
+                        if (
+                            track_first_chunk_latency
+                            and not first_chunk_received
+                        ):
+                            first_chunk_latency = time.perf_counter() - call_started_at
+                            first_chunk_received = True
+                    elif chunk.type == "tool_calls":
+                        tool_calls = chunk.tool_calls
+                        finish_reason = chunk.finish_reason or "tool_calls"
+                        break
+                    elif chunk.type == "done":
+                        finish_reason = chunk.finish_reason or "stop"
+                        break
+                    elif chunk.type == "error":
+                        if attempt < max_empty_retries:
+                            break
+                        raise RuntimeError(chunk.error or "LLM 流式调用失败")
+            finally:
+                # 显式关闭异步生成器，避免 break 后生成器未清理导致 StopIteration
+                if hasattr(stream, "aclose"):
+                    await stream.aclose()
+
+            response = LLMResponse(
+                content="".join(content_parts),
+                reasoning_content="".join(reasoning_parts) or None,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                model=self.get_model_name(),
+            )
+
+            # 有内容或工具调用，直接返回
+            if response.has_content or response.has_tool_calls:
+                return response, first_chunk_latency
+
+            # 空响应重试
+            if attempt < max_empty_retries:
+                continue
+
+        return response, first_chunk_latency

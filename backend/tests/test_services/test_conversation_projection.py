@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from app.memory.continuation import build_continuation_artifact
+
 from app.models.conversation import ConversationEvent, EventType, RunStatus, StreamState, TurnStatus
 from app.models.session import Session
 from app.services.conversation_projection import ConversationProjection
@@ -356,12 +356,6 @@ def test_projection_skips_indexing_when_message_excluded_from_recall(tmp_path):
         ),
     )
 
-    artifact = build_continuation_artifact(
-        session_id="session-1",
-        turn_id="turn-1",
-        content_text="当前目标: 继续设计 recall\n已确认事实: \n未解决点: \n下一步建议: ",
-    )
-
     projection.apply(
         "session-1",
         ConversationEvent(
@@ -369,19 +363,23 @@ def test_projection_skips_indexing_when_message_excluded_from_recall(tmp_path):
             session_id="session-1",
             event_type=EventType.MESSAGE_CREATED,
             turn_id="turn-1",
-            message_id=artifact.id,
+            message_id="msg-excluded-1",
             payload_json={
-                "message_id": artifact.id,
+                "message_id": "msg-excluded-1",
                 "turn_id": "turn-1",
                 "run_id": None,
-                "role": artifact.role,
-                "message_type": artifact.message_type.value,
-                "turn_message_index": artifact.turn_message_index,
-                "display_mode": artifact.display_mode,
-                "content_text": artifact.content_text,
-                "payload_json": artifact.payload_json,
+                "role": "system",
+                "message_type": "system_notice",
+                "turn_message_index": 1,
+                "display_mode": "collapsed",
+                "content_text": "当前目标: 继续设计 recall",
+                "payload_json": {
+                    "kind": "system_notice",
+                    "exclude_from_recall": True,
+                    "exclude_from_memory_promotion": True,
+                },
             },
         ),
     )
 
-    assert message_search_repo.get(artifact.id) is None
+    assert message_search_repo.get("msg-excluded-1") is None

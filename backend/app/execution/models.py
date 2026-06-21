@@ -6,6 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.execution.context_compressor import MessageGroup
 from app.llm.base import LLMResponse
 from app.models.conversation import RunStatus as LoopStatus
 
@@ -48,7 +49,7 @@ class LoopResult(BaseModel):
     total_duration: float | None = None
     created_at: datetime = Field(default_factory=datetime.now)
     completed_at: datetime | None = None
-    # Tier 3 压缩后的摘要，传递给 post-run continuation builder 复用，避免二次全量压缩
+    # Tier 3 压缩后的摘要，供后续 run 复用，避免二次全量压缩
     compacted_summary: str | None = None
 
 
@@ -75,4 +76,3 @@ class RuntimeState:
     approval_resume_event: asyncio.Event = field(default_factory=asyncio.Event)
     approval_result: dict | None = None
     read_only_passes_used: int = 0
-    _plan_exit_confirmed: bool = False

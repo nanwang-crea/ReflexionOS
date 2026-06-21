@@ -290,11 +290,6 @@ class MessageRepository(BaseRepository[Message]):
                     ]
                 ),
                 MessageModel.content_text != "",
-                func.coalesce(
-                    func.json_extract(MessageModel.payload_json, "$.kind"),
-                    "",
-                )
-                != "continuation_artifact",
             )
             if current_turn_id:
                 text_query = text_query.filter(MessageModel.turn_id != current_turn_id)
@@ -324,35 +319,6 @@ class MessageRepository(BaseRepository[Message]):
             all_models = all_models[-resolved_limit:]
 
             return self._to_domain_list(all_models)
-
-    def get_latest_continuation_artifact(
-        self,
-        session_id: str,
-        *,
-        db_session=None,
-    ) -> Message | None:
-
-        def _query(session):
-            model = (
-                session.query(MessageModel)
-                .filter(
-                    MessageModel.session_id == session_id,
-                    MessageModel.message_type == MessageType.SYSTEM_NOTICE.value,
-                    func.json_extract(MessageModel.payload_json, "$.kind")
-                    == "continuation_artifact",
-                    MessageModel.content_text != "",
-                )
-                .order_by(MessageModel.created_at.desc())
-                .limit(1)
-                .first()
-            )
-            return self._to_domain(model)
-
-        if db_session is None:
-            with self.db.get_session() as managed_session:
-                return _query(managed_session)
-
-        return _query(db_session)
 
     def delete_by_turn_ids(self, turn_ids: list[str], *, db_session=None) -> int:
         if not turn_ids:

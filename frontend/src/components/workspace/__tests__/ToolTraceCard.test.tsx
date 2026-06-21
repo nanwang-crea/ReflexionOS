@@ -698,20 +698,10 @@ describe('WorkspaceTranscript conversation rendering', () => {
         }}
         messages={[
           buildMessage({
-            id: 'msg-hidden-oldest',
-            role: 'system',
-            runId: null,
-            messageType: 'system_notice',
-            contentText: '隐藏的续传提示',
-            payloadJson: {
-              kind: 'continuation_artifact',
-            },
-          }),
-          buildMessage({
             id: 'msg-visible-oldest',
             role: 'user',
             messageType: 'user_message',
-            contentText: '过滤后最早可见消息',
+            contentText: '最早可见消息',
           }),
           buildMessage({
             id: 'msg-newest',

@@ -153,7 +153,7 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     A slightly richer fixture than client_with_services:
     - wires AgentService + ConversationService into websocket routes
     - isolates curated memory base_dir to tmp_path
-    - exposes services so tests can assert on pipeline artifacts (continuation + curated memory)
+    - exposes services so tests can assert on pipeline artifacts (compacted summary + curated memory)
     """
 
     from types import SimpleNamespace
@@ -718,13 +718,10 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     End-to-end verification for Phase 1 memory pipeline:
     - messages are the primary reading surface (snapshot + context assembly)
     - curated memory persists under settings.memory.base_dir/projects/<project_id>/
-    - continuation artifacts are persisted as derived system_notice messages
-      and become supplemental context
-    - recall/search docs index normal messages but exclude continuation artifacts
+    - recall/search docs index normal messages but exclude messages marked exclude_from_recall
     """
 
     from app.memory.context_assembly import ContextAssembler
-    from app.memory.continuation import build_continuation_artifact
     from app.memory.curated_store import CuratedEntry, CuratedMemoryStore
     from app.memory.recall_service import RecallService
     from app.models.conversation import ConversationEvent, EventType
@@ -791,55 +788,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
         )
         assert result.success is True
 
-        # Persist a continuation artifact through the normal event path.
-        next_index = conversation_service.next_message_index(turn_id)
-        artifact = build_continuation_artifact(
-            session_id="session-1",
-            turn_id=turn_id,
-            content_text="\n".join(
-                [
-                    "当前目标: 保持默认中文回复",
-                    "下一步建议: 继续完成 API 验证用例",
-                ]
-            ),
-            turn_message_index=next_index,
-        )
-        conversation_service.append_events(
-            "session-1",
-            [
-                ConversationEvent(
-                    id="evt-cont-created",
-                    session_id="session-1",
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=artifact.id,
-                    event_type=EventType.MESSAGE_CREATED,
-                    payload_json={
-                        "message_id": artifact.id,
-                        "turn_id": artifact.turn_id,
-                        "run_id": artifact.run_id,
-                        "role": artifact.role,
-                        "message_type": artifact.message_type.value,
-                        "turn_message_index": artifact.turn_message_index,
-                        "display_mode": artifact.display_mode,
-                        "content_text": artifact.content_text,
-                        "payload_json": artifact.payload_json,
-                    },
-                ),
-                ConversationEvent(
-                    id="evt-cont-completed",
-                    session_id="session-1",
-                    turn_id=turn_id,
-                    run_id=run_id,
-                    message_id=artifact.id,
-                    event_type=EventType.MESSAGE_COMPLETED,
-                    payload_json={
-                        "completed_at": None,
-                    },
-                ),
-            ],
-        )
-
     with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
         websocket.send_json({"type": "conversation:sync", "data": {"after_seq": before_seq}})
         resumed_replay = _drain_until_synced(websocket)
@@ -853,9 +801,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     fresh_conversation_service = ConversationService(db=services.db)
     snapshot = fresh_conversation_service.get_snapshot("session-1")
     assert any((m.content_text or "").strip() for m in snapshot.messages)
-    assert any(
-        (m.payload_json or {}).get("kind") == "continuation_artifact" for m in snapshot.messages
-    )
 
     curated_dir = services.tmp_path / "memories" / "projects" / "project-1"
     assert (curated_dir / "USER.md").exists()
@@ -864,7 +809,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     # Context assembly should pick up:
     # - static blocks: AGENTS.md + curated USER
     # - recent messages: user + assistant messages
-    # - supplemental: latest continuation artifact
     assembler = ContextAssembler(
         conversation_service=ConversationService(db=services.db),
         curated_store=CuratedMemoryStore(base_dir=services.tmp_path / "memories"),
@@ -877,16 +821,8 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     assert any("Always reply in Chinese" in section for section in assembly.system_sections)
     assert any("默认使用中文回复" in section for section in assembly.system_sections)
     assert assembly.recent_messages
-    assert assembly.supplemental_block is not None
-    assert "当前目标" in assembly.supplemental_block
 
-    # Recall reads from normalized derived search docs, and continuation artifacts stay excluded.
+    # Recall reads from normalized derived search docs.
     recall = RecallService(db=services.db)
     results = recall.search(project_id="project-1", query="中文 回复", limit=3)
     assert results
-    artifact_message_ids = {
-        m.id
-        for m in snapshot.messages
-        if (m.payload_json or {}).get("kind") == "continuation_artifact"
-    }
-    assert not any(result.message_id in artifact_message_ids for result in results)

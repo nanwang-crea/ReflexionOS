@@ -9,6 +9,8 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
+from app.memory.curated_store import CuratedMemoryStore
+from app.tools.memory_tool import MemoryTool
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -41,7 +43,9 @@ class ToolCallExecutor:
             return action in ("get", "list", "search")
         return False
 
-    def prepare_read_only_batch(self, tool_calls: list[LLMToolCall]) -> list[LLMToolCall]:
+    def prepare_read_only_batch(
+        self, tool_calls: list[LLMToolCall]
+    ) -> list[LLMToolCall]:
         deduped: list[LLMToolCall] = []
         seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
 
@@ -56,9 +60,13 @@ class ToolCallExecutor:
 
         return deduped
 
-    def _read_only_signature(self, tool_call: LLMToolCall) -> tuple[str, tuple[tuple[str, str], ...]]:
+    def _read_only_signature(
+        self, tool_call: LLMToolCall
+    ) -> tuple[str, tuple[tuple[str, str], ...]]:
         normalized_args = tuple(
-            sorted((str(key), repr(value)) for key, value in tool_call.arguments.items())
+            sorted(
+                (str(key), repr(value)) for key, value in tool_call.arguments.items()
+            )
         )
         return tool_call.name, normalized_args
 
@@ -105,7 +113,9 @@ class ToolCallExecutor:
                 step.error = error_msg
                 step.duration = 0.0
                 context.update_history(tool_call, error_msg)
-                context.add_message("tool", content=error_msg, tool_call_id=tool_call.id)
+                context.add_message(
+                    "tool", content=error_msg, tool_call_id=tool_call.id
+                )
                 return step
 
             missing = self._validate_required_args(tool, tool_call.arguments)
@@ -159,15 +169,40 @@ class ToolCallExecutor:
                 if not result.error:
                     tool_output = tool_output + rc_info
                 else:
-                    tool_output = tool_output + rc_info if not tool_output.endswith(rc_info) else tool_output
-            _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
+                    tool_output = (
+                        tool_output + rc_info
+                        if not tool_output.endswith(rc_info)
+                        else tool_output
+                    )
+            _VISIBLE_DATA_KEYS = {
+                "content",
+                "result",
+                "path",
+                "url",
+                "title",
+                "tab_id",
+                "tabs",
+                "active_tab_id",
+                "width",
+                "height",
+            }
             _MAX_CONTENT_LEN = 8000
             if result.data:
-                visible = {k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS}
-                if "content" in visible and isinstance(visible["content"], str) and len(visible["content"]) > _MAX_CONTENT_LEN:
-                    visible["content"] = visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
+                visible = {
+                    k: v for k, v in result.data.items() if k in _VISIBLE_DATA_KEYS
+                }
+                if (
+                    "content" in visible
+                    and isinstance(visible["content"], str)
+                    and len(visible["content"]) > _MAX_CONTENT_LEN
+                ):
+                    visible["content"] = (
+                        visible["content"][:_MAX_CONTENT_LEN] + "\n...[truncated]"
+                    )
                 if visible:
-                    tool_output = tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+                    tool_output = (
+                        tool_output + "\n" + json.dumps(visible, ensure_ascii=False)
+                    )
             context.update_history(tool_call, tool_output)
             context.add_message(
                 "tool",
@@ -208,6 +243,11 @@ class ToolCallExecutor:
                     )
                 await self.emit("plan:updated", context.plan.to_dict())
 
+            # P0 fix: Refresh memory-related system_sections after MemoryTool writes.
+            # Without this, the LLM won't see its own memory changes until the next run.
+            if isinstance(tool, MemoryTool) and result.success:
+                await self._refresh_memory_sections(context)
+
             logger.info(
                 "工具 %s 执行%s",
                 tool_call.name,
@@ -240,3 +280,27 @@ class ToolCallExecutor:
             if key not in arguments or arguments[key] is None:
                 missing.append(key)
         return missing
+
+    @staticmethod
+    async def _refresh_memory_sections(context: LoopContext) -> None:
+        """Re-read curated memory from disk and rebuild memory-related system_sections.
+
+        Called after MemoryTool writes so the LLM sees its own memory changes
+        in the very next turn, without waiting for a new run.
+        """
+        if not context.project_path:
+            return
+
+        store = CuratedMemoryStore(context.project_path)
+        refreshed_sections: list[dict[str, str]] = []
+        for target in ("user", "memory"):
+            md = store.render_markdown(target)
+            if md:
+                refreshed_sections.append({"title": target.upper(), "content": md})
+
+        # Replace only memory-related sections, preserve all others
+        memory_titles = {"USER", "MEMORY"}
+        other_sections = [
+            s for s in context.system_sections if s.get("title", "") not in memory_titles
+        ]
+        context.system_sections = other_sections + refreshed_sections

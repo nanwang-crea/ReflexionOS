@@ -62,7 +62,6 @@ class PluginSettings(BaseModel):
 class UISettings(BaseModel):
     """UI 偏好配置"""
 
-    show_continuation_notices: bool = False
     show_process_expanded: bool = True
     auto_collapse_process: bool = True
 
@@ -139,10 +138,6 @@ class ConfigManager:
         """更新浏览器配置"""
         self.settings.browser = browser_settings
         self.save()
-
-    def should_show_continuation_notices(self) -> bool:
-        """查询是否显示延续摘要通知"""
-        return self.settings.ui.show_continuation_notices
 
 
 # 全局配置管理器（延迟初始化）

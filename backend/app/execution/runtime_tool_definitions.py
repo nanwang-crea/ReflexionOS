@@ -13,15 +13,43 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ToolSetConfig:
-    tool_order: list[str] = field(default_factory=lambda: [
-        "skill", "file", "grep", "glob", "session_recall", "memory", "edit", "shell",
-    ])
-    exploration_tools: frozenset[str] = field(default_factory=lambda: frozenset({
-        "file", "grep", "glob", "memory", "session_recall", "skill",
-    }))
-    plan_mode_tools: frozenset[str] = field(default_factory=lambda: frozenset({
-        "file", "grep", "glob", "session_recall", "memory", "explore", "plan",
-    }))
+    tool_order: list[str] = field(
+        default_factory=lambda: [
+            "skill",
+            "file",
+            "grep",
+            "glob",
+            "session_recall",
+            "memory",
+            "edit",
+            "shell",
+        ]
+    )
+    exploration_tools: frozenset[str] = field(
+        default_factory=lambda: frozenset(
+            {
+                "file",
+                "grep",
+                "glob",
+                "memory",
+                "session_recall",
+                "skill",
+            }
+        )
+    )
+    plan_mode_tools: frozenset[str] = field(
+        default_factory=lambda: frozenset(
+            {
+                "file",
+                "grep",
+                "glob",
+                "session_recall",
+                "memory",
+                "explore",
+                "plan",
+            }
+        )
+    )
 
 
 DEFAULT_TOOL_SET_CONFIG = ToolSetConfig()
@@ -30,7 +58,11 @@ DEFAULT_TOOL_SET_CONFIG = ToolSetConfig()
 class RuntimeToolDefinitions:
     """Select the tool schemas exposed to the model for each execution phase."""
 
-    def __init__(self, tool_registry: ToolRegistry, config: ToolSetConfig = DEFAULT_TOOL_SET_CONFIG):
+    def __init__(
+        self,
+        tool_registry: ToolRegistry,
+        config: ToolSetConfig = DEFAULT_TOOL_SET_CONFIG,
+    ):
         self.tool_registry = tool_registry
         self.config = config
 
@@ -41,8 +73,6 @@ class RuntimeToolDefinitions:
         return [self.tool_registry.definition_from_schema(plan_tool.get_schema())]
 
     def for_plan_mode(self) -> list[LLMToolDefinition]:
-        from app.tools.plan_exit_tool import PlanExitTool
-
         definitions: list[LLMToolDefinition] = []
         for name in self._ordered_tool_names():
             if name not in self.config.plan_mode_tools:
@@ -50,12 +80,8 @@ class RuntimeToolDefinitions:
             tool = self.tool_registry.get(name)
             if tool is None:
                 continue
-            definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
-
-        plan_exit = self.tool_registry.get("plan_exit")
-        if isinstance(plan_exit, PlanExitTool):
             definitions.append(
-                self.tool_registry.definition_from_schema(plan_exit.get_schema())
+                self.tool_registry.definition_from_schema(tool.get_schema())
             )
 
         return definitions
@@ -70,7 +96,9 @@ class RuntimeToolDefinitions:
             tool = self.tool_registry.get(name)
             if tool is None:
                 continue
-            definitions.append(self.tool_registry.definition_from_schema(tool.get_schema()))
+            definitions.append(
+                self.tool_registry.definition_from_schema(tool.get_schema())
+            )
         return definitions
 
     def _allowed_tool_names(self, context: LoopContext) -> set[str]:

@@ -2,7 +2,6 @@ from app.execution.context_manager import LoopContext
 from app.execution.plan_engine import Plan, PlanStep
 from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
 from app.tools.base import BaseTool, ToolResult
-from app.tools.plan_exit_tool import PlanExitTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 
@@ -113,7 +112,9 @@ def test_normal_definitions_expose_plan_schema_when_plan_exists():
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
 
     assert [definition.name for definition in definitions] == ["mock", "plan"]
-    plan_definition = next(definition for definition in definitions if definition.name == "plan")
+    plan_definition = next(
+        definition for definition in definitions if definition.name == "plan"
+    )
     parameters = plan_definition.parameters
     assert "steps" in parameters.get("properties", {})
     assert "goal" in parameters.get("properties", {})
@@ -132,7 +133,13 @@ def test_context_definitions_start_with_exploration_tools_only():
 
     definitions = RuntimeToolDefinitions(registry).for_context(context)
 
-    assert [definition.name for definition in definitions] == ["skill", "file", "grep", "glob", "memory"]
+    assert [definition.name for definition in definitions] == [
+        "skill",
+        "file",
+        "grep",
+        "glob",
+        "memory",
+    ]
 
 
 def build_plan_mode_registry() -> ToolRegistry:
@@ -144,16 +151,14 @@ def build_plan_mode_registry() -> ToolRegistry:
     registry.register(SessionRecallLikeTool())
     registry.register(ExploreLikeTool())
     registry.register(PlanTool())
-    registry.register(PlanExitTool())
     return registry
 
 
-def test_plan_mode_definitions_expose_plan_schema_and_plan_exit():
+def test_plan_mode_definitions_expose_plan_schema():
     definitions = RuntimeToolDefinitions(build_plan_mode_registry()).for_plan_mode()
 
     names = [definition.name for definition in definitions]
     assert "plan" in names
-    assert "plan_exit" in names
 
     plan_definition = next(d for d in definitions if d.name == "plan")
     parameters = plan_definition.parameters
@@ -171,10 +176,13 @@ def test_plan_mode_definitions_only_include_plan_mode_tools():
 
 def test_skill_tool_available_on_first_turn():
     from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+
     assert "skill" in DEFAULT_TOOL_SET_CONFIG.exploration_tools
+
 
 def test_skill_tool_in_tool_order():
     from app.execution.runtime_tool_definitions import DEFAULT_TOOL_SET_CONFIG
+
     assert "skill" in DEFAULT_TOOL_SET_CONFIG.tool_order
     assert DEFAULT_TOOL_SET_CONFIG.tool_order.index("skill") == 0
 

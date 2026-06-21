@@ -121,7 +121,7 @@ class TestSkillRegistryScan:
         ):
             registry = SkillRegistry()
             count = registry.scan_all(
-                plugin_skill_dirs=[str(plugin_dir)],
+                plugin_skill_dirs=[("test-plugin", str(plugin_dir))],
                 project_path=str(tmp_path),
             )
         assert count == 3
