@@ -9,7 +9,6 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
-from app.tools.edit_tool import EditTool
 from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -239,12 +238,7 @@ class ToolCallExecutor:
                     )
                 await self.emit("plan:updated", context.plan.to_dict())
 
-            # Refresh memory-related system_sections after editing .reflexion/*.md files.
-            # Without this, the LLM won't see its own memory changes until the next run.
-            if isinstance(tool, EditTool) and result.success:
-                edited_path = args.get("path", "")
-                if ".reflexion/" in edited_path and edited_path.endswith(".md"):
-                    await self._refresh_memory_sections(context)
+
 
             logger.info(
                 "工具 %s 执行%s",
@@ -279,30 +273,4 @@ class ToolCallExecutor:
                 missing.append(key)
         return missing
 
-    @staticmethod
-    async def _refresh_memory_sections(context: LoopContext) -> None:
-        """Re-read .reflexion/*.md from disk and rebuild memory-related system_sections.
 
-        Called after EditTool writes to .reflexion/*.md so the LLM sees its own
-        memory changes in the very next turn, without waiting for a new run.
-        """
-        if not context.project_path:
-            return
-
-        from pathlib import Path
-
-        reflexion_dir = Path(context.project_path) / ".reflexion"
-        refreshed_sections: list[dict[str, str]] = []
-        for filename, title in [("USER.md", "USER"), ("MEMORY.md", "MEMORY")]:
-            md_path = reflexion_dir / filename
-            if md_path.exists() and md_path.is_file():
-                content = md_path.read_text(encoding="utf-8").strip()
-                if content:
-                    refreshed_sections.append({"title": title, "content": content})
-
-        # Replace only memory-related sections, preserve all others
-        memory_titles = {"USER", "MEMORY"}
-        other_sections = [
-            s for s in context.system_sections if s.get("title", "") not in memory_titles
-        ]
-        context.system_sections = other_sections + refreshed_sections

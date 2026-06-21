@@ -262,17 +262,36 @@ class PromptManager:
                 logger.warning("Failed to create global agent.md: %s", agent_path)
 
     def _overlay_paths(self, project_root: str | None) -> list[Path]:
+        """返回 system prompt overlay 文件的加载路径列表（按优先级从低到高排列）。
+
+        四个 overlay 文件的职责：
+        - soul.md   — Agent 人格/性格（"你是谁"）：定义身份、沟通风格、价值观。
+                       全局默认由 _ensure_global_overlays() 初始化，项目级可覆盖。
+        - agent.md  — 行为规则（"你怎么做事"）：定义执行策略、停止条件、错误处理等。
+                       全局默认由 _ensure_global_overlays() 初始化，项目级可覆盖。
+        - MEMORY.md — 跨会话记忆（"记住什么"）：用户偏好、项目约定、历史教训等。
+                       无默认内容，由用户或 LLM（通过 edit 工具）手动写入。
+                       全局级 ~./.reflexion/MEMORY.md 适用于所有项目，
+                       项目级 {project}/.reflexion/MEMORY.md 适用于当前项目。
+
+        加载顺序：全局 → 项目级，同层按 soul → agent → memory 排列。
+        后加载的内容追加在 system prompt 末尾，等效于优先级更高。
+        """
         self._ensure_global_overlays()
         paths = [
+            # 全局 overlay（~/.reflexion/）
             Path.home() / ".reflexion" / "soul.md",
             Path.home() / ".reflexion" / "agent.md",
+            Path.home() / ".reflexion" / "MEMORY.md",
         ]
         if project_root:
             root = Path(project_root)
             paths.extend(
                 [
+                    # 项目级 overlay（{project}/.reflexion/），覆盖全局
                     root / ".reflexion" / "soul.md",
                     root / ".reflexion" / "agent.md",
+                    root / ".reflexion" / "MEMORY.md",
                 ]
             )
         return paths

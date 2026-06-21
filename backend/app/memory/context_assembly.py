@@ -5,7 +5,6 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.memory.curated_store import CuratedMemoryStore
 from app.models.conversation import MessageType
 from app.orchestration.skill_registry import SkillRegistry
 from app.services.conversation_service import ConversationService
@@ -134,11 +133,9 @@ class ContextAssembler:
         self,
         *,
         conversation_service: ConversationService,
-        curated_store: CuratedMemoryStore | None = None,
         skill_registry: SkillRegistry | None = None,
     ):
         self.conversation_service = conversation_service
-        self.curated_store = curated_store or CuratedMemoryStore()
         self.skill_registry = skill_registry
 
     def build_for_session(
@@ -187,15 +184,7 @@ When a skill clearly matches your current task, load it first using the 'skill' 
                     skill_section_parts.append(f"- **{s.name}**: {s.description}{req}")
                 static_blocks.append("\n".join(skill_section_parts))
 
-        # 2) Curated USER/MEMORY (project-level) if any active entries exist.
-        for target in ("user", "memory"):
-            entries = self.curated_store.load_entries(project_id=project_id, target=target)
-            if any(entry.status == "active" for entry in entries):
-                static_blocks.append(
-                    self.curated_store.render_markdown(project_id=project_id, target=target)
-                )
-
-        # 3) Recent seed candidates (SQL-level filter + slice).
+        # 2) Recent seed candidates (SQL-level filter + slice).
         candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,

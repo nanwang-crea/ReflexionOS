@@ -8,7 +8,6 @@ from app.security.path_security import PathSecurity
 from app.security.sandbox.factory import NullSandbox
 from app.security.shell_security import ShellSecurity
 from app.tools.file_tool import FileTool
-from app.tools.memory_tool import MemoryTool
 from app.tools.patch_tool import PatchTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
@@ -101,7 +100,6 @@ class TestToolRegistry:
         registry.register(FileTool(path_security))
         registry.register(ShellTool(ShellSecurity(), path_security, CommandEffectRegistry(), NullSandbox()))
         registry.register(PatchTool(path_security))
-        registry.register(MemoryTool())
         registry.register(PlanTool())
 
         forbidden_top_level_keys = {"oneOf", "anyOf", "allOf", "enum", "not"}
