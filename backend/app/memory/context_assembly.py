@@ -13,6 +13,8 @@ from app.services.conversation_service import ConversationService
 class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
     recent_messages: list[dict[str, Any]]
+    current_turn_message: dict[str, Any] | None = None
+    supplemental_block: str | None = None
 
 
 def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> list[dict[str, Any]]:
@@ -90,6 +92,8 @@ def build_context_assembly(
     *,
     static_blocks: list[str],
     recent_messages: list[dict[str, Any]],
+    current_turn_message: dict[str, Any] | None = None,
+    supplemental_block: str | None = None,
 ) -> ContextAssemblyResult:
     result_messages: list[dict[str, Any]] = []
     for message in recent_messages:
@@ -119,6 +123,8 @@ def build_context_assembly(
     return ContextAssemblyResult(
         system_sections=[block for block in static_blocks if str(block or "").strip()],
         recent_messages=result_messages,
+        current_turn_message=current_turn_message,
+        supplemental_block=supplemental_block.strip() if supplemental_block else None,
     )
 
 
@@ -151,6 +157,7 @@ class ContextAssembler:
         supports_vision: bool | None = None,
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []
+        current_turn_message: dict[str, Any] | None = None
 
         # 1) AGENTS.md (project rules) if present.
         if project_path:
@@ -185,6 +192,19 @@ When a skill clearly matches your current task, load it first using the 'skill' 
                 static_blocks.append("\n".join(skill_section_parts))
 
         # 2) Recent seed candidates (SQL-level filter + slice).
+        if current_turn_id:
+            current_root_message = (
+                self.conversation_service.message_repo.get_user_message_by_turn(
+                    current_turn_id
+                )
+            )
+            if current_root_message is not None:
+                current_turn_seeds = _message_to_seed_dict(
+                    current_root_message, supports_vision
+                )
+                if current_turn_seeds:
+                    current_turn_message = current_turn_seeds[0]
+
         candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,
@@ -199,4 +219,6 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         return build_context_assembly(
             static_blocks=static_blocks,
             recent_messages=recent_messages,
+            current_turn_message=current_turn_message,
+            supplemental_block=None,
         )
