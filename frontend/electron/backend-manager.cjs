@@ -8,6 +8,7 @@ const BACKEND_HOST = '127.0.0.1'
 const BACKEND_PORT = 8000
 const HEALTH_PATH = '/health'
 const SHUTDOWN_TIMEOUT_MS = 5000
+const DEFAULT_BACKEND_STARTUP_TIMEOUT_MS = 90000
 const PACKAGED_BACKEND_DIR = 'backend-bin'
 const PACKAGED_BACKEND_NAME = 'reflexion-backend'
 const MAX_BACKEND_LOG_CHARS = 8000
@@ -37,6 +38,18 @@ function probeHealth(timeoutMs = 1500) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function resolveBackendStartupTimeoutMs() {
+  const raw = process.env.REFLEXION_BACKEND_STARTUP_TIMEOUT_MS
+  if (!raw) {
+    return DEFAULT_BACKEND_STARTUP_TIMEOUT_MS
+  }
+
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : DEFAULT_BACKEND_STARTUP_TIMEOUT_MS
 }
 
 function resolveVirtualEnvPython() {
@@ -119,6 +132,7 @@ class BackendManager {
     this.error = null
     this.managed = false
     this.recentOutput = ''
+    this.startupTimeoutMs = resolveBackendStartupTimeoutMs()
     this.backendExecutablePath = this.appIsPackaged && this.resourcesPath
       ? resolvePackagedBackendExecutable(this.resourcesPath)
       : null
@@ -222,7 +236,7 @@ class BackendManager {
     return this.waitUntilHealthy()
   }
 
-  async waitUntilHealthy(timeoutMs = 15000) {
+  async waitUntilHealthy(timeoutMs = this.startupTimeoutMs) {
     const deadline = Date.now() + timeoutMs
 
     while (Date.now() < deadline) {
