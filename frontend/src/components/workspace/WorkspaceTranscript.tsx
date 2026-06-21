@@ -592,7 +592,6 @@ export function WorkspaceTranscript({
           <div className={shouldAnimateEntry ? 'transcript-item-enter' : ''}>
             <UserMessageItem
               messageId={message.id}
-              sessionId={message.sessionId}
               contentText={message.contentText}
               isEditing={isEditing}
               editContent={editContent}

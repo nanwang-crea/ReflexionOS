@@ -362,47 +362,6 @@ def test_session_conversation_websocket_supports_live_cancel_run_update(client_w
     assert cancelled_run.status.value == "cancelled"
 
 
-def test_session_conversation_websocket_allows_image_only_start_turn(client_with_services, monkeypatch):
-    client, _ = client_with_services
-
-    import app.api.routes.websocket as websocket_route_module
-
-    calls = []
-
-    async def start_turn(**kwargs):
-        calls.append(kwargs)
-
-    monkeypatch.setattr(
-        websocket_route_module.agent_service,
-        "start_turn",
-        start_turn,
-    )
-
-    with client.websocket_connect("/ws/sessions/session-1/conversation") as websocket:
-        websocket.send_json(
-            {
-                "type": "conversation:start_turn",
-                "data": {
-                    "content": "",
-                    "provider_id": "provider-a",
-                    "model_id": "model-a",
-                    "attachment_ids": ["att-1"],
-                },
-            }
-        )
-
-    assert calls == [
-        {
-            "project_id": "project-1",
-            "session_id": "session-1",
-            "content": "",
-            "provider_id": "provider-a",
-            "model_id": "model-a",
-            "attachment_ids": ["att-1"],
-        }
-    ]
-
-
 @pytest.mark.asyncio
 async def test_agent_service_approve_tool_call_updates_trace_and_completes_run(
     client_with_services,

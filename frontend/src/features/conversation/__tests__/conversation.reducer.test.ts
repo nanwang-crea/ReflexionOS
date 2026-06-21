@@ -327,53 +327,6 @@ describe('conversationReducer', () => {
     expect(next.lastEventSeq).toBe(5)
   })
 
-  it('normalizes snake_case attachments from realtime message.created events', () => {
-    const base = applyConversationSnapshot(undefined, buildSnapshot())
-
-    const next = applyConversationEvent(base, {
-      id: 'evt-attachment-1',
-      sessionId: 'session-1',
-      seq: 6,
-      turnId: 'turn-1',
-      runId: null,
-      messageId: 'msg-attachment-1',
-      eventType: 'message.created',
-      payloadJson: {
-        message_id: 'msg-attachment-1',
-        role: 'user',
-        message_type: 'user_message',
-        turn_message_index: 3,
-        display_mode: 'default',
-        content_text: '',
-        payload_json: {},
-        attachments: [
-          {
-            id: 'att-1',
-            type: 'image',
-            mime_type: 'image/png',
-            file_path: '/tmp/reflexion/image.png',
-            file_size: 123,
-            created_at: '2026-04-24T10:00:00Z',
-            url: '/api/sessions/session-1/attachments/att-1',
-          },
-        ],
-      },
-      createdAt: '2026-04-24T10:00:06Z',
-    })
-
-    expect(next.messagesById['msg-attachment-1'].attachments).toEqual([
-      {
-        id: 'att-1',
-        type: 'image',
-        mimeType: 'image/png',
-        filePath: '/tmp/reflexion/image.png',
-        fileSize: 123,
-        createdAt: '2026-04-24T10:00:00Z',
-        url: '/api/sessions/session-1/attachments/att-1',
-      },
-    ])
-  })
-
   it('completes any non-terminal messages for a run when run.completed arrives', () => {
     const base = applyConversationSnapshot(undefined, {
       ...buildSnapshot(),

@@ -5,7 +5,6 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any
 
 from app.config.settings import config_manager
 from app.execution.approval_flow import ApprovalFlow
@@ -597,9 +596,6 @@ class RapidExecutionLoop:
         run_id: str | None = None,
         session_id: str | None = None,
         created_at: datetime | None = None,
-        seed_messages: list[dict[str, str]] | None = None,
-        current_turn_message: dict[str, Any] | None = None,
-        supplemental_context: str | None = None,
         history_messages: list[dict[str, str]] | None = None,
         system_sections: list[str] | None = None,
         agent_mode: str = "build",
@@ -642,9 +638,6 @@ class RapidExecutionLoop:
             run_id=loop_result.id,
             session_id=session_id,
             agent_mode=agent_mode,
-            seed_messages=seed_messages,
-            current_turn_message=current_turn_message,
-            supplemental_context=supplemental_context,
             history_messages=history_messages,
             system_sections=system_sections,
             task_content=task_content,

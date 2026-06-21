@@ -6,7 +6,6 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.api.websocket_manager import send_ws_json, ws_manager
 from app.app_services import agent_service
 from app.models.session import SessionUpdate
-from app.services.attachment_service import MAX_MESSAGE_ATTACHMENTS
 from app.services.conversation_service import conversation_service
 from app.services.session_service import session_service
 
@@ -109,31 +108,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
             if msg_type == "conversation:start_turn":
                 content = msg_data.get("content")
-                attachment_ids = msg_data.get("attachment_ids", [])
-                if not isinstance(content, str):
-                    await _send_error(
-                        websocket,
-                        code="invalid_request",
-                        message="content 必须是字符串",
-                    )
-                    continue
-                if not isinstance(attachment_ids, list) or any(
-                    not isinstance(attachment_id, str) for attachment_id in attachment_ids
-                ):
-                    await _send_error(
-                        websocket,
-                        code="invalid_request",
-                        message="attachment_ids must be a list of strings",
-                    )
-                    continue
-                if len(attachment_ids) > MAX_MESSAGE_ATTACHMENTS:
-                    await _send_error(
-                        websocket,
-                        code="invalid_request",
-                        message=f"attachment_ids exceeds limit: max {MAX_MESSAGE_ATTACHMENTS}",
-                    )
-                    continue
-                if not content.strip() and len(attachment_ids) == 0:
+                if not isinstance(content, str) or not content.strip():
                     await _send_error(
                         websocket,
                         code="invalid_request",
@@ -143,6 +118,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 provider_id = msg_data.get("provider_id")
                 model_id = msg_data.get("model_id")
+                attachment_ids = msg_data.get("attachment_ids", [])
 
                 try:
                     snapshot = conversation_service.get_snapshot(session_id)

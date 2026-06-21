@@ -1,9 +1,3 @@
-/**
- * useConversationRuntime owns the websocket lifecycle for one conversation session.
- *
- * It keeps the local store in sync with websocket events, refreshes snapshots
- * when replay is needed, and exposes imperative actions used by AgentWorkspace.
- */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/api/conversation.api'
 import { useConversationStore } from '@/features/conversation/stores/conversation.store'
@@ -40,9 +34,6 @@ const LIVE_EVENT_FLUSH_INTERVAL_MS = 50
 function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
-  /**
-   * Serializes snapshot refreshes so rapid websocket events do not trigger overlapping reads.
-   */
   const queuedSessionIds: string[] = []
   const queuedSessionSet = new Set<string>()
   let refreshInFlight = false
@@ -363,16 +354,9 @@ export function useConversationRuntime(
     scheduleReconnectRef.current = scheduleReconnect
   }, [scheduleReconnect])
 
-  /**
-   * Starts a new turn after ensuring the websocket is connected to the target session.
-   *
-   * Attachment-only turns are valid in phase 1, so empty text is only rejected when
-   * there are no attachment ids in the payload.
-   */
   const startTurn = useCallback(async (payload: StartTurnPayload) => {
     const content = payload.message.trim()
-    const hasAttachments = Array.isArray(payload.attachmentIds) && payload.attachmentIds.length > 0
-    if (!content && !hasAttachments) {
+    if (!content) {
       return
     }
 

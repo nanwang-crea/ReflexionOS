@@ -1,12 +1,9 @@
 import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
-import { getApiBaseUrl } from '@/services/runtimeConfig'
-import type { ConversationAttachment } from '@/types/conversation'
 
 interface UserMessageItemProps {
   messageId: string
-  sessionId: string
   contentText: string
   onEdit: (messageId: string, contentText: string) => void
   isEditing: boolean
@@ -15,12 +12,11 @@ interface UserMessageItemProps {
   onEditCancel: () => void
   onEditSubmit: () => void
   showActions: boolean
-  attachments?: ConversationAttachment[]
+  attachments?: unknown[]
 }
 
 export const UserMessageItem = memo(function UserMessageItem({
   messageId,
-  sessionId,
   contentText,
   onEdit,
   isEditing,
@@ -29,55 +25,14 @@ export const UserMessageItem = memo(function UserMessageItem({
   onEditCancel,
   onEditSubmit,
   showActions,
-  attachments = [],
+  attachments: _attachments,
 }: UserMessageItemProps) {
-  const apiBaseUrl = getApiBaseUrl()
-
-  const getImageUrl = (attachment: ConversationAttachment) => {
-    if (attachment.url) {
-      if (attachment.url.startsWith('http://') || attachment.url.startsWith('https://')) {
-        return attachment.url
-      }
-      if (attachment.url.startsWith('/')) {
-        return `${apiBaseUrl}${attachment.url}`
-      }
-      return attachment.url
-    }
-
-    return `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachment.id)}`
-  }
-
   return (
-    <div className="mb-6 flex min-w-0 flex-col items-end pr-8 group">
-      {attachments.length > 0 && (
-        <div className="mb-2 flex max-w-[min(720px,calc(100%_-_16px))] flex-wrap gap-1.5">
-          {attachments.slice(0, 4).map((att) => (
-            <div
-              key={att.id}
-              className="h-20 w-20 overflow-hidden rounded-lg border border-edge-subtle bg-surface-tertiary flex items-center justify-center"
-            >
-              {att.mimeType?.startsWith('image/') ? (
-                <img
-                  src={getImageUrl(att)}
-                  alt="attachment"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="text-xs text-content-muted">📎</span>
-              )}
-            </div>
-          ))}
-          {attachments.length > 4 && (
-            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-edge-subtle bg-surface-tertiary text-sm text-content-muted">
-              +{attachments.length - 4}
-            </div>
-          )}
-        </div>
-      )}
+    <div className="group mb-6 flex min-w-0 flex-col items-end pr-8">
       {isEditing ? (
         <div className="w-full max-w-[min(720px,calc(100%_-_16px))]">
           <textarea
-            className="w-full rounded-2xl bg-surface-tertiary border border-edge px-5 py-4 text-[15px] leading-7 text-content-secondary resize-y min-h-[60px] focus:outline-none focus:border-edge-active"
+            className="min-h-[60px] w-full resize-y rounded-2xl border border-edge bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary focus:border-edge-active focus:outline-none"
             value={editContent}
             onChange={(e) => onEditContentChange(e.target.value)}
             autoFocus
@@ -85,14 +40,14 @@ export const UserMessageItem = memo(function UserMessageItem({
           <div className="mt-2 flex justify-end gap-2">
             <button
               type="button"
-              className="rounded-lg border border-edge px-3 py-1.5 text-xs text-content-muted hover:text-content-secondary hover:border-edge-active transition-colors"
+              className="rounded-lg border border-edge px-3 py-1.5 text-xs text-content-muted transition-colors hover:border-edge-active hover:text-content-secondary"
               onClick={onEditCancel}
             >
               取消
             </button>
             <button
               type="button"
-              className="rounded-lg bg-surface-tertiary px-3 py-1.5 text-xs text-content-secondary hover:bg-surface-active transition-colors"
+              className="rounded-lg bg-surface-tertiary px-3 py-1.5 text-xs text-content-secondary transition-colors hover:bg-surface-active"
               onClick={onEditSubmit}
             >
               发送
@@ -108,7 +63,7 @@ export const UserMessageItem = memo(function UserMessageItem({
         <div className="mt-1 flex w-full max-w-[min(720px,calc(100%_-_16px))] justify-end gap-0.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
           <button
             type="button"
-            className="inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
             title="复制"
             onClick={async () => {
               try {
@@ -123,7 +78,7 @@ export const UserMessageItem = memo(function UserMessageItem({
           </button>
           <button
             type="button"
-            className="inline-flex items-center justify-center h-7 w-7 rounded-md transition-colors text-content-muted hover:bg-surface-tertiary hover:text-content-secondary"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
             title="编辑"
             onClick={() => onEdit(messageId, contentText)}
           >

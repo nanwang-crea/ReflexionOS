@@ -100,7 +100,6 @@ class MessageAttachment(BaseModel):
     file_path: str
     file_size: int
     created_at: datetime = Field(default_factory=datetime.now)
-    url: str | None = None
 
 
 class Message(BaseModel):

@@ -8,61 +8,6 @@ type ConversationMessageType = 'user_message' | 'assistant_message' | 'tool_trac
 
 export type ConversationStreamState = 'idle' | 'streaming' | 'completed' | 'failed' | 'cancelled'
 
-export interface ConversationAttachment {
-  id: string
-  type: string
-  mimeType: string
-  filePath: string
-  fileSize: number
-  createdAt: string
-  url?: string
-}
-
-export function normalizeConversationAttachment(value: unknown): ConversationAttachment | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null
-  }
-
-  const attachment = value as Record<string, unknown>
-  const id = typeof attachment.id === 'string' ? attachment.id : null
-  const type = typeof attachment.type === 'string' ? attachment.type : null
-  const mimeType = typeof attachment.mimeType === 'string'
-    ? attachment.mimeType
-    : typeof attachment.mime_type === 'string'
-      ? attachment.mime_type
-      : null
-  const filePath = typeof attachment.filePath === 'string'
-    ? attachment.filePath
-    : typeof attachment.file_path === 'string'
-      ? attachment.file_path
-      : null
-  const fileSize = typeof attachment.fileSize === 'number'
-    ? attachment.fileSize
-    : typeof attachment.file_size === 'number'
-      ? attachment.file_size
-      : null
-  const createdAt = typeof attachment.createdAt === 'string'
-    ? attachment.createdAt
-    : typeof attachment.created_at === 'string'
-      ? attachment.created_at
-      : null
-  const url = typeof attachment.url === 'string' && attachment.url.trim() ? attachment.url : undefined
-
-  if (!id || !type || !mimeType || !filePath || fileSize === null || !createdAt) {
-    return null
-  }
-
-  return {
-    id,
-    type,
-    mimeType,
-    filePath,
-    fileSize,
-    createdAt,
-    url,
-  }
-}
-
 export interface ConversationSessionDto {
   id: string
   project_id: string
@@ -150,7 +95,14 @@ export interface ConversationMessage {
   displayMode: string
   contentText: string
   payloadJson: Record<string, unknown>
-  attachments?: ConversationAttachment[]
+  attachments?: Array<{
+    id: string
+    type: string
+    mimeType: string
+    filePath: string
+    fileSize: number
+    createdAt: string
+  }>
   createdAt: string
   updatedAt: string
   completedAt: string | null

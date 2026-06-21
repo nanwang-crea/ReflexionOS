@@ -9,8 +9,6 @@ from app.models.conversation import MessageAttachment
 
 logger = logging.getLogger(__name__)
 
-MAX_MESSAGE_ATTACHMENTS = 4
-
 
 class AttachmentService:
     """附件服务 - 统一管理附件文件的查找、元数据构建等"""
@@ -83,9 +81,6 @@ class AttachmentService:
         }
         return mime_map.get(ext, "image/png")
 
-    def build_attachment_url(self, session_id: str, attachment_id: str) -> str:
-        return f"/api/sessions/{session_id}/attachments/{attachment_id}"
-
     def build_attachment_metadata(
         self,
         session_id: str,
@@ -116,7 +111,6 @@ class AttachmentService:
                 file_path=str(file_path),
                 file_size=file_size,
                 created_at=file_ctime,
-                url=self.build_attachment_url(session_id, attachment_id),
             )
         except Exception as e:
             logger.error(f"构建附件元数据失败: {e}", exc_info=True)

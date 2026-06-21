@@ -6,25 +6,25 @@ from app.llm.base import MessageRole
 
 class TestLoopContext:
     def test_create_context(self):
-        context = LoopContext(task="test task")
+        context = LoopContext(task="测试任务")
 
-        assert context.task == "test task"
+        assert context.task == "测试任务"
         assert context.run_id is not None
         assert len(context.history) == 0
 
     def test_update_history(self):
-        context = LoopContext(task="test task")
+        context = LoopContext(task="测试任务")
         tool_call = SimpleNamespace(name="file", args={"path": "test.py"})
 
-        context.update_history(tool_call, "done")
+        context.update_history(tool_call, "执行结果")
 
         assert len(context.history) == 1
-        assert context.history[0]["result"] == "done"
+        assert context.history[0]["result"] == "执行结果"
 
     def test_add_step(self):
         from app.execution.models import LoopStep, StepStatus
 
-        context = LoopContext(task="test task")
+        context = LoopContext(task="测试任务")
         step = LoopStep(
             step_number=1,
             tool="file",
@@ -38,46 +38,50 @@ class TestLoopContext:
         assert context.current_step_number == 1
 
     def test_add_message(self):
-        context = LoopContext(task="test task")
+        context = LoopContext(task="测试任务")
 
-        context.add_message(MessageRole.USER, "hello")
-        context.add_message(MessageRole.ASSISTANT, "hi there")
+        context.add_message(MessageRole.USER, "你好")
+        context.add_message(MessageRole.ASSISTANT, "你好，有什么可以帮助你的？")
 
-        assert len(context.messages) == 2
-        assert context.messages[-1]["content"] == "hi there"
+        assert len(context.compressor.get_messages()) == 2
+        assert (
+            context.compressor.get_messages()[-1]["content"]
+            == "你好，有什么可以帮助你的？"
+        )
 
     def test_from_run_input_filters_history_messages_and_adds_current_task(self):
         context = LoopContext.from_run_input(
-            task="continue work",
+            task="继续处理",
             project_path="/tmp/reflexion",
             run_id="run-123",
             history_messages=[
-                {"role": "user", "content": "previous request"},
-                {"role": "assistant", "content": " previous answer "},
+                {"role": "user", "content": "上一轮需求"},
+                {"role": "assistant", "content": "  上一轮结论  "},
                 {"role": "system", "content": "should be ignored"},
                 {"role": "tool", "content": ""},
                 {"role": "tool", "content": "tool output", "tool_call_id": "call_001"},
                 "bad seed",
             ],
-            supplemental_context="Current goal: repair image input",
             system_sections=["AGENTS instructions"],
         )
 
-        assert context.task == "continue work"
+        assert context.task == "继续处理"
         assert context.project_path == "/tmp/reflexion"
         assert context.run_id == "run-123"
-        assert context.supplemental_context == "Current goal: repair image input"
         assert context.system_sections == ["AGENTS instructions"]
-        assert [(message["role"], message.get("content")) for message in context.messages] == [
-            ("user", "previous request"),
-            ("assistant", "previous answer"),
+        assert [
+            (message["role"], message.get("content"))
+            for message in context.compressor.get_messages()
+        ] == [
+            ("user", "上一轮需求"),
+            ("assistant", "上一轮结论"),
             ("tool", "tool output"),
-            ("user", "continue work"),
+            ("user", "继续处理"),
         ]
 
     def test_from_run_input_supports_tool_calls_in_history_messages(self):
         context = LoopContext.from_run_input(
-            task="continue",
+            task="继续",
             history_messages=[
                 {
                     "role": "assistant",
@@ -95,11 +99,11 @@ class TestLoopContext:
                     "content": "file content here",
                     "tool_call_id": "call_001",
                 },
-                {"role": "assistant", "content": "read complete"},
+                {"role": "assistant", "content": "已读取文件"},
             ],
         )
 
-        msgs = context.messages
+        msgs = context.compressor.get_messages()
         assert msgs[0]["role"] == "assistant"
         assert msgs[0]["tool_calls"][0]["name"] == "file"
         assert msgs[0].get("content") is None
@@ -109,71 +113,49 @@ class TestLoopContext:
         assert msgs[1]["tool_call_id"] == "call_001"
 
         assert msgs[2]["role"] == "assistant"
-        assert msgs[2]["content"] == "read complete"
+        assert msgs[2]["content"] == "已读取文件"
 
         assert msgs[3]["role"] == "user"
-        assert msgs[3]["content"] == "continue"
-
-    def test_from_run_input_supports_multimodal_current_turn_message(self):
-        image_message = {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Please inspect this image"},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": "data:image/png;base64,abc123"},
-                },
-            ],
-        }
-
-        context = LoopContext.from_run_input(
-            task="Please inspect this image",
-            history_messages=[{"role": "assistant", "content": "previous summary"}],
-            current_turn_message=image_message,
-        )
-
-        assert context.messages[-1]["role"] == "user"
-        assert context.messages[-1]["content"] == image_message["content"]
-        assert not any(
-            message["role"] == "user"
-            and message.get("content") == "Please inspect this image"
-            for message in context.messages
-        )
+        assert msgs[3]["content"] == "继续"
 
     def test_from_run_input_skips_tool_message_without_tool_call_id(self):
         context = LoopContext.from_run_input(
-            task="continue",
+            task="继续",
             history_messages=[
                 {"role": "tool", "content": "orphan tool result"},
             ],
         )
 
-        assert len(context.messages) == 1
-        assert context.messages[0]["role"] == "user"
+        assert len(context.compressor.get_messages()) == 1
+        assert context.compressor.get_messages()[0]["role"] == "user"
 
     def test_from_run_input_deduplicates_task_with_last_user_seed(self):
         context = LoopContext.from_run_input(
-            task="continue",
+            task="继续",
             history_messages=[
-                {"role": "assistant", "content": "still analyzing..."},
-                {"role": "user", "content": "continue"},
+                {"role": "assistant", "content": "正在分析..."},
+                {"role": "user", "content": "继续"},
             ],
         )
 
-        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        user_msgs = [
+            m for m in context.compressor.get_messages() if m["role"] == "user"
+        ]
         assert len(user_msgs) == 1
-        assert user_msgs[0]["content"] == "continue"
+        assert user_msgs[0]["content"] == "继续"
 
     def test_from_run_input_appends_task_when_last_user_seed_differs(self):
         context = LoopContext.from_run_input(
-            task="new task",
+            task="新任务",
             history_messages=[
-                {"role": "user", "content": "old task"},
-                {"role": "assistant", "content": "done"},
+                {"role": "user", "content": "旧任务"},
+                {"role": "assistant", "content": "完成了"},
             ],
         )
 
-        user_msgs = [m for m in context.messages if m["role"] == "user"]
+        user_msgs = [
+            m for m in context.compressor.get_messages() if m["role"] == "user"
+        ]
         assert len(user_msgs) == 2
-        assert user_msgs[0]["content"] == "old task"
-        assert user_msgs[1]["content"] == "new task"
+        assert user_msgs[0]["content"] == "旧任务"
+        assert user_msgs[1]["content"] == "新任务"

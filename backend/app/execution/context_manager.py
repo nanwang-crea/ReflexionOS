@@ -45,16 +45,6 @@ class LoopContext:
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
         )
         self.metadata: dict[str, Any] = {}
-        self.supplemental_context: str | None = None
-        self.has_multimodal_current_turn: bool = False
-
-    @property
-    def messages(self) -> list[dict[str, Any]]:
-        return self.compressor.get_messages()
-
-    @property
-    def group_count(self) -> int:
-        return self.compressor.get_group_count()
 
     @classmethod
     def from_run_input(
@@ -65,9 +55,6 @@ class LoopContext:
         run_id: str | None = None,
         session_id: str | None = None,
         agent_mode: str = "build",
-        seed_messages: list[dict[str, Any]] | None = None,
-        current_turn_message: dict[str, Any] | None = None,
-        supplemental_context: str | None = None,
         history_messages: list[dict[str, Any]] | None = None,
         system_sections: list[str] | None = None,
         task_content: str | list[dict] | None = None,
@@ -90,12 +77,9 @@ class LoopContext:
             task_content=task_content,
         )
 
-        message_history = (
-            history_messages if history_messages is not None else seed_messages
-        )
-
+        # 过滤并添加历史消息到 context.messages
         allowed_seed_roles = {MessageRole.USER, MessageRole.ASSISTANT, MessageRole.TOOL}
-        for seeded in message_history or []:
+        for seeded in history_messages or []:
             if not isinstance(seeded, dict):
                 continue
             role = str(seeded.get("role") or "").strip().lower()
@@ -122,45 +106,52 @@ class LoopContext:
                 continue
 
             content = seeded.get("content")
+            # 支持多模态内容（list）和纯文本（str）
             if isinstance(content, str):
                 content = content.strip()
                 if not content:
                     continue
             elif isinstance(content, list):
-                if not content:
-                    continue
+                # 多模态内容（文本 + 图片），保持原样
+                pass
             else:
                 continue
 
             context.add_message(role, content, tool_call_id=tool_call_id)
 
-        context.supplemental_context = supplemental_context
         context.system_sections = system_sections or []
 
-        current_turn_content = current_turn_message.get("content") if current_turn_message else None
-        if current_turn_message:
-            context.has_multimodal_current_turn = isinstance(current_turn_content, list)
-            context.add_message(
-                str(current_turn_message.get("role") or MessageRole.USER),
-                current_turn_content,
-                tool_call_id=current_turn_message.get("tool_call_id"),
-            )
-        else:
-            last_user_msg = next(
-                (m for m in reversed(context.messages) if m["role"] == MessageRole.USER),
-                None,
-            )
-            current_content = task_content or task
-            should_add = True
-            if last_user_msg:
-                last_content = last_user_msg.get("content")
-                if isinstance(current_content, str) and isinstance(last_content, str):
-                    should_add = current_content != last_content
-                elif isinstance(current_content, list) and isinstance(last_content, list):
-                    should_add = current_content != last_content
+        # 确保最后一条消息是当前的用户任务（避免重复）
+        # 支持多模态 task_content（带图片）或纯文本 task
+        last_user_msg = next(
+            (
+                m
+                for m in reversed(context.compressor.get_messages())
+                if m["role"] == MessageRole.USER
+            ),
+            None,
+        )
 
-            if should_add:
-                context.add_message(MessageRole.USER, current_content)
+        # 使用 task_content（支持多模态）而不是 task（纯文本）
+        current_content = task_content or task
+
+        # 判断是否需要添加当前消息（避免重复）
+        should_add = True
+        if last_user_msg:
+            last_content = last_user_msg.get("content")
+            # 如果都是字符串，比较内容
+            if isinstance(current_content, str) and isinstance(last_content, str):
+                should_add = current_content != last_content
+            # 如果都是列表（多模态），比较内容
+            elif isinstance(current_content, list) and isinstance(last_content, list):
+                should_add = current_content != last_content
+            # 类型不同，认为是不同的消息
+            else:
+                should_add = True
+
+        if should_add:
+            context.add_message(MessageRole.USER, current_content)
+
         return context
 
     def update_history(self, action: Any, result: str) -> None:
@@ -182,8 +173,8 @@ class LoopContext:
 
     def add_message(
         self,
-        role: str,
-        content: str | list[dict[str, Any]] | None = None,
+        role: MessageRole,
+        content: str | list[dict] | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         tool_call_id: str | None = None,
     ) -> None:

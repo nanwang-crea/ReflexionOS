@@ -20,10 +20,6 @@ SESSION_CASCADE_TABLES = (
     "conversation_events",
 )
 
-MESSAGE_TABLE_REQUIRED_COLUMNS: dict[str, str] = {
-    "attachments_json": 'ALTER TABLE "messages" ADD COLUMN "attachments_json" TEXT',
-}
-
 
 class Database:
     """SQLite 数据库管理"""
@@ -52,7 +48,6 @@ class Database:
                 self._configure_sqlite()
                 self._handle_legacy_schema_if_needed()
                 self._run_alembic_migrations()
-                self._reconcile_required_columns()
                 self._migrate_session_cascade_schema_if_needed()
 
                 self.SessionLocal = sessionmaker(
@@ -181,26 +176,6 @@ class Database:
             }
 
         return ("turn_id", "turn_message_index") in unique_index_columns
-
-    def _reconcile_required_columns(self) -> None:
-        inspector = inspect(self.engine)
-        existing_tables = set(inspector.get_table_names())
-        if "messages" not in existing_tables:
-            return
-
-        with self.engine.begin() as connection:
-            message_columns = {
-                row["name"]
-                for row in connection.exec_driver_sql('PRAGMA table_info("messages")')
-                .mappings()
-                .all()
-            }
-
-            for column_name, ddl in MESSAGE_TABLE_REQUIRED_COLUMNS.items():
-                if column_name in message_columns:
-                    continue
-                logger.warning('检测到缺失列 messages.%s，执行兼容性补列', column_name)
-                connection.exec_driver_sql(ddl)
 
     def _migrate_session_cascade_schema_if_needed(self) -> None:
         inspector = inspect(self.engine)

@@ -1,14 +1,13 @@
 import type { AxiosResponse } from 'axios'
 import { apiClient } from '@/services/apiClient'
 import type {
-  ConversationAttachment,
   ConversationMessage,
   ConversationRun,
   ConversationSessionDto,
   ConversationSnapshot,
   ConversationTurn,
 } from '@/types/conversation'
-import { normalizeConversationAttachment, toConversationSession } from '@/types/conversation'
+import { toConversationSession } from '@/types/conversation'
 
 interface ConversationTurnDto {
   id: string
@@ -56,17 +55,10 @@ interface ConversationMessageDto {
     file_path: string
     file_size: number
     created_at: string
-    url?: string
   }>
   created_at: string
   updated_at: string
   completed_at: string | null
-}
-
-type ConversationAttachmentDto = NonNullable<ConversationMessageDto['attachments']>[number]
-
-function toConversationAttachment(attachment: ConversationAttachmentDto): ConversationAttachment | null {
-  return normalizeConversationAttachment(attachment)
 }
 
 interface ConversationSnapshotDto {
@@ -122,9 +114,14 @@ function toConversationMessage(dto: ConversationMessageDto): ConversationMessage
     displayMode: dto.display_mode,
     contentText: dto.content_text,
     payloadJson: dto.payload_json,
-    attachments: dto.attachments
-      ?.map(toConversationAttachment)
-      .filter((attachment): attachment is ConversationAttachment => attachment !== null),
+    attachments: dto.attachments?.map(att => ({
+      id: att.id,
+      type: att.type,
+      mimeType: att.mime_type,
+      filePath: att.file_path,
+      fileSize: att.file_size,
+      createdAt: att.created_at,
+    })),
     createdAt: dto.created_at,
     updatedAt: dto.updated_at,
     completedAt: dto.completed_at,

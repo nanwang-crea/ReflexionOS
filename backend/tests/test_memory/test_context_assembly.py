@@ -1,5 +1,11 @@
 from app.memory.context_assembly import ContextAssembler, build_context_assembly
-from app.models.conversation import Message, MessageType, StreamState, Turn, TurnStatus
+from app.models.conversation import (
+    Message,
+    MessageType,
+    StreamState,
+    Turn,
+    TurnStatus,
+)
 from app.models.session import Session
 from app.services.conversation_service import ConversationService
 from app.storage.database import Database
@@ -11,17 +17,16 @@ from app.storage.repositories.turn_repo import TurnRepository
 def test_context_assembly_builds_static_and_recent_layers():
     result = build_context_assembly(
         static_blocks=["AGENTS", "USER", "MEMORY"],
-        recent_messages=[{"role": "user", "content": "recent message"}],
-        current_turn_message=None,
-        supplemental_block="current goal: continue recall",
+        recent_messages=[{"role": "user", "content": "最近消息"}],
     )
 
     assert "AGENTS" in result.system_sections[0]
-    assert result.recent_messages[0]["content"] == "recent message"
-    assert result.supplemental_block == "current goal: continue recall"
+    assert result.recent_messages[0]["content"] == "最近消息"
 
 
-def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_path):
+def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
+    tmp_path,
+):
     db = Database(str(tmp_path / "context-assembly-tool-trace.db"))
     session_repo = SessionRepository(db)
     turn_repo = TurnRepository(db)
@@ -33,7 +38,7 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_p
         message_repo=message_repo,
     )
 
-    session_repo.create(Session(id="session-1", project_id="project-1", title="Conversation"))
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
     turn_repo.create(
         Turn(
             id="turn-1",
@@ -64,7 +69,7 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_p
             message_type=MessageType.USER_MESSAGE,
             stream_state=StreamState.COMPLETED,
             display_mode="default",
-            content_text="help me fix a bug",
+            content_text="帮我修 bug",
             payload_json={},
         )
     )
@@ -100,7 +105,7 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_p
             message_type=MessageType.ASSISTANT_MESSAGE,
             stream_state=StreamState.COMPLETED,
             display_mode="default",
-            content_text="tests passed",
+            content_text="测试通过了",
             payload_json={},
         )
     )
@@ -114,12 +119,11 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_p
     )
 
     seeded = result.recent_messages
-    user_msg = next(m for m in seeded if m["role"] == "user")
-    assert "help me fix a bug" in user_msg["content"]
 
-    assistant_tool_msg = next(
-        m for m in seeded if m["role"] == "assistant" and m.get("tool_calls")
-    )
+    user_msg = next(m for m in seeded if m["role"] == "user")
+    assert "帮我修 bug" in user_msg["content"]
+
+    assistant_tool_msg = next(m for m in seeded if m["role"] == "assistant" and m.get("tool_calls"))
     assert assistant_tool_msg["tool_calls"][0]["name"] == "shell"
     assert assistant_tool_msg["tool_calls"][0]["arguments"] == {"cmd": "pytest"}
     assert assistant_tool_msg["tool_calls"][0]["id"] == "call_abc12345"
@@ -128,10 +132,8 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(tmp_p
     assert tool_result_msg["tool_call_id"] == "call_abc12345"
     assert "2 passed" in tool_result_msg["content"]
 
-    assistant_text_msg = next(
-        m for m in seeded if m["role"] == "assistant" and not m.get("tool_calls")
-    )
-    assert "tests passed" in assistant_text_msg["content"]
+    assistant_text_msg = next(m for m in seeded if m["role"] == "assistant" and not m.get("tool_calls"))
+    assert "测试通过了" in assistant_text_msg["content"]
 
 
 def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
@@ -146,7 +148,7 @@ def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
         message_repo=message_repo,
     )
 
-    session_repo.create(Session(id="session-1", project_id="project-1", title="Conversation"))
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
     turn_repo.create(
         Turn(
             id="turn-1",
@@ -231,7 +233,7 @@ def test_context_assembler_reads_agents_md_as_system_section(tmp_path):
         message_repo=message_repo,
     )
 
-    session_repo.create(Session(id="session-1", project_id="project-1", title="Conversation"))
+    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
 
     assembler = ContextAssembler(conversation_service=conversation_service)
     result = assembler.build_for_session(

@@ -8,7 +8,6 @@ import type {
   ConversationStreamState,
   ConversationTurn,
 } from '@/types/conversation'
-import { normalizeConversationAttachment } from '@/types/conversation'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -20,18 +19,6 @@ function isValidRole(value: unknown): value is ConversationMessage['role'] {
 
 function isValidMessageType(value: unknown): value is ConversationMessage['messageType'] {
   return value === 'user_message' || value === 'tool_trace' || value === 'assistant_message'
-}
-
-function normalizeEventAttachments(value: unknown): ConversationMessage['attachments'] {
-  if (!Array.isArray(value)) {
-    return undefined
-  }
-
-  const attachments = value
-    .map(normalizeConversationAttachment)
-    .filter((attachment): attachment is NonNullable<ConversationMessage['attachments']>[number] => attachment !== null)
-
-  return attachments.length > 0 ? attachments : []
 }
 
 function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
@@ -529,7 +516,7 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     const payloadJson = isRecord(p.payload_json) ? p.payload_json : {}
 
     // 处理附件数据
-    const attachments = normalizeEventAttachments(p.attachments)
+    const attachments = Array.isArray(p.attachments) ? p.attachments : undefined
 
     const newMessage: ConversationMessage = {
       id: messageId,

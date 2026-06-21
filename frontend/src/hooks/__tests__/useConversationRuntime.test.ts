@@ -388,30 +388,6 @@ describe('useConversationRuntime', () => {
     expect(wsCancelRunMock).toHaveBeenCalledWith('run-1')
   })
 
-  it('allows image-only turns to reach the websocket runtime', async () => {
-    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
-
-    const { useConversationRuntime } = await import('../useConversationRuntime')
-    const runtime = useConversationRuntime('session-1')
-
-    await flushAsyncEffects()
-
-    await runtime.startTurn({
-      sessionId: 'session-1',
-      message: '   ',
-      providerId: 'provider-a',
-      modelId: 'model-a',
-      attachmentIds: ['att-1'],
-    })
-
-    expect(wsStartTurnMock).toHaveBeenCalledWith({
-      content: '',
-      providerId: 'provider-a',
-      modelId: 'model-a',
-      attachmentIds: ['att-1'],
-    })
-  })
-
   it('can cancel runs that are waiting for approval', async () => {
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
     conversationStoreState.conversationsBySessionId = {
