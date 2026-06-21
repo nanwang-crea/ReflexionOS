@@ -1,5 +1,4 @@
 import logging
-import os
 import sys
 import textwrap
 from datetime import datetime
@@ -108,13 +107,6 @@ def _read_prompt_file(filename: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
     return path.read_text(encoding="utf-8").strip()
-
-
-def _resolve_home_dir() -> Path:
-    home = os.environ.get("HOME")
-    if home:
-        return Path(home).expanduser()
-    return Path.home()
 
 
 class PromptManager:
@@ -239,7 +231,7 @@ class PromptManager:
         return ""
 
     def _ensure_global_overlays(self) -> None:
-        reflexion_dir = _resolve_home_dir() / ".reflexion"
+        reflexion_dir = Path.home() / ".reflexion"
         try:
             reflexion_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -287,15 +279,10 @@ class PromptManager:
         """
         self._ensure_global_overlays()
         paths = [
-<<<<<<< HEAD
-            _resolve_home_dir() / ".reflexion" / "soul.md",
-            _resolve_home_dir() / ".reflexion" / "agent.md",
-=======
             # 全局 overlay（~/.reflexion/）
             Path.home() / ".reflexion" / "soul.md",
             Path.home() / ".reflexion" / "agent.md",
             Path.home() / ".reflexion" / "MEMORY.md",
->>>>>>> origin/main
         ]
         if project_root:
             root = Path(project_root)

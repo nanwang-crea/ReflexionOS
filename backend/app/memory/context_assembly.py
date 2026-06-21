@@ -13,28 +13,28 @@ from app.services.conversation_service import ConversationService
 class ContextAssemblyResult(BaseModel):
     system_sections: list[str]
     recent_messages: list[dict[str, Any]]
-    current_turn_message: dict[str, Any] | None = None
-    supplemental_block: str | None = None
 
 
-def _message_to_seed_dict(
-    message: Any, supports_vision: bool | None = None
-) -> list[dict[str, Any]]:
+def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> list[dict[str, Any]]:
     if message.message_type == MessageType.TOOL_TRACE:
         return _tool_trace_to_paired_seeds(message)
 
+    # 基础消息内容
     base_msg = {"role": str(message.role), "content": str(message.content_text)}
 
-    if hasattr(message, "attachments") and message.attachments:
+    # 如果有附件，转换为多模态消息
+    if hasattr(message, 'attachments') and message.attachments:
         from app.services.attachment_service import convert_attachments_to_content_parts
 
+        # 构建多模态内容
         content_parts = []
+
+        # 添加文本部分
         if message.content_text and message.content_text.strip():
             content_parts.append({"type": "text", "text": message.content_text})
 
-        image_parts = convert_attachments_to_content_parts(
-            message.attachments, supports_vision
-        )
+        # 添加图片部分
+        image_parts = convert_attachments_to_content_parts(message.attachments, supports_vision)
         content_parts.extend(image_parts)
 
         if content_parts:
@@ -90,34 +90,25 @@ def build_context_assembly(
     *,
     static_blocks: list[str],
     recent_messages: list[dict[str, Any]],
-    current_turn_message: dict[str, Any] | None = None,
-    supplemental_block: str | None = None,
 ) -> ContextAssemblyResult:
-    """Normalize assembled context while preserving multimodal payloads."""
     result_messages: list[dict[str, Any]] = []
     for message in recent_messages:
         role = str(message.get("role") or "").strip()
         if not role:
             continue
-
         raw_content = message.get("content")
         if raw_content is None:
-            content: str | list[Any] = ""
+            content: str | list = ""
         elif isinstance(raw_content, list):
+            # 多模态内容（text + image_url），保留 list 格式
             content = raw_content
         else:
             content = str(raw_content)
-
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
-        has_content = (
-            (isinstance(content, list) and len(content) > 0)
-            or (isinstance(content, str) and content.strip())
-            or tool_calls
-        )
+        has_content = (isinstance(content, list) and len(content) > 0) or (isinstance(content, str) and content.strip()) or tool_calls
         if not has_content:
             continue
-
         entry: dict[str, Any] = {"role": role, "content": content}
         if tool_calls is not None:
             entry["tool_calls"] = tool_calls
@@ -128,8 +119,6 @@ def build_context_assembly(
     return ContextAssemblyResult(
         system_sections=[block for block in static_blocks if str(block or "").strip()],
         recent_messages=result_messages,
-        current_turn_message=current_turn_message,
-        supplemental_block=supplemental_block.strip() if supplemental_block else None,
     )
 
 
@@ -163,6 +152,7 @@ class ContextAssembler:
     ) -> ContextAssemblyResult:
         static_blocks: list[str] = []
 
+        # 1) AGENTS.md (project rules) if present.
         if project_path:
             agents_path = Path(project_path) / "AGENTS.md"
             if agents_path.exists() and agents_path.is_file():
@@ -171,6 +161,7 @@ class ContextAssembler:
                     f"Project rules (from {agents_path}):\n{agents_content}"
                 )
 
+        # 1.5) Inject enabled skill metadata into system context.
         if self.skill_registry:
             enabled_skills = self.skill_registry.list_enabled_skills()
             if enabled_skills:
@@ -181,45 +172,19 @@ When a skill clearly matches your current task, load it first using the 'skill' 
 ### Skill usage guidelines:
 1. Before starting a task, briefly consider whether an available skill matches.
 2. If a skill matches, use the 'skill' tool with action='load' to read its full content.
-3. Follow the loaded skill's instructions - skills provide proven workflows for complex tasks.
-4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly - check them when relevant.
-5. Implementation skills guide execution - use them after process skills when applicable.
-6. A skill's hard gates and checklists are important safeguards - respect them.
+3. Follow the loaded skill's instructions — skills provide proven workflows for complex tasks.
+4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly — check them when relevant.
+5. Implementation skills guide execution — use them after process skills when applicable.
+6. A skill's hard gates and checklists are important safeguards — respect them.
 
 ### Available skills:"""]
-                for skill in enabled_skills:
-                    req_str = ", ".join(skill.required_skills)
-                    req = f" (requires: {req_str})" if skill.required_skills else ""
-                    skill_section_parts.append(
-                        f"- **{skill.name}**: {skill.description}{req}"
-                    )
+                for s in enabled_skills:
+                    req_str = ", ".join(s.required_skills)
+                    req = f" (requires: {req_str})" if s.required_skills else ""
+                    skill_section_parts.append(f"- **{s.name}**: {s.description}{req}")
                 static_blocks.append("\n".join(skill_section_parts))
 
-<<<<<<< HEAD
-        for target in ("user", "memory"):
-            entries = self.curated_store.load_entries(project_id=project_id, target=target)
-            if any(entry.status == "active" for entry in entries):
-                static_blocks.append(
-                    self.curated_store.render_markdown(
-                        project_id=project_id, target=target
-                    )
-                )
-
-        current_turn_message: dict[str, Any] | None = None
-        if current_turn_id:
-            current_root_message = self.conversation_service.message_repo.get_user_message_by_turn(
-                current_turn_id
-            )
-            if current_root_message is not None:
-                current_turn_seeds = _message_to_seed_dict(
-                    current_root_message, supports_vision
-                )
-                if current_turn_seeds:
-                    current_turn_message = current_turn_seeds[0]
-
-=======
         # 2) Recent seed candidates (SQL-level filter + slice).
->>>>>>> origin/main
         candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,
@@ -234,6 +199,4 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         return build_context_assembly(
             static_blocks=static_blocks,
             recent_messages=recent_messages,
-            current_turn_message=current_turn_message,
-            supplemental_block=None,
         )
