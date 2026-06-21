@@ -29,6 +29,7 @@ class WorkerSpec:
     files: list[str]  # 必填，用于冲突检测和文件访问边界
     context_hint: str = ""
     priority: int = 0
+    # NOTE: depends_on 和 allowed_tools 是预留字段，V1 版本暂未实现依赖调度和工具过滤
     depends_on: list[str] = field(default_factory=list)
     allowed_tools: list[str] = field(default_factory=lambda: [
         "file_read", "file_write", "file_edit", "session_recall", "task_complete"
@@ -138,9 +139,8 @@ class ContextSnapshot:
             run_id=f"{self.parent_run_id}-worker-{worker_id}",
             session_id=self.session_id,
             agent_mode="build",
-            seed_messages=copy.deepcopy(self.seed_messages),
+            history_messages=copy.deepcopy(self.seed_messages),
             system_sections=list(self.system_sections),
-            supplemental_context=self.supplemental_context,
         )
 
 
@@ -179,41 +179,6 @@ def should_orchestrate(task: str, config: OrchestratorConfig) -> bool:
             return True
 
     return False
-
-
-def _get_github_default_branch(owner: str, repo: str, timeout: int = 5) -> str:
-    """获取 GitHub 仓库的默认分支"""
-    try:
-        import requests
-        url = f"https://api.github.com/repos/{owner}/{repo}"
-        response = requests.get(url, timeout=timeout)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get("default_branch", "main")
-        elif response.status_code == 403:
-            logger.warning("GitHub API 限流，尝试使用 git ls-remote")
-            try:
-                import subprocess
-                result = subprocess.run(
-                    ['git', 'ls-remote', '--symref', f'https://github.com/{owner}/{repo}', 'HEAD'],
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
-                        if line.startswith('ref:'):
-                            ref_path = line.split()[1]
-                            return ref_path.split('/')[-1]
-            except Exception as e:
-                logger.warning("git ls-remote 失败: %s", e)
-            return "main"
-        else:
-            logger.warning("无法获取 %s/%s 的默认分支 (状态码: %d)", owner, repo, response.status_code)
-            return "main"
-    except Exception as e:
-        logger.warning("获取 %s/%s 的默认分支失败: %s", owner, repo, e)
-        return "main"
 
 
 class OrchestratorLoop:
@@ -485,10 +450,27 @@ Worker 结果:
         )
 
         # Run worker
-        loop_result = await worker_loop.run(worker_context)
+        loop_result = await worker_loop.run(
+            task=spec.task,
+            project_path=snapshot.project_path,
+            run_id=f"{snapshot.parent_run_id}-worker-{spec.worker_id}",
+            session_id=snapshot.session_id,
+            history_messages=list(snapshot.seed_messages),
+            system_sections=list(snapshot.system_sections),
+        )
 
         duration_ms = int((time.time() - start_time) * 1000)
-        tokens_used = sum(e.get("data", {}).get("tokens", 0) for e in events)
+        # 从事件中统计 token 使用量
+        tokens_used = 0
+        for e in events:
+            data = e.get("data", {})
+            # 尝试从 usage 字段获取
+            usage = data.get("usage", {})
+            if usage:
+                tokens_used += usage.get("total_tokens", 0)
+            # 尝试从 tokens 字段获取（兼容旧格式）
+            elif "tokens" in data:
+                tokens_used += data.get("tokens", 0)
 
         return WorkerResult(
             worker_id=spec.worker_id,
@@ -526,21 +508,11 @@ Worker 结果:
     def _resolve_worker_llm(self) -> Any:
         """解析 Worker 使用的 LLM 配置"""
         from app.config.settings import config_manager
-        from app.models.llm_config import ResolvedLLMConfig
+        from app.services.llm_provider_service import llm_provider_service
 
-        llm_provider_service = getattr(config_manager, 'llm_provider_service', None)
-        if llm_provider_service:
-            return llm_provider_service.resolve_llm_config()
+        # 优先使用 worker_model 配置
+        if self.config.worker_model:
+            return llm_provider_service.resolve_llm_config(model_id=self.config.worker_model)
 
-        # Fallback: create a basic config
-        settings = config_manager.settings
-        llm_settings = settings.llm
-        return ResolvedLLMConfig(
-            provider_type=llm_settings.provider_type,
-            model=self.config.worker_model or llm_settings.model,
-            api_key=llm_settings.api_key,
-            base_url=llm_settings.base_url,
-            temperature=llm_settings.temperature,
-            max_tokens=llm_settings.max_tokens,
-            context_window=llm_settings.context_window,
-        )
+        # 使用默认 LLM 配置
+        return llm_provider_service.resolve_llm_config()
