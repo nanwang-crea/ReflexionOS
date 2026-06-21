@@ -1,4 +1,4 @@
-from app.memory.context_assembly import ConversationHistoryLoader, _filter_seed_messages
+from app.execution.conversation_history_loader import ConversationHistoryLoader, _filter_seed_messages
 from app.models.conversation import (
     Message,
     MessageType,

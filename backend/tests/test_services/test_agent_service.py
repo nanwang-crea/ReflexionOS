@@ -8,7 +8,7 @@ import pytest
 
 import app.services.agent_service as agent_service_module
 from app.execution.models import LoopResult, LoopStatus
-from app.memory.context_assembly import ConversationHistoryLoader
+from app.execution.conversation_history_loader import ConversationHistoryLoader
 
 from app.models.conversation import (
     ConversationEvent,

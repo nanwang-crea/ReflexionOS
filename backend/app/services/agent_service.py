@@ -15,7 +15,7 @@ from app.execution.rapid_loop import RapidExecutionLoop
 from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
-from app.memory.context_assembly import ConversationHistoryLoader
+from app.execution.conversation_history_loader import ConversationHistoryLoader
 
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (

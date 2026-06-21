@@ -682,7 +682,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     - recall/search docs index normal messages but exclude messages marked exclude_from_recall
     """
 
-    from app.memory.context_assembly import ConversationHistoryLoader
+    from app.execution.conversation_history_loader import ConversationHistoryLoader
     from app.memory.recall_service import RecallService
     from app.models.conversation import ConversationEvent, EventType
     from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
