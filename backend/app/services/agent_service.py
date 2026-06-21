@@ -44,7 +44,6 @@ from app.tools.explore_tool import ExploreTool
 from app.tools.file_tool import FileTool
 from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
-from app.tools.memory_tool import MemoryTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -161,7 +160,6 @@ class AgentService:
             trust_store=trust_store,
         ))
         registry.register(EditTool(path_security))
-        registry.register(MemoryTool())
         registry.register(PlanTool())
         registry.register(ExploreTool(path_security))
         from app.config.settings import config_manager as _cfg_mgr

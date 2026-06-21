@@ -134,6 +134,8 @@ class OpenAIAdapter(UniversalLLMInterface):
 
             try:
                 async for chunk in stream:
+                    if not chunk.choices:
+                        continue
                     delta = chunk.choices[0].delta
                     finish_reason = chunk.choices[0].finish_reason
 

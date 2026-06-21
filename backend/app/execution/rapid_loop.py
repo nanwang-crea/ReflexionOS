@@ -212,9 +212,9 @@ class RapidExecutionLoop:
                 result.result = rt.response.content or "需要更多信息才能继续"
                 return LoopPhase.DONE
 
-            # 计划未完成但停止了 - 询问确认
-            logger.info("计划未完成但 LLM 停止，询问是否继续")
-            return await self._ask_continue_or_stop(context, rt)
+            # 计划未完成但停止了 - 直接进入总结阶段
+            logger.info("计划未完成但 LLM 停止，进入总结阶段")
+            return LoopPhase.FINAL_SUMMARY
 
         # 没计划或计划完成
         if rt.response.has_content:
@@ -225,42 +225,6 @@ class RapidExecutionLoop:
         else:
             # 没有最终回答，进入兜底总结
             return LoopPhase.FINAL_SUMMARY
-
-    async def _ask_continue_or_stop(
-        self,
-        context: LoopContext,
-        rt: RuntimeState,
-    ) -> LoopPhase:
-        """询问 LLM：计划未完成，确定要停止吗？"""
-
-        # 先把 assistant 的响应加到上下文
-        if rt.response.has_content:
-            context.add_message(MessageRole.ASSISTANT, content=rt.response.content)
-
-        # 防止无限循环：检查是否已经询问过
-        nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
-        if nudge_count >= 5:
-            # 已经问过 2 次了，强制进入总结
-            logger.warning("计划未完成但 LLM 持续停止，强制进入总结阶段")
-            return LoopPhase.FINAL_SUMMARY
-
-        context.metadata["_plan_incomplete_nudge_count"] = nudge_count + 1
-
-        pending = [s for s in context.plan.steps if s.status == "pending"]
-        completed = [s for s in context.plan.steps if s.status == "completed"]
-
-        prompt = (
-            f"Your plan has {len(pending)} pending steps (out of {len(context.plan.steps)} total, "
-            f"{len(completed)} completed):\n"
-            + "\n".join(f"  - {s.content}" for s in pending)
-            + "\n\nThe plan is NOT complete. You stopped without calling tools. Please:\n"
-            "A) Call the necessary tools to continue the next step, OR\n"
-            "B) Update the plan to mark steps as completed/blocked if the work is actually done."
-        )
-
-        context.add_message(MessageRole.USER, prompt)
-        context.metadata["_prefill_assistant"] = "I'll continue working on the plan. "
-        return LoopPhase.PLANNING
 
     def _record_tool_signature(
         self, context: LoopContext, tool_call: LLMToolCall
@@ -986,13 +950,7 @@ Answer ONLY "yes" or "no".\
                 context, response, messages, tools, call_started_at
             )
 
-        # 5. Prefill 合并
-        prefill = context.metadata.pop("_prefill_assistant", None)
-        if prefill:
-            merged_content = (prefill + (response.content or "")) if response.content else prefill
-            response = response.model_copy(update={"content": merged_content or None})
-
-        # 6. 添加到上下文
+        # 5. 添加到上下文
         context.add_message(
             MessageRole.ASSISTANT,
             content=response.content or None,
