@@ -32,8 +32,6 @@ class LoopContext:
         self.steps: list[LoopStep] = []
         self.current_step_number = 0
         self.workspace_snapshot: dict[str, Any] = {}
-        # Three-layer context assembly (Task 6)
-        self.system_sections: list[str] = []
         # Plan engine
         self.plan: Plan | None = None
         self.plan_file_path: str | None = None
@@ -56,7 +54,6 @@ class LoopContext:
         session_id: str | None = None,
         agent_mode: str = "build",
         history_messages: list[dict[str, Any]] | None = None,
-        system_sections: list[str] | None = None,
         task_content: str | list[dict] | None = None,
     ) -> "LoopContext":
         """
@@ -66,7 +63,6 @@ class LoopContext:
             task: 任务描述（纯文本）
             task_content: 实际传递给 LLM 的内容（支持多模态格式）
             history_messages: 历史对话消息，用于恢复上下文
-            system_sections: 系统提示词片段列表
         """
         context = cls(
             task=task,
@@ -118,8 +114,6 @@ class LoopContext:
                 continue
 
             context.add_message(role, content, tool_call_id=tool_call_id)
-
-        context.system_sections = system_sections or []
 
         # 确保最后一条消息是当前的用户任务（避免重复）
         # 支持多模态 task_content（带图片）或纯文本 task

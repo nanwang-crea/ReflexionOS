@@ -13,7 +13,7 @@ class LoopMessageBuilder:
     - Tier 2: 截断但可见 —— 超出窗口的旧消息逐条截断，每条仍在 context 中
     - Tier 3: LLM 摘要 —— 极端压力时旧消息压缩为摘要，细节可 session_recall 回溯
 
-    最终消息顺序：system prompt → context sections → Tier 3 compacted summary(system)
+    最终消息顺序：system prompt（含 Skills 等静态上下文） → Tier 3 compacted summary(system)
                    → Tier 2 截断消息(system) → Tier 1 recent context messages(user/assistant/tool)
                    → Task Anchor(user)
     """
@@ -30,19 +30,12 @@ class LoopMessageBuilder:
         self.tool_output_max_chars = tool_output_max_chars
         self.task_anchor_interval = task_anchor_interval
 
-    @staticmethod
-    def _inject_context_sections(
-        context: LoopContext, messages: list[LLMMessage]
-    ) -> None:
-        """注入三层上下文中的静态层：system sections"""
-        for section in context.system_sections or []:
-            if str(section or "").strip():
-                messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=str(section))
-                )
-
     def build(self, context: LoopContext) -> list[LLMMessage]:
-        """构建完整的三级上下文消息列表，供 LLM 调用使用"""
+        """构建完整的三级上下文消息列表，供 LLM 调用使用
+
+        注意：system_sections（AGENTS.md、Skills 等）已合并到 PromptManager.get_system_prompt() 中，
+        不再在此处单独注入。
+        """
         if context.agent_mode == "plan":
             system_prompt = self.prompt_manager.get_plan_mode_prompt(
                 working_directory=context.project_path or os.getcwd(),
@@ -62,8 +55,6 @@ class LoopMessageBuilder:
                 coding_mode=context.agent_mode != "plan",
             )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
-
-        self._inject_context_sections(context, messages)
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compressor.get_compacted_summary():
@@ -151,9 +142,9 @@ class LoopMessageBuilder:
             )
         ]
 
-        # 注意：计划阶段不注入 system_sections（AGENTS.md、skills、MEMORY等），
+        # 注意：计划阶段不注入 Skills 等静态上下文，
         # 这些上下文对判断"是否需要计划"是噪声，反而让 LLM 倾向于创建不必要的计划。
-        # 主循环 build() 中会注入完整上下文。
+        # 主循环 build() 中 PromptManager 会注入完整上下文。
 
         # 从 recent_messages 中提取用户/助手消息
         # 注意：from_run_input 已保证 recent_messages 中包含当前任务的用户消息，
@@ -200,8 +191,6 @@ class LoopMessageBuilder:
                 ),
             )
         ]
-
-        self._inject_context_sections(context, messages)
 
         if context.compressor.get_compacted_summary():
             messages.append(
