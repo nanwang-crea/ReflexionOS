@@ -141,10 +141,6 @@ class LoopMessageBuilder:
                 )
             )
 
-        prefill = context.metadata.get("_prefill_assistant")
-        if prefill:
-            messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=prefill))
-
         return messages
 
     def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:

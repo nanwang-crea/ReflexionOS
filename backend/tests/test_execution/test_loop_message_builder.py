@@ -222,37 +222,4 @@ def test_compaction_continue_message_injected_after_tier3():
     assert any("Continue" in (c or "") for c in user_contents)
 
 
-def test_prefill_assistant_appended_as_last_message():
-    builder = build_message_builder()
-    context = LoopContext(task="fix bug")
-    context.add_message(MessageRole.USER, "fix bug")
-    context.add_message(MessageRole.ASSISTANT, content="I'll fix it.")
-    context.add_message(MessageRole.USER, "The plan is NOT complete yet. You MUST continue.")
-    context.metadata["_prefill_assistant"] = (
-        "I'll continue with the current step. Let me use my tools to proceed."
-    )
 
-    messages = builder.build(context)
-
-    assistant_messages = [m for m in messages if m.role == "assistant"]
-    last_assistant = assistant_messages[-1]
-    assert "continue with the current step" in (last_assistant.content or "")
-
-
-def test_prefill_cleared_after_build_does_not_persist():
-    builder = build_message_builder()
-    context = LoopContext(task="fix bug")
-    context.metadata["_prefill_assistant"] = "I'll continue."
-
-    messages_with_prefill = builder.build(context)
-    assert any(
-        m.role == "assistant" and "continue" in (m.content or "")
-        for m in messages_with_prefill
-    )
-
-    context.metadata.pop("_prefill_assistant", None)
-    messages_without_prefill = builder.build(context)
-    assistant_contents = [
-        m.content for m in messages_without_prefill if m.role == "assistant"
-    ]
-    assert not any("I'll continue." in (c or "") for c in assistant_contents)

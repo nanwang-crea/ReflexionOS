@@ -63,7 +63,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | glob（文件模式匹配） | ✅ 完成 | 118 行，pathlib.glob 实现，排除 node_modules/.git 等，最大 100 结果 |
 | grep（内容搜索） | ✅ 完成 | 260 行，优先使用 ripgrep（rg），回退 grep，支持 include 过滤、上下文行 |
 | plan（执行计划管理） | ✅ 完成 | 262 行，支持 create / step_done / block / adjust 四种操作 |
-| memory（策展记忆） | ✅ 完成 | 123 行，add / replace / remove 操作，渲染到 USER.md / MEMORY.md |
+| memory（策展记忆） | ✅ 完成 | 123 行，add / replace / remove 操作，渲染到 MEMORY.md |
 | session_recall（会话回溯） | ✅ 完成 | 91 行，从 DB 按关键词取回当前 session 的历史消息完整内容 |
 | 工具注册中心（ToolRegistry） | ✅ 完成 | 66 行，注册/查询/Schema 生成/定义导出 |
 | 工具基类（BaseTool + ToolResult + ToolApprovalRequest） | ✅ 完成 | 70 行，ABC 基类，含审批请求模型 |
@@ -102,7 +102,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 
 | 功能 | 完成度 | 说明 |
 |------|--------|------|
-| 策展记忆存储（CuratedMemoryStore） | ✅ 完成 | 292 行，entry-based 存储，JSON 持久化 + Markdown 渲染（USER.md / MEMORY.md），冲突检测，supersede 机制 |
+| 策展记忆存储（CuratedMemoryStore） | ✅ 完成 | 292 行，entry-based 存储，JSON 持久化 + Markdown 渲染（MEMORY.md），冲突检测，supersede 机制 |
 | 上下文组装（ContextAssembler） | ✅ 完成 | 将记忆内容注入 LLM 上下文 |
 | 消息归一化（MessageNormalizer） | ✅ 完成 | 统一不同来源的消息格式 |
 | 召回服务（RecallService） | ✅ 完成 | 按关键词搜索历史消息（基于 message_search_documents 投影） |
