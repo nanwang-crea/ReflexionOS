@@ -118,6 +118,8 @@ class Database:
         alembic_cfg = AlembicConfig(str(alembic_cfg_path))
         alembic_cfg.set_main_option("sqlalchemy.url", f"sqlite:///{self.db_path}")
 
+        # Alembic 迁移时会临时修改 root logger 的 handlers，
+        # 保存/恢复时需保留我们配置的文件日志 handler，避免日志丢失
         root_logger = logging.getLogger()
         saved_level = root_logger.level
         saved_handlers = list(root_logger.handlers)
@@ -141,7 +143,12 @@ class Database:
             logger.warning("Alembic 迁移失败，回退到 create_all: %s", exc)
             Base.metadata.create_all(self.engine)
         finally:
-            root_logger.handlers = saved_handlers
+            # 恢复 Alembic 迁移前的日志 handler 配置
+            # 先移除 Alembic 添加的 handler，再恢复原始 handler
+            for handler in list(root_logger.handlers):
+                root_logger.removeHandler(handler)
+            for handler in saved_handlers:
+                root_logger.addHandler(handler)
             root_logger.setLevel(saved_level)
 
     def _has_turn_message_index_schema(self) -> bool:
