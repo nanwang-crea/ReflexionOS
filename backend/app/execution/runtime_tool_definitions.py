@@ -36,6 +36,7 @@ class ToolSetConfig:
                 "session_recall",
                 "skill",
                 "working_memory_update",
+                "plan",
             }
         )
     )

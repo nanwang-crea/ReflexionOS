@@ -1,6 +1,47 @@
 # ReflexionOS 产品更新日志
 
-> 最新更新周期：2026.06.04 — 2026.06.13
+> 最新更新周期：2026.06.04 — 2026.06.22
+
+---
+
+## 🧠 工作记忆系统（Working Memory）
+
+**上线日期：6.22**
+
+Agent 拥有了结构化的工作记忆能力，在对话压缩后仍能保留关键上下文，大幅减少重复读取和重复推理。
+
+> **难度：⭐⭐⭐⭐⭐** — 全新子系统，涉及数据模型、自动提取、工具注册、消息注入、执行引擎集成等多个模块的协调变更。
+>
+> **难点**：
+> - **生命周期设计**：Working Memory 绑定到 Turn（非 Run），同一 Turn 内的反思循环共享实例，Turn 结束销毁。需要在不持久化的前提下，让压缩后关键信息仍可见
+> - **Token 预算淘汰**：~2000 tokens 固定预算，超限时按优先级淘汰（errors → variables → file_index → decisions），需要在信息密度和预算之间平衡
+> - **纯规则提取**：不调用 LLM，通过正则和规则从 tool 结果中提取信息（文件符号、错误、变量赋值等），支持 Python/JS/TS/Go/Rust 多语言
+
+- **WorkingMemory 数据模型**：4 种结构化存储（文件索引/决策/变量/错误），Token 预算自动淘汰机制
+- **MemoryExtractor 自动提取**：从 file/edit/shell/grep/explore 等 6 种工具结果中自动提取关键信息，纯规则零延迟
+- **WorkingMemoryTool 主动写入**：`working_memory_update` 工具，LLM 可主动 add/update/remove/clear 工作记忆
+- **LoopMessageBuilder 注入**：system prompt 之后、Tier 3 之前注入 Working Memory，最终总结时也注入
+- **ToolCallExecutor 集成**：每个 tool 执行后自动提取到 Working Memory，提取失败不影响主流程
+- **设计文档**：完整的生命周期论证（Turn vs Session vs Run）和实施计划文档
+
+---
+
+## 🔄 计划架构简化
+
+**上线日期：6.22**
+
+> **难度：⭐⭐⭐⭐** — 删除了计划初始化的整个 LLM 决策流程（~150 行），重构为"提示注入"模式，让主循环 LLM 自己决定是否继续旧计划。
+>
+> **难点**：
+> - **架构模式转变**：从"系统自动决策是否创建/恢复计划"变为"系统恢复旧计划并提示，LLM 自主决策"，需要确保提示注入的时机和格式正确
+> - **向后兼容**：删除了 `build_initial_plan`、`for_initial_plan`、`get_initial_plan_prompt`、`initial_plan.txt` 模板等多个接口，需要确保所有引用点（包括测试）都正确更新
+> - **旧计划恢复策略**：旧计划不再由系统判断相关性（`_check_plan_relevance` LLM 调用），而是存储到 `context.recovered_plan`，在首轮消息中注入 `<system-reminder>` 让主循环 LLM 自行判断
+
+- **删除计划预检 LLM 调用**：`_bootstrap_plan` 简化为 `_try_recover_plan`，不再自动创建新计划或判断相关性
+- **删除 `build_initial_plan` 方法**：不再有独立的计划阶段消息构建，计划创建由主循环 LLM 通过 plan tool 完成
+- **删除 `initial_plan.txt` 模板**：英文版和 GLM 中文版均已删除
+- **系统提示词升级**：Task Planning 部分从简单指令改为结构化决策指南（何时创建计划 / 何时跳过计划）
+- **旧计划恢复注入**：检测到旧计划时，在首轮消息中注入 `<system-reminder>` 提示 LLM 决定是否继续
 
 ---
 

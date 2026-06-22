@@ -49,7 +49,7 @@ class TestWorkingMemoryToolAdd:
             "action": "add", "slot": "file_index", "content": "摘要",
         })
         assert result.success is False
-        assert "错误" in result.output
+        assert "key" in result.error
 
     @pytest.mark.asyncio
     async def test_add_decision(self):
@@ -73,7 +73,7 @@ class TestWorkingMemoryToolAdd:
             "action": "add", "slot": "decisions",
         })
         assert result.success is False
-        assert "错误" in result.output
+        assert "content" in result.error
 
     @pytest.mark.asyncio
     async def test_add_variable(self):
@@ -96,7 +96,7 @@ class TestWorkingMemoryToolAdd:
             "action": "add", "slot": "variables", "content": "8080",
         })
         assert result.success is False
-        assert "错误" in result.output
+        assert "key" in result.error
 
     @pytest.mark.asyncio
     async def test_add_error(self):
@@ -119,7 +119,7 @@ class TestWorkingMemoryToolAdd:
             "action": "add", "slot": "errors", "content": "详情",
         })
         assert result.success is False
-        assert "错误" in result.output
+        assert "key" in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ class TestWorkingMemoryToolRemove:
             "key": "nonexistent.py",
         })
         assert result.success is False
-        assert "错误" in result.output
+        assert "文件" in result.error
 
     @pytest.mark.asyncio
     async def test_remove_variable(self):
@@ -316,8 +316,7 @@ class TestWorkingMemoryToolValidation:
         tool = _make_tool(wm)
         result = await tool.execute({"action": "invalid", "slot": "file_index"})
         assert result.success is False
-        assert "错误" in result.output
-        assert "action" in result.output
+        assert "action" in result.error
 
     @pytest.mark.asyncio
     async def test_invalid_slot(self):
@@ -325,8 +324,7 @@ class TestWorkingMemoryToolValidation:
         tool = _make_tool(wm)
         result = await tool.execute({"action": "add", "slot": "nonexistent"})
         assert result.success is False
-        assert "错误" in result.output
-        assert "slot" in result.output
+        assert "slot" in result.error
 
     @pytest.mark.asyncio
     async def test_empty_action(self):
@@ -334,7 +332,7 @@ class TestWorkingMemoryToolValidation:
         tool = _make_tool(wm)
         result = await tool.execute({"slot": "file_index"})
         assert result.success is False
-        assert "错误" in result.output
+        assert "action" in result.error
 
     @pytest.mark.asyncio
     async def test_no_working_memory(self):
@@ -344,7 +342,70 @@ class TestWorkingMemoryToolValidation:
             "action": "add", "slot": "variables", "key": "port", "content": "8080",
         })
         assert result.success is False
-        assert "不可用" in result.output
+        assert "不可用" in result.error
+
+
+# ---------------------------------------------------------------------------
+# source 参数传递测试
+# ---------------------------------------------------------------------------
+
+
+class TestWorkingMemoryToolSource:
+
+    @pytest.mark.asyncio
+    async def test_default_source_is_model(self):
+        """add 操作不传 source 时，默认为 'model'"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "file_index",
+            "key": "a.py", "content": "文件A",
+        })
+        assert wm.file_index["a.py"].source == "model"
+
+    @pytest.mark.asyncio
+    async def test_explicit_source_auto(self):
+        """add 操作传 source='auto' 时，MemoryEntry.source 应为 'auto'"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "file_index",
+            "key": "b.py", "content": "文件B", "source": "auto",
+        })
+        assert wm.file_index["b.py"].source == "auto"
+
+    @pytest.mark.asyncio
+    async def test_source_on_variable(self):
+        """变量操作也应正确传递 source"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "variables",
+            "key": "env", "content": "prod", "source": "auto",
+        })
+        assert wm.variables["env"].source == "auto"
+
+    @pytest.mark.asyncio
+    async def test_source_on_decision(self):
+        """决策操作也应正确传递 source"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "用 SQLite", "source": "auto",
+        })
+        assert wm.decisions[0].source == "auto"
+
+    @pytest.mark.asyncio
+    async def test_source_on_error(self):
+        """错误记录操作也应正确传递 source"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "errors",
+            "key": "Timeout", "content": "超时", "source": "auto",
+        })
+        assert wm.errors[0].source == "auto"
 
 
 # ---------------------------------------------------------------------------

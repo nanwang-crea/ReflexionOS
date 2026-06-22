@@ -104,7 +104,8 @@ def test_normal_definitions_expose_plan_schema_when_plan_exists():
 
     definitions = RuntimeToolDefinitions(build_registry()).for_context(context)
 
-    assert [definition.name for definition in definitions] == ["mock", "plan"]
+    # mock 不在 exploration_tools 中，探索阶段（无 steps）只返回 plan
+    assert [definition.name for definition in definitions] == ["plan"]
     plan_definition = next(
         definition for definition in definitions if definition.name == "plan"
     )

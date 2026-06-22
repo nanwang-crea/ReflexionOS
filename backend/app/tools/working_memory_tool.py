@@ -115,7 +115,7 @@ class WorkingMemoryTool(BaseTool):
         """执行工作记忆更新操作。"""
         if self._working_memory is None:
             return ToolResult(
-                output="错误: 工作记忆不可用",
+                error="工作记忆不可用",
                 success=False,
             )
 
@@ -125,43 +125,47 @@ class WorkingMemoryTool(BaseTool):
         # 验证 action
         if action not in VALID_ACTIONS:
             return ToolResult(
-                output=f"错误: 无效的 action '{action}'，有效值为 {VALID_ACTIONS}",
+                error=f"无效的 action '{action}'，有效值为 {VALID_ACTIONS}",
                 success=False,
             )
 
         # 验证 slot
         if slot not in VALID_SLOTS:
             return ToolResult(
-                output=f"错误: 无效的 slot '{slot}'，有效值为 {VALID_SLOTS}",
+                error=f"无效的 slot '{slot}'，有效值为 {VALID_SLOTS}",
                 success=False,
             )
 
         source = args.get("source", "model")
 
         try:
+            # 每个 handler 返回 (success: bool, message: str) 元组
             if action == "clear":
-                result = self._handle_clear(slot)
+                ok, msg = self._handle_clear(slot)
             elif action in ("add", "update"):
                 # update 等同于 add（upsert 语义）
-                result = self._handle_add(slot, args, source)
+                ok, msg = self._handle_add(slot, args, source)
             elif action == "remove":
-                result = self._handle_remove(slot, args)
+                ok, msg = self._handle_remove(slot, args)
             else:
-                result = f"错误: 未知操作 '{action}'"
+                ok, msg = False, f"未知操作 '{action}'"
 
-            success = not result.startswith("错误")
-            return ToolResult(output=result, success=success)
+            return ToolResult(
+                success=ok,
+                output=msg if ok else None,
+                error=msg if not ok else None,
+            )
 
         except Exception as e:
             logger.warning("working_memory_update 处理失败: %s", e, exc_info=True)
             return ToolResult(
-                output=f"错误: 处理失败 - {e}",
+                error=f"处理失败 - {e}",
                 success=False,
             )
 
     # -- slot 操作方法 -------------------------------------------------------
 
-    def _handle_clear(self, slot: str) -> str:
+    def _handle_clear(self, slot: str) -> tuple[bool, str]:
         """清空指定 slot"""
         wm = self._working_memory
         if slot == "file_index":
@@ -172,9 +176,12 @@ class WorkingMemoryTool(BaseTool):
             wm.variables.clear()
         elif slot == "errors":
             wm.errors.clear()
-        return f"已清空 {slot}"
+        else:
+            # slot 已在 execute() 中验证，理论上不会走到这里
+            return False, f"未知的 slot: {slot}"
+        return True, f"已清空 {slot}"
 
-    def _handle_add(self, slot: str, args: dict[str, Any], source: str) -> str:
+    def _handle_add(self, slot: str, args: dict[str, Any], source: str) -> tuple[bool, str]:
         """向 slot 添加内容（upsert 语义）"""
         wm = self._working_memory
 
@@ -182,37 +189,38 @@ class WorkingMemoryTool(BaseTool):
             key = args.get("key", "")
             content = args.get("content", "")
             if not key:
-                return "错误: file_index 的 add 操作需要提供 key（文件路径）"
+                return False, "file_index 的 add 操作需要提供 key（文件路径）"
             wm.upsert_file(path=key, summary=str(content), source=source)
-            return f"已添加文件摘要: {key}"
+            return True, f"已添加文件摘要: {key}"
 
         if slot == "decisions":
             content = args.get("content", "")
             if not content:
-                return "错误: decisions 的 add 操作需要提供 content（决策内容）"
+                return False, "decisions 的 add 操作需要提供 content（决策内容）"
             rationale = args.get("rationale", "")
             wm.add_decision(decision=str(content), rationale=str(rationale), source=source)
-            return f"已记录决策: {str(content)[:50]}"
+            return True, f"已记录决策: {str(content)[:50]}"
 
         if slot == "variables":
             key = args.get("key", "")
             content = args.get("content", "")
             if not key:
-                return "错误: variables 的 add 操作需要提供 key（变量名）"
+                return False, "variables 的 add 操作需要提供 key（变量名）"
             wm.set_variable(name=key, value=str(content), source=source)
-            return f"已设置变量: {key} = {str(content)[:50]}"
+            return True, f"已设置变量: {key} = {str(content)[:50]}"
 
         if slot == "errors":
             key = args.get("key", "")
             content = args.get("content", "")
             if not key:
-                return "错误: errors 的 add 操作需要提供 key（错误类型）"
+                return False, "errors 的 add 操作需要提供 key（错误类型）"
             wm.add_error(error_type=str(key), detail=str(content), source=source)
-            return f"已记录错误: [{key}] {str(content)[:50]}"
+            return True, f"已记录错误: [{key}] {str(content)[:50]}"
 
-        return f"错误: 未知的 slot {slot}"
+        # slot 已在 execute() 中验证，理论上不会走到这里
+        return False, f"未知的 slot: {slot}"
 
-    def _handle_remove(self, slot: str, args: dict[str, Any]) -> str:
+    def _handle_remove(self, slot: str, args: dict[str, Any]) -> tuple[bool, str]:
         """从 slot 移除内容"""
         wm = self._working_memory
         key = args.get("key", "")
@@ -221,34 +229,35 @@ class WorkingMemoryTool(BaseTool):
         if slot == "file_index":
             if key and key in wm.file_index:
                 del wm.file_index[key]
-                return f"已移除文件摘要: {key}"
-            return f"错误: 文件 '{key}' 不在 file_index 中"
+                return True, f"已移除文件摘要: {key}"
+            return False, f"文件 '{key}' 不在 file_index 中"
 
         if slot == "decisions":
             if not wm.decisions:
-                return "错误: decisions 为空"
+                return False, "decisions 为空"
             target = str(content) if content else str(key)
             for i, entry in enumerate(wm.decisions):
                 if target in entry.key:
                     wm.decisions.pop(i)
-                    return f"已移除决策: {entry.key[:50]}"
-            return f"错误: decisions 中未找到匹配 '{target}' 的项"
+                    return True, f"已移除决策: {entry.key[:50]}"
+            return False, f"decisions 中未找到匹配 '{target}' 的项"
 
         if slot == "variables":
             target = key if key else str(content)
             if target in wm.variables:
                 del wm.variables[target]
-                return f"已移除变量: {target}"
-            return f"错误: variables 中不存在 '{target}'"
+                return True, f"已移除变量: {target}"
+            return False, f"variables 中不存在 '{target}'"
 
         if slot == "errors":
             if not wm.errors:
-                return "错误: errors 为空"
+                return False, "errors 为空"
             target = str(content) if content else str(key)
             for i, entry in enumerate(wm.errors):
                 if target in entry.key:
                     wm.errors.pop(i)
-                    return f"已移除错误: [{entry.key}]"
-            return f"错误: errors 中未找到匹配 '{target}' 的项"
+                    return True, f"已移除错误: [{entry.key}]"
+            return False, f"errors 中未找到匹配 '{target}' 的项"
 
-        return f"错误: 未知的 slot {slot}"
+        # slot 已在 execute() 中验证，理论上不会走到这里
+        return False, f"未知的 slot: {slot}"

@@ -100,12 +100,7 @@ class ToolCallExecutor:
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
 
-            # 注入 WorkingMemory 实例到 WorkingMemoryTool（类似 PlanTool 的 set_plan 模式）
-            if isinstance(tool, WorkingMemoryTool):
-                tool.set_working_memory(
-                    context.working_memory if hasattr(context, "working_memory") else None
-                )
-
+            # 参数解析失败时直接返回错误，无需注入 WorkingMemory
             if tool_call.arguments.get("__reflexion_parse_error"):
                 error_msg = tool_call.arguments["__reflexion_parse_error"]
                 raw = tool_call.arguments.get("__reflexion_raw_arguments", "")
@@ -119,6 +114,10 @@ class ToolCallExecutor:
                     "tool", content=error_msg, tool_call_id=tool_call.id
                 )
                 return step
+
+            # 注入 WorkingMemory 实例到 WorkingMemoryTool（仅在真正执行前注入）
+            if isinstance(tool, WorkingMemoryTool):
+                tool.set_working_memory(context.working_memory)
 
             missing = self._validate_required_args(tool, tool_call.arguments)
             if missing:
