@@ -165,8 +165,10 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     project_repo.save(Project(id="project-1", name="ReflexionOS", path=str(tmp_path)))
     session_repo.create(Session(id="session-1", project_id="project-1", title="需求讨论"))
 
-    # Make the project look like a real workspace for ContextAssembler.
-    (tmp_path / "AGENTS.md").write_text(
+    # Create agent.md overlay for PromptManager (replaces deprecated AGENTS.md)
+    agent_dir = tmp_path / ".reflexion"
+    agent_dir.mkdir(exist_ok=True)
+    (agent_dir / "agent.md").write_text(
         "# Project Rules\n\n- Always reply in Chinese.\n", encoding="utf-8"
     )
 
@@ -680,7 +682,7 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     - recall/search docs index normal messages but exclude messages marked exclude_from_recall
     """
 
-    from app.memory.context_assembly import ContextAssembler
+    from app.execution.conversation_history_loader import ConversationHistoryLoader
     from app.memory.recall_service import RecallService
     from app.models.conversation import ConversationEvent, EventType
     from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
@@ -748,19 +750,16 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
     assert (curated_dir / "memory.md").exists()
     assert "默认使用中文回复。" in (curated_dir / "memory.md").read_text(encoding="utf-8")
 
-    # Context assembly should pick up recent messages.
-    # memory.md content is loaded via PromptManager (same as soul.md / agent.md),
-    # not in system_sections.
-    assembler = ContextAssembler(
+    # ConversationHistoryLoader should pick up recent messages.
+    # AGENTS.md 已废弃，memory.md 内容通过 PromptManager overlay 加载。
+    loader = ConversationHistoryLoader(
         conversation_service=ConversationService(db=services.db),
     )
-    assembly = assembler.build_for_session(
+    seed_messages = loader.load_for_session(
         session_id="session-1",
         project_id="project-1",
-        project_path=str(services.tmp_path),
     )
-    assert any("Always reply in Chinese" in section for section in assembly.system_sections)
-    assert assembly.recent_messages
+    assert seed_messages
 
     # Verify memory.md is picked up by PromptManager (overlay paths).
     from app.execution.prompt_manager import PromptManager

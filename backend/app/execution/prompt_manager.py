@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import sys
 import textwrap
@@ -5,6 +7,10 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from string import Template
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.orchestration.skill_registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +118,10 @@ def _read_prompt_file(filename: str) -> str:
 class PromptManager:
     """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件，支持模型族子目录"""
 
-    def __init__(self, model_name: str = ""):
+    def __init__(self, model_name: str = "", skill_registry: SkillRegistry | None = None):
         self.templates: dict[str, PromptTemplate] = {}
         self.prompt_family = classify_prompt_family(model_name)
+        self.skill_registry = skill_registry
         self._load_templates()
 
     def _resolve_file(self, entry: dict) -> str:
@@ -334,7 +341,50 @@ class PromptManager:
         )
         if coding_mode:
             sections.append(self.get_template("coding_appendix").render())
+
+        # 注入 Skills 元数据（原 ContextAssembler.build_for_session 中的逻辑）
+        skill_section = self._build_skill_section()
+        if skill_section:
+            sections.append(skill_section)
+
         return self._join_sections(sections)
+
+    # ------------------------------------------------------------------
+    # Skills 元数据注入
+    # ------------------------------------------------------------------
+
+    def _build_skill_section(self) -> str:
+        """构建 Skills 元数据 section，注入到 system prompt 末尾。
+
+        原 ContextAssembler 中的 Skills 注入逻辑迁移至此，
+        由 PromptManager 统一管理所有静态上下文。
+        AGENTS.md 已废弃，统一使用 agent.md overlay 机制。
+        """
+        if not self.skill_registry:
+            return ""
+
+        enabled_skills = self.skill_registry.list_enabled_skills()
+        if not enabled_skills:
+            return ""
+
+        parts = ["""## Available Skills
+
+When a skill clearly matches your current task, load it first using the 'skill' tool with action='load'.
+
+### Skill usage guidelines:
+1. Before starting a task, briefly consider whether an available skill matches.
+2. If a skill matches, use the 'skill' tool with action='load' to read its full content.
+3. Follow the loaded skill's instructions — skills provide proven workflows for complex tasks.
+4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly — check them when relevant.
+5. Implementation skills guide execution — use them after process skills when applicable.
+6. A skill's hard gates and checklists are important safeguards — respect them.
+
+### Available skills:"""]
+        for s in enabled_skills:
+            req_str = ", ".join(s.required_skills)
+            req = f" (requires: {req_str})" if s.required_skills else ""
+            parts.append(f"- **{s.name}**: {s.description}{req}")
+        return "\n".join(parts)
 
     def get_plan_mode_prompt(
         self,

@@ -15,7 +15,7 @@ from app.execution.rapid_loop import RapidExecutionLoop
 from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
-from app.memory.context_assembly import ContextAssembler
+from app.execution.conversation_history_loader import ConversationHistoryLoader
 
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
@@ -112,10 +112,11 @@ class AgentService:
         self.conversation_broadcaster = conversation_broadcaster or NoopConversationBroadcaster()
         self.pending_approval_store = pending_approval_store or PendingApprovalStore()
         self.session_service = session_service
-        self.prompt_manager = PromptManager()
-        self.context_assembler = ContextAssembler(
+        self.prompt_manager = PromptManager(skill_registry=global_skill_registry)
+        # ConversationHistoryLoader 只负责对话历史加载，
+        # 静态上下文（Skills 等）由 PromptManager 统一管理
+        self.history_loader = ConversationHistoryLoader(
             conversation_service=self.conversation_service,
-            skill_registry=global_skill_registry,
         )
         self.trust_store = SessionTrustStore()
 
@@ -487,10 +488,10 @@ class AgentService:
                 self._title_tasks[run_id] = title_task
                 title_task.add_done_callback(lambda _: self._title_tasks.pop(run_id, None))
 
-            assembly = self.context_assembler.build_for_session(
+            # 加载对话历史（不含静态上下文，静态上下文由 PromptManager 管理）
+            seed_messages = self.history_loader.load_for_session(
                 session_id=session_id,
                 project_id=project_id,
-                project_path=project_path,
                 current_turn_id=turn_id,
                 supports_vision=resolved_llm.supports_vision,
             )
@@ -518,8 +519,7 @@ class AgentService:
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                history_messages=assembly.recent_messages,
-                system_sections=assembly.system_sections,
+                history_messages=seed_messages,
                 agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:

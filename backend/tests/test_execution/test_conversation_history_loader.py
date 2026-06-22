@@ -1,4 +1,4 @@
-from app.memory.context_assembly import ContextAssembler, build_context_assembly
+from app.execution.conversation_history_loader import ConversationHistoryLoader, _filter_seed_messages
 from app.models.conversation import (
     Message,
     MessageType,
@@ -14,20 +14,59 @@ from app.storage.repositories.session_repo import SessionRepository
 from app.storage.repositories.turn_repo import TurnRepository
 
 
-def test_context_assembly_builds_static_and_recent_layers():
-    result = build_context_assembly(
-        static_blocks=["AGENTS", "USER", "MEMORY"],
-        recent_messages=[{"role": "user", "content": "最近消息"}],
-    )
+def test_filter_seed_messages_basic():
+    """测试 _filter_seed_messages 的基本过滤功能"""
+    messages = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "收到"},
+        {"role": "", "content": "空角色应被过滤"},
+        {"role": "system", "content": ""},  # 空内容应被过滤
+        {"role": "tool", "content": "结果", "tool_call_id": "call_1"},
+    ]
+    result = _filter_seed_messages(messages)
+    assert len(result) == 3
+    assert result[0]["role"] == "user"
+    assert result[1]["role"] == "assistant"
+    assert result[2]["role"] == "tool"
+    assert result[2]["tool_call_id"] == "call_1"
 
-    assert "AGENTS" in result.system_sections[0]
-    assert result.recent_messages[0]["content"] == "最近消息"
+
+def test_filter_seed_messages_preserves_tool_calls():
+    """测试 _filter_seed_messages 保留 tool_calls 字段"""
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call_1", "name": "shell", "arguments": {"cmd": "ls"}}],
+        },
+    ]
+    result = _filter_seed_messages(messages)
+    assert len(result) == 1
+    assert result[0]["tool_calls"] is not None
+    assert result[0]["tool_calls"][0]["name"] == "shell"
 
 
-def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
+def test_filter_seed_messages_multimodal_content():
+    """测试 _filter_seed_messages 保留多模态内容格式"""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "看这个图片"},
+                {"type": "image_url", "url": "data:image/png;base64,abc"},
+            ],
+        },
+    ]
+    result = _filter_seed_messages(messages)
+    assert len(result) == 1
+    assert isinstance(result[0]["content"], list)
+    assert len(result[0]["content"]) == 2
+
+
+def test_conversation_history_loader_includes_completed_tool_traces(
     tmp_path,
 ):
-    db = Database(str(tmp_path / "context-assembly-tool-trace.db"))
+    db = Database(str(tmp_path / "history-loader-tool-trace.db"))
     session_repo = SessionRepository(db)
     turn_repo = TurnRepository(db)
     message_repo = MessageRepository(db)
@@ -110,15 +149,12 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
         )
     )
 
-    assembler = ContextAssembler(conversation_service=conversation_service)
-    result = assembler.build_for_session(
+    loader = ConversationHistoryLoader(conversation_service=conversation_service)
+    seeded = loader.load_for_session(
         session_id="session-1",
         project_id="project-1",
-        project_path=str(tmp_path),
         current_turn_id="turn-2",
     )
-
-    seeded = result.recent_messages
 
     user_msg = next(m for m in seeded if m["role"] == "user")
     assert "帮我修 bug" in user_msg["content"]
@@ -136,8 +172,8 @@ def test_context_assembler_includes_completed_tool_traces_in_seed_messages(
     assert "测试通过了" in assistant_text_msg["content"]
 
 
-def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
-    db = Database(str(tmp_path / "context-assembly-tool-trace-exclude.db"))
+def test_conversation_history_loader_excludes_non_completed_tool_traces(tmp_path):
+    db = Database(str(tmp_path / "history-loader-tool-trace-exclude.db"))
     session_repo = SessionRepository(db)
     turn_repo = TurnRepository(db)
     message_repo = MessageRepository(db)
@@ -208,39 +244,13 @@ def test_context_assembler_excludes_non_completed_tool_traces(tmp_path):
         )
     )
 
-    assembler = ContextAssembler(conversation_service=conversation_service)
-    result = assembler.build_for_session(
+    loader = ConversationHistoryLoader(conversation_service=conversation_service)
+    seeded = loader.load_for_session(
         session_id="session-1",
         project_id="project-1",
-        project_path=str(tmp_path),
         current_turn_id="turn-2",
     )
 
-    seeded_contents = [msg["content"] for msg in result.recent_messages]
+    # 非完成状态的 tool trace 不应出现在 seed messages 中
+    seeded_contents = [msg["content"] for msg in seeded]
     assert not any("tool_name=shell" in c for c in seeded_contents)
-
-
-def test_context_assembler_reads_agents_md_as_system_section(tmp_path):
-    (tmp_path / "AGENTS.md").write_text("Project rules here", encoding="utf-8")
-    db = Database(str(tmp_path / "context-assembly-agents.db"))
-    session_repo = SessionRepository(db)
-    turn_repo = TurnRepository(db)
-    message_repo = MessageRepository(db)
-    conversation_service = ConversationService(
-        db=db,
-        session_repo=session_repo,
-        turn_repo=turn_repo,
-        message_repo=message_repo,
-    )
-
-    session_repo.create(Session(id="session-1", project_id="project-1", title="会话"))
-
-    assembler = ContextAssembler(conversation_service=conversation_service)
-    result = assembler.build_for_session(
-        session_id="session-1",
-        project_id="project-1",
-        project_path=str(tmp_path),
-        current_turn_id=None,
-    )
-
-    assert any("Project rules here" in section for section in result.system_sections)

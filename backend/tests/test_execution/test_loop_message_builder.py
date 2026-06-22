@@ -72,7 +72,7 @@ def test_initial_plan_messages_include_only_text_conversation_context():
     builder = build_message_builder()
     context = LoopContext(task="继续处理")
     tool_call = LLMToolCall(id="call_alpha", name="mock", arguments={})
-    context.system_sections = ["AGENTS instructions"]
+    # system_sections 已合并到 PromptManager，不再通过 LoopContext 注入
     context.add_message(MessageRole.USER, "上一轮需求")
     context.add_message(MessageRole.ASSISTANT, "上一轮结论", tool_calls=[tool_call.model_dump()])
     context.add_message(MessageRole.TOOL, "tool output", tool_call_id=tool_call.id)
@@ -81,8 +81,7 @@ def test_initial_plan_messages_include_only_text_conversation_context():
     messages = builder.build_initial_plan(context)
 
     contents = [message.content for message in messages if message.content]
-    # build_initial_plan 不注入 system_sections，避免噪声干扰 NO_PLAN 判断
-    assert "AGENTS instructions" not in contents
+    # build_initial_plan 不注入 Skills 等静态上下文，避免噪声干扰 NO_PLAN 判断
     assert "上一轮需求" in contents
     assert "上一轮结论" in contents
     assert "tool output" not in contents
