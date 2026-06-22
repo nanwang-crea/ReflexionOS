@@ -597,7 +597,6 @@ class RapidExecutionLoop:
         session_id: str | None = None,
         created_at: datetime | None = None,
         history_messages: list[dict[str, str]] | None = None,
-        system_sections: list[str] | None = None,
         agent_mode: str = "build",
         task_content: str | list[dict] | None = None,
     ) -> LoopResult:
@@ -614,8 +613,7 @@ class RapidExecutionLoop:
             run_id: 运行 ID
             session_id: 会话 ID
             created_at: 创建时间
-            history_messages: 历史对话消息（来自 context assembler 的 recent_messages）
-            system_sections: 系统提示词片段列表
+            history_messages: 历史对话消息（来自 ConversationHistoryLoader 的 seed messages）
             agent_mode: Agent 模式（build/plan 等）
 
         Returns:
@@ -639,7 +637,6 @@ class RapidExecutionLoop:
             session_id=session_id,
             agent_mode=agent_mode,
             history_messages=history_messages,
-            system_sections=system_sections,
             task_content=task_content,
         )
 
