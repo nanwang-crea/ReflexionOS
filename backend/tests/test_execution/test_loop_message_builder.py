@@ -68,24 +68,71 @@ def test_build_messages_places_current_task_after_history():
     ) == 1
 
 
-def test_initial_plan_messages_include_only_text_conversation_context():
+def test_recovered_plan_injected_when_plan_not_active():
+    """旧计划恢复后，在 build() 中注入 system-reminder 提示 LLM 自行决定"""
+    from app.execution.plan_engine import Plan, PlanStep
+
     builder = build_message_builder()
-    context = LoopContext(task="继续处理")
-    tool_call = LLMToolCall(id="call_alpha", name="mock", arguments={})
-    # system_sections 已合并到 PromptManager，不再通过 LoopContext 注入
-    context.add_message(MessageRole.USER, "上一轮需求")
-    context.add_message(MessageRole.ASSISTANT, "上一轮结论", tool_calls=[tool_call.model_dump()])
-    context.add_message(MessageRole.TOOL, "tool output", tool_call_id=tool_call.id)
-    context.add_message(MessageRole.USER, "继续处理")
+    context = LoopContext(task="继续工作")
+    context.add_message(MessageRole.USER, "继续工作")
+    context.recovered_plan = Plan(
+        goal="之前的计划目标",
+        steps=[
+            PlanStep(content="已完成步骤", status="completed"),
+            PlanStep(content="未完成步骤", status="pending"),
+        ],
+    )
 
-    messages = builder.build_initial_plan(context)
+    messages = builder.build(context)
 
-    contents = [message.content for message in messages if message.content]
-    # build_initial_plan 不注入 Skills 等静态上下文，避免噪声干扰 NO_PLAN 判断
-    assert "上一轮需求" in contents
-    assert "上一轮结论" in contents
-    assert "tool output" not in contents
-    assert all(not message.tool_calls for message in messages)
+    system_reminders = [
+        m for m in messages
+        if m.role == "system" and "之前存在计划" in (m.content or "")
+    ]
+    assert len(system_reminders) == 1
+    assert "之前的计划目标" in system_reminders[0].content
+    assert "已完成步骤" in system_reminders[0].content
+    assert "未完成步骤" in system_reminders[0].content
+
+
+def test_recovered_plan_not_injected_when_plan_active():
+    """当前已有激活计划时，不注入旧计划提示"""
+    from app.execution.plan_engine import Plan, PlanStep
+
+    builder = build_message_builder()
+    context = LoopContext(task="继续工作")
+    context.add_message(MessageRole.USER, "继续工作")
+    context.recovered_plan = Plan(
+        goal="旧计划",
+        steps=[PlanStep(content="步骤1", status="completed")],
+    )
+    context.plan = Plan(
+        goal="新计划",
+        steps=[PlanStep(content="新步骤", status="in_progress")],
+    )
+
+    messages = builder.build(context)
+
+    system_reminders = [
+        m for m in messages
+        if m.role == "system" and "之前存在计划" in (m.content or "")
+    ]
+    assert len(system_reminders) == 0
+
+
+def test_recovered_plan_not_injected_when_no_recovered_plan():
+    """没有旧计划时，不注入旧计划提示"""
+    builder = build_message_builder()
+    context = LoopContext(task="新任务")
+    context.add_message(MessageRole.USER, "新任务")
+
+    messages = builder.build(context)
+
+    system_reminders = [
+        m for m in messages
+        if m.role == "system" and "之前存在计划" in (m.content or "")
+    ]
+    assert len(system_reminders) == 0
 
 
 def test_system_prompt_uses_runtime_tool_definitions():

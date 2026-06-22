@@ -200,21 +200,21 @@ class RapidExecutionLoop:
                     )
                 return LoopPhase.PLANNING
 
-        # 执行过工具，检查计划状态
-        if context.plan and not context.plan.is_complete:
-            # 检查是否是合理的停止（等待用户输入）
-            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
-            current_step = context.plan.current_step
+        # 执行过工具，检查计划状态，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+        # if context.plan and not context.plan.is_complete:
+        #     # 检查是否是合理的停止（等待用户输入）
+        #     blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
+        #     current_step = context.plan.current_step
 
-            if blocked_steps and not current_step:
-                # 有阻塞步骤且没有进行中的步骤 - 合理停止
-                result.status = LoopStatus.COMPLETED
-                result.result = rt.response.content or "需要更多信息才能继续"
-                return LoopPhase.DONE
+        #     if blocked_steps and not current_step:
+        #         # 有阻塞步骤且没有进行中的步骤 - 合理停止
+        #         result.status = LoopStatus.COMPLETED
+        #         result.result = rt.response.content or "需要更多信息才能继续"
+        #         return LoopPhase.DONE
 
-            # 计划未完成但停止了 - 直接进入总结阶段
-            logger.info("计划未完成但 LLM 停止，进入总结阶段")
-            return LoopPhase.FINAL_SUMMARY
+            # 计划未完成但停止了 - 直接进入总结阶段，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+            # logger.info("计划未完成但 LLM 停止，进入总结阶段")
+            # return LoopPhase.FINAL_SUMMARY
 
         # 没计划或计划完成
         if rt.response.has_content:
@@ -649,8 +649,9 @@ class RapidExecutionLoop:
         logger.info("开始执行任务: %s", task)
 
         try:
+            # 尝试恢复旧计划，存储到 context.recovered_plan 供主循环使用
             if context.agent_mode != "plan":
-                await self._bootstrap_plan(context)
+                await self._try_recover_plan(context)
 
             handlers: dict[LoopPhase, Callable] = {
                 LoopPhase.PLANNING: self._handle_planning,
@@ -750,11 +751,11 @@ class RapidExecutionLoop:
 
     # -- helpers ----------------------------------------------------------
 
-    async def _bootstrap_plan(self, context: LoopContext) -> None:
-        """Bootstrap plan at task start: try to recover, check relevance, or create new."""
+    async def _try_recover_plan(self, context: LoopContext) -> None:
+        """尝试恢复旧计划，存储到 context.recovered_plan，由主循环决定是否使用。"""
         plan_tool = self.tool_definitions.get_plan_tool()
         if not plan_tool:
-            logger.info("Bootstrap plan: 无 plan_tool，跳过")
+            logger.info("无 plan_tool，跳过计划恢复")
             return
 
         # Set context for file operations
@@ -765,120 +766,17 @@ class RapidExecutionLoop:
         # Try to recover existing plan
         recovered_plan = plan_tool.try_recover(max_age_hours=24)
         logger.info(
-            "Bootstrap plan: recovered_plan=%s, goal=%s",
+            "计划恢复: recovered_plan=%s, goal=%s",
             recovered_plan is not None,
             recovered_plan.goal[:80] if recovered_plan else "N/A",
         )
 
         if recovered_plan:
-            is_relevant = await self._check_plan_relevance(context, recovered_plan)
-            logger.info("Bootstrap plan: 相关性检查结果=%s", is_relevant)
-
-            if is_relevant:
-                context.plan = recovered_plan
-                context.plan_file_path = plan_tool._file_path
-                await self._emit("plan:updated", context.plan.to_dict())
-                await self._emit(
-                    "plan:recovered",
-                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
-                )
-                logger.info("已恢复计划: %s", recovered_plan.goal[:80])
-                return
-            else:
-                logger.info(
-                    "恢复的计划 (goal: %s) 与新任务不相关: %s — 丢弃",
-                    recovered_plan.goal[:80],
-                    context.task[:80],
-                )
-                plan_tool.discard()
-                await self._emit(
-                    "plan:discarded",
-                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
-                )
-
-        # No plan or discarded, create new one via LLM
-        tools = self.tool_definitions.for_initial_plan()
-        messages = self.message_builder.build_initial_plan(context)
-
-        # 使用流式调用，让前端在计划阶段也能看到实时输出
-        response, _ = await self.llm.stream_collect(
-            messages,
-            tools,
-            on_content=lambda c: self._emit("llm:content", {"content": c}),
-            on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
-            max_empty_retries=0,
-        )
-
-        # Check for NO_PLAN response (task doesn't need a plan)
-        response_text = response.content or ""
-        if (
-            isinstance(response_text, str)
-            and response_text.strip().upper().startswith("NO_PLAN")
-            and not response.tool_calls
-        ):
-            logger.info("Bootstrap plan: LLM decided NO_PLAN for this task")
-            return
-
-        for tool_call in response.tool_calls:
-            if tool_call.name != plan_tool.name:
-                continue
-            result = await plan_tool.execute(tool_call.arguments)
-            if result.success and plan_tool.get_plan():
-                context.plan = plan_tool.get_plan()
-                context.plan_file_path = plan_tool._file_path
-                await self._emit("plan:updated", context.plan.to_dict())
-            elif result.error:
-                context.add_message(MessageRole.SYSTEM, f"初始计划创建失败: {result.error}")
-            return
-
-    async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
-        """Ask LLM whether the new task is related to the recovered plan."""
-        steps_lines = []
-        for i, s in enumerate(plan.steps, 1):
-            line = f"  {i}. [{s.status}] {s.content}"
-            if s.findings:
-                line += f"\n     Findings: {s.findings}"
-            steps_lines.append(line)
-        steps_detail = "\n".join(steps_lines)
-
-        prompt = f"""\
-You are deciding whether to RESUME an existing plan or DISCARD it and create a new one.
-
-Existing plan goal: {plan.goal}
-
-Full plan ({len(plan.steps)} steps):
-{steps_detail}
-
-New user task: {context.task}
-
-Question: Should the agent RESUME the existing plan (continue from where it left off)
-to fulfill the new task? Or should it DISCARD the plan and create a fresh one?
-
-Resume criteria (answer "yes" ONLY if ALL are true):
-1. The new task is asking to CONTINUE the same work described in the plan goal
-2. The remaining pending/blocked steps are directly relevant to completing the new task
-3. Starting a fresh plan would be wasteful because the completed steps already cover
-   what the new task needs
-
-Answer "no" if:
-- The new task is a DIFFERENT focus area, even if it's in the same project/domain
-- The new task only overlaps partially with the plan goal
-- The user wants to investigate or work on something specific, not continue the full plan
-
-Answer ONLY "yes" or "no".\
-"""
-        messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
-        try:
-            response = await self.llm.complete(messages, tools=[])
-            answer = (response.content or "").strip().lower()
-            if answer.startswith("yes"):
-                return True
-            if answer.startswith("no"):
-                return False
-            return "yes" in answer
-        except Exception:
-            logger.warning("计划相关性检查失败，默认为不相关")
-            return False
+            # 存储旧计划到 context，由主循环在首轮注入提示，让 LLM 自己决定
+            context.recovered_plan = recovered_plan
+            logger.info("旧计划已恢复，将在首轮提示 LLM 决定是否继续")
+        else:
+            context.recovered_plan = None
 
     # -- LLM calls --------------------------------------------------------
 

@@ -6,7 +6,20 @@ If there is even a small chance that a skill applies to the current task, load i
 Skills contain proven workflows for complex tasks. Follow active skill hard-gates exactly.
 
 ## Task Planning:
-Use the `plan` tool to track multi-step tasks (3+ steps). Update status in real time.
+Before starting work, assess: does this task need a plan?
+
+Create a plan first if:
+- Task involves 3+ distinct steps
+- Multiple files need coordinated changes
+- Root cause is unknown (debugging investigation)
+- Changes are high-risk or hard to reverse
+
+Skip planning if:
+- Simple question or quick lookup
+- Single file with clear scope
+- Completable in 1-2 straightforward steps
+
+When a plan is active, work on ONE step at a time. Update status in real time.
 
 ## Plan rules:
 When a plan is active, work on ONE step at a time. After completing a step, call `plan` to mark it `completed` and set the next step to `in_progress`.

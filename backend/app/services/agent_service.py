@@ -49,6 +49,7 @@ from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
+from app.tools.working_memory_tool import WorkingMemoryTool
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +468,7 @@ class AgentService:
 
         run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
+        run_tool_registry.register(WorkingMemoryTool())
         execution_loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=run_tool_registry,
@@ -489,7 +491,7 @@ class AgentService:
                 title_task.add_done_callback(lambda _: self._title_tasks.pop(run_id, None))
 
             # 加载对话历史（不含静态上下文，静态上下文由 PromptManager 管理）
-            seed_messages = self.history_loader.load_for_session(
+            history_messages = self.history_loader.load_for_session(
                 session_id=session_id,
                 project_id=project_id,
                 current_turn_id=turn_id,
@@ -519,7 +521,7 @@ class AgentService:
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                history_messages=seed_messages,
+                history_messages=history_messages,
                 agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:

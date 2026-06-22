@@ -374,7 +374,7 @@ class TestRapidExecutionLoop:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        execution_loop._bootstrap_plan = bootstrap_with_plan
+        execution_loop._try_recover_plan = bootstrap_with_plan
 
         call_count = [0]
 
@@ -465,7 +465,7 @@ class TestRapidExecutionLoop:
             context.plan = seeded_plan
             plan_tool.set_plan(seeded_plan)
 
-        execution_loop._bootstrap_plan = bootstrap_with_plan
+        execution_loop._try_recover_plan = bootstrap_with_plan
 
         call_count = [0]
 
@@ -973,9 +973,8 @@ class TestRapidExecutionLoop:
         assert event_types.count("tool:error") == 1
 
     @pytest.mark.asyncio
-    async def test_initial_plan_preflight_emits_plan_without_streaming_preface(
-        self, mock_llm
-    ):
+    async def test_recovered_plan_injected_into_main_loop(self, mock_llm):
+        """测试旧计划恢复后，在主循环消息中注入提示，LLM 自行决定是否使用"""
         import shutil
         from app.execution.plan_file_sync import PlanFileSync
 
@@ -987,7 +986,7 @@ class TestRapidExecutionLoop:
         registry.register(MockTool())
         registry.register(PlanTool())
         events = []
-        captured_tools = []
+        captured_messages = []
 
         async def callback(event_type, data):
             events.append({"type": event_type, "data": data})
@@ -995,49 +994,43 @@ class TestRapidExecutionLoop:
         execution_loop = RapidExecutionLoop(
             llm=mock_llm,
             tool_registry=registry,
-            max_steps=2,
+            max_steps=3,
             event_callback=callback,
         )
 
-        async def mock_complete(messages, tools=None):
-            from app.llm.base import LLMResponse
-
-            captured_tools.append(tools)
-            return LLMResponse(
-                content="我先制定计划。",
-                tool_calls=[
-                    LLMToolCall(
-                        name="plan",
-                        arguments={
-                            "goal": "修复计划显示",
-                            "steps": [
-                                {"content": "定位问题", "status": "in_progress"},
-                                {"content": "修改实现", "status": "pending"},
-                                {"content": "验证结果", "status": "pending"},
-                            ],
-                        },
-                    )
+        # 模拟恢复旧计划
+        async def mock_recover(context):
+            from app.execution.plan_engine import Plan, PlanStep
+            context.recovered_plan = Plan(
+                goal="之前的计划目标",
+                steps=[
+                    PlanStep(content="已完成步骤", status="completed"),
+                    PlanStep(content="未完成步骤", status="pending"),
                 ],
-                finish_reason="tool_calls",
-                model="gpt-4",
             )
 
+        execution_loop._try_recover_plan = mock_recover
+
         async def mock_stream(messages, tools=None):
-            captured_tools.append(tools)
-            # 第一次调用是计划阶段（_bootstrap_plan），需要返回 plan tool_call
-            # 后续调用是主循环，返回纯文本
-            if len(captured_tools) == 1:
+            captured_messages.append(messages)
+            # 检查首轮消息中是否包含恢复的计划提示
+            if len(captured_messages) == 1:
+                # 验证注入了 recovered plan system-reminder
+                system_contents = [m.content for m in messages if m.role == "system"]
+                assert any("之前存在计划" in (c or "") for c in system_contents), (
+                    "Recovered plan should be injected as system-reminder in first round"
+                )
+                # LLM 决定调用 plan tool 继续旧计划
                 async for chunk in self._stream_response(
-                    content="我先制定计划。",
+                    content="继续之前的计划。",
                     tool_calls=[
                         LLMToolCall(
                             name="plan",
                             arguments={
-                                "goal": "修复计划显示",
+                                "goal": "之前的计划目标",
                                 "steps": [
-                                    {"content": "定位问题", "status": "in_progress"},
-                                    {"content": "修改实现", "status": "pending"},
-                                    {"content": "验证结果", "status": "pending"},
+                                    {"content": "已完成步骤", "status": "completed"},
+                                    {"content": "未完成步骤", "status": "in_progress"},
                                 ],
                             },
                         )
@@ -1046,58 +1039,25 @@ class TestRapidExecutionLoop:
                 ):
                     yield chunk
             else:
-                async for chunk in self._stream_response(content="开始执行。"):
+                async for chunk in self._stream_response(content="执行完成。"):
                     yield chunk
 
         mock_llm.stream_complete = mock_stream
 
-        result = await execution_loop.run("请修复计划窗口流式显示和位置")
+        result = await execution_loop.run("继续之前的工作")
 
         assert result.status == LoopStatus.COMPLETED
-        assert result.result == "开始执行。"
-        event_types = [event["type"] for event in events]
-        # _bootstrap_plan 阶段通过 stream_collect 发出 llm:content，然后 plan:updated；
-        # 主循环再发出 llm:content；结束时再发 plan:updated。
-        # 断言：第一个 llm:content 在第一个 plan:updated 之前（bootstrap 流式输出），
-        # 并且至少有一个 llm:content 在第一个 plan:updated 之后（主循环输出）。
-        first_plan_idx = event_types.index("plan:updated")
-        first_content_idx = event_types.index("llm:content")
-        assert first_content_idx < first_plan_idx, (
-            f"llm:content should appear before plan:updated in bootstrap phase, "
-            f"got content at {first_content_idx}, plan at {first_plan_idx}"
-        )
-        main_content_after_plan = next(
-            i for i, t in enumerate(event_types) if t == "llm:content" and i > first_plan_idx
-        )
-        assert first_plan_idx < main_content_after_plan
-        plan_event = next(event for event in events if event["type"] == "plan:updated")
-        assert plan_event["data"]["goal"] == "修复计划显示"
-        step_contents = [step["content"] for step in plan_event["data"]["steps"]]
-        assert step_contents == [
-            "定位问题",
-            "修改实现",
-            "验证结果",
-        ]
-        main_tool_names = [tool.name for tool in captured_tools[1]]
-        assert "plan" in main_tool_names
-        main_plan_tool = next(tool for tool in captured_tools[1] if tool.name == "plan")
+        plan_event = next((e for e in events if e["type"] == "plan:updated"), None)
+        assert plan_event is not None
+        assert plan_event["data"]["goal"] == "之前的计划目标"
 
     @pytest.mark.asyncio
-    async def test_initial_plan_preflight_can_decline_and_keep_normal_streaming(
-        self, mock_llm
-    ):
-        import shutil
-        from app.execution.plan_file_sync import PlanFileSync
-
-        plan_dir = PlanFileSync()._resolve_base_dir()
-        if os.path.isdir(plan_dir):
-            shutil.rmtree(plan_dir)
-
+    async def test_no_recovered_plan_proceeds_normally(self, mock_llm):
+        """测试无旧计划时，主循环正常启动，不注入额外提示"""
         registry = ToolRegistry()
         registry.register(MockTool())
-        registry.register(PlanTool())
         events = []
-        captured_tools = []
+        captured_messages = []
 
         async def callback(event_type, data):
             events.append({"type": event_type, "data": data})
@@ -1109,27 +1069,22 @@ class TestRapidExecutionLoop:
             event_callback=callback,
         )
 
-        async def mock_complete(messages, tools=None):
-            from app.llm.base import LLMResponse
+        # 模拟无旧计划恢复
+        async def mock_no_recovery(context):
+            context.recovered_plan = None
 
-            captured_tools.append(tools)
-            return LLMResponse(
-                content="NO_PLAN",
-                tool_calls=[],
-                finish_reason="stop",
-                model="gpt-4",
-            )
+        execution_loop._try_recover_plan = mock_no_recovery
 
         async def mock_stream(messages, tools=None):
-            captured_tools.append(tools)
-            # 第一次调用是计划阶段（_bootstrap_plan），返回 NO_PLAN
-            # 后续调用是主循环，返回纯文本
-            if len(captured_tools) == 1:
-                async for chunk in self._stream_response(content="NO_PLAN"):
-                    yield chunk
-            else:
-                async for chunk in self._stream_response(content="直接回答。"):
-                    yield chunk
+            captured_messages.append(messages)
+            # 首轮消息中不应包含 recovered plan 提示
+            if len(captured_messages) == 1:
+                system_contents = [m.content for m in messages if m.role == "system"]
+                assert not any("之前存在计划" in (c or "") for c in system_contents), (
+                    "No recovered plan reminder should be injected when there's no recovered plan"
+                )
+            async for chunk in self._stream_response(content="直接回答。"):
+                yield chunk
 
         mock_llm.stream_complete = mock_stream
 
@@ -1137,14 +1092,6 @@ class TestRapidExecutionLoop:
 
         assert result.status == LoopStatus.COMPLETED
         assert result.result == "直接回答。"
-        assert not any(event["type"] == "plan:updated" for event in events)
-        assert any(
-            event["type"] == "llm:content"
-            and event["data"].get("content") == "直接回答。"
-            for event in events
-        )
-        main_tool_names = [tool.name for tool in captured_tools[1]]
-        assert "mock" in main_tool_names
 
     @pytest.mark.asyncio
     async def test_event_callback(self, mock_llm, tool_registry):
