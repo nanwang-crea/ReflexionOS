@@ -489,7 +489,7 @@ class AgentService:
                 title_task.add_done_callback(lambda _: self._title_tasks.pop(run_id, None))
 
             # 加载对话历史（不含静态上下文，静态上下文由 PromptManager 管理）
-            seed_messages = self.history_loader.load_for_session(
+            history_messages = self.history_loader.load_for_session(
                 session_id=session_id,
                 project_id=project_id,
                 current_turn_id=turn_id,
@@ -519,7 +519,7 @@ class AgentService:
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                history_messages=seed_messages,
+                history_messages=history_messages,
                 agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:

@@ -271,7 +271,7 @@ class PromptManager:
     def _overlay_paths(self, project_root: str | None) -> list[Path]:
         """返回 system prompt overlay 文件的加载路径列表（按优先级从低到高排列）。
 
-        四个 overlay 文件的职责：
+        三个 overlay 文件的职责：
         - soul.md   — Agent 人格/性格（"你是谁"）：定义身份、沟通风格、价值观。
                        全局默认由 _ensure_global_overlays() 初始化，项目级可覆盖。
         - agent.md  — 行为规则（"你怎么做事"）：定义执行策略、停止条件、错误处理等。

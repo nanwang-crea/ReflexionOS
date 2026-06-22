@@ -200,21 +200,21 @@ class RapidExecutionLoop:
                     )
                 return LoopPhase.PLANNING
 
-        # 执行过工具，检查计划状态
-        if context.plan and not context.plan.is_complete:
-            # 检查是否是合理的停止（等待用户输入）
-            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
-            current_step = context.plan.current_step
+        # 执行过工具，检查计划状态，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+        # if context.plan and not context.plan.is_complete:
+        #     # 检查是否是合理的停止（等待用户输入）
+        #     blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
+        #     current_step = context.plan.current_step
 
-            if blocked_steps and not current_step:
-                # 有阻塞步骤且没有进行中的步骤 - 合理停止
-                result.status = LoopStatus.COMPLETED
-                result.result = rt.response.content or "需要更多信息才能继续"
-                return LoopPhase.DONE
+        #     if blocked_steps and not current_step:
+        #         # 有阻塞步骤且没有进行中的步骤 - 合理停止
+        #         result.status = LoopStatus.COMPLETED
+        #         result.result = rt.response.content or "需要更多信息才能继续"
+        #         return LoopPhase.DONE
 
-            # 计划未完成但停止了 - 直接进入总结阶段
-            logger.info("计划未完成但 LLM 停止，进入总结阶段")
-            return LoopPhase.FINAL_SUMMARY
+            # 计划未完成但停止了 - 直接进入总结阶段，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+            # logger.info("计划未完成但 LLM 停止，进入总结阶段")
+            # return LoopPhase.FINAL_SUMMARY
 
         # 没计划或计划完成
         if rt.response.has_content:
