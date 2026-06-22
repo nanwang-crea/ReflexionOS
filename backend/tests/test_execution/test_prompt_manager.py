@@ -129,16 +129,6 @@ class TestPromptManager:
         assert "You must exhaust observable evidence before asking the user" in prompt
         assert "Prefer 3-6 steps" in prompt
 
-    def test_initial_plan_prompt_matches_plan_tool_protocol(self, manager):
-        prompt = manager.get_initial_plan_prompt()
-
-        assert (
-            "Call the plan tool ONLY if the task clearly needs 3 or more distinct execution steps"
-            in prompt
-        )
-        assert "respond with exactly and only the word: NO_PLAN" in prompt
-        assert "Do NOT add any explanation" in prompt
-        assert "status to in_progress" in prompt
 
     def test_final_response_prompt_requires_no_unfinished_plan_steps(self, manager):
         prompt = manager.get_final_response_prompt(task="Fix the prompt stack")
@@ -321,14 +311,6 @@ class TestPromptFamilySelection:
         assert "澄清门" in prompt
         assert "先穷尽可观察证据，再向用户提问" in prompt
 
-    def test_glm_initial_plan_prompt_matches_plan_tool_protocol(self):
-        manager = PromptManager(model_name="glm-4-plus")
-        prompt = manager.get_initial_plan_prompt()
-
-        assert "只有在任务明确需要 3 个或更多不同执行步骤时才调用 plan 工具" in prompt
-        assert "精确回复且仅回复：NO_PLAN" in prompt
-        assert "不要在 NO_PLAN 后添加任何解释" in prompt
-        assert "status 必须设为 in_progress" in prompt
 
     def test_non_glm_chinese_models_fall_back_to_default(self):
         manager = PromptManager(model_name="qwen-plus")

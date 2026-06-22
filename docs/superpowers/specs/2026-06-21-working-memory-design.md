@@ -106,6 +106,55 @@ LLM 调用前 (LoopMessageBuilder.build)
             └── set_var → set_variable(key, value)
 ```
 
+### 生命周期设计
+
+**核心决策：Working Memory 绑定到 Turn，不持久化到数据库。**
+
+```
+Session (持久化，含对话历史)
+  └── Turn 1 (持久化)
+       ├── Run 1 → WorkingMemory (内存，Turn 级共享)
+       ├── Run 2 → 同一个 WorkingMemory 实例（反思循环）
+       └── Run 3 → 同一个 WorkingMemory 实例（反思循环）
+  └── Turn 2 (持久化)
+       └── Run 1 → 新的 WorkingMemory（从零开始）
+            └── ...
+```
+
+#### 为什么不是 Session 级持久化？
+
+同一 Session 内跨 Turn 持久化 Working Memory 会产生**脏数据**：
+
+| 场景 | 脏数据产生机制 | 后果 |
+|------|--------------|------|
+| **任务切换** | Turn 1 处理模块 A，Turn 2 切到模块 B | A 的文件摘要、决策成为噪音，误导模型 |
+| **文件已变更** | Run 1 记录 file.py 摘要，后续 Run 修改了 file.py | 旧摘要与文件实际内容不一致 |
+| **决策被推翻** | Run 1 决策"用方案 A"，Run 2 反思后改用方案 B | 矛盾信息并存，模型行为不可预测 |
+| **错误已修复** | Run 1 记录"import 失败"，Run 2 已修复 | 模型基于不存在的错误做冗余处理 |
+
+缓存失效是计算机科学中最难的问题之一。Working Memory 没有可靠的失效策略来判断自身内容是否仍然正确。
+
+#### 为什么不需要持久化？
+
+**对话历史（ConversationService）已经持久化了完整的交互记录。** 新 Turn 开始时，模型通过对话历史可以看到之前的所有交互。如果需要某个文件的当前状态，它可以**直接重新读取**——这是最可靠的方式。
+
+Working Memory 的价值不是"记住之前发生过什么"（对话历史已做到），而是**为当前执行提供结构化的压缩上下文**，减少重复读取和重复推理。
+
+#### 为什么是 Turn 而不是 Run？
+
+同一 Turn 内的多次 Run（重试/反思循环）在做**同一件事**——它们共享 Working Memory 是合理的：
+- Run 1 读了文件 A，Run 2 反思后不需要重新读
+- Run 1 记录的错误，Run 2 可以直接看到并修复
+- Run 1 做的决策，Run 2 可以在此基础上继续
+
+不同 Turn 之间，用户的意图可能完全改变，之前的"工作笔记"应该作废。
+
+#### 跨 Turn / 跨 Session 的知识积累
+
+这属于 **Project Knowledge** 的职责（Phase 3），与 Working Memory 是不同的概念：
+- Working Memory = 当前任务的活的工作笔记，Turn 结束即失效
+- Project Knowledge = 项目级长期知识，跨 Session 持久化，有独立的更新和失效策略
+
 ## 详细设计
 
 ### 1. WorkingMemory 数据模型
@@ -145,9 +194,18 @@ class MemoryEntry:
 @dataclass
 class WorkingMemory:
     """
-    结构化工作记忆 — 在对话历史之外持久化关键信息
+    结构化工作记忆 — 在对话历史之外维护关键信息
 
-    生命周期：与 LoopContext 一致，每次 agent run 创建，run 结束销毁
+    生命周期：绑定到 Turn（非 Run），同一 Turn 内的多次 Run（重试/反思循环）
+    共享同一个 WorkingMemory 实例。Turn 结束时销毁，不持久化到数据库。
+
+    为什么是 Turn 而不是 Session：
+    - 同一 Session 内不同 Turn 可能处理完全不同的任务，之前的文件摘要、
+      决策记录会成为脏数据（文件已修改、决策被推翻、错误已修复）
+    - 跨 Turn 的上下文传递由对话历史（ConversationService）负责，
+      不需要 Working Memory 重复承担
+    - 同一 Turn 内的反思循环共享 WorkingMemory 是合理的——在做同一件事
+
     注入位置：LoopMessageBuilder.build() 中，system prompt 之后、Tier 3 之前
     Token 预算：~2000 tokens（约 3000 中文字符）
     """
@@ -674,6 +732,22 @@ class LoopContext:
 
 **改动范围**：仅新增两个字段，不修改任何现有字段和方法。
 
+**Turn 级共享机制**：WorkingMemory 的生命周期绑定到 Turn 而非 Run。在同一 Turn 内的反思循环中，多次 Run 共享同一个 `LoopContext` 实例（因此共享同一个 `WorkingMemory`）。Turn 结束时 `LoopContext` 销毁，WorkingMemory 随之失效。
+
+```
+Turn 开始
+  └── 创建 LoopContext(working_memory=WorkingMemory())
+       ├── Run 1 → context.working_memory.upsert_file("a.py", "...")
+       ├── Run 2 → context.working_memory 中已有 a.py 的摘要，可直接复用
+       └── Run 3 → 同上
+Turn 结束 → LoopContext 销毁 → WorkingMemory 失效（不持久化）
+
+新 Turn 开始
+  └── 创建新的 LoopContext(working_memory=WorkingMemory())  ← 从零开始
+```
+
+这意味着：调用方（Turn 管理层）在创建同一 Turn 的多次 Run 时，应复用同一个 `LoopContext` 实例，而非每次 Run 新建。
+
 #### 4.2 LoopMessageBuilder 注入 Working Memory
 
 **文件**: `backend/app/execution/loop_message_builder.py`（修改）
@@ -1087,7 +1161,7 @@ Working Memory 的 ~2000 tokens 是固定开销，但它替代了 Tier 2/3 中�
 1. **渐进式摘要** — 替代一次性 Tier 3 压缩
 2. **Working Memory 与 session_recall 联动** — recall 结果自动写入 Working Memory
 3. **Token 预算动态调整** — 根据任务复杂度调整 Working Memory 大小
-4. **跨 run 持久化** — 将 Working Memory 保存到 DB，下次 run 可恢复
+4. **Project Knowledge** — 独立于 Working Memory 的项目级知识库，跨 Session 持久化，有独立的更新和失效策略（注意：不是 Working Memory 持久化，而是新概念）
 
 ## 为什么不直接用 LLM 做摘要
 

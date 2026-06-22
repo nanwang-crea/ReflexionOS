@@ -49,6 +49,7 @@ from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
+from app.tools.working_memory_tool import WorkingMemoryTool
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +468,7 @@ class AgentService:
 
         run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
+        run_tool_registry.register(WorkingMemoryTool())
         execution_loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=run_tool_registry,

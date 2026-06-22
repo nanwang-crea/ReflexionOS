@@ -6,6 +6,8 @@ from app.execution.context_compressor import ContextCompressor
 from app.execution.models import LoopStep
 from app.execution.plan_engine import Plan
 from app.llm.base import MessageRole
+from app.memory.working_memory import WorkingMemory
+from app.memory.memory_extractor import MemoryExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,7 @@ class LoopContext:
         # Plan engine
         self.plan: Plan | None = None
         self.plan_file_path: str | None = None
+        self.recovered_plan: Plan | None = None  # 旧计划恢复，由主循环决定是否使用
         # Context compressor (三级上下文模型)
         from app.config.settings import config_manager
 
@@ -43,6 +46,9 @@ class LoopContext:
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
         )
         self.metadata: dict[str, Any] = {}
+        # Working Memory — 在对话历史之外维护关键信息，压缩后仍可见
+        self.working_memory = WorkingMemory()
+        self.memory_extractor = MemoryExtractor(self.working_memory)
 
     @classmethod
     def from_run_input(
@@ -64,13 +70,21 @@ class LoopContext:
             task_content: 实际传递给 LLM 的内容（支持多模态格式）
             history_messages: 历史对话消息，用于恢复上下文
         """
+        # 过滤 task_content 中的无效项（非 dict 或缺少 type 字段）
+        filtered_content = task_content
+        if isinstance(task_content, list):
+            filtered_content = [
+                item for item in task_content
+                if isinstance(item, dict) and item.get("type")
+            ]
+
         context = cls(
             task=task,
             project_path=project_path,
             run_id=run_id,
             agent_mode=agent_mode,
             session_id=session_id,
-            task_content=task_content,
+            task_content=filtered_content,
         )
 
         # 过滤并添加历史消息到 context.messages

@@ -56,6 +56,15 @@ class LoopMessageBuilder:
             )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
+        # Working Memory 注入：在 system prompt 之后、Tier 3 之前
+        # 确保压缩后关键信息（文件索引、决策、变量、错误）仍可见
+        if not context.working_memory.is_empty():
+            wm_section = context.working_memory.to_prompt_section()
+            if wm_section:
+                messages.append(
+                    LLMMessage(role=MessageRole.SYSTEM, content=wm_section)
+                )
+
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compressor.get_compacted_summary():
             messages.append(
@@ -102,6 +111,18 @@ class LoopMessageBuilder:
                 )
             )
 
+        # Recovered plan injection: 如果有旧计划但当前未激活，注入提示让 LLM 自己决定
+        if hasattr(context, 'recovered_plan') and context.recovered_plan and not context.plan:
+            messages.append(LLMMessage(
+                role=MessageRole.SYSTEM,
+                content=f"<system-reminder>之前存在计划：\n{context.recovered_plan.goal}\n\n"
+                f"步骤概览：\n" + "\n".join(
+                    f"  {i+1}. [{s.status}] {s.content}"
+                    for i, s in enumerate(context.recovered_plan.steps)
+                ) +
+                "\n\n你可以决定继续执行这个计划（使用 plan tool），或创建新计划，或直接开始工作。</system-reminder>"
+            ))
+
         # Plan state injection: 每轮注入当前计划状态，确保 LLM 始终知道当前步骤
         if context.plan and context.plan.current_step:
             plan_status = self._build_plan_status(context.plan)
@@ -134,52 +155,6 @@ class LoopMessageBuilder:
 
         return messages
 
-    def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
-        messages = [
-            LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=self.prompt_manager.get_initial_plan_prompt(),
-            )
-        ]
-
-        # 注意：计划阶段不注入 Skills 等静态上下文，
-        # 这些上下文对判断"是否需要计划"是噪声，反而让 LLM 倾向于创建不必要的计划。
-        # 主循环 build() 中 PromptManager 会注入完整上下文。
-
-        # 从 recent_messages 中提取用户/助手消息
-        # 注意：from_run_input 已保证 recent_messages 中包含当前任务的用户消息，
-        # 无需再追加 task_content，否则会导致重复
-        recent = context.compressor.get_recent_messages()
-        last_user_idx = None
-        for i, msg in enumerate(recent):
-            if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:
-                continue
-            if not msg.get("content"):
-                continue
-            messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
-            if msg["role"] == MessageRole.USER:
-                last_user_idx = len(messages) - 1
-
-        task_content = context.task_content
-
-        # 如果 recent_messages 中没有用户消息（如单元测试或非标准入口），
-        # 回退到直接使用 task_content
-        if last_user_idx is None and task_content:
-            if isinstance(task_content, list):
-                valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
-                task_content = valid if valid else ""
-            if task_content:
-                messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
-                last_user_idx = len(messages) - 1
-        elif isinstance(task_content, list) and last_user_idx is not None:
-            # 如果 task_content 是多模态（含图片等），替换最后一条用户消息
-            # 因为 recent_messages 中可能只有纯文本版本
-            valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
-            if valid:
-                messages[last_user_idx] = LLMMessage(role=MessageRole.USER, content=valid)
-
-        return messages
-
     def build_final_summary(self, context: LoopContext) -> list[LLMMessage]:
         """构建不暴露工具列表的最终总结消息。"""
         messages = [
@@ -191,6 +166,14 @@ class LoopMessageBuilder:
                 ),
             )
         ]
+
+        # Working Memory 注入：确保最终总结时关键信息仍可见
+        if not context.working_memory.is_empty():
+            wm_section = context.working_memory.to_prompt_section()
+            if wm_section:
+                messages.append(
+                    LLMMessage(role=MessageRole.SYSTEM, content=wm_section)
+                )
 
         if context.compressor.get_compacted_summary():
             messages.append(

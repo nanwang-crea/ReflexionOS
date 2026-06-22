@@ -80,13 +80,6 @@ def build_registry() -> ToolRegistry:
     return registry
 
 
-def test_initial_plan_definitions_expose_only_plan_schema():
-    definitions = RuntimeToolDefinitions(build_registry()).for_initial_plan()
-
-    assert [definition.name for definition in definitions] == ["plan"]
-    parameters = definitions[0].parameters
-    assert "steps" in parameters.get("properties", {})
-    assert "goal" in parameters.get("properties", {})
 
 
 def test_normal_definitions_expose_plan_schema_when_no_plan_exists():

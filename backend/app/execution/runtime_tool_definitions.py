@@ -21,6 +21,7 @@ class ToolSetConfig:
             "glob",
             "session_recall",
             "memory",
+            "working_memory_update",
             "edit",
             "shell",
         ]
@@ -34,6 +35,7 @@ class ToolSetConfig:
                 "memory",
                 "session_recall",
                 "skill",
+                "working_memory_update",
             }
         )
     )
@@ -65,12 +67,6 @@ class RuntimeToolDefinitions:
     ):
         self.tool_registry = tool_registry
         self.config = config
-
-    def for_initial_plan(self) -> list[LLMToolDefinition]:
-        plan_tool = self.get_plan_tool()
-        if plan_tool is None:
-            return []
-        return [self.tool_registry.definition_from_schema(plan_tool.get_schema())]
 
     def for_plan_mode(self) -> list[LLMToolDefinition]:
         definitions: list[LLMToolDefinition] = []

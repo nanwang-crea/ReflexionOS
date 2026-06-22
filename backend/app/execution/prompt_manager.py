@@ -71,12 +71,6 @@ TEMPLATES_MANIFEST: list[dict] = [
         "family_specific": True,
     },
     {
-        "name": "initial_plan",
-        "file": "initial_plan.txt",
-        "variables": [],
-        "family_specific": True,
-    },
-    {
         "name": "final_response",
         "file": "final_response.txt",
         "variables": ["task"],
@@ -433,9 +427,6 @@ When a skill clearly matches your current task, load it first using the 'skill' 
 
     def get_final_response_prompt(self, task: str) -> str:
         return self.get_template("final_response").render(task=task)
-
-    def get_initial_plan_prompt(self) -> str:
-        return self.get_template("initial_plan").render()
 
     def get_midrun_compression_system_prompt(self) -> str:
         return self.get_template("midrun_compress_system").render()

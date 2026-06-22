@@ -10,6 +10,7 @@ from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
 from app.tools.registry import ToolRegistry
+from app.tools.working_memory_tool import WorkingMemoryTool
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,12 @@ class ToolCallExecutor:
             tool = self.tool_registry.get(tool_call.name)
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
+
+            # 注入 WorkingMemory 实例到 WorkingMemoryTool（类似 PlanTool 的 set_plan 模式）
+            if isinstance(tool, WorkingMemoryTool):
+                tool.set_working_memory(
+                    context.working_memory if hasattr(context, "working_memory") else None
+                )
 
             if tool_call.arguments.get("__reflexion_parse_error"):
                 error_msg = tool_call.arguments["__reflexion_parse_error"]
@@ -205,6 +212,17 @@ class ToolCallExecutor:
                 tool_call_id=tool_call.id,
             )
 
+            # Working Memory 自动提取：从 tool 结果中提取关键信息
+            # 不影响主流程，提取失败仅 debug 日志
+            try:
+                context.memory_extractor.extract(
+                    tool_name=tool_call.name,
+                    tool_args=tool_call.arguments,
+                    tool_result=tool_output,
+                )
+            except Exception as me:
+                logger.debug("Memory extraction failed for %s: %s", tool_call.name, me)
+
             await self.emit(
                 "tool:result",
                 {
@@ -237,8 +255,6 @@ class ToolCallExecutor:
                         project_path=context.project_path,
                     )
                 await self.emit("plan:updated", context.plan.to_dict())
-
-
 
             logger.info(
                 "工具 %s 执行%s",
