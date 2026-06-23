@@ -8,6 +8,7 @@ from app.execution.plan_engine import Plan
 from app.llm.base import MessageRole
 from app.memory.working_memory import WorkingMemory
 from app.memory.memory_extractor import MemoryExtractor
+from app.memory.session_tracker import SessionTracker
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,13 @@ class LoopContext:
         )
         self.metadata: dict[str, Any] = {}
         # Working Memory — 在对话历史之外维护关键信息，压缩后仍可见
+        # SessionTracker — 轻量会话跟踪器，自动记录文件访问和工具调用
+        self.session_tracker = SessionTracker()
         self.working_memory = WorkingMemory()
-        self.memory_extractor = MemoryExtractor(self.working_memory)
+        self.memory_extractor = MemoryExtractor(
+            self.working_memory,
+            session_tracker=self.session_tracker,
+        )
 
     @classmethod
     def from_run_input(

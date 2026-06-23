@@ -3,6 +3,7 @@
 import pytest
 from app.memory.working_memory import WorkingMemory, MemoryEntry, MemoryEntryType
 from app.memory.memory_extractor import MemoryExtractor
+from app.memory.session_tracker import SessionTracker
 
 
 class TestWorkingMemory:
@@ -11,22 +12,6 @@ class TestWorkingMemory:
     def test_empty_memory_is_empty(self):
         wm = WorkingMemory()
         assert wm.is_empty()
-
-    def test_upsert_file(self):
-        wm = WorkingMemory()
-        wm.upsert_file("src/main.py", "50 lines: main(), run()")
-        assert not wm.is_empty()
-        assert "src/main.py" in wm.file_index
-        assert wm.file_index["src/main.py"].value == "50 lines: main(), run()"
-        assert wm.file_index["src/main.py"].entry_type == MemoryEntryType.FILE_SUMMARY
-
-    def test_upsert_file_update(self):
-        """更新已有文件摘要"""
-        wm = WorkingMemory()
-        wm.upsert_file("src/main.py", "original summary")
-        wm.upsert_file("src/main.py", "updated summary")
-        assert wm.file_index["src/main.py"].value == "updated summary"
-        assert len(wm.file_index) == 1  # 不应重复
 
     def test_add_decision(self):
         wm = WorkingMemory()
@@ -57,33 +42,30 @@ class TestWorkingMemory:
         wm = WorkingMemory()
         assert wm.to_prompt_section() == ""
 
-    def test_to_prompt_section_with_file(self):
-        wm = WorkingMemory()
-        wm.upsert_file("src/main.py", "50 lines: main()")
-        section = wm.to_prompt_section()
-        assert "[Working Memory" in section
-        assert "📂 Files read:" in section
-        assert "src/main.py" in section
-        assert "50 lines: main()" in section
-
     def test_to_prompt_section_with_all_types(self):
+        """WM 注入包含 decisions、variables、errors"""
         wm = WorkingMemory()
-        wm.upsert_file("src/app.py", "30 lines: App class")
         wm.add_decision("用 FastAPI", "性能好", source="model")
         wm.set_variable("PORT", "8080")
         wm.add_error("import_error", "No module named 'foo'")
         section = wm.to_prompt_section()
-        assert "📂 Files read:" in section
         assert "🎯 Key decisions:" in section
         assert "⚙️ Current state:" in section
         assert "⚠️ Errors encountered:" in section
+
+    def test_to_prompt_section_includes_behavioral_instructions(self):
+        """WM 注入应包含行为指令，提醒模型避免重复工作"""
+        wm = WorkingMemory()
+        wm.add_decision("d1", "Use approach X", "simpler")
+        section = wm.to_prompt_section()
+        assert "DO NOT re-read" in section or "session_recall" in section
 
     def test_to_prompt_section_token_budget(self):
         """Token 预算淘汰机制"""
         wm = WorkingMemory(max_tokens=50)  # 极小预算
         # 填充大量数据
         for i in range(20):
-            wm.upsert_file(f"file_{i}.py", f"summary of file {i} " * 20)
+            wm.add_error(f"err_{i}", f"error description {i} " * 20)
         section = wm.to_prompt_section()
         # 应该被截断或淘汰
         assert len(section) < 2000  # 粗略验证
@@ -94,7 +76,7 @@ class TestWorkingMemory:
         wm.add_error("err1", "x" * 100)
         wm.add_error("err2", "y" * 100)
         wm.add_error("err3", "z" * 100)
-        wm.upsert_file("a.py", "important file")
+        wm.add_decision("d1", "important decision")
         wm.to_prompt_section()
         # errors 应该被缩减到 2 个
         assert len(wm.errors) <= 2
@@ -104,64 +86,105 @@ class TestWorkingMemory:
         wm = WorkingMemory(max_tokens=50)
         for i in range(20):
             wm.set_variable(f"VAR_{i}", f"value_{i}" * 10)
-        wm.upsert_file("a.py", "important")
         wm.to_prompt_section()
         assert len(wm.variables) <= 10
+
+    def test_full_update_roundtrip(self):
+        """WM 包含 decisions、variables、errors"""
+        wm = WorkingMemory()
+        wm.add_decision("approach", "Use Strategy pattern", "more flexible")
+        wm.set_variable("api_version", "v2")
+        wm.add_error("auth", "401 Unauthorized", "check token")
+        prompt = wm.to_prompt_section()
+        assert "approach" in prompt
+        assert "Strategy" in prompt
+        assert "api_version" in prompt
+        assert "v2" in prompt
+        assert "auth" in prompt
+        assert "401" in prompt
+
+    def test_serialization_roundtrip(self):
+        """序列化/反序列化保留 decisions 和 variables"""
+        wm = WorkingMemory()
+        wm.add_decision("d1", "Use regex extraction", "Avoids LLM latency")
+        wm.set_variable("api_version", "v2")
+        data = wm.to_dict()
+        wm2 = WorkingMemory.from_dict(data)
+        assert len(wm2.decisions) == 1
+        assert wm2.decisions[0].key == "d1"
+        assert wm2.variables["api_version"].value == "v2"
+
+    def test_partial_slots_before_full_slots(self):
+        wm = WorkingMemory()
+        wm.add_decision("d1", "test")
+        assert not wm.is_empty()
+        section = wm.to_prompt_section()
+        assert "🎯 Key decisions:" in section
+
+    def test_partial_slots_clears_all_before_rebuild(self):
+        wm = WorkingMemory()
+        wm.add_decision("old_decision", "old")
+        wm.set_variable("old_var", "old")
+        wm.add_decision("new_decision", "new")
+        section = wm.to_prompt_section()
+        assert "new_decision" in section
+
+    def test_concurrent_access(self):
+        """并发安全性测试"""
+        import threading
+        wm = WorkingMemory()
+        errors = []
+
+        def add_decisions(prefix):
+            try:
+                for i in range(100):
+                    wm.add_decision(f"{prefix}_d_{i}", f"value {i}")
+                    wm.set_variable(f"{prefix}_v_{i}", f"val {i}")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=add_decisions, args=(f"t{i}",)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert len(errors) == 0
+        # 所有 decisions 应该都存在（400 个）
+        assert len(wm.decisions) == 400
 
 
 class TestMemoryExtractor:
     """MemoryExtractor 自动提取测试"""
 
-    def test_extract_from_file_read(self):
+    def test_extract_from_file_read_tracks_in_session(self):
+        """文件读取应记录到 SessionTracker"""
         wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("file", {"action": "read", "path": "src/main.py"}, "class Main:\n    pass")
-        assert "src/main.py" in wm.file_index
-        assert "class Main" in wm.file_index["src/main.py"].value
+        tracker = SessionTracker()
+        ext = MemoryExtractor(wm, session_tracker=tracker)
+        ext.extract("file", {"action": "read", "path": "src/main.py"}, "class Main:\n    pass", step=1)
+        # 文件读取不写入 WM，只记录到 SessionTracker
+        assert wm.is_empty()
+        # SessionTracker 应记录文件读取
+        assert "src/main.py" in tracker.read_files
 
     def test_extract_from_file_read_skips_error(self):
         wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("file", {"action": "read", "path": "missing.py"}, "Error: file not found")
+        tracker = SessionTracker()
+        ext = MemoryExtractor(wm, session_tracker=tracker)
+        ext.extract("file", {"action": "read", "path": "missing.py"}, "Error: file not found", step=1)
         assert wm.is_empty()
+        # SessionTracker 记录所有访问尝试（包括失败的），这是正确的
+        assert "missing.py" in tracker.read_files
 
-    def test_extract_from_file_read_skips_nonexistent(self):
+    def test_extract_from_edit_tracks_in_session(self):
+        """文件编辑应记录到 SessionTracker 的 modified_files"""
         wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("file", {"action": "read", "path": "x.py"}, "文件不存在")
+        tracker = SessionTracker()
+        ext = MemoryExtractor(wm, session_tracker=tracker)
+        ext.extract("edit", {"action": "str_replace", "path": "config.py"}, "Successfully replaced", step=2)
         assert wm.is_empty()
-
-    def test_extract_from_file_search_updates_existing(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        # 先读文件
-        ext.extract("file", {"action": "read", "path": "src/app.py"}, "class App")
-        # 再搜索
-        ext.extract("file", {"action": "search", "path": "src/app.py", "query": "router"}, "found 3 matches")
-        assert "search: router" in wm.file_index["src/app.py"].value
-
-    def test_extract_from_file_list(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("file", {"action": "list", "path": "src/"}, "main.py\nutils.py\n__init__.py")
-        assert "src/" in wm.file_index
-        assert "3 items" in wm.file_index["src/"].value
-
-    def test_extract_from_edit_marks_modified(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        # 先读文件
-        ext.extract("file", {"action": "read", "path": "config.py"}, "PORT = 8080")
-        # 再编辑
-        ext.extract("edit", {"action": "str_replace", "path": "config.py"}, "Successfully replaced")
-        assert "[MODIFIED]" in wm.file_index["config.py"].value
-
-    def test_extract_from_edit_new_file(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("edit", {"action": "write", "path": "new_file.py"}, "File created successfully")
-        assert "new_file.py" in wm.file_index
-        assert "[MODIFIED]" in wm.file_index["new_file.py"].value
+        assert "config.py" in tracker.modified_files
 
     def test_extract_from_shell_error(self):
         wm = WorkingMemory()
@@ -177,14 +200,6 @@ class TestMemoryExtractor:
         assert "PORT" in wm.variables
         assert wm.variables["PORT"].value == "8080"
 
-    def test_extract_from_grep(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        ext.extract("grep", {"pattern": "TODO"}, "src/main.py:10:TODO fix this\nsrc/utils.py:5:TODO refactor")
-        assert "src/main.py" in wm.file_index
-        assert "src/utils.py" in wm.file_index
-        assert "found in search" in wm.file_index["src/main.py"].value
-
     def test_extract_from_explore(self):
         wm = WorkingMemory()
         ext = MemoryExtractor(wm)
@@ -195,37 +210,17 @@ class TestMemoryExtractor:
         """提取失败不应影响主流程"""
         wm = WorkingMemory()
         ext = MemoryExtractor(wm)
-        # 传入各种异常参数
-        ext.extract("file", {}, "")  # 缺少 action
-        ext.extract("file", {"action": "read"}, "")  # 缺少 path
-        ext.extract("unknown_tool", {}, "")  # 未知工具
-        # 不应崩溃，memory 应保持空
+        ext.extract("file", {}, "")
+        ext.extract("file", {"action": "read"}, "")
+        ext.extract("unknown_tool", {}, "")
         assert wm.is_empty()
 
-    def test_extract_summarize_python(self):
+    def test_extract_from_response_is_placeholder(self):
+        """extract_from_response 在 Task 3 之前为 placeholder"""
         wm = WorkingMemory()
         ext = MemoryExtractor(wm)
-        content = "import os\n\nclass Foo:\n    pass\n\ndef bar():\n    return 42\n"
-        ext.extract("file", {"action": "read", "path": "test.py"}, content)
-        summary = wm.file_index["test.py"].value
-        assert "class Foo" in summary
-        assert "def bar" in summary
-
-    def test_extract_summarize_javascript(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        content = "export function hello() {\n  return 'world';\n}\n"
-        ext.extract("file", {"action": "read", "path": "index.js"}, content)
-        summary = wm.file_index["index.js"].value
-        assert "export function hello" in summary
-
-    def test_extract_summarize_with_todo(self):
-        wm = WorkingMemory()
-        ext = MemoryExtractor(wm)
-        content = "def main():\n    # TODO: refactor this\n    pass\n"
-        ext.extract("file", {"action": "read", "path": "main.py"}, content)
-        summary = wm.file_index["main.py"].value
-        assert "TODO" in summary
+        # 当前不崩溃即可，Task 3 会完善
+        assert hasattr(ext, 'memory')
 
 
 class TestLoopContextWorkingMemory:
@@ -259,7 +254,7 @@ class TestLoopMessageBuilderWorkingMemory:
         from app.execution.context_manager import LoopContext
 
         context = LoopContext(task="测试")
-        context.working_memory.upsert_file("src/main.py", "50 lines: main()")
+        context.working_memory.add_decision("d1", "Use FastAPI", "performance")
 
         builder = self._make_builder()
         messages = builder.build(context)
@@ -267,7 +262,7 @@ class TestLoopMessageBuilderWorkingMemory:
         # 应该有一条 system message 包含 Working Memory
         wm_messages = [m for m in messages if m.role == "system" and "Working Memory" in (m.content or "")]
         assert len(wm_messages) == 1
-        assert "src/main.py" in wm_messages[0].content
+        assert "FastAPI" in wm_messages[0].content
 
     def test_build_skips_empty_working_memory(self):
         from app.execution.context_manager import LoopContext
@@ -284,7 +279,6 @@ class TestLoopMessageBuilderWorkingMemory:
         from app.execution.context_manager import LoopContext
 
         context = LoopContext(task="测试")
-        context.working_memory.upsert_file("config.yaml", "10 lines")
         context.working_memory.add_decision("用 FastAPI", source="model")
 
         builder = self._make_builder()

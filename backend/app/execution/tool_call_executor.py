@@ -212,12 +212,14 @@ class ToolCallExecutor:
             )
 
             # Working Memory 自动提取：从 tool 结果中提取关键信息
+            # 同时记录文件访问和工具调用到 SessionTracker
             # 不影响主流程，提取失败仅 debug 日志
             try:
                 context.memory_extractor.extract(
                     tool_name=tool_call.name,
                     tool_args=tool_call.arguments,
                     tool_result=tool_output,
+                    step=step_number,
                 )
             except Exception as me:
                 logger.debug("Memory extraction failed for %s: %s", tool_call.name, me)
