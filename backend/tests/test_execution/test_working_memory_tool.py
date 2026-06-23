@@ -29,29 +29,6 @@ def _make_tool(wm: WorkingMemory | None = None) -> WorkingMemoryTool:
 class TestWorkingMemoryToolAdd:
 
     @pytest.mark.asyncio
-    async def test_add_file_index(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        result = await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "src/main.py", "content": "主入口文件",
-        })
-        assert result.success is True
-        assert "已添加文件摘要" in result.output
-        assert "src/main.py" in wm.file_index
-        assert wm.file_index["src/main.py"].value == "主入口文件"
-
-    @pytest.mark.asyncio
-    async def test_add_file_index_without_key_returns_error(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        result = await tool.execute({
-            "action": "add", "slot": "file_index", "content": "摘要",
-        })
-        assert result.success is False
-        assert "key" in result.error
-
-    @pytest.mark.asyncio
     async def test_add_decision(self):
         wm = WorkingMemory()
         tool = _make_tool(wm)
@@ -129,24 +106,6 @@ class TestWorkingMemoryToolAdd:
 class TestWorkingMemoryToolUpdate:
 
     @pytest.mark.asyncio
-    async def test_update_file_index_upsert(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        # 先 add
-        await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "src/main.py", "content": "旧摘要",
-        })
-        # 再 update（覆盖）
-        result = await tool.execute({
-            "action": "update", "slot": "file_index",
-            "key": "src/main.py", "content": "新摘要",
-        })
-        assert result.success is True
-        assert "已添加文件摘要" in result.output
-        assert wm.file_index["src/main.py"].value == "新摘要"
-
-    @pytest.mark.asyncio
     async def test_update_variable(self):
         wm = WorkingMemory()
         tool = _make_tool(wm)
@@ -162,39 +121,46 @@ class TestWorkingMemoryToolUpdate:
         assert "已设置变量" in result.output
         assert wm.variables["port"].value == "9090"
 
+    @pytest.mark.asyncio
+    async def test_update_decision_upserts(self):
+        """相同 key 的决策应被更新，而非重复追加"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI",
+        })
+        result = await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI", "rationale": "异步支持好",
+        })
+        assert result.success is True
+        assert len(wm.decisions) == 1  # upsert，不是 append
+        assert wm.decisions[0].value == "异步支持好"
+
+    @pytest.mark.asyncio
+    async def test_update_error_upserts(self):
+        """相同 key 的错误应被更新，而非重复追加"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "errors",
+            "key": "ImportError", "content": "缺少依赖",
+        })
+        result = await tool.execute({
+            "action": "add", "slot": "errors",
+            "key": "ImportError", "content": "已安装依赖，版本不兼容",
+        })
+        assert result.success is True
+        assert len(wm.errors) == 1  # upsert，不是 append
+        assert wm.errors[0].value == "已安装依赖，版本不兼容"
+
 
 # ---------------------------------------------------------------------------
 # remove 操作测试
 # ---------------------------------------------------------------------------
 
 class TestWorkingMemoryToolRemove:
-
-    @pytest.mark.asyncio
-    async def test_remove_file_index(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "src/main.py", "content": "摘要",
-        })
-        result = await tool.execute({
-            "action": "remove", "slot": "file_index",
-            "key": "src/main.py",
-        })
-        assert result.success is True
-        assert "已移除" in result.output
-        assert "src/main.py" not in wm.file_index
-
-    @pytest.mark.asyncio
-    async def test_remove_file_index_not_found(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        result = await tool.execute({
-            "action": "remove", "slot": "file_index",
-            "key": "nonexistent.py",
-        })
-        assert result.success is False
-        assert "文件" in result.error
 
     @pytest.mark.asyncio
     async def test_remove_variable(self):
@@ -220,13 +186,30 @@ class TestWorkingMemoryToolRemove:
             "action": "add", "slot": "decisions",
             "content": "使用 FastAPI",
         })
+        # 精确 key 匹配：必须传完整的决策内容
         result = await tool.execute({
             "action": "remove", "slot": "decisions",
-            "content": "FastAPI",
+            "content": "使用 FastAPI",
         })
         assert result.success is True
         assert "已移除" in result.output
         assert len(wm.decisions) == 0
+
+    @pytest.mark.asyncio
+    async def test_remove_decision_partial_match_fails(self):
+        """精确匹配下，子串不应命中"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI",
+        })
+        result = await tool.execute({
+            "action": "remove", "slot": "decisions",
+            "content": "FastAPI",
+        })
+        assert result.success is False
+        assert "未找到" in result.error
 
     @pytest.mark.asyncio
     async def test_remove_error(self):
@@ -236,9 +219,10 @@ class TestWorkingMemoryToolRemove:
             "action": "add", "slot": "errors",
             "key": "ImportError", "content": "缺少依赖",
         })
+        # errors 的匹配键是 key（错误类型）
         result = await tool.execute({
             "action": "remove", "slot": "errors",
-            "content": "ImportError",
+            "key": "ImportError",
         })
         assert result.success is True
         assert "已移除" in result.output
@@ -250,19 +234,6 @@ class TestWorkingMemoryToolRemove:
 # ---------------------------------------------------------------------------
 
 class TestWorkingMemoryToolClear:
-
-    @pytest.mark.asyncio
-    async def test_clear_file_index(self):
-        wm = WorkingMemory()
-        tool = _make_tool(wm)
-        await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "a.py", "content": "文件A",
-        })
-        result = await tool.execute({"action": "clear", "slot": "file_index"})
-        assert result.success is True
-        assert "已清空" in result.output
-        assert len(wm.file_index) == 0
 
     @pytest.mark.asyncio
     async def test_clear_decisions(self):
@@ -314,7 +285,7 @@ class TestWorkingMemoryToolValidation:
     async def test_invalid_action(self):
         wm = WorkingMemory()
         tool = _make_tool(wm)
-        result = await tool.execute({"action": "invalid", "slot": "file_index"})
+        result = await tool.execute({"action": "invalid", "slot": "decisions"})
         assert result.success is False
         assert "action" in result.error
 
@@ -330,7 +301,7 @@ class TestWorkingMemoryToolValidation:
     async def test_empty_action(self):
         wm = WorkingMemory()
         tool = _make_tool(wm)
-        result = await tool.execute({"slot": "file_index"})
+        result = await tool.execute({"slot": "decisions"})
         assert result.success is False
         assert "action" in result.error
 
@@ -358,10 +329,10 @@ class TestWorkingMemoryToolSource:
         wm = WorkingMemory()
         tool = _make_tool(wm)
         await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "a.py", "content": "文件A",
+            "action": "add", "slot": "variables",
+            "key": "port", "content": "8080",
         })
-        assert wm.file_index["a.py"].source == "model"
+        assert wm.variables["port"].source == "model"
 
     @pytest.mark.asyncio
     async def test_explicit_source_auto(self):
@@ -369,10 +340,10 @@ class TestWorkingMemoryToolSource:
         wm = WorkingMemory()
         tool = _make_tool(wm)
         await tool.execute({
-            "action": "add", "slot": "file_index",
-            "key": "b.py", "content": "文件B", "source": "auto",
+            "action": "add", "slot": "variables",
+            "key": "env", "content": "prod", "source": "auto",
         })
-        assert wm.file_index["b.py"].source == "auto"
+        assert wm.variables["env"].source == "auto"
 
     @pytest.mark.asyncio
     async def test_source_on_variable(self):

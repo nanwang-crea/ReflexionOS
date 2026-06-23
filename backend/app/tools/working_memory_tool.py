@@ -5,7 +5,6 @@ WorkingMemory 工具：允许模型主动读写工作记忆。
 系统在每轮对话开始时自动注入当前工作记忆内容。
 
 WorkingMemory 数据结构：
-- file_index: 文件摘要字典（key=路径, value=摘要）
 - decisions: 关键决策列表
 - variables: 变量/配置字典（key=变量名, value=值）
 - errors: 错误记录列表
@@ -21,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 # 有效的 slot 名称
 VALID_SLOTS = frozenset({
-    "file_index",   # 文件摘要：upsert_file(path, summary, source)
     "decisions",    # 关键决策：add_decision(decision, rationale, source)
     "variables",    # 变量/配置：set_variable(name, value, source)
     "errors",       # 错误记录：add_error(error_type, detail, source)
@@ -51,7 +49,6 @@ class WorkingMemoryTool(BaseTool):
             "工作记忆在每轮对话中自动注入到上下文，用于维护跨步骤的关键信息。"
             "支持的操作：add（添加/更新）、update（同 add，upsert 语义）、remove（移除）、clear（清空）。"
             "可用 slot："
-            "file_index（文件摘要，需提供 key=文件路径, content=摘要）、"
             "decisions（关键决策，content=决策内容, rationale=理由）、"
             "variables（变量/配置，key=变量名, content=值）、"
             "errors（错误记录，key=错误类型, content=详情）。"
@@ -72,7 +69,7 @@ class WorkingMemoryTool(BaseTool):
                 },
                 "slot": {
                     "type": "string",
-                    "enum": ["file_index", "decisions", "variables", "errors"],
+                    "enum": ["decisions", "variables", "errors"],
                     "description": "要操作的slot名称",
                 },
                 "content": {
@@ -81,7 +78,7 @@ class WorkingMemoryTool(BaseTool):
                 },
                 "key": {
                     "type": "string",
-                    "description": "dict类型slot的键名（file_index的路径、variables的变量名、errors的错误类型）",
+                    "description": "dict类型slot的键名（variables的变量名、errors的错误类型）",
                 },
                 "rationale": {
                     "type": "string",
@@ -168,30 +165,19 @@ class WorkingMemoryTool(BaseTool):
     def _handle_clear(self, slot: str) -> tuple[bool, str]:
         """清空指定 slot"""
         wm = self._working_memory
-        if slot == "file_index":
-            wm.file_index.clear()
-        elif slot == "decisions":
+        if slot == "decisions":
             wm.decisions.clear()
         elif slot == "variables":
             wm.variables.clear()
         elif slot == "errors":
             wm.errors.clear()
         else:
-            # slot 已在 execute() 中验证，理论上不会走到这里
             return False, f"未知的 slot: {slot}"
         return True, f"已清空 {slot}"
 
     def _handle_add(self, slot: str, args: dict[str, Any], source: str) -> tuple[bool, str]:
         """向 slot 添加内容（upsert 语义）"""
         wm = self._working_memory
-
-        if slot == "file_index":
-            key = args.get("key", "")
-            content = args.get("content", "")
-            if not key:
-                return False, "file_index 的 add 操作需要提供 key（文件路径）"
-            wm.upsert_file(path=key, summary=str(content), source=source)
-            return True, f"已添加文件摘要: {key}"
 
         if slot == "decisions":
             content = args.get("content", "")
@@ -221,23 +207,18 @@ class WorkingMemoryTool(BaseTool):
         return False, f"未知的 slot: {slot}"
 
     def _handle_remove(self, slot: str, args: dict[str, Any]) -> tuple[bool, str]:
-        """从 slot 移除内容"""
+        """从 slot 移除内容（精确 key 匹配）"""
         wm = self._working_memory
         key = args.get("key", "")
         content = args.get("content", "")
 
-        if slot == "file_index":
-            if key and key in wm.file_index:
-                del wm.file_index[key]
-                return True, f"已移除文件摘要: {key}"
-            return False, f"文件 '{key}' 不在 file_index 中"
-
         if slot == "decisions":
             if not wm.decisions:
                 return False, "decisions 为空"
+            # decisions 的匹配键是 content（即决策内容，存储在 entry.key 中）
             target = str(content) if content else str(key)
             for i, entry in enumerate(wm.decisions):
-                if target in entry.key:
+                if entry.key == target:
                     wm.decisions.pop(i)
                     return True, f"已移除决策: {entry.key[:50]}"
             return False, f"decisions 中未找到匹配 '{target}' 的项"
@@ -252,9 +233,10 @@ class WorkingMemoryTool(BaseTool):
         if slot == "errors":
             if not wm.errors:
                 return False, "errors 为空"
-            target = str(content) if content else str(key)
+            # errors 的匹配键是 key（即错误类型，存储在 entry.key 中）
+            target = str(key) if key else str(content)
             for i, entry in enumerate(wm.errors):
-                if target in entry.key:
+                if entry.key == target:
                     wm.errors.pop(i)
                     return True, f"已移除错误: [{entry.key}]"
             return False, f"errors 中未找到匹配 '{target}' 的项"
