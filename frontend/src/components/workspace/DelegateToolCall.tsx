@@ -37,8 +37,10 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }:
   const hasError = !!detail.error
 
   // 从全局 zustand store 订阅该 delegate 调用的子 agent 实时步骤
-  // detail.id 即后端 tool call 的 call_id，用于关联 sub_agent 事件
-  const subAgentSteps = useSubAgentSteps(detail.id)
+  // 使用 tool_call_id 关联 sub_agent 事件（存于 detail.data 中）
+  // detail.id 是 message.id，而 store 以 tool_call_id 为 key
+  const callId = (detail.data?.tool_call_id as string) || detail.id
+  const subAgentSteps = useSubAgentSteps(callId)
   const hasSteps = subAgentSteps.length > 0
 
   const handleCloseDetail = useCallback(() => setShowDetail(false), [])
