@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import re
 import logging
-
 from app.memory.working_memory import WorkingMemory
 
 logger = logging.getLogger(__name__)

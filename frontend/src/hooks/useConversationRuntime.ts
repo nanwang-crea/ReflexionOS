@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { conversationApi } from '@/features/conversation/api/conversation.api'
-import { useConversationStore } from '@/features/conversation/stores/conversation.store'
+import {
+  findSessionIdByRunId,
+  useConversationStore,
+} from '@/features/conversation/stores/conversation.store'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
+import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
 import {
@@ -11,7 +15,7 @@ import {
 } from '@/services/sessionConversationWebSocket'
 import type { ConversationEvent, ConversationLiveMessage } from '@/types/conversation'
 import { useToastStore } from '@/shared/stores/toast.store'
-import { resolveActiveRunId } from '@/utils/activeRun'
+import { resolveActiveRunId, resolveActiveRunStatus, ACTIVE_RUN_STATUSES } from '@/utils/activeRun'
 
 interface StartTurnPayload {
   sessionId: string
@@ -30,6 +34,22 @@ const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 30000
 const RECONNECT_MAX_ATTEMPTS = 10
 const LIVE_EVENT_FLUSH_INTERVAL_MS = 50
+
+// 同时保持的活跃后台连接上限。当前会话必连，其余活跃会话按优先级连接，
+// 超出上限的会话降级为“切回时补拉”模式，不长期占用连接。
+const MAX_ACTIVE_CONNECTIONS = 5
+
+// 每个会话独立的连接运行时状态：websocket 实例、连接版本号、重连计数与定时器、
+// 以及该会话自己的实时事件节流缓冲。多会话并行时，各会话互不干扰。
+interface SessionConnection {
+  sessionId: string
+  ws: SessionConversationWebSocket | null
+  connectVersion: number
+  reconnectAttempt: number
+  reconnectTimer: ReturnType<typeof setTimeout> | null
+  pendingLiveEvent: ConversationLiveMessage | null
+  liveEventFlushTimer: ReturnType<typeof setTimeout> | null
+}
 
 function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
@@ -123,81 +143,160 @@ export function useConversationRuntime(
   currentSessionId: string | null,
   initialConnectionStatus: ConnectionStatus = 'disconnected'
 ) {
-  const wsRef = useRef<SessionConversationWebSocket | null>(null)
-  const connectedSessionIdRef = useRef<string | null>(null)
-  const connectVersionRef = useRef(0)
-  const reconnectAttemptRef = useRef(0)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 按 sessionId 管理多条连接。connectionsRef 是连接运行时真值（命令式），
+  // 下面三份 state 是给 UI 派生用的镜像，仅当前会话的切片会被读取并触发渲染。
+  const connectionsRef = useRef<Map<string, SessionConnection>>(new Map())
+
+  // 已经为某会话弹过“同步异常 / 断连”提示的集合，用于去重，避免同一会话
+  // 重连耗尽时反复轰炸 toast。会话重连成功后从集合移除，允许下次再提示。
+  const degradeToastShownRef = useRef<Set<string>>(new Set())
+
+  const [connectionStatusBySessionId, setConnectionStatusBySessionId] =
+    useState<Record<string, ConnectionStatus>>({})
+  const [isCancellingBySessionId, setIsCancellingBySessionId] =
+    useState<Record<string, boolean>>({})
+  const [retryInfoBySessionId, setRetryInfoBySessionId] =
+    useState<Record<string, LlmRetryDto | null>>({})
+
+  // 订阅“当前有活跃 run 的后台会话”签名，用于驱动连接调度在后台会话
+  // 由空闲变活跃（或反之）时重新运行。直接订阅 conversationsBySessionId 会
+  // 在每个流式事件都触发，这里收敛成稳定字符串，仅活跃集合变化时才变。
+  const activeSessionsSignature = useConversationStore((state) => {
+    const activeIds: string[] = []
+    for (const [sessionId, conversation] of Object.entries(state.conversationsBySessionId)) {
+      const status = resolveActiveRunStatus(conversation)
+      if (status !== null && ACTIVE_RUN_STATUSES.has(status)) {
+        activeIds.push(sessionId)
+      }
+    }
+    return activeIds.sort().join('|')
+  })
+
   const scheduleReconnectRef = useRef<(sessionId: string) => void>(() => {})
-  const pendingLiveEventRef = useRef<{
-    sessionId: string
-    liveMessage: ConversationLiveMessage
-  } | null>(null)
-  const liveEventFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectSessionRef = useRef<(sessionId: string) => Promise<void>>(async () => {})
 
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(initialConnectionStatus)
-  const [isCancelling, setIsCancelling] = useState(false)
-  const [retryInfo, setRetryInfo] = useState<LlmRetryDto | null>(null)
+  // 始终保存最新的当前会话 id，供重连等回调判断“是不是用户正在看的会话”，
+  // 避免闭包捕获到旧值（前台/后台的提示文案与降级处理不同）。
+  const currentSessionIdRef = useRef<string | null>(currentSessionId)
+  currentSessionIdRef.current = currentSessionId
 
-  const flushPendingLiveEvent = useCallback(() => {
-    if (liveEventFlushTimerRef.current) {
-      clearTimeout(liveEventFlushTimerRef.current)
-      liveEventFlushTimerRef.current = null
+  const setSessionConnectionStatus = useCallback((sessionId: string, status: ConnectionStatus) => {
+    setConnectionStatusBySessionId((prev) => {
+      if (prev[sessionId] === status) {
+        return prev
+      }
+      return { ...prev, [sessionId]: status }
+    })
+  }, [])
+
+  const setSessionCancelling = useCallback((sessionId: string, cancelling: boolean) => {
+    setIsCancellingBySessionId((prev) => {
+      if ((prev[sessionId] ?? false) === cancelling) {
+        return prev
+      }
+      return { ...prev, [sessionId]: cancelling }
+    })
+  }, [])
+
+  const setSessionRetryInfo = useCallback((sessionId: string, retry: LlmRetryDto | null) => {
+    setRetryInfoBySessionId((prev) => {
+      if ((prev[sessionId] ?? null) === retry) {
+        return prev
+      }
+      return { ...prev, [sessionId]: retry }
+    })
+  }, [])
+
+  const getOrCreateConnection = useCallback((sessionId: string): SessionConnection => {
+    let connection = connectionsRef.current.get(sessionId)
+    if (!connection) {
+      connection = {
+        sessionId,
+        ws: null,
+        connectVersion: 0,
+        reconnectAttempt: 0,
+        reconnectTimer: null,
+        pendingLiveEvent: null,
+        liveEventFlushTimer: null,
+      }
+      connectionsRef.current.set(sessionId, connection)
+    }
+    return connection
+  }, [])
+
+  const flushPendingLiveEvent = useCallback((sessionId: string) => {
+    const connection = connectionsRef.current.get(sessionId)
+    if (!connection) {
+      return
     }
 
-    const pending = pendingLiveEventRef.current
+    if (connection.liveEventFlushTimer) {
+      clearTimeout(connection.liveEventFlushTimer)
+      connection.liveEventFlushTimer = null
+    }
+
+    const pending = connection.pendingLiveEvent
     if (!pending) {
       return
     }
 
-    pendingLiveEventRef.current = null
-    useConversationStore.getState().applyLiveEvent(pending.sessionId, pending.liveMessage)
+    connection.pendingLiveEvent = null
+    useConversationStore.getState().applyLiveEvent(sessionId, pending)
   }, [])
 
   const scheduleLiveEventFlush = useCallback((
     sessionId: string,
     liveMessage: ConversationLiveMessage
   ) => {
+    const connection = getOrCreateConnection(sessionId)
+
     const isTerminal = liveMessage.streamState === 'completed'
       || liveMessage.streamState === 'failed'
       || liveMessage.streamState === 'cancelled'
 
     if (isTerminal) {
-      flushPendingLiveEvent()
+      flushPendingLiveEvent(sessionId)
       useConversationStore.getState().applyLiveEvent(sessionId, liveMessage)
       return
     }
 
-    if (!liveEventFlushTimerRef.current && !pendingLiveEventRef.current) {
+    if (!connection.liveEventFlushTimer && !connection.pendingLiveEvent) {
       useConversationStore.getState().applyLiveEvent(sessionId, liveMessage)
-      liveEventFlushTimerRef.current = setTimeout(() => {
-        flushPendingLiveEvent()
+      connection.liveEventFlushTimer = setTimeout(() => {
+        flushPendingLiveEvent(sessionId)
       }, LIVE_EVENT_FLUSH_INTERVAL_MS)
       return
     }
 
-    pendingLiveEventRef.current = { sessionId, liveMessage }
-    if (liveEventFlushTimerRef.current) {
+    connection.pendingLiveEvent = liveMessage
+    if (connection.liveEventFlushTimer) {
       return
     }
 
-    liveEventFlushTimerRef.current = setTimeout(() => {
-      flushPendingLiveEvent()
+    connection.liveEventFlushTimer = setTimeout(() => {
+      flushPendingLiveEvent(sessionId)
     }, LIVE_EVENT_FLUSH_INTERVAL_MS)
-  }, [flushPendingLiveEvent])
+  }, [getOrCreateConnection, flushPendingLiveEvent])
 
-  const closeWebSocket = useCallback(() => {
-    flushPendingLiveEvent()
-    if (reconnectTimerRef.current) {
-      clearTimeout(reconnectTimerRef.current)
-      reconnectTimerRef.current = null
+  // 关闭并清理某个会话的连接：停掉重连定时器、刷出残留实时事件、关闭 websocket。
+  const closeSessionConnection = useCallback((sessionId: string) => {
+    const connection = connectionsRef.current.get(sessionId)
+    if (!connection) {
+      return
     }
-    reconnectAttemptRef.current = 0
-    wsRef.current?.close()
-    wsRef.current = null
-    connectedSessionIdRef.current = null
-    setConnectionStatus('disconnected')
-  }, [flushPendingLiveEvent])
+
+    flushPendingLiveEvent(sessionId)
+    if (connection.reconnectTimer) {
+      clearTimeout(connection.reconnectTimer)
+      connection.reconnectTimer = null
+    }
+    connection.reconnectAttempt = 0
+    // 让进行中的连接版本作废，防止 await connect 返回后误用旧连接。
+    connection.connectVersion += 1
+    connection.ws?.close()
+    connection.ws = null
+    setSessionConnectionStatus(sessionId, 'disconnected')
+  }, [flushPendingLiveEvent, setSessionConnectionStatus])
 
   const refreshSnapshot = useCallback(async (sessionId: string) => {
     const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20 })
@@ -215,21 +314,26 @@ export function useConversationRuntime(
   }, [])
 
   const connectSession = useCallback(async (sessionId: string) => {
-    if (
-      connectedSessionIdRef.current === sessionId &&
-      wsRef.current?.isConnected()
-    ) {
+    const connection = getOrCreateConnection(sessionId)
+
+    if (connection.ws?.isConnected()) {
       return
     }
 
-    const connectVersion = connectVersionRef.current + 1
-    connectVersionRef.current = connectVersion
+    const connectVersion = connection.connectVersion + 1
+    connection.connectVersion = connectVersion
 
-    closeWebSocket()
-    setConnectionStatus('connecting')
+    // 关闭该会话上可能存在的旧连接（不影响其他会话）。
+    if (connection.reconnectTimer) {
+      clearTimeout(connection.reconnectTimer)
+      connection.reconnectTimer = null
+    }
+    connection.ws?.close()
+    connection.ws = null
+    setSessionConnectionStatus(sessionId, 'connecting')
 
     const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20 })
-    if (connectVersion !== connectVersionRef.current) {
+    if (connectVersion !== connection.connectVersion) {
       return
     }
 
@@ -237,26 +341,26 @@ export function useConversationRuntime(
 
     const ws = new SessionConversationWebSocket()
     ws.on('connection:open', () => {
-      setConnectionStatus('connected')
-      reconnectAttemptRef.current = 0
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
+      setSessionConnectionStatus(sessionId, 'connected')
+      connection.reconnectAttempt = 0
+      if (connection.reconnectTimer) {
+        clearTimeout(connection.reconnectTimer)
+        connection.reconnectTimer = null
       }
+      // 连接恢复：清除同步异常标记与提示去重，允许后续再次提示。
+      degradeToastShownRef.current.delete(sessionId)
+      useWorkspaceStore.getState().clearSessionSyncHealth(sessionId)
     })
     ws.on('connection:closed', () => {
-      setConnectionStatus('disconnected')
-      setIsCancelling(false)
-      const sessionId = connectedSessionIdRef.current
-      if (sessionId) {
-        scheduleReconnectRef.current(sessionId)
-      }
+      setSessionConnectionStatus(sessionId, 'disconnected')
+      setSessionCancelling(sessionId, false)
+      scheduleReconnectRef.current(sessionId)
     })
     ws.on('conversation:error', (data) => {
       console.error('Conversation websocket error:', data)
       const message = typeof data.message === 'string' ? data.message : '对话发生错误'
       useToastStore.getState().addToast('error', message)
-      setIsCancelling(false)
+      setSessionCancelling(sessionId, false)
     })
     ws.on('conversation:event', (rawEvent) => {
       const event = toConversationEvent(rawEvent)
@@ -267,19 +371,19 @@ export function useConversationRuntime(
       }
 
       if (event.eventType === 'run.cancelled' || event.eventType === 'run.failed' || event.eventType === 'run.completed') {
-        setIsCancelling(false)
-        setRetryInfo(null)
+        setSessionCancelling(sessionId, false)
+        setSessionRetryInfo(sessionId, null)
         useConversationStore.getState().setPlan(sessionId, null)
       }
     })
     ws.on('conversation:live_event', (rawLiveEvent) => {
       scheduleLiveEventFlush(sessionId, toConversationLiveMessage(rawLiveEvent))
-      setRetryInfo(null)
+      setSessionRetryInfo(sessionId, null)
     })
     ws.on('conversation:live_state', (rawLiveState) => {
-      flushPendingLiveEvent()
+      flushPendingLiveEvent(sessionId)
       useConversationStore.getState().setLiveState(sessionId, toConversationLiveMessage(rawLiveState))
-      setRetryInfo(null)
+      setSessionRetryInfo(sessionId, null)
     })
     ws.on('conversation:resync_required', (data) => {
       queueSnapshotRefresh(sessionId)
@@ -287,7 +391,7 @@ export function useConversationRuntime(
       ws.sendSync(afterSeq)
     })
     ws.on('llm:retry', (data) => {
-      setRetryInfo(data)
+      setSessionRetryInfo(sessionId, data)
     })
     ws.on('plan:updated', (data: PlanDto) => {
       useConversationStore.getState().setPlan(sessionId, {
@@ -319,40 +423,82 @@ export function useConversationRuntime(
     })
 
     await ws.connect(sessionId)
-    if (connectVersion !== connectVersionRef.current) {
+    if (connectVersion !== connection.connectVersion) {
       ws.close()
       return
     }
 
     ws.sendSync(response.data.session.lastEventSeq)
-    wsRef.current = ws
-    connectedSessionIdRef.current = sessionId
-    reconnectAttemptRef.current = 0
-  }, [closeWebSocket, flushPendingLiveEvent, queueSnapshotRefresh, scheduleLiveEventFlush])
+    connection.ws = ws
+    connection.reconnectAttempt = 0
+  }, [
+    getOrCreateConnection,
+    setSessionConnectionStatus,
+    setSessionCancelling,
+    setSessionRetryInfo,
+    flushPendingLiveEvent,
+    queueSnapshotRefresh,
+    scheduleLiveEventFlush,
+  ])
+
+  useEffect(() => {
+    connectSessionRef.current = connectSession
+  }, [connectSession])
 
   const scheduleReconnect = useCallback((sessionId: string) => {
-    const attempt = reconnectAttemptRef.current + 1
-    if (attempt > RECONNECT_MAX_ATTEMPTS) {
-      useToastStore.getState().addToast('error', 'WebSocket 连接断开，请刷新页面重连')
+    const connection = connectionsRef.current.get(sessionId)
+    if (!connection) {
       return
     }
-    reconnectAttemptRef.current = attempt
+
+    const attempt = connection.reconnectAttempt + 1
+    if (attempt > RECONNECT_MAX_ATTEMPTS) {
+      // 重连耗尽：标记会话为同步异常（不改 run 业务状态），降级为切回补拉模式。
+      useWorkspaceStore.getState().markSessionSyncDegraded(sessionId)
+
+      // 同一会话只提示一次，避免反复轰炸；重连成功后会重置去重标记。
+      if (!degradeToastShownRef.current.has(sessionId)) {
+        degradeToastShownRef.current.add(sessionId)
+        const isCurrent = sessionId === currentSessionIdRef.current
+        useToastStore.getState().addToast(
+          'error',
+          isCurrent
+            ? 'WebSocket 连接断开，请刷新页面重连'
+            : '后台会话同步中断，将在切回时重新拉取最新状态',
+        )
+      }
+      return
+    }
+    connection.reconnectAttempt = attempt
     const delay = Math.min(
       RECONNECT_BASE_DELAY_MS * Math.pow(2, attempt - 1),
       RECONNECT_MAX_DELAY_MS
     )
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = null
-      connectSession(sessionId).catch((error) => {
+    connection.reconnectTimer = setTimeout(() => {
+      connection.reconnectTimer = null
+      connectSessionRef.current(sessionId).catch((error) => {
         console.error('Reconnect failed:', error)
         scheduleReconnectRef.current(sessionId)
       })
     }, delay)
-  }, [connectSession])
+  }, [])
 
   useEffect(() => {
     scheduleReconnectRef.current = scheduleReconnect
   }, [scheduleReconnect])
+
+  // 按 runId 路由到所属会话的连接。当前会话操作直接用 currentSessionId；
+  // 审批 / 拒绝 / 重跑等只带 runId 的操作，先反查 sessionId 再选对应连接。
+  const resolveConnectionByRunId = useCallback((runId: string): SessionConnection | null => {
+    const sessionId = findSessionIdByRunId(
+      useConversationStore.getState().conversationsBySessionId,
+      runId
+    )
+    if (!sessionId) {
+      return null
+    }
+    return connectionsRef.current.get(sessionId) ?? null
+  }, [])
 
   const startTurn = useCallback(async (payload: StartTurnPayload) => {
     const content = payload.message.trim()
@@ -366,61 +512,64 @@ export function useConversationRuntime(
       console.error('Failed to connect session for startTurn:', error)
       const message = error instanceof Error ? error.message : '连接失败'
       useToastStore.getState().addToast('error', `发送消息失败: ${message}`)
-      setConnectionStatus('disconnected')
+      setSessionConnectionStatus(payload.sessionId, 'disconnected')
       return
     }
 
-    wsRef.current?.startTurn({
+    connectionsRef.current.get(payload.sessionId)?.ws?.startTurn({
       content,
       providerId: payload.providerId,
       modelId: payload.modelId,
       attachmentIds: payload.attachmentIds,
     })
-  }, [connectSession])
+  }, [connectSession, setSessionConnectionStatus])
 
   const cancelRun = useCallback(() => {
-    const sessionId = currentSessionId ?? connectedSessionIdRef.current
-    if (!sessionId) {
+    if (!currentSessionId) {
       return
     }
 
-    const conversation = useConversationStore.getState().conversationsBySessionId[sessionId]
+    const conversation = useConversationStore.getState().conversationsBySessionId[currentSessionId]
     const runId = resolveActiveRunId(conversation)
     if (!runId) {
       return
     }
 
-    if (!wsRef.current?.isConnected()) {
+    const ws = connectionsRef.current.get(currentSessionId)?.ws
+    if (!ws?.isConnected()) {
       return
     }
 
-    setIsCancelling(true)
-    wsRef.current?.cancelRun(runId)
-  }, [currentSessionId])
+    setSessionCancelling(currentSessionId, true)
+    ws.cancelRun(runId)
+  }, [currentSessionId, setSessionCancelling])
 
   const approveTool = useCallback((runId: string, approvalId: string) => {
-    if (!wsRef.current?.isConnected()) {
+    const ws = resolveConnectionByRunId(runId)?.ws
+    if (!ws?.isConnected()) {
       return
     }
 
-    wsRef.current.approveTool({ runId, approvalId, decision: 'allow_once' })
-  }, [])
+    ws.approveTool({ runId, approvalId, decision: 'allow_once' })
+  }, [resolveConnectionByRunId])
 
   const denyTool = useCallback((runId: string, approvalId: string) => {
-    if (!wsRef.current?.isConnected()) {
+    const ws = resolveConnectionByRunId(runId)?.ws
+    if (!ws?.isConnected()) {
       return
     }
 
-    wsRef.current.denyTool({ runId, approvalId })
-  }, [])
+    ws.denyTool({ runId, approvalId })
+  }, [resolveConnectionByRunId])
 
   const trustTool = useCallback((runId: string, approvalId: string) => {
-    if (!wsRef.current?.isConnected()) {
+    const ws = resolveConnectionByRunId(runId)?.ws
+    if (!ws?.isConnected()) {
       return
     }
 
-    wsRef.current.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
-  }, [])
+    ws.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
+  }, [resolveConnectionByRunId])
 
   const editAndRerun = useCallback((payload: {
     messageId: string
@@ -428,58 +577,140 @@ export function useConversationRuntime(
     providerId?: string | null
     modelId?: string | null
   }) => {
-    if (!wsRef.current?.isConnected()) {
+    if (!currentSessionId) {
       return
     }
 
-    wsRef.current.editAndRerun(payload)
-  }, [])
+    const ws = connectionsRef.current.get(currentSessionId)?.ws
+    if (!ws?.isConnected()) {
+      return
+    }
+
+    ws.editAndRerun(payload)
+  }, [currentSessionId])
 
   const setMode = useCallback((mode: 'build' | 'plan') => {
-    if (!wsRef.current?.isConnected()) {
+    if (!currentSessionId) {
       return
     }
-    wsRef.current.send({
+
+    const ws = connectionsRef.current.get(currentSessionId)?.ws
+    if (!ws?.isConnected()) {
+      return
+    }
+    ws.send({
       type: 'session:set_mode',
       data: { mode },
     })
-  }, [])
+  }, [currentSessionId])
 
   const resetConversationRuntime = useCallback(() => {
-    const sessionId = currentSessionId ?? connectedSessionIdRef.current
-    closeWebSocket()
-    setIsCancelling(false)
-
-    if (sessionId) {
-      useConversationStore.getState().clearConversation(sessionId)
-    }
-  }, [closeWebSocket, currentSessionId])
-
-  useEffect(() => {
     if (!currentSessionId) {
-      closeWebSocket()
-      setIsCancelling(false)
       return
     }
 
-    connectSession(currentSessionId).catch((error) => {
-      console.error('Failed to initialize conversation runtime:', error)
-      const message = error instanceof Error ? error.message : '连接失败'
-      useToastStore.getState().addToast('error', `对话连接失败: ${message}`)
-      setConnectionStatus('disconnected')
-    })
-  }, [closeWebSocket, connectSession, currentSessionId])
+    closeSessionConnection(currentSessionId)
+    setSessionCancelling(currentSessionId, false)
+    useConversationStore.getState().clearConversation(currentSessionId)
+  }, [closeSessionConnection, currentSessionId, setSessionCancelling])
+
+  // 连接调度：当前会话必连；其余活跃会话（运行中 / 待审批等）按优先级补连，
+  // 总连接数不超过上限；超出上限或已空闲的会话连接被回收，降级为切回补拉。
+  useEffect(() => {
+    const conversationsBySessionId = useConversationStore.getState().conversationsBySessionId
+
+    // 收集需要保持连接的会话：当前会话 + 仍有活跃 run 的后台会话。
+    const desiredSessionIds: string[] = []
+    if (currentSessionId) {
+      desiredSessionIds.push(currentSessionId)
+    }
+
+    const backgroundActiveSessionIds = Object.entries(conversationsBySessionId)
+      .filter(([sessionId]) => sessionId !== currentSessionId)
+      .filter(([, conversation]) => {
+        const status = resolveActiveRunStatus(conversation)
+        return status !== null && ACTIVE_RUN_STATUSES.has(status)
+      })
+      .map(([sessionId]) => sessionId)
+
+    for (const sessionId of backgroundActiveSessionIds) {
+      if (desiredSessionIds.length >= MAX_ACTIVE_CONNECTIONS) {
+        break
+      }
+      desiredSessionIds.push(sessionId)
+    }
+
+    const desiredSet = new Set(desiredSessionIds)
+
+    // 回收不再需要保持的连接（含被降级会话），但保留当前会话。
+    for (const sessionId of connectionsRef.current.keys()) {
+      if (!desiredSet.has(sessionId)) {
+        closeSessionConnection(sessionId)
+      }
+    }
+
+    // 为需要的会话建立 / 维持连接。
+    for (const sessionId of desiredSessionIds) {
+      const connection = connectionsRef.current.get(sessionId)
+      if (connection?.ws?.isConnected()) {
+        continue
+      }
+      connectSession(sessionId).catch((error) => {
+        console.error('Failed to connect conversation session:', error)
+        // 当前会话连接失败要明确提示用户；后台会话失败静默，靠重连/补拉兜底。
+        if (sessionId === currentSessionId) {
+          const message = error instanceof Error ? error.message : '连接失败'
+          useToastStore.getState().addToast('error', `对话连接失败: ${message}`)
+          setSessionConnectionStatus(sessionId, 'disconnected')
+        }
+      })
+    }
+    // activeSessionsSignature 在依赖里：后台会话由空闲变活跃 / 活跃变空闲时，
+    // 调度会重新运行，从而补连新活跃会话或回收已结束会话的连接。
+  }, [currentSessionId, activeSessionsSignature, closeSessionConnection, connectSession, setSessionConnectionStatus])
+
+  // 切回被降级会话时，立刻强制补拉一次快照，让用户即时看到离线/降级期间
+  // 发生的终态变化，而不必等 websocket 重连成功。补拉成功即清除异常标记；
+  // 后续 websocket 若重连成功也会再清一次（幂等）。
+  useEffect(() => {
+    if (!currentSessionId) {
+      return
+    }
+    const health = useWorkspaceStore.getState().sessionSyncHealthBySessionId[currentSessionId]
+    if (health !== 'degraded') {
+      return
+    }
+
+    refreshSnapshot(currentSessionId)
+      .then(() => {
+        useWorkspaceStore.getState().clearSessionSyncHealth(currentSessionId)
+        degradeToastShownRef.current.delete(currentSessionId)
+      })
+      .catch((error) => {
+        console.error('Failed to force-refresh degraded session:', error)
+      })
+  }, [currentSessionId, refreshSnapshot])
 
   useEffect(() => {
+    const connections = connectionsRef.current
     return () => {
-      flushPendingLiveEvent()
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
+      for (const sessionId of connections.keys()) {
+        const connection = connections.get(sessionId)
+        if (!connection) {
+          continue
+        }
+        flushPendingLiveEvent(sessionId)
+        if (connection.reconnectTimer) {
+          clearTimeout(connection.reconnectTimer)
+          connection.reconnectTimer = null
+        }
+        connection.connectVersion += 1
+        connection.ws?.close()
+        connection.ws = null
       }
-      closeWebSocket()
+      connections.clear()
     }
-  }, [closeWebSocket, flushPendingLiveEvent])
+  }, [flushPendingLiveEvent])
 
   const loadMore = useCallback(async (sessionId: string, beforeTurnId: string) => {
     const response = await conversationApi.getConversationPaginated(sessionId, { limit: 20, beforeTurn: beforeTurnId })
@@ -490,6 +721,17 @@ export function useConversationRuntime(
       nextBeforeTurnId: snapshot.nextBeforeTurnId,
     })
   }, [])
+
+  // 对 UI 只暴露“当前会话”的连接状态切片，保持原有单会话调用契约不变。
+  const connectionStatus: ConnectionStatus = currentSessionId
+    ? connectionStatusBySessionId[currentSessionId] ?? initialConnectionStatus
+    : initialConnectionStatus
+  const isCancelling = currentSessionId
+    ? isCancellingBySessionId[currentSessionId] ?? false
+    : false
+  const retryInfo = currentSessionId
+    ? retryInfoBySessionId[currentSessionId] ?? null
+    : null
 
   return {
     connectionStatus,

@@ -131,3 +131,17 @@ export const createConversationStore = () => create<ConversationStoreState>((set
 }))
 
 export const useConversationStore = createConversationStore()
+
+// 按 runId 现查所属 sessionId：run 自带 sessionId，直接遍历各会话的 runsById，
+// 不额外维护对照表，确保与会话真值始终一致。
+export function findSessionIdByRunId(
+  conversationsBySessionId: Record<string, ConversationState>,
+  runId: string,
+): string | null {
+  for (const [sessionId, conversation] of Object.entries(conversationsBySessionId)) {
+    if (conversation.runsById[runId]) {
+      return sessionId
+    }
+  }
+  return null
+}
