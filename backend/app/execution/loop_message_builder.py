@@ -56,14 +56,10 @@ class LoopMessageBuilder:
             )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
-        # Working Memory 注入：在 system prompt 之后、Tier 3 之前
-        # 确保压缩后关键信息（文件索引、决策、变量、错误）仍可见
-        if not context.working_memory.is_empty():
-            wm_section = context.working_memory.to_prompt_section()
-            if wm_section:
-                messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=wm_section)
-                )
+        # 双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）
+        # SessionTracker 在前，高注意力权重；WM 在后，提供决策/变量
+        memory_messages = self._build_memory_injection(context)
+        messages.extend(memory_messages)
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compressor.get_compacted_summary():
@@ -167,13 +163,9 @@ class LoopMessageBuilder:
             )
         ]
 
-        # Working Memory 注入：确保最终总结时关键信息仍可见
-        if not context.working_memory.is_empty():
-            wm_section = context.working_memory.to_prompt_section()
-            if wm_section:
-                messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=wm_section)
-                )
+        # 双层记忆注入：SessionTracker + WorkingMemory
+        memory_messages = self._build_memory_injection(context)
+        messages.extend(memory_messages)
 
         if context.compressor.get_compacted_summary():
             messages.append(
@@ -218,6 +210,45 @@ class LoopMessageBuilder:
             valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
             task_content = valid if valid else ""
         messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
+
+        return messages
+
+    def _build_memory_injection(self, context: LoopContext) -> list[LLMMessage]:
+        """构建双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）
+
+        返回的 messages 按顺序插入到 system prompt 之后。
+        SessionTracker 在前，提供极简的文件/工具跟踪列表（高注意力）。
+        WorkingMemory 在后，提供决策、变量、错误等语义内容。
+        """
+        messages: list[LLMMessage] = []
+
+        # 第一层：SessionTracker — 极简跟踪，始终可见
+        tracker_section = context.session_tracker.to_prompt_section()
+        if tracker_section:
+            # 追加行为指令，告诉模型不要重复读取已知文件
+            instruction = (
+                "\n\nIMPORTANT: Files listed above have been read this session. "
+                "DO NOT re-read them unless you need specific line ranges not "
+                "captured in Working Memory below. Use session_recall to retrieve "
+                "full content of previously read files."
+            )
+            messages.append(
+                LLMMessage(
+                    role=MessageRole.SYSTEM,
+                    content=tracker_section + instruction,
+                )
+            )
+
+        # 第二层：Working Memory — 语义化内容
+        if not context.working_memory.is_empty():
+            wm_section = context.working_memory.to_prompt_section()
+            if wm_section:
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.SYSTEM,
+                        content=wm_section,
+                    )
+                )
 
         return messages
 

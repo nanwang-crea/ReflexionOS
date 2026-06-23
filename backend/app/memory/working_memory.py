@@ -1,26 +1,30 @@
-"""Working Memory 数据模型 — 在对话历史之外维护关键信息
+"""Working Memory 数据模型 — 活跃上下文层
 
 生命周期：绑定到 Turn（非 Run），同一 Turn 内的多次 Run（重试/反思循环）
 共享同一个 WorkingMemory 实例。Turn 结束时销毁，不持久化到数据库。
 
-注入位置：LoopMessageBuilder.build() 中，system prompt 之后、Tier 3 之前
+职责分离：
+- SessionTracker（系统托管）：跟踪"发生了什么"——文件访问、工具调用（元数据）
+- WorkingMemory（模型管理）：存储"意味着什么"——决策、发现、变量（语义内容）
+
+注入位置：LoopMessageBuilder.build() 中，SessionTracker 之后
 Token 预算：~2000 tokens（约 3000 中文字符）
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryEntryType(str, Enum):
     """Working Memory 条目类型"""
-    FILE_SUMMARY = "file_summary"       # 读过的文件摘要
     KEY_DECISION = "key_decision"       # 关键决策
     VARIABLE = "variable"               # 配置/变量工作集
     ERROR_ENCOUNTERED = "error"         # 遇到的错误
-    PATTERN_FOUND = "pattern"           # 发现的模式/规律
 
 
 @dataclass
@@ -31,9 +35,6 @@ class MemoryEntry:
     key: str                                    # 主键（如文件路径、决策名）
     value: str                                  # 值（摘要、决策内容等）
     source: str = "auto"                        # 来源: "auto" | "model"
-    created_at: datetime = field(default_factory=datetime.now)
-    updated_at: datetime = field(default_factory=datetime.now)
-    access_count: int = 0                       # 被引用次数（用于淘汰）
 
 
 @dataclass
@@ -55,10 +56,6 @@ class WorkingMemory:
     Token 预算：~2000 tokens（约 3000 中文字符）
     """
 
-    # 文件索引：agent 读过的每个文件的精炼摘要
-    # key = 文件路径, value = 摘要
-    file_index: dict[str, MemoryEntry] = field(default_factory=dict)
-
     # 关键决策记录
     decisions: list[MemoryEntry] = field(default_factory=list)
 
@@ -72,28 +69,26 @@ class WorkingMemory:
     # Token 预算
     max_tokens: int = 2000
 
+    # 单调递增 ID 计数器，避免删除后 ID 冲突
+    _id_counter: int = field(default=0, repr=False)
+
     # ---- 写入接口 ----
 
-    def upsert_file(self, path: str, summary: str, source: str = "auto") -> None:
-        """新增或更新文件摘要"""
-        if path in self.file_index:
-            entry = self.file_index[path]
-            entry.value = summary
-            entry.updated_at = datetime.now()
-            entry.source = source
-        else:
-            self.file_index[path] = MemoryEntry(
-                id=f"file:{path}",
-                entry_type=MemoryEntryType.FILE_SUMMARY,
-                key=path,
-                value=summary,
-                source=source,
-            )
+    def _next_id(self, prefix: str) -> str:
+        """生成唯一 ID（单调递增，不受删除影响）"""
+        self._id_counter += 1
+        return f"{prefix}:{self._id_counter}"
 
     def add_decision(self, decision: str, rationale: str = "", source: str = "model") -> None:
-        """记录关键决策"""
+        """记录关键决策（upsert：相同 key 的决策会被更新，而非重复追加）"""
+        for entry in self.decisions:
+            if entry.key == decision:
+                # 同 key 已存在，更新 rationale 和 source
+                entry.value = rationale
+                entry.source = source
+                return
         self.decisions.append(MemoryEntry(
-            id=f"decision:{len(self.decisions)}",
+            id=self._next_id("decision"),
             entry_type=MemoryEntryType.KEY_DECISION,
             key=decision,
             value=rationale,
@@ -111,9 +106,15 @@ class WorkingMemory:
         )
 
     def add_error(self, error_type: str, detail: str, source: str = "auto") -> None:
-        """记录遇到的错误"""
+        """记录遇到的错误（upsert：相同 key 的错误会被更新，而非重复追加）"""
+        for entry in self.errors:
+            if entry.key == error_type:
+                # 同 key 已存在，更新 detail 和 source
+                entry.value = detail
+                entry.source = source
+                return
         self.errors.append(MemoryEntry(
-            id=f"error:{len(self.errors)}",
+            id=self._next_id("error"),
             entry_type=MemoryEntryType.ERROR_ENCOUNTERED,
             key=error_type,
             value=detail,
@@ -127,18 +128,13 @@ class WorkingMemory:
         将 Working Memory 格式化为 system prompt 注入段
 
         格式紧凑、信息密度高，控制在 ~2000 tokens 以内
-        如果超过预算，按优先级淘汰：errors > variables > file_index(最旧的) > decisions
+        如果超过预算，按优先级淘汰：errors > variables > decisions
+
+        注入时包含行为指令，提醒模型利用已有信息、避免重复工作。
         """
         sections = []
 
-        # 1. 文件索引（最高优先级之一）
-        if self.file_index:
-            lines = ["📂 Files read:"]
-            for path, entry in self.file_index.items():
-                lines.append(f"  {path}: {entry.value}")
-            sections.append("\n".join(lines))
-
-        # 2. 关键决策
+        # 1. 关键决策
         if self.decisions:
             lines = ["🎯 Key decisions:"]
             for d in self.decisions:
@@ -170,59 +166,102 @@ class WorkingMemory:
         if len(content) > max_chars:
             content = self._evict_to_fit(content, max_chars)
 
-        return f"[Working Memory — key facts from this session]\n{content}"
+        header = (
+            "[Working Memory — key facts from this session]\n"
+            "Use the information below to avoid redundant work.\n"
+            "DO NOT re-read files listed in [Session Tracking] — "
+            "use session_recall if you need full content."
+        )
+        return f"{header}\n\n{content}"
 
     def _evict_to_fit(self, content: str, max_chars: int) -> str:
-        """超预算时按优先级淘汰"""
-        # 淘汰顺序：errors → variables → file_index(最旧的) → decisions
-        if self.errors and len(content) > max_chars:
-            self.errors = self.errors[-2:]  # 只保留最近 2 个
-            content = self._rebuild_content()
+        """超预算时按优先级淘汰（只作用于副本，不修改 self）
 
-        if len(content) > max_chars and self.variables:
-            # 只保留最近 10 个变量
-            items = list(self.variables.items())
-            self.variables = dict(items[-10:])
-            content = self._rebuild_content()
+        淘汰顺序：errors → variables（decisions 不淘汰，始终保留）
+        每步淘汰后用副本重建内容，重新检查是否超预算。
+        """
+        # 使用副本做截断，避免修改原始数据
+        errors_copy = list(self.errors)
+        variables_copy = dict(self.variables)
 
-        if len(content) > max_chars and self.file_index:
-            # 只保留最近读过的 15 个文件
-            items = list(self.file_index.items())
-            self.file_index = dict(items[-15:])
-            content = self._rebuild_content()
+        if errors_copy and len(content) > max_chars:
+            errors_copy = errors_copy[-2:]  # 只保留最近 2 个
+            content = self._rebuild_content(errors_copy, variables_copy)
 
-        # 最终兜底：硬截断
+        if len(content) > max_chars and variables_copy:
+            items = list(variables_copy.items())
+            variables_copy = dict(items[-10:])  # 只保留最近 10 个变量
+            content = self._rebuild_content(errors_copy, variables_copy)
+
+        # 最终兜底：硬截断（纯字符串操作，不影响数据）
         if len(content) > max_chars:
             content = content[:int(max_chars)] + "\n...[truncated]"
 
         return content
 
-    def _rebuild_content(self) -> str:
-        """淘汰后重建内容"""
+    def _rebuild_content(
+        self,
+        errors: list[MemoryEntry] | None = None,
+        variables: dict[str, MemoryEntry] | None = None,
+    ) -> str:
+        """用指定数据重建 prompt 内容（不影响 self 原始数据）"""
+        errors = errors if errors is not None else self.errors
+        variables = variables if variables is not None else self.variables
+
         sections = []
-        if self.file_index:
-            lines = ["📂 Files read:"]
-            for path, entry in self.file_index.items():
-                lines.append(f"  {path}: {entry.value}")
-            sections.append("\n".join(lines))
         if self.decisions:
             lines = ["🎯 Key decisions:"]
             for d in self.decisions:
                 rationale = f" — {d.value}" if d.value else ""
                 lines.append(f"  • {d.key}{rationale}")
             sections.append("\n".join(lines))
-        if self.variables:
+        if variables:
             lines = ["⚙️ Current state:"]
-            for name, entry in self.variables.items():
+            for name, entry in variables.items():
                 lines.append(f"  {name} = {entry.value}")
             sections.append("\n".join(lines))
-        if self.errors:
+        if errors:
             lines = ["⚠️ Errors encountered:"]
-            for e in self.errors[-2:]:
+            for e in errors[-2:]:
                 lines.append(f"  • [{e.key}] {e.value}")
             sections.append("\n".join(lines))
         return "\n\n".join(sections)
 
     def is_empty(self) -> bool:
         """Working Memory 是否为空"""
-        return not self.file_index and not self.decisions and not self.variables and not self.errors
+        return not self.decisions and not self.variables and not self.errors
+
+    def clear(self) -> None:
+        """清空所有数据（Turn 结束时调用）"""
+        self.decisions.clear()
+        self.variables.clear()
+        self.errors.clear()
+
+    def to_dict(self) -> dict:
+        """序列化为 dict"""
+        return {
+            "decisions": [
+                {"key": d.key, "value": d.value, "source": d.source}
+                for d in self.decisions
+            ],
+            "variables": {
+                k: {"value": v.value, "source": v.source}
+                for k, v in self.variables.items()
+            },
+            "errors": [
+                {"key": e.key, "value": e.value, "source": e.source}
+                for e in self.errors
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorkingMemory":
+        """从 dict 反序列化"""
+        wm = cls()
+        for d in data.get("decisions", []):
+            wm.add_decision(d["key"], d.get("value", ""), d.get("source", "model"))
+        for name, v in data.get("variables", {}).items():
+            wm.set_variable(name, v["value"], v.get("source", "auto"))
+        for e in data.get("errors", []):
+            wm.add_error(e["key"], e["value"], e.get("source", "auto"))
+        return wm
