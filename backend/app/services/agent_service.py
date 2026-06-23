@@ -50,6 +50,8 @@ from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
 from app.tools.working_memory_tool import WorkingMemoryTool
+from app.tools.delegate_tool import DelegateTool
+from app.agents.sub_agent_runner import SubAgentRunner
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,7 @@ from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
+from .attachment_service import convert_attachments_to_content_parts
 
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
@@ -139,11 +142,10 @@ class AgentService:
             )
         )
 
-        from app.config.settings import config_manager as _cfg_paths
-        skill_install_dir = str(Path(_cfg_paths.settings.skill.install_dir).resolve())
+        skill_install_dir = str(Path(config_manager.settings.skill.install_dir).resolve())
         if skill_install_dir not in allowed_paths:
             allowed_paths.append(skill_install_dir)
-        plugin_cache_dir = str(Path(_cfg_paths.settings.plugin.package_cache_dir).resolve())
+        plugin_cache_dir = str(Path(config_manager.settings.plugin.package_cache_dir).resolve())
         if plugin_cache_dir not in allowed_paths:
             allowed_paths.append(plugin_cache_dir)
         base_dir = resolved_project_path or str(Path.cwd().resolve())
@@ -164,16 +166,14 @@ class AgentService:
         registry.register(EditTool(path_security))
         registry.register(PlanTool())
         registry.register(ExploreTool(path_security))
-        from app.config.settings import config_manager as _cfg_mgr
-        _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
+        _pkg_resolver = PackageResolver(Path(config_manager.settings.plugin.package_cache_dir))
         registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
 
         if _BrowserTool is not None and session_id is not None:
             with self._browser_tools_lock:
                 browser_tool = self._browser_tools.get(session_id)
                 if browser_tool is None:
-                    from app.config.settings import config_manager as _cfg_browser
-                    _browser_settings = _cfg_browser.settings.browser
+                    _browser_settings = config_manager.settings.browser
                     browser_tool = _BrowserTool(config=_browser_settings)
                     self._browser_tools[session_id] = browser_tool
                     logger.info("为 session=%s 创建新 BrowserTool 实例", session_id)
@@ -181,8 +181,7 @@ class AgentService:
                     logger.info("复用 session=%s 的已有 BrowserTool 实例", session_id)
             registry.register(browser_tool)
         elif _BrowserTool is not None:
-            from app.config.settings import config_manager as _cfg_browser
-            _browser_settings = _cfg_browser.settings.browser
+            _browser_settings = config_manager.settings.browser
             registry.register(_BrowserTool(config=_browser_settings))
 
         logger.info(
@@ -469,6 +468,21 @@ class AgentService:
         run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         run_tool_registry.register(WorkingMemoryTool())
+
+        # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
+        # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path）
+        def _delegate_runner_factory(task, input_data=None, expected_output=None):
+            return SubAgentRunner(
+                task=task,
+                llm_config=resolved_llm,
+                parent_tool_registry=run_tool_registry,
+                input_data=input_data,
+                expected_output=expected_output,
+                project_path=project_path,
+                session_id=f"{session_id}-sub",
+            )
+        run_tool_registry.register(DelegateTool(runner_factory=_delegate_runner_factory))
+
         execution_loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=run_tool_registry,
@@ -504,7 +518,6 @@ class AgentService:
             task_content: str | list[dict] = task
             user_message = self.conversation_service.message_repo.get_user_message_by_turn(turn_id)
             if user_message and user_message.attachments:
-                from app.services.attachment_service import convert_attachments_to_content_parts
                 content_parts = []
                 if task.strip():
                     content_parts.append({"type": "text", "text": task})
