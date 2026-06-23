@@ -207,7 +207,7 @@ class WorkingMemoryTool(BaseTool):
         return False, f"未知的 slot: {slot}"
 
     def _handle_remove(self, slot: str, args: dict[str, Any]) -> tuple[bool, str]:
-        """从 slot 移除内容"""
+        """从 slot 移除内容（精确 key 匹配）"""
         wm = self._working_memory
         key = args.get("key", "")
         content = args.get("content", "")
@@ -215,9 +215,10 @@ class WorkingMemoryTool(BaseTool):
         if slot == "decisions":
             if not wm.decisions:
                 return False, "decisions 为空"
+            # decisions 的匹配键是 content（即决策内容，存储在 entry.key 中）
             target = str(content) if content else str(key)
             for i, entry in enumerate(wm.decisions):
-                if target in entry.key:
+                if entry.key == target:
                     wm.decisions.pop(i)
                     return True, f"已移除决策: {entry.key[:50]}"
             return False, f"decisions 中未找到匹配 '{target}' 的项"
@@ -232,9 +233,10 @@ class WorkingMemoryTool(BaseTool):
         if slot == "errors":
             if not wm.errors:
                 return False, "errors 为空"
-            target = str(content) if content else str(key)
+            # errors 的匹配键是 key（即错误类型，存储在 entry.key 中）
+            target = str(key) if key else str(content)
             for i, entry in enumerate(wm.errors):
-                if target in entry.key:
+                if entry.key == target:
                     wm.errors.pop(i)
                     return True, f"已移除错误: [{entry.key}]"
             return False, f"errors 中未找到匹配 '{target}' 的项"

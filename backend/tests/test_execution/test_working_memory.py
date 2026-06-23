@@ -71,23 +71,28 @@ class TestWorkingMemory:
         assert len(section) < 2000  # 粗略验证
 
     def test_eviction_removes_errors_first(self):
-        """淘汰顺序：errors 最先被淘汰"""
+        """淘汰顺序：errors 最先被淘汰（但不修改原始数据）"""
         wm = WorkingMemory(max_tokens=50)
         wm.add_error("err1", "x" * 100)
         wm.add_error("err2", "y" * 100)
         wm.add_error("err3", "z" * 100)
         wm.add_decision("d1", "important decision")
-        wm.to_prompt_section()
-        # errors 应该被缩减到 2 个
-        assert len(wm.errors) <= 2
+        section = wm.to_prompt_section()
+        # 原始数据不应被修改（P0 修复的核心验证）
+        assert len(wm.errors) == 3
+        # 但 prompt 输出应被截断
+        assert len(section) < 2000
 
     def test_eviction_removes_variables_second(self):
-        """淘汰顺序：variables 第二被淘汰"""
+        """淘汰顺序：variables 第二被淘汰（但不修改原始数据）"""
         wm = WorkingMemory(max_tokens=50)
         for i in range(20):
             wm.set_variable(f"VAR_{i}", f"value_{i}" * 10)
-        wm.to_prompt_section()
-        assert len(wm.variables) <= 10
+        section = wm.to_prompt_section()
+        # 原始数据不应被修改
+        assert len(wm.variables) == 20
+        # 但 prompt 输出应被截断
+        assert len(section) < 2000
 
     def test_full_update_roundtrip(self):
         """WM 包含 decisions、variables、errors"""

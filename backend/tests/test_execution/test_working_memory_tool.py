@@ -121,6 +121,40 @@ class TestWorkingMemoryToolUpdate:
         assert "已设置变量" in result.output
         assert wm.variables["port"].value == "9090"
 
+    @pytest.mark.asyncio
+    async def test_update_decision_upserts(self):
+        """相同 key 的决策应被更新，而非重复追加"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI",
+        })
+        result = await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI", "rationale": "异步支持好",
+        })
+        assert result.success is True
+        assert len(wm.decisions) == 1  # upsert，不是 append
+        assert wm.decisions[0].value == "异步支持好"
+
+    @pytest.mark.asyncio
+    async def test_update_error_upserts(self):
+        """相同 key 的错误应被更新，而非重复追加"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "errors",
+            "key": "ImportError", "content": "缺少依赖",
+        })
+        result = await tool.execute({
+            "action": "add", "slot": "errors",
+            "key": "ImportError", "content": "已安装依赖，版本不兼容",
+        })
+        assert result.success is True
+        assert len(wm.errors) == 1  # upsert，不是 append
+        assert wm.errors[0].value == "已安装依赖，版本不兼容"
+
 
 # ---------------------------------------------------------------------------
 # remove 操作测试
@@ -152,13 +186,30 @@ class TestWorkingMemoryToolRemove:
             "action": "add", "slot": "decisions",
             "content": "使用 FastAPI",
         })
+        # 精确 key 匹配：必须传完整的决策内容
         result = await tool.execute({
             "action": "remove", "slot": "decisions",
-            "content": "FastAPI",
+            "content": "使用 FastAPI",
         })
         assert result.success is True
         assert "已移除" in result.output
         assert len(wm.decisions) == 0
+
+    @pytest.mark.asyncio
+    async def test_remove_decision_partial_match_fails(self):
+        """精确匹配下，子串不应命中"""
+        wm = WorkingMemory()
+        tool = _make_tool(wm)
+        await tool.execute({
+            "action": "add", "slot": "decisions",
+            "content": "使用 FastAPI",
+        })
+        result = await tool.execute({
+            "action": "remove", "slot": "decisions",
+            "content": "FastAPI",
+        })
+        assert result.success is False
+        assert "未找到" in result.error
 
     @pytest.mark.asyncio
     async def test_remove_error(self):
@@ -168,9 +219,10 @@ class TestWorkingMemoryToolRemove:
             "action": "add", "slot": "errors",
             "key": "ImportError", "content": "缺少依赖",
         })
+        # errors 的匹配键是 key（错误类型）
         result = await tool.execute({
             "action": "remove", "slot": "errors",
-            "content": "ImportError",
+            "key": "ImportError",
         })
         assert result.success is True
         assert "已移除" in result.output

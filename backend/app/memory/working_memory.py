@@ -69,12 +69,26 @@ class WorkingMemory:
     # Token 预算
     max_tokens: int = 2000
 
+    # 单调递增 ID 计数器，避免删除后 ID 冲突
+    _id_counter: int = field(default=0, repr=False)
+
     # ---- 写入接口 ----
 
+    def _next_id(self, prefix: str) -> str:
+        """生成唯一 ID（单调递增，不受删除影响）"""
+        self._id_counter += 1
+        return f"{prefix}:{self._id_counter}"
+
     def add_decision(self, decision: str, rationale: str = "", source: str = "model") -> None:
-        """记录关键决策"""
+        """记录关键决策（upsert：相同 key 的决策会被更新，而非重复追加）"""
+        for entry in self.decisions:
+            if entry.key == decision:
+                # 同 key 已存在，更新 rationale 和 source
+                entry.value = rationale
+                entry.source = source
+                return
         self.decisions.append(MemoryEntry(
-            id=f"decision:{len(self.decisions)}",
+            id=self._next_id("decision"),
             entry_type=MemoryEntryType.KEY_DECISION,
             key=decision,
             value=rationale,
@@ -92,9 +106,15 @@ class WorkingMemory:
         )
 
     def add_error(self, error_type: str, detail: str, source: str = "auto") -> None:
-        """记录遇到的错误"""
+        """记录遇到的错误（upsert：相同 key 的错误会被更新，而非重复追加）"""
+        for entry in self.errors:
+            if entry.key == error_type:
+                # 同 key 已存在，更新 detail 和 source
+                entry.value = detail
+                entry.source = source
+                return
         self.errors.append(MemoryEntry(
-            id=f"error:{len(self.errors)}",
+            id=self._next_id("error"),
             entry_type=MemoryEntryType.ERROR_ENCOUNTERED,
             key=error_type,
             value=detail,
@@ -155,26 +175,39 @@ class WorkingMemory:
         return f"{header}\n\n{content}"
 
     def _evict_to_fit(self, content: str, max_chars: int) -> str:
-        """超预算时按优先级淘汰"""
-        # 淘汰顺序：errors → variables → decisions
-        if self.errors and len(content) > max_chars:
-            self.errors = self.errors[-2:]  # 只保留最近 2 个
-            content = self._rebuild_content()
+        """超预算时按优先级淘汰（只作用于副本，不修改 self）
 
-        if len(content) > max_chars and self.variables:
-            # 只保留最近 10 个变量
-            items = list(self.variables.items())
-            self.variables = dict(items[-10:])
-            content = self._rebuild_content()
+        淘汰顺序：errors → variables（decisions 不淘汰，始终保留）
+        每步淘汰后用副本重建内容，重新检查是否超预算。
+        """
+        # 使用副本做截断，避免修改原始数据
+        errors_copy = list(self.errors)
+        variables_copy = dict(self.variables)
 
-        # 最终兜底：硬截断
+        if errors_copy and len(content) > max_chars:
+            errors_copy = errors_copy[-2:]  # 只保留最近 2 个
+            content = self._rebuild_content(errors_copy, variables_copy)
+
+        if len(content) > max_chars and variables_copy:
+            items = list(variables_copy.items())
+            variables_copy = dict(items[-10:])  # 只保留最近 10 个变量
+            content = self._rebuild_content(errors_copy, variables_copy)
+
+        # 最终兜底：硬截断（纯字符串操作，不影响数据）
         if len(content) > max_chars:
             content = content[:int(max_chars)] + "\n...[truncated]"
 
         return content
 
-    def _rebuild_content(self) -> str:
-        """淘汰后重建内容"""
+    def _rebuild_content(
+        self,
+        errors: list[MemoryEntry] | None = None,
+        variables: dict[str, MemoryEntry] | None = None,
+    ) -> str:
+        """用指定数据重建 prompt 内容（不影响 self 原始数据）"""
+        errors = errors if errors is not None else self.errors
+        variables = variables if variables is not None else self.variables
+
         sections = []
         if self.decisions:
             lines = ["🎯 Key decisions:"]
@@ -182,14 +215,14 @@ class WorkingMemory:
                 rationale = f" — {d.value}" if d.value else ""
                 lines.append(f"  • {d.key}{rationale}")
             sections.append("\n".join(lines))
-        if self.variables:
+        if variables:
             lines = ["⚙️ Current state:"]
-            for name, entry in self.variables.items():
+            for name, entry in variables.items():
                 lines.append(f"  {name} = {entry.value}")
             sections.append("\n".join(lines))
-        if self.errors:
+        if errors:
             lines = ["⚠️ Errors encountered:"]
-            for e in self.errors[-2:]:
+            for e in errors[-2:]:
                 lines.append(f"  • [{e.key}] {e.value}")
             sections.append("\n".join(lines))
         return "\n\n".join(sections)
