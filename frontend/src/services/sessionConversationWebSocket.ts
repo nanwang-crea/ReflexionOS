@@ -71,6 +71,16 @@ export interface SessionModeChangedDto {
   mode: string
 }
 
+// 子 agent 执行事件 DTO（后端通过 sub_agent: 前缀广播）
+export interface SubAgentEventDto {
+  /** 事件类型：tool:start, tool:result, tool:error, llm:content 等 */
+  event_type: string
+  /** 关联的父级 delegate 工具调用 ID */
+  delegate_call_id?: string
+  /** 事件原始数据 */
+  payload: Record<string, unknown>
+}
+
 interface SessionConversationEvents {
   'connection:open': { sessionId: string }
   'connection:error': { sessionId: string; error: unknown }
@@ -93,6 +103,8 @@ interface SessionConversationEvents {
   'plan:recovered': { path: string; goal: string }
   'session:title_updated': SessionTitleUpdatedDto
   'session:mode_changed': SessionModeChangedDto
+  // 子 agent 事件：tool:start, tool:result, tool:error, llm:content 等
+  'sub_agent:event': SubAgentEventDto
 }
 
 function buildSyncMessage(afterSeq: number) {
@@ -283,6 +295,16 @@ class SessionConversationWebSocket {
 
     if (type === 'session:mode_changed') {
       this.emit('session:mode_changed', data as SessionModeChangedDto)
+      return
+    }
+
+    // 子 agent 事件：后端以 sub_agent:tool:start, sub_agent:tool:result 等类型发送
+    if (type.startsWith('sub_agent:')) {
+      const eventType = type.slice('sub_agent:'.length)
+      this.emit('sub_agent:event', {
+        event_type: eventType,
+        ...(data as Record<string, unknown>),
+      } as SubAgentEventDto)
       return
     }
   }

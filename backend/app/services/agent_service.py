@@ -471,6 +471,7 @@ class AgentService:
 
         # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
         # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path）
+        # event_callback 使子 agent 执行事件通过父级 SSE 链路实时推送到前端
         def _delegate_runner_factory(task, input_data=None, expected_output=None):
             return SubAgentRunner(
                 task=task,
@@ -481,7 +482,10 @@ class AgentService:
                 project_path=project_path,
                 session_id=f"{session_id}-sub",
             )
-        run_tool_registry.register(DelegateTool(runner_factory=_delegate_runner_factory))
+        run_tool_registry.register(DelegateTool(
+            runner_factory=_delegate_runner_factory,
+            event_callback=event_callback,
+        ))
 
         execution_loop = RapidExecutionLoop(
             llm=llm,

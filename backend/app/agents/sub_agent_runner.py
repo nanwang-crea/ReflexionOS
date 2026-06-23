@@ -3,9 +3,9 @@ SubAgentRunner — 在内存中执行独立 Agent Loop 的引擎。
 
 复用 RapidExecutionLoop 实现，但：
 - 不走 Task → Execution → SSE 链路
-- 使用 no-op event callback（不广播事件）
 - 工具集排除 delegate（防递归）
 - temperature 设为 parent 的 60%（更确定性）
+- 可选 event_callback：提供时将子 agent 执行事件实时推送到前端
 """
 
 from __future__ import annotations
@@ -14,7 +14,11 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from collections.abc import Callable, Coroutine
 from typing import Any
+
+# 事件回调类型签名（与 RapidExecutionLoop 一致）
+EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
@@ -78,6 +82,7 @@ class SubAgentRunner:
         max_steps: int | None = None,
         project_path: str | None = None,
         session_id: str | None = None,
+        event_callback: EventCallback | None = None,
     ):
         self._task = task
         self._llm_config = llm_config
@@ -86,6 +91,8 @@ class SubAgentRunner:
         self._max_steps = max_steps or self.DEFAULT_MAX_STEPS
         self._project_path = project_path
         self._session_id = session_id or f"sub-{uuid.uuid4().hex[:8]}"
+        # 外部注入的事件回调（提供时实时推送子 agent 执行事件到前端）
+        self._event_callback: EventCallback | None = event_callback
 
         # 从父级 registry 构建过滤版本（排除 delegate）
         self._tool_registry = _build_filtered_registry(parent_tool_registry)
@@ -102,12 +109,13 @@ class SubAgentRunner:
         # 1. 创建 LLM 适配器
         llm: UniversalLLMInterface = LLMAdapterFactory.create(self._llm_config)
 
-        # 2. 创建 RapidExecutionLoop（no-op event callback）
+        # 2. 创建 RapidExecutionLoop（使用注入的 event_callback 或 no-op）
+        callback = self._event_callback or _noop_event_callback
         loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=self._tool_registry,
             max_steps=self._max_steps,
-            event_callback=_noop_event_callback,
+            event_callback=callback,
         )
 
         # 3. 构建 task_content（包含 input_data 和 expected_output）

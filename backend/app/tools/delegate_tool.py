@@ -8,9 +8,13 @@ DelegateTool — 主 Agent 委托子任务给 SubAgentRunner 的工具。
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from app.tools.base import BaseTool, ToolResult
+
+# 事件回调类型签名（与 RapidExecutionLoop/SubAgentRunner 一致）
+EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +36,15 @@ class DelegateTool(BaseTool):
     # 子 agent 工具集排除的工具（防递归）
     EXCLUDED_TOOLS: frozenset[str] = frozenset({"delegate"})
 
-    def __init__(self, runner_factory: RunnerFactory):
+    def __init__(
+        self,
+        runner_factory: RunnerFactory,
+        event_callback: EventCallback | None = None,
+    ):
         super().__init__()
         self._runner_factory = runner_factory
+        # 外部注入的事件回调，用于将子 agent 执行事件实时推送到前端
+        self._event_callback: EventCallback | None = event_callback
 
     @property
     def name(self) -> str:
@@ -85,6 +95,11 @@ class DelegateTool(BaseTool):
 
         input_data = args.get("input")
         expected_output = args.get("expected_output")
+        # 从 ToolCallExecutor 设置的上下文变量中获取当前 tool call ID
+        # 用于让前端将子 agent 事件关联到正确的 DelegateToolCall 组件
+        from app.execution.tool_call_executor import _current_tool_call_id
+
+        delegate_call_id: str = _current_tool_call_id.get("")
 
         logger.info("DelegateTool 执行: task=%.100s", task)
 
@@ -95,6 +110,26 @@ class DelegateTool(BaseTool):
                 input_data=input_data,
                 expected_output=expected_output,
             )
+
+            # 如果有外部事件回调，注入到 runner 并用 sub_agent: 前缀包装事件
+            # 每个事件都携带 delegate_call_id，让前端能关联到正确的 DelegateToolCall 组件
+            if self._event_callback:
+                parent_cb = self._event_callback
+                call_id = delegate_call_id
+
+                async def _sub_agent_event_callback(
+                    event_type: str, data: dict[str, Any]
+                ) -> None:
+                    # 注入 delegate_call_id 和 task 描述，前端用于关联和展示
+                    enriched = {
+                        **data,
+                        "delegate_call_id": call_id,
+                        "task": task[:200],
+                    }
+                    # 添加 sub_agent: 前缀，让前端区分主/子 agent 事件
+                    await parent_cb(f"sub_agent:{event_type}", enriched)
+
+                runner._event_callback = _sub_agent_event_callback
 
             # 执行 sub-agent
             result = await runner.run()
