@@ -74,11 +74,32 @@ vi.mock('@/features/conversation/api/conversation.api', () => ({
   },
 }))
 
-vi.mock('@/features/conversation/stores/conversation.store', () => ({
-  useConversationStore: {
-    getState: () => conversationStoreState,
+vi.mock('@/features/conversation/stores/conversation.store', () => {
+  // useConversationStore 既可作为 selector hook 调用（runtime 订阅活跃会话签名时），
+  // 也提供 getState（命令式读取）。两种用法都打到同一份 conversationStoreState。
+  const useConversationStore = ((selector?: (state: typeof conversationStoreState) => unknown) =>
+    selector ? selector(conversationStoreState) : conversationStoreState) as unknown as {
+      (selector?: (state: typeof conversationStoreState) => unknown): unknown
+      getState: () => typeof conversationStoreState
+    }
+  useConversationStore.getState = () => conversationStoreState
+
+  return {
+  useConversationStore,
+  // 按 runId 反查所属 sessionId：遍历各会话的 runsById（与真实实现一致）。
+  findSessionIdByRunId: (
+    conversationsBySessionId: Record<string, { runsById?: Record<string, unknown> }>,
+    runId: string,
+  ) => {
+    for (const [sessionId, conversation] of Object.entries(conversationsBySessionId)) {
+      if (conversation.runsById?.[runId]) {
+        return sessionId
+      }
+    }
+    return null
   },
-}))
+  }
+})
 
 vi.mock('@/features/sessions/stores/session.store', () => ({
   useSessionStore: {
@@ -93,6 +114,16 @@ vi.mock('@/shared/stores/toast.store', () => ({
   useToastStore: {
     getState: () => ({
       addToast: vi.fn(),
+    }),
+  },
+}))
+
+vi.mock('@/features/workspace/stores/workspace.store', () => ({
+  useWorkspaceStore: {
+    getState: () => ({
+      sessionSyncHealthBySessionId: {} as Record<string, 'degraded'>,
+      markSessionSyncDegraded: vi.fn(),
+      clearSessionSyncHealth: vi.fn(),
     }),
   },
 }))
@@ -414,6 +445,17 @@ describe('useConversationRuntime', () => {
 
   it('routes approve and deny tool decisions through the session websocket channel', async () => {
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    conversationStoreState.conversationsBySessionId = {
+      'session-1': {
+        session: { activeTurnId: 'turn-1' },
+        turnsById: {
+          'turn-1': { activeRunId: 'run-1' },
+        },
+        runsById: {
+          'run-1': { status: 'waiting_for_approval' },
+        },
+      },
+    }
 
     const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')

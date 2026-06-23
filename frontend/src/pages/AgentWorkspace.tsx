@@ -10,6 +10,7 @@ import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
 import { useConversationData } from '@/hooks/useConversationData'
 import { useConversationRuntime } from '@/hooks/useConversationRuntime'
+import { useSessionUnreadState } from '@/hooks/useSessionUnreadState'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
@@ -40,6 +41,8 @@ export default function AgentWorkspace() {
     loadMore,
   } = useConversationRuntime(currentSessionId)
   const { messages, isRunning, plan, hasMore, oldestLoadedTurnId } = useConversationData(currentSessionId)
+  // 当前会话被查看时，持续把已读基线追到最新，使其不累积未读；离开后再增长的事件才算未读。
+  useSessionUnreadState(currentSessionId)
   const agentMode: AgentMode = useConversationStore(
     (s) => currentSessionId ? s.agentModeBySessionId[currentSessionId] ?? 'build' : 'build'
   )

@@ -53,3 +53,4 @@ log/
 .pnpm-store/
 backend/.reflexion/
 .reflexion/
+.interview-kit/
