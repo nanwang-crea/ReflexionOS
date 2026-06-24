@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from app.config.settings import ConfigManager
 
@@ -28,6 +28,9 @@ from app.llm import LLMAdapterFactory
 from app.llm.base import UniversalLLMInterface
 from app.models.llm_config import ResolvedLLMConfig
 from app.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from app.execution.approval_flow import ApprovalFlow
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +87,7 @@ class SubAgentRunner:
         project_path: str | None = None,
         session_id: str | None = None,
         event_callback: EventCallback | None = None,
+        parent_approval_flow: ApprovalFlow | None = None,  # 主 Agent 的审批流（用于共享审批逻辑）
     ):
         self._task = task
         self._llm_config = llm_config
@@ -95,6 +99,8 @@ class SubAgentRunner:
         self._session_id = session_id or f"sub-{uuid.uuid4().hex[:8]}"
         # 外部注入的事件回调（提供时实时推送子 agent 执行事件到前端）
         self._event_callback: EventCallback | None = event_callback
+        # 主 Agent 的审批流（SubAgent 通过共享此实例，将审批请求路由到主 Agent）
+        self._parent_approval_flow = parent_approval_flow
 
         # 从父级 registry 构建过滤版本（排除 delegate）
         self._tool_registry = _build_filtered_registry(parent_tool_registry)
@@ -112,12 +118,14 @@ class SubAgentRunner:
         llm: UniversalLLMInterface = LLMAdapterFactory.create(self._llm_config)
 
         # 2. 创建 RapidExecutionLoop（使用注入的 event_callback 或 no-op）
+        # 如果提供了主 Agent 的 approval_flow，则复用它（实现审批共享）
         callback = self._event_callback or _noop_event_callback
         loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=self._tool_registry,
             max_steps=self._max_steps,
             event_callback=callback,
+            approval_flow=self._parent_approval_flow,  # 共享主 Agent 的审批流
         )
 
         # 3. 构建 task_content（包含 input_data 和 expected_output）

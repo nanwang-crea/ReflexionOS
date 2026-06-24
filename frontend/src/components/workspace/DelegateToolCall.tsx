@@ -29,18 +29,21 @@ export function getSubAgentToolStepCount(steps: SubAgentStep[]): number {
   return maxStep
 }
 import { SubAgentDetailPanel } from './SubAgentDetailPanel'
+import type { ToolApprovalActionHandler } from './ToolTraceCard'
 
 interface DelegateToolCallProps {
   detail: ActionReceiptDetail
   /** delegate 的 arguments（从 payloadJson.arguments 解析） */
   args?: Record<string, unknown>
+  /** 审批操作处理函数，传递给子 agent 的 ActionReceipt */
+  onApprovalAction?: ToolApprovalActionHandler
 }
 
 function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '...' : text
 }
 
-export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }: DelegateToolCallProps) {
+export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, onApprovalAction }: DelegateToolCallProps) {
   const [expanded, setExpanded] = useState(false)
   const [showDetail, setShowDetail] = useState(false)
 
@@ -193,6 +196,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }:
           steps={subAgentSteps}
           isRunning={isRunning}
           onClose={handleCloseDetail}
+          onApprovalAction={onApprovalAction}
         />
       )}
     </>

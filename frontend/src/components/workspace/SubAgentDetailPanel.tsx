@@ -18,6 +18,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { buildReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
+import type { ToolApprovalActionHandler } from './ToolTraceCard'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,8 @@ interface SubAgentDetailPanelProps {
   isRunning: boolean
   /** 关闭面板回到主对话 */
   onClose: () => void
+  /** 审批操作处理函数，传递给 ActionReceipt */
+  onApprovalAction?: ToolApprovalActionHandler
 }
 
 /** 渲染项：将原始步骤分组为可渲染的结构 */
@@ -236,7 +239,13 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
 // RenderItem — 单个渲染项
 // ---------------------------------------------------------------------------
 
-const RenderItem = memo(function RenderItem({ item }: { item: SubAgentRenderItem }) {
+const RenderItem = memo(function RenderItem({
+  item,
+  onApprovalAction,
+}: {
+  item: SubAgentRenderItem
+  onApprovalAction?: ToolApprovalActionHandler
+}) {
   switch (item.kind) {
     case 'thinking':
       return (
@@ -255,7 +264,7 @@ const RenderItem = memo(function RenderItem({ item }: { item: SubAgentRenderItem
     case 'tool_group':
       return (
         <div className="px-4 py-2">
-          <ActionReceipt details={item.details} status={item.status} />
+          <ActionReceipt details={item.details} status={item.status} onApprovalAction={onApprovalAction} />
         </div>
       )
 
@@ -299,6 +308,7 @@ export function SubAgentDetailPanel({
   steps,
   isRunning,
   onClose,
+  onApprovalAction,
 }: SubAgentDetailPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
@@ -402,7 +412,7 @@ export function SubAgentDetailPanel({
         {renderItems.length > 0 && (
           <div className="max-w-[920px] mx-auto w-full py-2">
             {renderItems.map((item) => (
-              <RenderItem key={item.key} item={item} />
+              <RenderItem key={item.key} item={item} onApprovalAction={onApprovalAction} />
             ))}
 
             {/* 运行中的尾部指示器 */}

@@ -473,9 +473,19 @@ class AgentService:
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         run_tool_registry.register(WorkingMemoryTool())
 
+        # 先创建主 Agent 的 execution_loop（需要在工厂函数之前，以便获取其 approval_flow）
+        execution_loop = RapidExecutionLoop(
+            llm=llm,
+            tool_registry=run_tool_registry,
+            event_callback=event_callback,
+            context_window=resolved_llm.context_window,
+        )
+        self._execution_loops[run_id] = execution_loop
+
         # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
-        # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path）
+        # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path, approval_flow, event_callback）
         # event_callback 使子 agent 执行事件通过父级 SSE 链路实时推送到前端
+        # parent_approval_flow 使子 agent 的审批请求路由到主 agent（用户在同一界面处理）
         def _delegate_runner_factory(task, input_data=None, expected_output=None):
             return SubAgentRunner(
                 task=task,
@@ -485,19 +495,13 @@ class AgentService:
                 expected_output=expected_output,
                 project_path=project_path,
                 session_id=f"{session_id}-sub",
+                event_callback=event_callback,  # 传递事件回调，使 SubAgent 事件能发送到前端
+                parent_approval_flow=execution_loop.approval_flow,  # 共享主 Agent 的审批流
             )
         run_tool_registry.register(DelegateTool(
             runner_factory=_delegate_runner_factory,
             event_callback=event_callback,
         ))
-
-        execution_loop = RapidExecutionLoop(
-            llm=llm,
-            tool_registry=run_tool_registry,
-            event_callback=event_callback,
-            context_window=resolved_llm.context_window,
-        )
-        self._execution_loops[run_id] = execution_loop
 
         try:
             session = self.session_repo.get(session_id)
