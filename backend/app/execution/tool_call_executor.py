@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from typing import Any
 
 from app.execution.context_manager import LoopContext
@@ -13,6 +14,12 @@ from app.tools.registry import ToolRegistry
 from app.tools.working_memory_tool import WorkingMemoryTool
 
 logger = logging.getLogger(__name__)
+
+# 当前正在执行的工具调用 ID，由 ToolCallExecutor 在每次 execute 前设置
+# 供需要感知 call_id 的工具（如 DelegateTool）读取
+_current_tool_call_id: ContextVar[str] = ContextVar(
+    "_current_tool_call_id", default=""
+)
 
 READ_ONLY_TOOL_NAMES = frozenset({"grep", "glob", "session_recall"})
 READ_ONLY_FILE_ACTIONS = frozenset({"read", "search", "list"})
@@ -123,7 +130,12 @@ class ToolCallExecutor:
             if missing:
                 raise ValueError(f"缺少必需参数: {', '.join(missing)}")
 
-            result = await tool.execute(tool_call.arguments)
+            # 设置当前 tool_call_id 到上下文变量，供需要感知 call_id 的工具读取
+            _call_id_token = _current_tool_call_id.set(tool_call.id)
+            try:
+                result = await tool.execute(tool_call.arguments)
+            finally:
+                _current_tool_call_id.reset(_call_id_token)
 
             if result.approval_required:
                 approval = result.approval

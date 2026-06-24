@@ -59,6 +59,13 @@ class PluginSettings(BaseModel):
     auto_update: bool = False
 
 
+class SubAgentSettings(BaseModel):
+    """子代理配置"""
+
+    # 子代理单次委托的最大执行步数
+    max_steps: int = Field(default=100, ge=1, le=500)
+
+
 class UISettings(BaseModel):
     """UI 偏好配置"""
 
@@ -84,6 +91,7 @@ class AppSettings(BaseModel):
 
     llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
+    subagent: SubAgentSettings = Field(default_factory=SubAgentSettings)
     memory: MemorySettings = MemorySettings()
     ui: UISettings = UISettings()
     skill: SkillSettings = SkillSettings()
