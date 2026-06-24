@@ -299,11 +299,15 @@ class SessionConversationWebSocket {
     }
 
     // 子 agent 事件：后端以 sub_agent:tool:start, sub_agent:tool:result 等类型发送
+    // data 是扁平结构，需要映射为 SubAgentEventDto：event_type + delegate_call_id + payload
     if (type.startsWith('sub_agent:')) {
       const eventType = type.slice('sub_agent:'.length)
+      const rawData = (data ?? {}) as Record<string, unknown>
+      const { delegate_call_id, ...rest } = rawData
       this.emit('sub_agent:event', {
         event_type: eventType,
-        ...(data as Record<string, unknown>),
+        delegate_call_id: delegate_call_id as string | undefined,
+        payload: rest,
       } as SubAgentEventDto)
       return
     }

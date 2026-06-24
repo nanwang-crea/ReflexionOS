@@ -3,17 +3,24 @@
  *
  * 以全屏 overlay 形式覆盖在主对话上方，展示子 agent 的实时执行步骤流。
  * 点击返回按钮或按 Escape 关闭，回到主对话。
+ *
+ * 渲染逻辑复用主聊天页面的组件：
+ * - ThinkingBlock 用于 llm:reasoning（思考过程）
+ * - MarkdownRenderer 用于 llm:content（模型输出）
+ * - ActionReceipt + buildReceiptDetail 用于 tool:start/tool:result 工具调用
  */
-import { useCallback, useEffect, useRef } from 'react'
-import {
-  Loader2,
-  ArrowLeft,
-  CheckCircle2,
-  AlertCircle,
-  Wrench,
-  MessageSquare,
-} from 'lucide-react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { Loader2, ArrowLeft } from 'lucide-react'
 import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
+import { ThinkingBlock } from './ThinkingBlock'
+import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
+import { ActionReceipt } from '@/components/execution/ActionReceipt'
+import { buildReceiptDetail } from '@/components/execution/receiptUtils'
+import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface SubAgentDetailPanelProps {
   /** 子 agent 任务描述 */
@@ -26,136 +33,260 @@ interface SubAgentDetailPanelProps {
   onClose: () => void
 }
 
-/** 根据事件类型返回对应的图标和样式 */
-function getStepVisual(step: SubAgentStep): {
-  icon: React.ReactNode
-  label: string
-  colorClass: string
-} {
-  const t = step.eventType
-  if (t === 'tool:start') {
-    return {
-      icon: <Wrench className="h-3.5 w-3.5" />,
-      label: '工具调用',
-      colorClass: 'text-accent',
+/** 渲染项：将原始步骤分组为可渲染的结构 */
+type SubAgentRenderItem =
+  | { kind: 'thinking'; text: string; isStreaming: boolean; key: string }
+  | { kind: 'content'; text: string; key: string }
+  | { kind: 'tool_group'; details: ActionReceiptDetail[]; status: ActionReceiptStatus; key: string }
+  | { kind: 'delegate'; label: string; taskText: string; key: string }
+  | { kind: 'error'; text: string; key: string }
+
+// ---------------------------------------------------------------------------
+// buildSubAgentRenderItems — 将 SubAgentStep[] 分组为渲染项
+// ---------------------------------------------------------------------------
+
+/**
+ * 将子 agent 的原始事件步骤转换为分组渲染项。
+ *
+ * 分组规则（与主聊天页面 buildTranscriptItems 一致）：
+ * 1. 连续的 llm:reasoning 合并为一个 thinking 项
+ * 2. 连续的 llm:content 合并为一个 content 项（用 MarkdownRenderer 渲染）
+ * 3. tool:start + tool:result/error 配对为 tool_group（用 ActionReceipt 渲染）
+ * 4. delegate:start/result/error 为委托项
+ * 5. 遇到不同类型的事件时，先刷新当前缓冲区
+ */
+function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
+  const items: SubAgentRenderItem[] = []
+
+  // 当前缓冲区：用于合并连续的同类事件
+  let thinkingBuf = ''
+  let contentBuf = ''
+  let thinkingStartIdx = 0
+  let contentStartIdx = 0
+
+  // 工具调用组：收集 tool:start 创建的 receipt detail，等待配对的 tool:result
+  const toolGroup: ActionReceiptDetail[] = []
+  let toolStartStepIdx = 0
+
+  /** 刷新 thinking 缓冲区 */
+  const flushThinking = (isLast: boolean) => {
+    if (thinkingBuf) {
+      items.push({
+        kind: 'thinking',
+        text: thinkingBuf,
+        // 最后一批且仍在运行 → 流式状态
+        isStreaming: isLast,
+        key: `thinking-${thinkingStartIdx}`,
+      })
+      thinkingBuf = ''
     }
   }
-  if (t === 'tool:result') {
-    const success = step.payload.success !== false
-    return {
-      icon: success
-        ? <CheckCircle2 className="h-3.5 w-3.5" />
-        : <AlertCircle className="h-3.5 w-3.5" />,
-      label: success ? '工具完成' : '工具失败',
-      colorClass: success ? 'text-green-500' : 'text-red-500',
+
+  /** 刷新 content 缓冲区 */
+  const flushContent = () => {
+    if (contentBuf) {
+      items.push({ kind: 'content', text: contentBuf, key: `content-${contentStartIdx}` })
+      contentBuf = ''
     }
   }
-  if (t === 'tool:error') {
-    return {
-      icon: <AlertCircle className="h-3.5 w-3.5" />,
-      label: '工具错误',
-      colorClass: 'text-red-500',
+
+  /** 刷新工具组 */
+  const flushToolGroup = () => {
+    if (toolGroup.length > 0) {
+      // 判断整体状态
+      const allDone = toolGroup.every(d =>
+        d.status === 'success' || d.status === 'failed' || d.status === 'cancelled'
+      )
+      const anyFailed = toolGroup.some(d => d.status === 'failed')
+      const status: ActionReceiptStatus = allDone
+        ? (anyFailed ? 'partial_failed' : 'completed')
+        : 'running'
+      items.push({
+        kind: 'tool_group',
+        details: [...toolGroup],
+        status,
+        key: `tools-${toolStartStepIdx}`,
+      })
+      toolGroup.length = 0
     }
   }
-  if (t === 'llm:content') {
-    return {
-      icon: <MessageSquare className="h-3.5 w-3.5" />,
-      label: '模型输出',
-      colorClass: 'text-content-secondary',
+
+  /** 刷新所有缓冲区（遇到不同类型的事件时调用） */
+  const flushAll = (isLast = false) => {
+    flushThinking(isLast)
+    flushContent()
+    flushToolGroup()
+  }
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]
+    const { eventType, payload } = step
+
+    switch (eventType) {
+      case 'llm:reasoning': {
+        // 先刷新其他类型的缓冲区
+        flushContent()
+        flushToolGroup()
+        // 合并连续的 reasoning 块
+        if (!thinkingBuf) thinkingStartIdx = i
+        thinkingBuf += typeof payload.reasoning_content === 'string' ? payload.reasoning_content : ''
+        break
+      }
+
+      case 'llm:content': {
+        flushThinking(false)
+        flushToolGroup()
+        if (!contentBuf) contentStartIdx = i
+        contentBuf += typeof payload.content === 'string' ? payload.content : ''
+        break
+      }
+
+      case 'tool:start': {
+        flushAll()
+        // 使用 buildReceiptDetail 构造标准的 receipt detail
+        const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : 'unknown'
+        const toolCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : `tc_${i}`
+        const args = (payload.arguments as Record<string, unknown>) ?? {}
+        const detail = buildReceiptDetail(toolCallId, toolName, args)
+        // tool:start 意味着工具已在执行
+        detail.status = 'running'
+        toolGroup.push(detail)
+        if (toolGroup.length === 1) toolStartStepIdx = i
+        break
+      }
+
+      case 'tool:result': {
+        flushThinking(false)
+        flushContent()
+        // 找到配对的 tool:start 并更新状态
+        const resultCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const matched = resultCallId
+          ? toolGroup.find(d => d.id === resultCallId)
+          : toolGroup.find(d => d.status === 'running')
+        if (matched) {
+          matched.status = payload.success !== false ? 'success' : 'failed'
+          matched.output = typeof payload.result === 'string' ? payload.result : undefined
+          if (typeof payload.duration === 'number') {
+            matched.duration = payload.duration
+          }
+        }
+        break
+      }
+
+      case 'tool:error': {
+        flushThinking(false)
+        flushContent()
+        const errorCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const matchedErr = errorCallId
+          ? toolGroup.find(d => d.id === errorCallId)
+          : toolGroup.find(d => d.status === 'running')
+        if (matchedErr) {
+          matchedErr.status = 'failed'
+          matchedErr.error = typeof payload.error === 'string' ? payload.error : undefined
+        }
+        break
+      }
+
+      case 'delegate:start':
+      case 'delegate:call': {
+        flushAll()
+        const taskStr = typeof payload.task === 'string' ? payload.task : ''
+        const label = typeof payload.tool_name === 'string' ? payload.tool_name : 'delegate'
+        items.push({
+          kind: 'delegate',
+          label,
+          taskText: taskStr,
+          key: `delegate-${i}`,
+        })
+        break
+      }
+
+      case 'delegate:result': {
+        flushAll()
+        const resultText = typeof payload.result === 'string' ? payload.result : undefined
+        if (resultText) {
+          items.push({ kind: 'content', text: resultText, key: `delegate-result-${i}` })
+        }
+        break
+      }
+
+      case 'delegate:error': {
+        flushAll()
+        const errText = typeof payload.error === 'string' ? payload.error : '委托执行失败'
+        items.push({ kind: 'error', text: errText, key: `delegate-error-${i}` })
+        break
+      }
+
+      default: {
+        // 未知事件类型，刷新缓冲区
+        flushAll()
+        break
+      }
     }
   }
-  return {
-    icon: <Wrench className="h-3.5 w-3.5" />,
-    label: t,
-    colorClass: 'text-content-muted',
-  }
+
+  // 最终刷新 — 最后一批 thinking 如果仍在运行则标记 isStreaming
+  flushAll(true)
+
+  return items
 }
 
-/** 单条步骤的渲染 */
-function StepItem({ step }: { step: SubAgentStep }) {
-  const { icon, label, colorClass } = getStepVisual(step)
-  const payload = step.payload
+// ---------------------------------------------------------------------------
+// RenderItem — 单个渲染项
+// ---------------------------------------------------------------------------
 
-  const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : undefined
-  const content = typeof payload.content === 'string' ? payload.content : undefined
-  const error = typeof payload.error === 'string' ? payload.error : undefined
-  const success = payload.success !== false
-
-  return (
-    <div className="flex gap-3 py-3 px-4 border-b border-edge-subtle last:border-b-0">
-      {/* 左侧时间线指示器 */}
-      <div className="flex flex-col items-center shrink-0 pt-0.5">
-        <div className={`flex items-center justify-center h-7 w-7 rounded-full bg-surface-tertiary ${colorClass}`}>
-          {icon}
+const RenderItem = memo(function RenderItem({ item }: { item: SubAgentRenderItem }) {
+  switch (item.kind) {
+    case 'thinking':
+      return (
+        <div className="px-4 py-2">
+          <ThinkingBlock text={item.text} isStreaming={item.isStreaming} />
         </div>
-      </div>
+      )
 
-      {/* 右侧内容 */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className={`text-xs font-medium ${colorClass}`}>{label}</span>
-          {toolName && (
-            <span className="text-xs font-mono text-content-secondary bg-surface-tertiary px-1.5 py-0.5 rounded">
-              {toolName}
-            </span>
-          )}
-          <span className="text-[10px] text-content-muted ml-auto shrink-0">
-            {new Date(step.receivedAt).toLocaleTimeString()}
-          </span>
+    case 'content':
+      return (
+        <div className="px-4 py-2 text-sm leading-6 text-content-primary [&>div]:max-w-none">
+          <MarkdownRenderer content={item.text} />
         </div>
+      )
 
-        {/* 工具参数摘要 */}
-        {step.eventType === 'tool:start' && !!payload.arguments && (
-          <ToolArgsSummary args={payload.arguments as Record<string, unknown>} />
-        )}
+    case 'tool_group':
+      return (
+        <div className="px-4 py-2">
+          <ActionReceipt details={item.details} status={item.status} />
+        </div>
+      )
 
-        {/* 工具结果 */}
-        {step.eventType === 'tool:result' && (
-          <div className={`mt-1 text-xs leading-5 ${success ? 'text-content-muted' : 'text-red-400'}`}>
-            {error && <span className="line-clamp-3">{error}</span>}
-            {!error && content && (
-              <pre className="whitespace-pre-wrap line-clamp-6 font-mono text-[11px] text-content-secondary bg-surface-tertiary rounded px-2 py-1.5 max-h-[200px] overflow-auto">
-                {content.length > 2000 ? content.slice(0, 2000) + '...' : content}
-              </pre>
+    case 'delegate':
+      return (
+        <div className="px-4 py-2">
+          <div className="inline-flex items-center gap-1.5 text-xs font-mono text-content-secondary bg-surface-tertiary rounded px-2 py-1">
+            <Loader2 className="h-3 w-3 animate-spin text-accent" />
+            <span>{item.label}</span>
+            {item.taskText && (
+              <span className="text-content-muted truncate max-w-[400px]">
+                {item.taskText.slice(0, 100)}
+              </span>
             )}
           </div>
-        )}
+        </div>
+      )
 
-        {/* LLM 输出 */}
-        {step.eventType === 'llm:content' && content && (
-          <div className="mt-1 text-xs leading-5 text-content-secondary whitespace-pre-wrap line-clamp-8">
-            {content.length > 1000 ? content.slice(0, 1000) + '...' : content}
+    case 'error':
+      return (
+        <div className="px-4 py-2">
+          <div className="text-sm text-red-500 bg-red-500/10 rounded-lg px-3 py-2">
+            {item.text}
           </div>
-        )}
+        </div>
+      )
+  }
+})
 
-        {/* 错误 */}
-        {step.eventType === 'tool:error' && error && (
-          <div className="mt-1 text-xs text-red-400 line-clamp-3">{error}</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** 工具参数摘要 */
-function ToolArgsSummary({ args }: { args: Record<string, unknown> }) {
-  const entries = Object.entries(args).slice(0, 3)
-  return (
-    <div className="mt-1 flex flex-wrap gap-1.5">
-      {entries.map(([key, val]) => {
-        const display = typeof val === 'string'
-          ? (val.length > 80 ? val.slice(0, 80) + '...' : val)
-          : JSON.stringify(val)
-        return (
-          <span key={key} className="inline-flex items-center gap-1 text-[11px] bg-surface-tertiary rounded px-1.5 py-0.5 max-w-[300px]">
-            <span className="text-content-muted">{key}:</span>
-            <span className="text-content-secondary font-mono truncate">{display}</span>
-          </span>
-        )
-      })}
-    </div>
-  )
-}
+// ---------------------------------------------------------------------------
+// SubAgentDetailPanel
+// ---------------------------------------------------------------------------
 
 /**
  * 子 Agent 实时执行详情面板（二级对话页面）
@@ -170,6 +301,9 @@ export function SubAgentDetailPanel({
 }: SubAgentDetailPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const prevLenRef = useRef(0)
+
+  // 将原始步骤分组为渲染项
+  const renderItems = useMemo(() => buildSubAgentRenderItems(steps), [steps])
 
   // 新步骤到达时自动滚动到底部
   useEffect(() => {
@@ -224,28 +358,28 @@ export function SubAgentDetailPanel({
         </div>
       </div>
 
-      {/* 步骤列表 — 类似对话的流式布局 */}
+      {/* 渲染项列表 — 复用主聊天页面的组件 */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto"
       >
-        {steps.length === 0 && isRunning && (
+        {renderItems.length === 0 && isRunning && (
           <div className="flex flex-col items-center justify-center h-full gap-3 text-content-muted">
             <Loader2 className="h-8 w-8 animate-spin text-accent" />
             <p className="text-sm">子 Agent 正在启动...</p>
           </div>
         )}
 
-        {steps.length === 0 && !isRunning && (
+        {renderItems.length === 0 && !isRunning && (
           <div className="flex items-center justify-center h-full text-content-muted text-sm">
             暂无执行记录
           </div>
         )}
 
-        {steps.length > 0 && (
+        {renderItems.length > 0 && (
           <div className="max-w-[920px] mx-auto w-full py-2">
-            {steps.map((step, i) => (
-              <StepItem key={`${step.receivedAt}-${i}`} step={step} />
+            {renderItems.map((item) => (
+              <RenderItem key={item.key} item={item} />
             ))}
 
             {/* 运行中的尾部指示器 */}

@@ -462,6 +462,10 @@ class AgentService:
                 await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
             elif event_type.startswith("metrics:"):
                 await self.conversation_broadcaster.send_event(session_id, event_type, data)
+            elif event_type.startswith("sub_agent:"):
+                # 子 agent 事件直接透传到前端，不经过 runtime adapter 持久化
+                # 前端通过 WebSocket 消息中的 sub_agent: 前缀识别并路由到子 agent store
+                await self.conversation_broadcaster.send_event(session_id, event_type, data)
             else:
                 await persist_and_broadcast(event_type, data)
 
