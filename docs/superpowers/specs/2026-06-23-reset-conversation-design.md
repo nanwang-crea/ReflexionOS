@@ -60,36 +60,54 @@
 
 ### 5.2 后端：先停后清
 
-**Agent 层 `agent_service.reset_session(session_id)`：**
+**Agent 层 `agent_service.reset_session(session_id)`（参照已有 `edit_and_rerun` 的范式）：**
 
-1. 查询 session，取 `active_turn_id`；若有对应的 active run，`await self.cancel_run(run_id)`。
+1. 校验 session 存在，否则抛 `NotFoundValueError`。
+2. **写锁外**先停 run：解析当前 active run（`resolve_active_run_id_from_conversation`），若有则 `await self.cancel_run(run_id)`。
    - `cancel_run` 已实现完整的"先停"：发送取消事件、`task.cancel()`、轮询等待任务真正结束、再落库取消状态。
-2. 调用 `conversation_service.reset_session(session_id)` 清库。
+   - 为什么放写锁外：`cancel_run` 内部会自行短暂获取写锁并 `await` 任务结束，若整段持锁会与之冲突死锁。这与 `edit_and_rerun` 的做法一致。
+3. 调用 `conversation_service.reset_session(session_id)` 清库（清库段在写锁内重新校验，见下）。
+
+> **关于原子性（修订）**：第 2 步的 `cancel_run` 是异步取消，本身不持有贯穿到清库的写锁，因此「取消完成」到「进入清库段」之间存在并发窗口（理论上极小，但不为零）。本方案不声称端到端原子，而是把约束收紧为：清库段进入写锁后**重新校验**该 session 已无 active run（`active_turn_id` 对应的 run 不处于运行/等待审批态）。若校验发现仍有活跃 run（极端竞态：取消后又被拉起），则放弃删除并返回冲突错误，由前端重试，绝不在有活跃 run 时删库。
 
 **Service 层 `ConversationService.reset_session(session_id)`：**
 
 在该 session 的写锁（`acquire_session_write_lock`）+ 一个 DB 事务内：
 
-1. 取该 session 全部 turn（`turn_repo.list_by_session`）的 id 列表。
-2. 级联删除（复用已有删除原语，与 `truncate_after_message` 同源）：
+1. 重读 session，校验无活跃 run（见上「关于原子性」）；有则抛冲突错误，不删。
+2. 取该 session 全部 turn（`turn_repo.list_by_session`）的 id 列表。
+3. 级联删除（复用已有删除原语，与 `truncate_after_message` 同源）：
    - `message_search_repo.delete_by_turn_ids`
    - `message_repo.delete_by_turn_ids`
    - `run_repo.delete_by_turn_ids`
    - `event_repo.delete_by_turn_ids`
    - `turn_repo.delete_by_session_after_index(session_id, 0)`（从 turn_index 0 起，等价于全删）
-3. 重置 `SessionModel`：`active_turn_id = None`、`last_event_seq = 0`。
+4. 重置 `SessionModel`：`active_turn_id = None`、`last_event_seq = 0`。
 
 > 语义等价于"把会话截断到第 0 个 turn 之前"，即清空所有 turn，但保留 session 行本身。
 
-### 5.3 前端：成功后才清显示
+### 5.3 前端：成功后才清显示（并同步两类真值）
 
-**API client：** 新增 `resetSession(sessionId)`，对应 `POST /api/sessions/{id}/reset`。
+清空聊天区只是其中一步。后端 reset 会改变两类前端依赖的"真值"，必须一并同步，否则侧边栏会显示陈旧状态：
+
+- **会话列表真值（`session.store` 的 `SessionSummary`）**：侧边栏的标题、忙碌态、未读判断读的是 `session.store`，而非 `conversation.store`。现有 `updateSession` / `deleteSession` 都会 `upsertSession` + `ensureProjectSessionsLoaded` 来回写；reset 也必须照做，否则列表里这条会话的 `lastEventSeq` / `activeTurnId` 还停在旧值。
+- **未读已读基线（`workspace.store` 的 `lastSeenEventSeqBySessionId`）**：`markSessionSeen` 是**单调递增**的（`lastEventSeq <= current` 直接 return）。后端 `last_event_seq` 清零后从 1 重新计数，但前端 seen 仍停在旧高位（如 120），会导致重置后新消息在 1..120 区间**永远判不出未读**。必须把该会话的 seen 基线强制回退到 0。
+
+**API client：** 新增 `resetSession(sessionId)`，对应 `POST /api/sessions/{id}/reset`，返回重置后的 `Session`。
+
+**新增 store 动作 `workspace.store.resetSessionSeen(sessionId)`：** 把 `lastSeenEventSeqBySessionId[sessionId]` 删除/置 0。这是 `markSessionSeen` 之外唯一允许让 seen **回退**的入口，专供 reset 使用，不破坏正常路径的单调性。
 
 **改造 `resetConversationRuntime`（`useConversationRuntime.ts`）：**
 
-1. `await resetSession(currentSessionId)`。
-2. 成功后再执行原有三步：关 WS、清取消标志、`clearConversation`。
-3. 失败则不清前端显示，弹出错误提示（避免前端清空、后端没清导致的不一致）。
+1. `await resetSession(currentSessionId)`，拿到返回的 Session。
+2. 成功后同步真值与显示（顺序无强依赖，但都在成功分支内）：
+   - `clearConversation(currentSessionId)` — 清 conversation 内存快照。
+   - `upsertSession(projectId, session)` — 用返回的 Session 回写列表真值（计数已清零）。
+   - `resetSessionSeen(currentSessionId)` — 回退未读基线，避免"永不未读"。
+   - 关 WS、清取消标志（保持原有行为）。
+3. 失败则**不**清前端任何状态，弹出错误提示（避免前端清空、后端没清导致的不一致）。
+
+> 备选：第 2 步也可只调 `ensureProjectSessionsLoaded(projectId)` 全量补拉列表，与 `updateSession`/`deleteSession` 完全对齐；但 reset 接口已返回单个 Session，`upsertSession` 更省一次往返。实现时二选一，plan 里定。
 
 **二次确认：** 重置是破坏性操作，按钮点击后弹出确认对话框（"确定要清空当前会话的全部对话记录吗？此操作不可恢复。"），确认后才真正调用。
 
@@ -100,19 +118,26 @@
   → 前端二次确认
   → POST /api/sessions/{id}/reset
       → agent_service.reset_session
-          → (若有 active run) cancel_run  [先停，等任务真正结束]
-          → conversation_service.reset_session  [写锁+事务内级联删库 + 重置 session 计数]
+          → (写锁外, 若有 active run) cancel_run  [先停，等任务真正结束]
+          → conversation_service.reset_session  [写锁内: 重校验无活跃run → 级联删库 → 重置 session 计数]
       → 返回 Session
-  → 前端：关 WS + 清取消标志 + clearConversation  [清显示]
-  → 用户看到空白对话
+  → 前端(成功分支):
+        clearConversation        [清聊天区快照]
+        upsertSession(Session)    [同步会话列表真值]
+        resetSessionSeen(id)      [回退未读基线]
+        关 WS + 清取消标志
+  → 用户看到空白对话, 侧边栏状态同步清零
 ```
 
 ## 6. 边界与降级
 
 - **空会话重置**：没有任何 turn 时，重置应是幂等无害的（删除 0 行，session 计数已是 0），返回成功。
 - **会话不存在**：返回 NotFound 错误（复用 `value_error_to_app_error`）。
-- **运行中重置**：先 `cancel_run` 等待真正停止，再删库，避免孤儿 run 或正在写入的并发冲突；写锁保证清库期间不会有新事件插入。
-- **后端失败**：前端不清空显示，提示用户重试，保持前后端一致。
+- **运行中重置**：先 `cancel_run`（写锁外）等待真正停止，再进清库段；清库段在写锁内**重新校验**已无活跃 run，校验失败返回冲突错误由前端重试，绝不在有活跃 run 时删库。写锁保证清库段本身不会有新事件并发插入。
+- **取消与清库之间的竞态**：`cancel_run` 完成到进入写锁之间存在极小窗口（见 5.2「关于原子性」）。靠写锁内重校验兜底，而非声称端到端原子。
+- **后端失败 / 返回冲突**：前端不清空任何显示与列表/未读状态，提示用户重试，保持前后端一致。
+- **未读基线回退**：reset 成功后必须 `resetSessionSeen`，否则后端计数清零、前端 seen 仍在旧高位，会"永不未读"（见 5.3）。
+- **会话列表真值同步**：reset 成功后必须用返回的 Session `upsertSession`（或全量补拉），否则侧边栏标题/忙碌/未读读到的仍是旧 `SessionSummary`（见 5.3）。
 - **重置当前正在查看的会话 vs 后台会话**：HTTP 入口对两者一视同仁；后台会话重置后，下次切回拉快照得到空白。
 
 ## 7. 测试策略
@@ -120,10 +145,14 @@
 **后端：**
 
 - `ConversationService.reset_session`：建若干 turn/run/message/event/search 后重置，断言全部清空、`active_turn_id=None`、`last_event_seq=0`；空会话重置幂等。
-- `agent_service.reset_session`：有 active run 时先调用 `cancel_run` 再清库（可用 mock 校验调用顺序）。
-- API：`POST /sessions/{id}/reset` 返回 200 + 重置后的 session；会话不存在返回错误。
+- `ConversationService.reset_session` 冲突路径：写锁内重校验发现仍有活跃 run 时，抛冲突错误且**不删任何数据**。
+- `agent_service.reset_session`：有 active run 时先调用 `cancel_run` 再清库（mock 校验调用顺序）；无 active run 时直接清库。
+- API：`POST /sessions/{id}/reset` 返回 200 + 重置后的 session；会话不存在返回错误；冲突返回相应错误码。
 
 **前端：**
 
-- `resetConversationRuntime`：成功路径调用 `resetSession` 后才 `clearConversation` + 关 WS；失败路径不清显示。
+- `resetConversationRuntime` 成功路径：调用 `resetSession` 后才 `clearConversation` + `upsertSession`（同步列表真值）+ `resetSessionSeen`（回退未读基线）+ 关 WS。
+- `resetConversationRuntime` 失败路径：不 `clearConversation`、不 `upsertSession`、不动未读基线，保持原状并提示。
+- `workspace.store.resetSessionSeen`：把指定会话的 seen 置 0，且不影响其他会话；验证它是 `markSessionSeen` 单调性之外唯一的回退入口。
+- 未读派生回归：reset 后 seen=0，后端从 1 重新计数时新事件能正确判为未读（覆盖 1..旧高位 区间）。
 - `WorkspaceHeader` / `AgentWorkspace`：点击按钮触发二次确认，确认后才调用。

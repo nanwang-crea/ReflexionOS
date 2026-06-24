@@ -18,6 +18,7 @@ import { useProjectStore } from '@/features/projects/stores/project.store'
 import { useImageUpload } from '@/features/conversation/hooks/useImageUpload'
 import { supportsVision } from '@/constants/visionModels'
 import { useToastStore } from '@/shared/stores/toast.store'
+import { nativeDialogService } from '@/services/dialogService'
 import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
@@ -62,6 +63,16 @@ export default function AgentWorkspace() {
     const newMode: AgentMode = agentMode === 'build' ? 'plan' : 'build'
     setMode(newMode)
   }, [currentSessionId, agentMode, isRunning, setMode])
+
+  // 重置对话是破坏性操作，先二次确认再执行（先停后清，不可恢复）。
+  const handleReset = useCallback(() => {
+    if (!currentSessionId) return
+    const confirmed = nativeDialogService.confirmAction(
+      '确定要清空当前会话的全部对话记录吗？此操作不可恢复。'
+    )
+    if (!confirmed) return
+    void resetConversationRuntime()
+  }, [currentSessionId, resetConversationRuntime])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -116,7 +127,7 @@ export default function AgentWorkspace() {
     plan,
     hasMore,
     onLoadMore: currentSessionId ? (beforeTurnId) => loadMore(currentSessionId, beforeTurnId) : undefined,
-    onReset: resetConversationRuntime,
+    onReset: handleReset,
     editAndRerun,
     onApprovalAction: (action, payload) => {
       if (action === 'approve') {
