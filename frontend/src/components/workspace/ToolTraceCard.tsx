@@ -5,6 +5,7 @@ import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/exec
 export type ReceiptDetailClickHandler = (detail: ActionReceiptDetail) => void
 import type { ConversationMessage } from '@/types/conversation'
 import { buildToolTraceDetail } from './transcriptItems'
+import { DelegateToolCall } from './DelegateToolCall'
 
 export type ToolApprovalActionHandler = (
   action: ApprovalActionType,
@@ -59,10 +60,20 @@ export function ToolTraceCard({
   message: ConversationMessage
   onApprovalAction?: ToolApprovalActionHandler
 }) {
+  const detail = buildToolTraceDetail(message)
+
+  // delegate 工具使用专属 UI 组件（子任务卡片）
+  if (detail.toolName === 'delegate') {
+    const args = typeof message.payloadJson.arguments === 'object' && message.payloadJson.arguments !== null
+      ? message.payloadJson.arguments as Record<string, unknown>
+      : undefined
+    return <DelegateToolCall detail={detail} args={args} />
+  }
+
   return (
     <ToolTraceGroup
       status={toActionReceiptStatus(message)}
-      details={[buildToolTraceDetail(message)]}
+      details={[detail]}
       onApprovalAction={onApprovalAction}
     />
   )

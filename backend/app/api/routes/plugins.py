@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.config.settings import config_manager
 from app.orchestration.package_resolver import PackageResolver, PackageSpecifier
 from app.orchestration.plugin_loader import PluginLoader
 from app.orchestration.skill_registry import skill_registry

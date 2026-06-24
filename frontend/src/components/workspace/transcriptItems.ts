@@ -83,6 +83,12 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
 
   if (typeof payload.duration === 'number' && Number.isFinite(payload.duration)) { detail.duration = payload.duration }
 
+  // 将 tool_call_id 存入 data 字段，delegate 等工具需要它来关联 sub_agent 事件
+  // detail.id 是 message.id，而 sub_agent store 以 tool_call_id 为 key，两者不同
+  if (typeof payload.tool_call_id === 'string') {
+    detail.data = { ...detail.data, tool_call_id: payload.tool_call_id }
+  }
+
   return detail
 }
 

@@ -24,6 +24,7 @@ class ToolSetConfig:
             "working_memory_update",
             "edit",
             "shell",
+            "delegate",
         ]
     )
     exploration_tools: frozenset[str] = field(
@@ -37,6 +38,7 @@ class ToolSetConfig:
                 "skill",
                 "working_memory_update",
                 "plan",
+                "delegate",
             }
         )
     )
@@ -53,6 +55,8 @@ class ToolSetConfig:
             }
         )
     )
+    # sub-agent 模式下排除的工具名（防止递归调用 delegate 等）
+    sub_agent_tools: frozenset[str] = field(default_factory=frozenset)
 
 
 DEFAULT_TOOL_SET_CONFIG = ToolSetConfig()
@@ -99,14 +103,17 @@ class RuntimeToolDefinitions:
         return definitions
 
     def _allowed_tool_names(self, context: LoopContext) -> set[str]:
+        # 先排除 sub_agent_tools 中的工具（如 delegate 在 sub-agent 模式下）
+        exclude = self.config.sub_agent_tools
         if context.steps:
-            return set(self.tool_registry.list_tools())
-        available = set(self.tool_registry.list_tools())
+            return set(self.tool_registry.list_tools_excluding(exclude))
+        available = set(self.tool_registry.list_tools_excluding(exclude))
         exploration_tools = available.intersection(self.config.exploration_tools)
         return exploration_tools or available
 
     def _ordered_tool_names(self) -> list[str]:
-        names = self.tool_registry.list_tools()
+        # 使用 list_tools_excluding 排除 sub_agent_tools
+        names = self.tool_registry.list_tools_excluding(self.config.sub_agent_tools)
         known = [name for name in self.config.tool_order if name in names]
         unknown = [name for name in names if name not in self.config.tool_order]
         return known + unknown

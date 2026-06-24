@@ -16,6 +16,8 @@ import {
 import type { ConversationEvent, ConversationLiveMessage } from '@/types/conversation'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { resolveActiveRunId, resolveActiveRunStatus, ACTIVE_RUN_STATUSES } from '@/utils/activeRun'
+import { useSubAgentEventsStore } from '@/hooks/useSubAgentEvents'
+import type { SubAgentEventDto } from '@/services/sessionConversationWebSocket'
 
 interface StartTurnPayload {
   sessionId: string
@@ -420,6 +422,9 @@ export function useConversationRuntime(
           break
         }
       }
+    })
+    ws.on('sub_agent:event', (data: SubAgentEventDto) => {
+      useSubAgentEventsStore.getState().addEvent(data)
     })
 
     await ws.connect(sessionId)
