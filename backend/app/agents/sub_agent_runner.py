@@ -17,6 +17,8 @@ from datetime import datetime
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from backend.app.config.settings import ConfigManager
+
 # 事件回调类型签名（与 RapidExecutionLoop 一致）
 EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
@@ -69,7 +71,7 @@ class SubAgentRunner:
     """
 
     # 子 agent 默认最大步数
-    DEFAULT_MAX_STEPS = 50
+    DEFAULT_MAX_STEPS = ConfigManager.settings.execution.max_steps
 
     def __init__(
         self,

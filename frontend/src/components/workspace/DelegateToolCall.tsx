@@ -9,8 +9,25 @@
 import { memo, useCallback, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, AlertCircle, CheckCircle2, Users, ExternalLink } from 'lucide-react'
+import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import { useSubAgentSteps } from '@/hooks/useSubAgentEvents'
+
+/**
+ * 从子 Agent 事件流中提取真实的工具执行步数
+ *
+ * 后端在 tool:start / tool:result / tool:error 事件的 payload 中携带 step_number，
+ * 取所有事件中的最大值即为已完成的工具步数。llm:reasoning / llm:content 等流式
+ * 事件没有 step_number，不应被计入。
+ */
+export function getSubAgentToolStepCount(steps: SubAgentStep[]): number {
+  let maxStep = 0
+  for (const step of steps) {
+    const n = step.payload?.step_number
+    if (typeof n === 'number' && n > maxStep) maxStep = n
+  }
+  return maxStep
+}
 import { SubAgentDetailPanel } from './SubAgentDetailPanel'
 
 interface DelegateToolCallProps {
@@ -42,6 +59,8 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }:
   const callId = (detail.data?.tool_call_id as string) || detail.id
   const subAgentSteps = useSubAgentSteps(callId)
   const hasSteps = subAgentSteps.length > 0
+  // 使用后端发送的真实 step_number 而非事件总数，避免流式 chunk 虚增步数
+  const toolStepCount = getSubAgentToolStepCount(subAgentSteps)
 
   const handleCloseDetail = useCallback(() => setShowDetail(false), [])
 
@@ -105,9 +124,9 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }:
             <span className="text-xs font-medium text-content-secondary">
               子 Agent 运行中
             </span>
-            {hasSteps && (
+            {hasSteps && toolStepCount > 0 && (
               <span className="text-[10px] text-content-muted bg-surface-tertiary px-1.5 py-0.5 rounded-full">
-                {subAgentSteps.length} 步
+                {toolStepCount} 步
               </span>
             )}
             {!hasSteps && (
@@ -128,7 +147,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args }:
           >
             <Users className="h-3.5 w-3.5 text-content-muted shrink-0" />
             <span className="text-xs text-content-muted">
-              查看执行过程 ({subAgentSteps.length} 步)
+              查看执行过程 ({toolStepCount > 0 ? toolStepCount : subAgentSteps.length} 步)
             </span>
             <ExternalLink className="h-3 w-3 text-content-muted ml-auto" />
           </button>

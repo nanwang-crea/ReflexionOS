@@ -12,6 +12,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { Loader2, ArrowLeft } from 'lucide-react'
 import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
+import { getSubAgentToolStepCount } from './DelegateToolCall'
 import { ThinkingBlock } from './ThinkingBlock'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
@@ -300,23 +301,45 @@ export function SubAgentDetailPanel({
   onClose,
 }: SubAgentDetailPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const isNearBottomRef = useRef(true)
   const prevLenRef = useRef(0)
 
-  // 将原始步骤分组为渲染项
-  const renderItems = useMemo(() => buildSubAgentRenderItems(steps), [steps])
+  /** 判断用户是否在底部附近（阈值 80px） */
+  const checkNearBottom = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return true
+    const threshold = 80
+    return el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+  }, [])
 
-  // 新步骤到达时自动滚动到底部
+  // 用户手动滚动时更新 nearBottom 状态
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onScroll = () => {
+      isNearBottomRef.current = checkNearBottom()
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [checkNearBottom])
+
+  // 新步骤到达时，仅在用户处于底部附近时自动跟随滚动
   useEffect(() => {
     if (steps.length !== prevLenRef.current) {
       prevLenRef.current = steps.length
-      const el = scrollRef.current
-      if (el) {
-        requestAnimationFrame(() => {
-          el.scrollTop = el.scrollHeight
-        })
+      if (isNearBottomRef.current) {
+        const el = scrollRef.current
+        if (el) {
+          requestAnimationFrame(() => {
+            el.scrollTop = el.scrollHeight
+          })
+        }
       }
     }
   }, [steps.length])
+
+  // 将原始步骤分组为渲染项
+  const renderItems = useMemo(() => buildSubAgentRenderItems(steps), [steps])
 
   // Escape 关闭
   useEffect(() => {
@@ -351,7 +374,7 @@ export function SubAgentDetailPanel({
               {isRunning ? '子 Agent 执行中' : '子 Agent 执行完成'}
             </span>
             <span className="text-xs text-content-muted">
-              {steps.length} 步
+              {getSubAgentToolStepCount(steps)} 步
             </span>
           </div>
           <p className="text-xs text-content-muted mt-0.5 truncate">{task}</p>
