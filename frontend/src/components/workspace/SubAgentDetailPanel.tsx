@@ -191,6 +191,47 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         break
       }
 
+      case 'approval:required': {
+        console.log('approval:required', payload)
+        // 处理审批请求事件：找到对应的工具调用并设置为等待审批状态
+        flushThinking(false)
+        flushContent()
+        const approvalCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const matchedApproval = approvalCallId
+          ? toolGroup.find(d => d.id === approvalCallId)
+          : toolGroup.find(d => d.status === 'running')
+        
+        if (matchedApproval) {
+          matchedApproval.status = 'waiting_for_approval'
+          
+          // 从后端事件中提取审批信息
+          const approvalData = payload.approval as Record<string, unknown> | undefined
+          const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
+          const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
+          
+          if (approvalId && runId) {
+            // 构造审批对象，与前端 ActionReceiptDetail.approval 结构一致
+            matchedApproval.approval = {
+              runId,
+              approvalId,
+              shell: approvalData && typeof approvalData.shell === 'object' 
+                ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
+                : undefined,
+              sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'
+                ? approvalData as { approval_kind: 'sandbox_network_elevation'; command: string; execution_mode: string; reasons: string[]; risks: string[] }
+                : undefined,
+              sandboxPath: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_path_elevation'
+                ? approvalData as { approval_kind: 'sandbox_path_elevation'; command: string; execution_mode: string; denied_paths: string[]; reasons: string[]; risks: string[] }
+                : undefined,
+            }
+            
+            // 保存完整的审批数据（用于构造审批 UI）
+            matchedApproval.data = payload
+          }
+        }
+        break
+      }
+
       case 'delegate:start':
       case 'delegate:call': {
         flushAll()
