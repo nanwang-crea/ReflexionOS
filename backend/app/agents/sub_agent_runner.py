@@ -17,7 +17,7 @@ from datetime import datetime
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from backend.app.config.settings import ConfigManager
+from app.config.settings import ConfigManager
 
 # 事件回调类型签名（与 RapidExecutionLoop 一致）
 EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
@@ -70,8 +70,7 @@ class SubAgentRunner:
     Sub-agent 的工具集从父级 ToolRegistry 复制，但排除 delegate（防递归）。
     """
 
-    # 子 agent 默认最大步数
-    DEFAULT_MAX_STEPS = ConfigManager.settings.execution.max_steps
+    # 子 agent 默认最大步数（从配置读取，每次实例化时获取最新值）
 
     def __init__(
         self,
@@ -90,7 +89,8 @@ class SubAgentRunner:
         self._llm_config = llm_config
         self._input_data = input_data
         self._expected_output = expected_output
-        self._max_steps = max_steps or self.DEFAULT_MAX_STEPS
+        # 优先使用调用方指定的 max_steps，否则从 ConfigManager.subagent.max_steps 获取最新配置值
+        self._max_steps = max_steps or ConfigManager().settings.subagent.max_steps
         self._project_path = project_path
         self._session_id = session_id or f"sub-{uuid.uuid4().hex[:8]}"
         # 外部注入的事件回调（提供时实时推送子 agent 执行事件到前端）
