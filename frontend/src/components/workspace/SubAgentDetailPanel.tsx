@@ -97,14 +97,20 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
   /** 刷新工具组 */
   const flushToolGroup = () => {
     if (toolGroup.length > 0) {
-      // 判断整体状态
+      // 判断整体状态：优先检测等待审批状态
+      const anyWaitingApproval = toolGroup.some(d => d.status === 'waiting_for_approval')
       const allDone = toolGroup.every(d =>
         d.status === 'success' || d.status === 'failed' || d.status === 'cancelled'
       )
       const anyFailed = toolGroup.some(d => d.status === 'failed')
-      const status: ActionReceiptStatus = allDone
-        ? (anyFailed ? 'partial_failed' : 'completed')
-        : 'running'
+      
+      // 状态优先级：waiting_for_approval > completed/partial_failed > running
+      const status: ActionReceiptStatus = anyWaitingApproval
+        ? 'waiting_for_approval'
+        : allDone
+          ? (anyFailed ? 'partial_failed' : 'completed')
+          : 'running'
+      
       items.push({
         kind: 'tool_group',
         details: [...toolGroup],
