@@ -117,23 +117,30 @@ class SubAgentRunner:
         # 1. 创建 LLM 适配器
         llm: UniversalLLMInterface = LLMAdapterFactory.create(self._llm_config)
 
+        # 4. 执行 loop（先生成 run_id，用于包装事件回调）
+        run_id = f"sub-run-{uuid.uuid4().hex[:8]}"
+        logger.info("SubAgent 开始执行: run_id=%s", run_id)
+
         # 2. 创建 RapidExecutionLoop（使用注入的 event_callback 或 no-op）
         # 如果提供了主 Agent 的 approval_flow，则复用它（实现审批共享）
-        callback = self._event_callback or _noop_event_callback
+        # 包装事件回调，自动注入 run_id 到所有事件 payload 中（前端需要此字段关联审批请求）
+        base_callback = self._event_callback or _noop_event_callback
+        
+        async def callback_with_run_id(event_type: str, data: dict[str, Any]) -> None:
+            """包装事件回调，自动添加 run_id 到 payload 中"""
+            enriched_data = {**data, "run_id": run_id}
+            await base_callback(event_type, enriched_data)
+        
         loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=self._tool_registry,
             max_steps=self._max_steps,
-            event_callback=callback,
+            event_callback=callback_with_run_id,
             approval_flow=self._parent_approval_flow,  # 共享主 Agent 的审批流
         )
 
         # 3. 构建 task_content（包含 input_data 和 expected_output）
         task_content = self._build_task_content()
-
-        # 4. 执行 loop
-        run_id = f"sub-run-{uuid.uuid4().hex[:8]}"
-        logger.info("SubAgent 开始执行: run_id=%s", run_id)
 
         try:
             loop_result: LoopResult = await loop.run(

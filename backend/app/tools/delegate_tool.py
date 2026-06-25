@@ -120,16 +120,14 @@ class DelegateTool(BaseTool):
                 async def _sub_agent_event_callback(
                     event_type: str, data: dict[str, Any]
                 ) -> None:
-                    # 将原始事件数据包装在 payload 中，符合前端 SubAgentEventDto 接口
+                    # 扁平化发送所有字段，前端 WebSocket 层会自动包装成 SubAgentEventDto 结构
+                    # 前端会将 delegate_call_id 提取出来，其他字段放入 payload 中
                     enriched = {
-                        "event_type": event_type,  # 原始事件类型（如 tool:start, assistant:message）
                         "delegate_call_id": call_id,
-                        "payload": {
-                            **data,
-                            "task": task[:200],  # 附加任务描述，方便前端展示
-                        },
+                        "task": task[:200],  # 附加任务描述，方便前端展示
+                        **data,  # 展开原始事件数据（包括 run_id、tool_call_id、approval 等）
                     }
-                    # 为事件类型添加 sub_agent: 前缀，前端 reducer 会识别并处理
+                    # 为事件类型添加 sub_agent: 前缀，前端会去掉前缀得到原始事件类型
                     prefixed_event_type = f"sub_agent:{event_type}"
                     await parent_cb(prefixed_event_type, enriched)
 
