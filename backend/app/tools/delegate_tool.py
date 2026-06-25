@@ -40,11 +40,14 @@ class DelegateTool(BaseTool):
         self,
         runner_factory: RunnerFactory,
         event_callback: EventCallback | None = None,
+        parent_session_id: str | None = None,  # 主 Agent 的 session_id，用于 SubAgent 审批路由
     ):
         super().__init__()
         self._runner_factory = runner_factory
         # 外部注入的事件回调，用于将子 agent 执行事件实时推送到前端
         self._event_callback: EventCallback | None = event_callback
+        # 主 Agent 的 session_id，注入到 SubAgent 审批事件中
+        self._parent_session_id: str | None = parent_session_id
 
     @property
     def name(self) -> str:
@@ -116,6 +119,7 @@ class DelegateTool(BaseTool):
             if self._event_callback:
                 parent_cb = self._event_callback
                 call_id = delegate_call_id
+                parent_sid = self._parent_session_id  # 主 Agent 的 session_id
 
                 async def _sub_agent_event_callback(
                     event_type: str, data: dict[str, Any]
@@ -125,6 +129,7 @@ class DelegateTool(BaseTool):
                     enriched = {
                         "delegate_call_id": call_id,
                         "task": task[:200],  # 附加任务描述，方便前端展示
+                        "parent_session_id": parent_sid,  # 注入主 Agent 的 session_id，用于审批路由
                         **data,  # 展开原始事件数据（包括 run_id、tool_call_id、approval 等）
                     }
                     # 为事件类型添加 sub_agent: 前缀，前端会去掉前缀得到原始事件类型

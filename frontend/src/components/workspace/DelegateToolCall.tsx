@@ -6,12 +6,13 @@
  * - 成功：显示子任务完成 + 可展开输出
  * - 失败：显示错误信息 + 可展开详情
  */
-import { memo, useCallback, useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ChevronRight, Loader2, AlertCircle, CheckCircle2, Users, ExternalLink } from 'lucide-react'
 import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import { useSubAgentSteps } from '@/hooks/useSubAgentEvents'
+import { ActionReceipt } from '@/components/execution/ActionReceipt'
 
 /**
  * 从子 Agent 事件流中提取真实的工具执行步数
@@ -67,6 +68,85 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
 
   const handleCloseDetail = useCallback(() => setShowDetail(false), [])
 
+  // 检测子代理中是否有待审批的工具
+  const pendingApprovalTools = useMemo(() => {
+    const approvalTools: ActionReceiptDetail[] = []
+    const toolMap = new Map<string, ActionReceiptDetail>()
+    
+    // 遍历所有事件，构建工具状态
+    for (const step of subAgentSteps) {
+      const { eventType, payload } = step
+      
+      // tool:start - 创建工具记录
+      if (eventType === 'tool:start') {
+        const toolCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : ''
+        const args = payload.arguments as Record<string, unknown> | undefined
+        
+        if (toolCallId) {
+          toolMap.set(toolCallId, {
+            toolName,
+            toolUseId: toolCallId,
+            arguments: args || {},
+            status: 'running',
+            timestamp: new Date().toISOString(),
+          })
+        }
+      }
+      
+      // approval:required - 设置审批状态
+      else if (eventType === 'approval:required') {
+        const approvalCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const tool = approvalCallId ? toolMap.get(approvalCallId) : undefined
+        
+        if (tool) {
+          tool.status = 'waiting_for_approval'
+          
+          // 从后端事件中提取审批信息
+          const approvalData = payload.approval as Record<string, unknown> | undefined
+          const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
+          const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
+          
+          if (approvalId && runId) {
+            // 构造审批对象，与 SubAgentDetailPanel 的逻辑一致
+            tool.approval = {
+              runId,
+              approvalId,
+              shell: approvalData && typeof approvalData.shell === 'object'
+                ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
+                : undefined,
+              sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'
+                ? approvalData as { approval_kind: 'sandbox_network_elevation'; command: string; execution_mode: string; reasons: string[]; risks: string[] }
+                : undefined,
+              sandboxPath: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_path_elevation'
+                ? approvalData as { approval_kind: 'sandbox_path_elevation'; command: string; execution_mode: string; denied_paths: string[]; reasons: string[]; risks: string[] }
+                : undefined,
+            }
+            
+            approvalTools.push(tool)
+          }
+        }
+      }
+      
+      // tool:result / tool:error - 更新工具状态（移除待审批）
+      else if (eventType === 'tool:result' || eventType === 'tool:error') {
+        const resultCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const tool = resultCallId ? toolMap.get(resultCallId) : undefined
+        
+        if (tool && tool.status === 'waiting_for_approval') {
+          tool.status = eventType === 'tool:error' ? 'failed' : 'success'
+          // 从审批列表中移除
+          const idx = approvalTools.indexOf(tool)
+          if (idx >= 0) approvalTools.splice(idx, 1)
+        }
+      }
+    }
+    
+    return approvalTools
+  }, [subAgentSteps])
+
+  const hasPendingApproval = pendingApprovalTools.length > 0
+
   return (
     <>
       <div className="max-w-[920px] mx-auto w-full rounded-xl border border-edge bg-surface-primary overflow-hidden">
@@ -115,6 +195,21 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
             </button>
           )}
         </div>
+
+        {/* 子代理待审批的工具 — 在主对话区直接显示审批卡片 */}
+        {hasPendingApproval && (
+          <div className="border-t border-edge px-4 py-3 space-y-3">
+            {pendingApprovalTools.map((tool) => (
+              <ActionReceipt
+                key={tool.toolUseId}
+                details={[tool]}
+                status="waiting_for_approval"
+                onApprovalAction={onApprovalAction}
+                isSubAgent={true}
+              />
+            ))}
+          </div>
+        )}
 
         {/* 子 Agent 运行中指示器 — 点击进入二级对话页面 */}
         {isRunning && (

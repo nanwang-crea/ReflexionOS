@@ -3,6 +3,7 @@ export type ApprovalActionType = 'approve' | 'trust' | 'deny'
 export interface ApprovalActionPayload {
   runId: string
   approvalId: string
+  parentSessionId?: string  // SubAgent 的父 session ID，用于路由审批响应
 }
 
 export type ApprovalActionHandler = (
@@ -15,8 +16,22 @@ export function sendApprovalAction(
   action: ApprovalActionType,
   payload: ApprovalActionPayload
 ) {
-  onApprovalAction?.(action, {
+  console.log('[SubAgent Approval] 点击审批按钮:', {
+    action,
+    payload,
+    hasHandler: !!onApprovalAction
+  })
+  
+  if (!onApprovalAction) {
+    console.warn('[SubAgent Approval] 警告: onApprovalAction 回调未定义')
+    return
+  }
+  
+  onApprovalAction(action, {
     runId: payload.runId,
     approvalId: payload.approvalId,
+    parentSessionId: payload.parentSessionId,
   })
+  
+  console.log('[SubAgent Approval] 审批请求已发送')
 }

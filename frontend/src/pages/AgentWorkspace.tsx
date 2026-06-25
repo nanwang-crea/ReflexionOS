@@ -120,14 +120,14 @@ export default function AgentWorkspace() {
     editAndRerun,
     onApprovalAction: (action, payload) => {
       if (action === 'approve') {
-        approveTool(payload.runId, payload.approvalId)
+        approveTool(payload.runId, payload.approvalId, payload.parentSessionId)
         return
       }
       if (action === 'trust') {
-        trustTool(payload.runId, payload.approvalId)
+        trustTool(payload.runId, payload.approvalId, payload.parentSessionId)
         return
       }
-      denyTool(payload.runId, payload.approvalId)
+      denyTool(payload.runId, payload.approvalId, payload.parentSessionId)
     },
   })
   const { sendMessage } = useSendMessage({

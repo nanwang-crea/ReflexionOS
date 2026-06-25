@@ -501,6 +501,7 @@ class AgentService:
         run_tool_registry.register(DelegateTool(
             runner_factory=_delegate_runner_factory,
             event_callback=event_callback,
+            parent_session_id=session_id,  # 传递主 Agent 的 session_id，用于 SubAgent 审批路由
         ))
 
         try:

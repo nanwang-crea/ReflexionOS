@@ -214,13 +214,15 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
           const approvalData = payload.approval as Record<string, unknown> | undefined
           const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
           const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
-          
+          const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
+
           if (approvalId && runId) {
             // 构造审批对象，与前端 ActionReceiptDetail.approval 结构一致
             matchedApproval.approval = {
               runId,
               approvalId,
-              shell: approvalData && typeof approvalData.shell === 'object' 
+              parentSessionId,  // SubAgent 的父 session ID，用于路由审批响应
+              shell: approvalData && typeof approvalData.shell === 'object'
                 ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
                 : undefined,
               sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'

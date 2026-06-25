@@ -286,12 +286,12 @@ class ConversationRuntimeAdapter:
     def _approval_required_events(self, data: dict) -> list[ConversationEvent]:
         """
         处理工具层审批请求事件 (approval:required)
-        
+
         职责：
         - 生成工具消息的审批状态更新
         - 生成 APPROVAL_REQUIRED 事件（携带完整工具信息，用于前端展示审批对话框）
         - 同时生成 RUN_WAITING_FOR_APPROVAL 事件（标记整个运行进入等待审批状态）
-        
+
         事件来源：tool_call_executor.py 在执行工具时检测到需要审批
         """
         tool_key = self._tool_key(data)
@@ -304,6 +304,8 @@ class ConversationRuntimeAdapter:
 
         approval_id = data.get("approval_id")
         approval_payload = data.get("approval")
+        # 提取 parent_session_id（SubAgent 审批场景下由 DelegateTool 注入）
+        parent_session_id = data.get("parent_session_id")
         payload_update = {
             "tool_name": data.get("tool_name"),
             "arguments": data.get("arguments"),
@@ -313,6 +315,9 @@ class ConversationRuntimeAdapter:
             "approval": approval_payload,
             "status": "waiting_for_approval",
         }
+        # SubAgent 审批场景：携带 parent_session_id 让前端路由审批响应到正确的 WebSocket
+        if parent_session_id:
+            payload_update["parent_session_id"] = parent_session_id
         events.extend(
             [
                 self._new_event(
@@ -334,6 +339,7 @@ class ConversationRuntimeAdapter:
                         "arguments": data.get("arguments"),
                         "step_number": data.get("step_number"),
                         "approval": approval_payload,
+                        **({"parent_session_id": parent_session_id} if parent_session_id else {}),
                     },
                 ),
                 # 运行状态事件：标记整个运行暂停

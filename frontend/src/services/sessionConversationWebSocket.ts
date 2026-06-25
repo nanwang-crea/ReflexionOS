@@ -344,8 +344,20 @@ class SessionConversationWebSocket {
   }
 
   approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }): void {
+    console.log('[WebSocket] approveTool 调用:', {
+      sessionId: this.sessionId,
+      payload,
+      wsExists: !!this.ws,
+      wsState: this.ws?.readyState,
+      isOpen: this.ws?.readyState === WebSocket.OPEN
+    })
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:approve_tool', payload)))
+      const message = buildToolApprovalMessage('conversation:approve_tool', payload)
+      console.log('[WebSocket] 发送消息:', message)
+      this.ws.send(JSON.stringify(message))
+    } else {
+      console.warn('[WebSocket] WebSocket 未打开，无法发送消息')
     }
   }
 

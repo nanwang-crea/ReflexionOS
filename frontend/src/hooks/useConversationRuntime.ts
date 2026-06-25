@@ -505,6 +505,11 @@ export function useConversationRuntime(
     return connectionsRef.current.get(sessionId) ?? null
   }, [])
 
+  // 按 sessionId 直接获取连接。用于 SubAgent 场景，已知 parentSessionId。
+  const resolveConnectionBySessionId = useCallback((sessionId: string): SessionConnection | null => {
+    return connectionsRef.current.get(sessionId) ?? null
+  }, [])
+
   const startTurn = useCallback(async (payload: StartTurnPayload) => {
     const content = payload.message.trim()
     if (!content) {
@@ -549,32 +554,41 @@ export function useConversationRuntime(
     ws.cancelRun(runId)
   }, [currentSessionId, setSessionCancelling])
 
-  const approveTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const approveTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
     ws.approveTool({ runId, approvalId, decision: 'allow_once' })
-  }, [resolveConnectionByRunId])
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
-  const denyTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const denyTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
     ws.denyTool({ runId, approvalId })
-  }, [resolveConnectionByRunId])
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
-  const trustTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const trustTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
     ws.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
-  }, [resolveConnectionByRunId])
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
   const editAndRerun = useCallback((payload: {
     messageId: string
