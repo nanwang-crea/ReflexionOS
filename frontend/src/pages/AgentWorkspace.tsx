@@ -65,10 +65,11 @@ export default function AgentWorkspace() {
   }, [currentSessionId, agentMode, isRunning, setMode])
 
   // 重置对话是破坏性操作，先二次确认再执行（先停后清，不可恢复）。
-  const handleReset = useCallback(() => {
+  const handleReset = useCallback(async () => {
     if (!currentSessionId) return
-    const confirmed = nativeDialogService.confirmAction(
-      '确定要清空当前会话的全部对话记录吗？此操作不可恢复。'
+    const confirmed = await nativeDialogService.confirmAction(
+      '确定要清空当前会话的全部对话记录吗？此操作不可恢复。',
+      { variant: 'danger' }
     )
     if (!confirmed) return
     void resetConversationRuntime()
