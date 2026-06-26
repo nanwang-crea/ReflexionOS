@@ -70,9 +70,10 @@ export function useCurrentSessionViewModel(options: {
     })
   }, [currentSessionSummary, options, selection.providerId, selection.modelId])
 
-  const handleRegenerateMessage = useCallback((messageId: string) => {
+  const handleRegenerateMessage = useCallback(async (messageId: string) => {
     if (!currentSessionSummary) return
-    if (!nativeDialogService.confirmAction(REGENERATE_CONFIRM_MESSAGE)) return
+    const confirmed = await nativeDialogService.confirmAction(REGENERATE_CONFIRM_MESSAGE, { variant: 'danger' })
+    if (!confirmed) return
     options.editAndRerun?.({
       messageId,
       newContent: null,

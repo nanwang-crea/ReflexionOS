@@ -33,7 +33,7 @@ const { settingsState, sessionDataState, selectionState, confirmActionMock } = v
     handleProviderChange: vi.fn(),
     handleModelChange: vi.fn(),
   },
-  confirmActionMock: vi.fn(() => true),
+  confirmActionMock: vi.fn(async () => true),
 }))
 
 vi.mock('@/features/settings/stores/settings.store', () => ({
@@ -99,7 +99,7 @@ async function renderUseCurrentSessionViewModel(options: ReturnType<typeof creat
 describe('useCurrentSessionViewModel', () => {
   beforeEach(() => {
     confirmActionMock.mockReset()
-    confirmActionMock.mockReturnValue(true)
+    confirmActionMock.mockResolvedValue(true)
     selectionState.handleProviderChange.mockClear()
     selectionState.handleModelChange.mockClear()
     sessionDataState.currentProject = {
@@ -126,10 +126,11 @@ describe('useCurrentSessionViewModel', () => {
     const editAndRerun = vi.fn()
     const harness = await renderUseCurrentSessionViewModel(createOptions({ editAndRerun }))
 
-    harness.getResult().transcriptProps.onRegenerateMessage('message-1')
+    await harness.getResult().transcriptProps.onRegenerateMessage('message-1')
 
     expect(confirmActionMock).toHaveBeenCalledWith(
       '重新生成回复？此消息之后的对话内容将被清除，AI 将基于当前上下文重新生成回复。',
+      { variant: 'danger' }
     )
     expect(editAndRerun).toHaveBeenCalledWith({
       messageId: 'message-1',
@@ -140,11 +141,11 @@ describe('useCurrentSessionViewModel', () => {
   })
 
   it('does not rerun when confirmation is declined', async () => {
-    confirmActionMock.mockReturnValue(false)
+    confirmActionMock.mockResolvedValue(false)
     const editAndRerun = vi.fn()
     const harness = await renderUseCurrentSessionViewModel(createOptions({ editAndRerun }))
 
-    harness.getResult().transcriptProps.onRegenerateMessage('message-1')
+    await harness.getResult().transcriptProps.onRegenerateMessage('message-1')
     expect(editAndRerun).not.toHaveBeenCalled()
   })
 
