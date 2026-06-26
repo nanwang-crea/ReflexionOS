@@ -25,11 +25,22 @@ const confirmButtonClass: Record<ConfirmVariant, string> = {
 export function ConfirmDialog({ open, title, message, variant, onConfirm, onCancel }: ConfirmDialogProps) {
   // 取消按钮 ref：打开时把焦点移到这里（安全优先）。
   const cancelRef = useRef<HTMLButtonElement>(null)
+  // dialog 容器 ref：用于焦点陷阱检测。
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!open) return
     // 打开后聚焦取消按钮。
     cancelRef.current?.focus()
+
+    // 焦点陷阱：防止 Tab 跳出弹框到外层元素（标准模态行为）。
+    const handleFocusIn = (e: FocusEvent) => {
+      if (!dialogRef.current?.contains(e.target as Node)) {
+        // 焦点跑到弹框外，拉回取消按钮。
+        cancelRef.current?.focus()
+      }
+    }
+
     // Esc = 取消。仅在弹框打开时挂监听，关闭即移除，避免与全局快捷键冲突。
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -37,14 +48,20 @@ export function ConfirmDialog({ open, title, message, variant, onConfirm, onCanc
         onCancel()
       }
     }
+
+    document.addEventListener('focusin', handleFocusIn)
     window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open, onCancel])
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open, onCancel, onConfirm])
 
   return (
     <AnimatePresence>
       {open && (
         <motion.div
+          ref={dialogRef}
           // 半透明遮罩；点击空白处=取消。
           className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4"
           initial={{ opacity: 0 }}
