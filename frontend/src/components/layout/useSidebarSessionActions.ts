@@ -118,7 +118,7 @@ export function useSidebarSessionActions({
       return
     }
 
-    if (!dialogService.confirmAction(`确定删除聊天"${session.title}"吗？`)) {
+    if (!(await dialogService.confirmAction(`确定删除聊天"${session.title}"吗？`))) {
       return
     }
 
