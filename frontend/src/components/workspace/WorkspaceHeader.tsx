@@ -7,7 +7,7 @@ interface WorkspaceHeaderProps {
   title: string
   projectPath?: string | null
   connectionStatus: ConnectionStatus
-  onReset: () => void
+  onReset: () => void | Promise<void>
 }
 
 export function WorkspaceHeader({

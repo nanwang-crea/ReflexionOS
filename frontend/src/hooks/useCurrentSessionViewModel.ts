@@ -20,7 +20,7 @@ export function useCurrentSessionViewModel(options: {
   plan: Plan | null
   hasMore?: boolean
   onLoadMore?: (beforeTurnId: string) => void
-  onReset: () => void
+  onReset: () => void | Promise<void>
   onApprovalAction?: ToolApprovalActionHandler
   editAndRerun?: (payload: {
     messageId: string
