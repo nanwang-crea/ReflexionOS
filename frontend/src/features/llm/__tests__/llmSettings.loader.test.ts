@@ -261,7 +261,7 @@ describe('providerActions', () => {
     const loadSettings = vi.fn().mockResolvedValue(undefined)
     const onSavedMessage = vi.fn()
     const onError = vi.fn()
-    const confirmDelete = vi.fn().mockReturnValue(true)
+    const confirmDelete = vi.fn().mockResolvedValue(true)
 
     const { createProviderActions } = await import('../provider.actions')
     const actions = createProviderActions({

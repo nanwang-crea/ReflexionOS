@@ -52,6 +52,8 @@ export const sessionApi = {
     ),
   updateSession: (sessionId: string, data: SessionUpdatePayload) =>
     mapSessionResponse(apiClient.patch<ConversationSessionDto>(`/api/sessions/${sessionId}`, toSessionPayload(data))),
+  resetSession: (sessionId: string) =>
+    mapSessionResponse(apiClient.post<ConversationSessionDto>(`/api/sessions/${sessionId}/reset`)),
   deleteSession: (sessionId: string) =>
     apiClient.delete(`/api/sessions/${sessionId}`),
 }

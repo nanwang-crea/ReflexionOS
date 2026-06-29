@@ -5,6 +5,7 @@ import {
   useConversationStore,
 } from '@/features/conversation/stores/conversation.store'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
+import { resetSession } from '@/features/sessions/session.actions'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
@@ -609,14 +610,26 @@ export function useConversationRuntime(
     })
   }, [currentSessionId])
 
-  const resetConversationRuntime = useCallback(() => {
+  const resetConversationRuntime = useCallback(async () => {
     if (!currentSessionId) {
       return
     }
 
+    // 先清后端历史（先停后清），成功后才同步前端真值与显示；失败则不动任何状态。
+    try {
+      await resetSession(currentSessionId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '重置对话失败'
+      useToastStore.getState().addToast('error', `重置对话失败: ${message}`)
+      return
+    }
+
+    // resetSession 已用返回的 Session 回写 session.store（列表真值）。
+    // 此处补齐：清聊天区快照、回退未读基线、关连接与取消标志。
+    useConversationStore.getState().clearConversation(currentSessionId)
+    useWorkspaceStore.getState().resetSessionSeen(currentSessionId)
     closeSessionConnection(currentSessionId)
     setSessionCancelling(currentSessionId, false)
-    useConversationStore.getState().clearConversation(currentSessionId)
   }, [closeSessionConnection, currentSessionId, setSessionCancelling])
 
   // 连接调度：当前会话必连；其余活跃会话（运行中 / 待审批等）按优先级补连，

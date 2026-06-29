@@ -38,6 +38,12 @@ export async function renameSession(sessionId: string, title: string): Promise<S
   return updateSession(sessionId, { title })
 }
 
+export async function resetSession(sessionId: string): Promise<SessionSummary> {
+  const response = await sessionApi.resetSession(sessionId)
+  useSessionStore.getState().upsertSession(response.data.projectId, response.data)
+  return response.data
+}
+
 export async function deleteSession(projectId: string, sessionId: string): Promise<void> {
   await sessionApi.deleteSession(sessionId)
   useSessionStore.getState().removeSession(projectId, sessionId)

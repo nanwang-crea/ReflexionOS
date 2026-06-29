@@ -316,7 +316,7 @@ interface WorkspaceTranscriptProps {
   onDetailClick?: (detail: ActionReceiptDetail) => void
   runsById?: Record<string, ConversationRun>
   onEditMessage?: (messageId: string, contentText: string) => void
-  onRegenerateMessage?: (messageId: string) => void
+  onRegenerateMessage?: (messageId: string) => void | Promise<void>
   hasMore?: boolean
   isLoadingMore?: boolean
   oldestLoadedTurnId?: string | null
