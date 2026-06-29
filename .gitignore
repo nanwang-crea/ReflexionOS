@@ -56,3 +56,9 @@ backend/.reflexion/
 .interview-kit/
 .claude/
 backend/.pytest-home/
+
+# 个人开发记录与工作计划（不上库）
+docs/devlog/devlog-*.md
+docs/devlog/history-backfill.md
+docs/superpowers/plans/
+深度代码审查报告.md
