@@ -57,8 +57,21 @@ backend/.reflexion/
 .claude/
 backend/.pytest-home/
 
-# 个人开发记录与工作计划（不上库）
-docs/devlog/devlog-*.md
-docs/devlog/history-backfill.md
+backend/.pytest-home/
+
+# 个人工作物（不上库）
+# 面试准备资料
+docs/interview/
+
+# 开发日志
+docs/devlog/
+
+# 实现计划（草稿）
 docs/superpowers/plans/
+
+# 个人文档导航地图
+docs/NAVIGATION.md
+
+# 其他个人文档
 深度代码审查报告.md
+CLAUDE.md
