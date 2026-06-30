@@ -238,6 +238,66 @@ class CommandPolicy:
 
         return meta_chars
 
+    def _split_shell_command(self, command: str) -> list[str]:
+        """
+        按 && 和 || 拆分命令链（quote-aware）
+
+        Args:
+            command: shell 命令字符串
+
+        Returns:
+            命令片段列表
+        """
+        segments = []
+        current_segment = []
+        in_single_quote = False
+        in_double_quote = False
+        i = 0
+
+        while i < len(command):
+            char = command[i]
+
+            # 跟踪引号状态
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+                current_segment.append(char)
+                i += 1
+                continue
+            if char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+                current_segment.append(char)
+                i += 1
+                continue
+
+            # 在引号内，直接添加
+            if in_single_quote or in_double_quote:
+                current_segment.append(char)
+                i += 1
+                continue
+
+            # 检查 && 或 ||
+            if i + 1 < len(command):
+                two_char = command[i:i+2]
+                if two_char in {'&&', '||'}:
+                    # 保存当前片段
+                    segment_str = ''.join(current_segment).strip()
+                    if segment_str:
+                        segments.append(segment_str)
+                    current_segment = []
+                    i += 2
+                    continue
+
+            # 普通字符
+            current_segment.append(char)
+            i += 1
+
+        # 保存最后一个片段
+        segment_str = ''.join(current_segment).strip()
+        if segment_str:
+            segments.append(segment_str)
+
+        return segments
+
     def _evaluate_shell_command(
         self,
         command: str,

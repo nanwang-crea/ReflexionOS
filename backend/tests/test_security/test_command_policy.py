@@ -602,3 +602,47 @@ class TestExtractMetaChars:
         # 连续元字符
         assert policy._extract_meta_chars("cmd1 && cmd2 && cmd3") == {'&&'}
         assert policy._extract_meta_chars("cmd >>& file") == {'>>', '&'}
+
+
+# ── 17. SPLIT SHELL COMMAND (quote-aware) ──────────────────────────
+
+
+class TestSplitShellCommand:
+    """测试 quote-aware 命令链拆分方法"""
+
+    def test_split_shell_command_basic(self, policy):
+        """测试基本命令链拆分"""
+
+        # 单个命令
+        assert policy._split_shell_command("git status") == ["git status"]
+
+        # && 拆分
+        assert policy._split_shell_command("git status && git log") == [
+            "git status",
+            "git log"
+        ]
+
+        # || 拆分
+        assert policy._split_shell_command("cmd1 || cmd2") == ["cmd1", "cmd2"]
+
+        # 混合拆分
+        assert policy._split_shell_command("cmd1 && cmd2 || cmd3") == [
+            "cmd1",
+            "cmd2",
+            "cmd3"
+        ]
+
+    def test_split_shell_command_quote_aware(self, policy):
+        """测试引号内操作符不拆分"""
+
+        # 单引号内的 && 不应拆分
+        assert policy._split_shell_command("echo 'a && b'") == ["echo 'a && b'"]
+
+        # 双引号内的 || 不应拆分
+        assert policy._split_shell_command('echo "a || b"') == ['echo "a || b"']
+
+        # 引号外的操作符应拆分
+        assert policy._split_shell_command("echo 'test' && git status") == [
+            "echo 'test'",
+            "git status"
+        ]
