@@ -31,22 +31,24 @@ ReflexionOS 是基于 Electron + React + FastAPI 的桌面编程 Agent，技术�
 
 #### 已确认问题
 
-**问题 1：Shell 命令执行失败**
-- **现象**：用户在对话中执行 git 命令时，后端返回错误提示：
+**问题 1：Shell 命令链执行失败**
+- **现象**：用户在对话中执行**带元字符的 git 命令链**时，后端返回错误提示：
   ```
-  当前环境下的 shell 执行似乎存在兼容性问题，git 命令的输出无法正常捕获，
-  Windows shell 模式也尚未完全支持
+  Windows shell 模式尚未支持
   ```
 - **复现路径**：
   1. 启动 Electron 桌面应用（`pnpm dev`）
   2. 创建或选择一个 Git 项目
-  3. 在对话框中发送消息："查看 git 状态"
-  4. LLM 调用 shell 工具执行 `git status`
+  3. 在对话框中发送消息："先查看 git 状态再显示日志"
+  4. LLM 调用 shell 工具执行 `git status && git log -5`（带 `&&` 元字符）
   5. 后端返回上述错误，前端显示 `[User Cancelled]`
 - **影响范围**：
-  - Git 操作功能不可用（status、log、diff、commit 等）
-  - grep/rg 文件搜索可能失败
-  - 依赖 shell 的其他工具调用
+  - **带元字符的命令链不可用**（`git status && git log`、`git diff || echo fail`）
+  - **单个 git 命令可正常工作**（`git status`、`git log` 走 argv 路径，无阻塞）
+  - **grep/rg 可正常工作**（走 argv 路径，无阻塞）
+- **根本原因**：
+  - 当前代码只对 `has_meta=True` 的命令在 Windows 上 hard deny（command_policy.py:168）
+  - `has_meta=False` 的命令走 argv 路径，在 Windows 上可以正常执行
 
 **问题 2：整体性能卡顿**
 - **现象**：用户反馈"多个方面都卡"，包括：
@@ -60,10 +62,13 @@ ReflexionOS 是基于 Electron + React + FastAPI 的桌面编程 Agent，技术�
 
 ### 1.3 为什么要做
 
-- **功能可用性**：Shell 兼容性问题导致核心功能（Git 集成）在 Windows 上不可用
-- **用户体验**：性能问题严重影响日常使用体验，可能导致用户放弃使用
+- **功能完整性**：带元字符的命令链在 Windows 上不可用，限制了复杂操作能力（如"先检查状态再提交"）
+- **用户体验**：
+  - Shell 命令链阻塞影响高级用户工作流
+  - 性能问题严重影响日常使用体验，可能导致用户放弃使用
 - **跨平台承诺**：项目 README 和 CLAUDE.md 明确声明"该项目跨 Windows 和 macOS 平台"，需兑现承诺
 - **市场占有率**：Windows 是桌面操作系统主流（约 70% 市场份额），不能忽视
+- **澄清**：单个 git/grep 命令在 Windows 上已可用（走 argv 路径），本次优化是增强而非修复基础功能
 
 ---
 
