@@ -166,15 +166,105 @@ class CommandPolicy:
             )
 
         if result.has_meta and self.shell_security._is_windows():
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="shell",
-                cwd=resolved_cwd,
-                timeout=timeout,
-                reasons=["Windows shell 模式尚未支持"],
-                environment_snapshot=snapshot,
-            )
+            # ========== Windows 第一阶段：严格白名单策略 ==========
+            # 原因：Windows 无 sandbox.wrap_shell_command，无法约束命令内自由路径参数
+            # 策略：(1) 只放行纯读的 git 子命令；(2) 复用 shell_security._validate_path_arguments 校验路径参数
+
+            # 检查元字符：第一阶段只支持 && 和 ||（命令链）
+            supported_on_windows = {'&&', '||'}
+            unsupported_on_windows = {'|', '<', '>', '>>', '2>', '&', ';'}
+
+            used_meta = self._extract_meta_chars(command_normalized)
+            unsupported_used = used_meta & unsupported_on_windows
+
+            if unsupported_used:
+                return CommandDecision(
+                    action=CommandAction.DENY,
+                    command=command,
+                    execution_mode="shell",
+                    cwd=resolved_cwd,
+                    timeout=timeout,
+                    reasons=[f"Windows 第一阶段不支持这些 shell 特性：{', '.join(unsupported_used)}"],
+                    environment_snapshot=snapshot,
+                )
+
+            # 拆分命令链（按 && 和 || 拆）
+            segments = self._split_shell_command(command_normalized)
+
+            for segment in segments:
+                segment_normalized = segment.strip()
+
+                # 检查是否是 git 命令
+                if not segment_normalized.startswith('git '):
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"Windows 第一阶段只支持 git 命令，不支持: {segment_normalized}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                # 解析命令为 argv（用于后续路径校验）
+                try:
+                    segment_argv = shlex.split(segment_normalized, posix=False)  # Windows 用非 POSIX 模式
+                except ValueError as e:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"命令解析失败: {e}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                if len(segment_argv) < 2:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=["git 命令缺少子命令"],
+                        environment_snapshot=snapshot,
+                    )
+
+                git_subcommand = segment_argv[1]
+
+                # 严格白名单：只允许纯读的子命令（无 -D/-m/add/remove 等写操作）
+                # 注意：不允许 branch、remote（它们有写子命令）
+                allowed_pure_read_subcommands = {'status', 'log', 'diff', 'show'}
+
+                if git_subcommand not in allowed_pure_read_subcommands:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"Windows 第一阶段只支持纯读 git 命令，不支持: git {git_subcommand}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                # 路径参数校验：复用 shell_security._validate_path_arguments
+                # 这会校验命令中所有看起来像路径的参数（segment_argv[2:] 是 git 子命令的参数）
+                try:
+                    self.shell_security._validate_path_arguments(segment_argv[2:], self.path_security)
+                except SecurityError as e:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"路径参数不在允许范围: {e}"],
+                        environment_snapshot=snapshot,
+                    )
+
+            # 通过白名单检查：继续走 shell 执行流程
+            # 注意：macOS/Linux 的逻辑不修改
 
         if result.has_meta:
             return self._evaluate_shell_command(

@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 
 import pytest
@@ -20,7 +21,8 @@ def policy(registry):
     with tempfile.TemporaryDirectory() as tmpdir:
         root_dir = os.path.realpath(tmpdir)
         path_security = PathSecurity([root_dir], base_dir=root_dir)
-        security = ShellSecurity()
+        # 默认使用 macOS/Linux 模拟（确保测试跨平台一致性）
+        security = ShellSecurity(platform_name="darwin")
         yield CommandPolicy(security, path_security, registry)
 
 
@@ -646,3 +648,75 @@ class TestSplitShellCommand:
             "echo 'test'",
             "git status"
         ]
+
+
+# ── 18. WINDOWS SHELL WHITELIST ────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+class TestWindowsShellWhitelistAllowed:
+    """测试 Windows shell 白名单：允许场景"""
+
+    def test_git_status_and_git_log_allowed(self, win_policy):
+        """纯 git 白名单命令链应该放行"""
+        decision = win_policy.evaluate(command="git status && git log")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.execution_mode == "shell"
+
+    def test_git_diff_or_git_show_allowed(self, win_policy):
+        """纯 git 白名单命令链（||）应该放行"""
+        decision = win_policy.evaluate(command="git diff || git show")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.execution_mode == "shell"
+
+    def test_git_status_with_flags_allowed(self, win_policy):
+        """带标志位的 git 白名单命令应该放行"""
+        decision = win_policy.evaluate(command="git status --short && git log --oneline")
+        assert decision.action == CommandAction.ALLOW
+
+    def test_complex_git_chain_allowed(self, win_policy):
+        """复杂的 git 白名单命令链应该放行"""
+        decision = win_policy.evaluate(command="git status && git diff && git log && git show HEAD")
+        assert decision.action == CommandAction.ALLOW
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+class TestWindowsShellWhitelistDenied:
+    """测试 Windows shell 白名单：拒绝场景"""
+
+    def test_git_chain_with_non_git_command_denied(self, win_policy):
+        """git 命令链混杂非 git 命令应该拒绝"""
+        decision = win_policy.evaluate(command="git status && dir")
+        assert decision.action == CommandAction.DENY
+        assert decision.execution_mode == "shell"
+        assert "只支持 git 命令" in decision.reasons[0]
+
+    def test_git_push_denied(self, win_policy):
+        """git push（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git status && git push")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_add_denied(self, win_policy):
+        """git add（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git add . && git status")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_commit_denied(self, win_policy):
+        """git commit（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git status && git commit -m 'test'")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_with_redirect_denied(self, win_policy):
+        """git 命令带重定向（>）应该拒绝"""
+        decision = win_policy.evaluate(command="git status > output.txt")
+        assert decision.action == CommandAction.DENY
+        assert "不支持" in decision.reasons[0]
+
+    def test_git_with_pipe_denied(self, win_policy):
+        """git 命令带管道（|）应该拒绝"""
+        decision = win_policy.evaluate(command="git log | findstr foo")
+        assert decision.action == CommandAction.DENY
+        assert "不支持" in decision.reasons[0]
