@@ -537,3 +537,68 @@ class TestCommandPolicyEvaluate:
         decision = policy.evaluate(command="echo hello", cwd=policy.path_security.base_dir)
         if decision.action == CommandAction.ALLOW:
             assert decision.suggested_prefix_rule is None
+
+
+# ── 16. EXTRACT META CHARS (quote-aware) ───────────────────────────
+
+
+class TestExtractMetaChars:
+    """测试 quote-aware 元字符提取方法"""
+
+    def test_extract_meta_chars_basic(self, policy):
+        """测试基本元字符提取"""
+
+        # 测试双字符元字符
+        assert policy._extract_meta_chars("git status && git log") == {'&&'}
+        assert policy._extract_meta_chars("cmd1 || cmd2") == {'||'}
+        assert policy._extract_meta_chars("echo test >> file.txt") == {'>>'}
+        assert policy._extract_meta_chars("cmd 2> error.log") == {'2>'}
+
+        # 测试单字符元字符
+        assert policy._extract_meta_chars("echo test > file.txt") == {'>'}
+        assert policy._extract_meta_chars("cmd1 ; cmd2") == {';'}
+        assert policy._extract_meta_chars("cmd1 | cmd2") == {'|'}
+        assert policy._extract_meta_chars("cmd &") == {'&'}
+        assert policy._extract_meta_chars("cat < input.txt") == {'<'}
+
+        # 测试混合
+        assert policy._extract_meta_chars("cmd1 && cmd2 || cmd3") == {'&&', '||'}
+        assert policy._extract_meta_chars("cmd1 | cmd2 > out.txt") == {'|', '>'}
+
+    def test_extract_meta_chars_quote_aware(self, policy):
+        """测试引号内元字符忽略"""
+
+        # 单引号内的元字符应该被忽略
+        assert policy._extract_meta_chars("echo 'a && b'") == set()
+        assert policy._extract_meta_chars("git commit -m 'fix: issue || bug'") == set()
+        assert policy._extract_meta_chars("echo 'test | grep foo'") == set()
+
+        # 双引号内的元字符应该被忽略
+        assert policy._extract_meta_chars('echo "a && b"') == set()
+        assert policy._extract_meta_chars('git commit -m "feat: add > and <"') == set()
+
+        # 引号外的元字符应该被识别
+        assert policy._extract_meta_chars("echo 'test' && git status") == {'&&'}
+        assert policy._extract_meta_chars('git log && echo "done"') == {'&&'}
+        assert policy._extract_meta_chars("echo 'a' | wc -l") == {'|'}
+
+        # 混合引号和元字符
+        assert policy._extract_meta_chars("cmd 'arg1 && arg2' && cmd2") == {'&&'}
+        assert policy._extract_meta_chars('echo "test > file" > output.txt') == {'>'}
+
+    def test_extract_meta_chars_edge_cases(self, policy):
+        """测试边界情况"""
+
+        # 空字符串
+        assert policy._extract_meta_chars("") == set()
+
+        # 只有引号
+        assert policy._extract_meta_chars("''") == set()
+        assert policy._extract_meta_chars('""') == set()
+
+        # 未闭合引号（只关心完整性，不验证语法正确性）
+        assert policy._extract_meta_chars("echo 'test && no close") == set()
+
+        # 连续元字符
+        assert policy._extract_meta_chars("cmd1 && cmd2 && cmd3") == {'&&'}
+        assert policy._extract_meta_chars("cmd >>& file") == {'>>', '&'}

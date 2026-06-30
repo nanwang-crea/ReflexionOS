@@ -152,7 +152,7 @@ pytest tests/test_security/test_command_policy.py::test_extract_meta_chars_quote
 - [ ] **Step 4: 提交**
 
 ```bash
-git add backend/app/security/command_policy.py backend/tests/security/test_command_policy.py
+git add backend/app/security/command_policy.py backend/tests/test_security/test_command_policy.py
 git commit -m "feat(security): 添加 quote-aware 元字符提取方法
 
 - 实现 CommandPolicy._extract_meta_chars() 方法
@@ -296,7 +296,7 @@ pytest tests/test_security/test_command_policy.py::test_split_shell_command_quot
 - [ ] **Step 4: 提交**
 
 ```bash
-git add backend/app/security/command_policy.py backend/tests/security/test_command_policy.py
+git add backend/app/security/command_policy.py backend/tests/test_security/test_command_policy.py
 git commit -m "feat(security): 添加 quote-aware 命令链拆分方法
 
 - 实现 CommandPolicy._split_shell_command() 方法
@@ -453,24 +453,24 @@ import shlex
 ```python
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 def test_windows_shell_whitelist_allowed():
-    """测试 Windows shell 白名单允许的命令"""
+    """测试 Windows shell 白名单允许的命令链（带元字符）"""
     policy = CommandPolicy(...)
     
-    # 允许的纯读 git 命令
-    result = policy.evaluate("git status")
+    # 允许的纯读 git 命令链（只有这些走 Windows shell 白名单分支）
+    result = policy.evaluate("git status && echo 'done'")
     assert result.action != CommandAction.DENY
     
-    result = policy.evaluate("git log")
+    result = policy.evaluate("git log --oneline -5 && echo 'done'")
     assert result.action != CommandAction.DENY
     
-    result = policy.evaluate("git diff")
+    result = policy.evaluate("git diff HEAD~1 && echo 'done'")
     assert result.action != CommandAction.DENY
     
-    result = policy.evaluate("git show HEAD")
+    result = policy.evaluate("git show HEAD && echo 'done'")
     assert result.action != CommandAction.DENY
     
-    # 允许命令链
-    result = policy.evaluate("git status && git log")
+    # 允许多个纯读 git 子命令链接
+    result = policy.evaluate("git status && git log --oneline -3")
     assert result.action != CommandAction.DENY
 
 
@@ -520,7 +520,7 @@ pytest tests/security/test_command_policy.py -k windows_shell -v
 - [ ] **Step 5: 提交**
 
 ```bash
-git add backend/app/security/command_policy.py backend/tests/security/test_command_policy.py
+git add backend/app/security/command_policy.py backend/tests/test_security/test_command_policy.py
 git commit -m "feat(security): 实现 Windows shell 严格白名单 gate
 
 - 替换 Windows shell hard deny 为白名单检查
@@ -659,14 +659,28 @@ from ..security.effect_category import EffectCategory
 ```python
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 @pytest.mark.asyncio
-async def test_windows_shell_execute_git_chain():
+async def test_windows_shell_execute_git_chain(tmp_path):
     """测试 Windows shell 执行 git 命令链"""
-    shell_tool = ShellTool(...)  # 使用现有 fixture
+    # 准备：在 tmp_path 下初始化一个 git 仓库
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path)
+    (tmp_path / "test.txt").write_text("test")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
     
-    # 在一个实际的 git 仓库中执行命令链
+    # 构造 shell_tool（允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
+    
+    # 执行命令链
     result = await shell_tool._execute_shell(
         command="git status && git log --oneline -3",
-        cwd=os.getcwd(),  # 假设当前目录是 git 仓库
+        cwd=str(tmp_path)
         timeout=30,
         effect_category=EffectCategory.READ_ONLY,
         sandbox_allow_network=False,
@@ -679,14 +693,19 @@ async def test_windows_shell_execute_git_chain():
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 @pytest.mark.asyncio
-async def test_windows_shell_path_validation():
+async def test_windows_shell_path_validation(tmp_path):
     """测试 Windows shell 路径校验"""
-    shell_tool = ShellTool(...)
+    # 构造 shell_tool（只允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
     
     # 尝试使用白名单外的 cwd
     result = await shell_tool._execute_shell(
-        command="git status",
-        cwd="C:\\evil\\path",
+        command="git status && echo test",
+        cwd="C:\\Windows\\System32",  # 明确不在允许范围
         timeout=30,
         effect_category=EffectCategory.READ_ONLY,
         sandbox_allow_network=False,
@@ -699,13 +718,18 @@ async def test_windows_shell_path_validation():
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
 @pytest.mark.asyncio
-async def test_windows_shell_network_denied():
+async def test_windows_shell_network_denied(tmp_path):
     """测试 Windows shell 拒绝网络型命令"""
-    shell_tool = ShellTool(...)
+    # 构造 shell_tool（允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
     
     result = await shell_tool._execute_shell(
-        command="curl http://example.com",
-        cwd=os.getcwd(),
+        command="curl http://example.com && echo test",
+        cwd=str(tmp_path),
         timeout=30,
         effect_category=EffectCategory.NETWORK_OUT,
         sandbox_allow_network=False,
@@ -720,7 +744,7 @@ async def test_windows_shell_network_denied():
 
 ```bash
 # 如果在 Windows 上：
-pytest tests/test_tools/test_shell_tool.py::test_windows_shell_execute_git_status -v
+pytest tests/test_tools/test_shell_tool.py::test_windows_shell_execute_git_chain -v
 pytest tests/test_tools/test_shell_tool.py::test_windows_shell_path_validation -v
 pytest tests/test_tools/test_shell_tool.py::test_windows_shell_network_denied -v
 
@@ -733,7 +757,7 @@ pytest tests/tools/test_shell_tool.py -k windows_shell -v
 - [ ] **Step 5: 提交**
 
 ```bash
-git add backend/app/tools/shell_tool.py backend/tests/tools/test_shell_tool.py
+git add backend/app/tools/shell_tool.py backend/tests/test_tools/test_shell_tool.py
 git commit -m "feat(tools): 实现 Windows shell cmd.exe 执行分支
 
 - 替换执行层 Windows hard deny

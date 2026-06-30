@@ -187,6 +187,57 @@ class CommandPolicy:
 
     # ── Shell command evaluation (pipe chains, redirects) ──────────
 
+    def _extract_meta_chars(self, command: str) -> set[str]:
+        """
+        提取命令中的 shell 元字符（quote-aware，忽略引号内的字符）
+
+        Args:
+            command: shell 命令字符串
+
+        Returns:
+            使用的元字符集合（如 {'&&', '||', '>'}）
+        """
+        meta_chars = set()
+
+        # 使用状态机跟踪引号边界
+        in_single_quote = False
+        in_double_quote = False
+        i = 0
+
+        while i < len(command):
+            char = command[i]
+
+            # 跟踪引号状态
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+                i += 1
+                continue
+            if char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+                i += 1
+                continue
+
+            # 在引号内，跳过
+            if in_single_quote or in_double_quote:
+                i += 1
+                continue
+
+            # 检查双字符元字符（&&、||、>>、2>）
+            if i + 1 < len(command):
+                two_char = command[i:i+2]
+                if two_char in {'&&', '||', '>>', '2>'}:
+                    meta_chars.add(two_char)
+                    i += 2
+                    continue
+
+            # 检查单字符元字符
+            if char in {'|', '<', '>', ';', '&'}:
+                meta_chars.add(char)
+
+            i += 1
+
+        return meta_chars
+
     def _evaluate_shell_command(
         self,
         command: str,
