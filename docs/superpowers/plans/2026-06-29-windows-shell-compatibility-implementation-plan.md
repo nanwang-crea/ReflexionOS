@@ -6,7 +6,7 @@
 
 **Architecture:** 在策略层（command_policy.py）添加 Windows shell 白名单 gate（仅对 `has_meta=True` 命令生效），只允许 4 个纯读 git 子命令的 `&&`/`||` 组合，复用 shell_security._validate_path_arguments 校验路径参数；在执行层（shell_tool.py）实现 cmd.exe 执行分支
 
-**重要约束**：本计划只处理带元字符（`&&`/`||`）的命令，无元字符的单个命令（如 `git add .`、`git branch`）不在本计划范围，继续走原有 Windows argv hard deny
+**重要约束**：本计划只处理带元字符（`&&`/`||`）的命令，无元字符的单个命令（如 `git add .`、`git branch`）不在本计划范围，走 argv 路径在 Windows 上可以正常执行
 
 **Tech Stack:** Python 3.12, shlex, asyncio, cmd.exe
 
@@ -915,7 +915,7 @@ git commit -m "测试中文文件名"
 
 ### 本阶段不涵盖
 - ⚠️ 无元字符命令（如单独的 `git add .`、`git branch`）不在本计划范围
-- ⚠️ 这些命令继续走原有 Windows argv hard deny
+- ⚠️ 这些命令走 argv 路径在 Windows 上可以正常执行
 ```
 
 - [ ] **Step 7: 提交测试记录**
@@ -947,7 +947,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
 - [ ] ✅ 代码审查确认：Windows 逻辑在单独分支，未修改 Unix 代码路径
 
 **不在本计划范围**：
-- ⚠️ 无元字符命令（如单独的 `git add .`、`git branch`、`ls`）继续走原有 Windows argv hard deny
+- ⚠️ 无元字符命令（如单独的 `git add .`、`git branch`、`ls`）走 argv 路径在 Windows 上可以正常执行
 - ⚠️ 性能优化（FPS、启动时间、内存占用）属于阶段 2，不在本计划验收范围
 
 ---

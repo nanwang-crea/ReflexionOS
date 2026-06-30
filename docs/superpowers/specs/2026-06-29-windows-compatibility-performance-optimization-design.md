@@ -75,11 +75,11 @@ ReflexionOS 是基于 Electron + React + FastAPI 的桌面编程 Agent，技术�
 
 **具体指标**：
 
-1. **Shell 兼容性（P0 必须完成）**
-   - ✅ git 命令可正常执行并返回正确输出
-   - ✅ grep/rg 文件搜索可正常工作
-   - ✅ 路径参数自动适配 Windows 风格（`\` 分隔符）
+1. **Shell 兼容性（P0 必须完成 - 阶段 1 范围）**
+   - ✅ **带元字符的 git 命令链**可正常执行（如 `git status && git log`）
+   - ✅ 命令链中的路径参数自动校验（在白名单内）
    - ✅ 命令输出编码正确处理（UTF-8 vs GBK）
+   - **注意**：阶段 1 只解决带 `&&`/`||` 的命令链，单个 git 命令（如 `git status`）和 grep/rg 已可正常执行（走 argv 路径）
 
 2. **性能优化（P1 重要）**
    - ✅ 应用启动时间 < 5 秒（从双击到界面可用）
@@ -138,13 +138,13 @@ ReflexionOS 是基于 Electron + React + FastAPI 的桌面编程 Agent，技术�
 **期望行为**：
 
 1. 用户在对话框输入："查看当前分支的 git 状态"
-2. LLM 调用 shell 工具执行 `git status`
+2. LLM 调用 shell 工具执行 `git status`（argv 模式，已可正常工作）
 3. 后端正确捕获命令输出（包含中文文件名）
 4. 前端展示 Git 状态信息（staged/unstaged/untracked 文件）
-5. 用户继续操作："提交所有更改"
-6. LLM 执行 `git add -A && git commit -m "..."` 成功
+5. 用户继续操作："先查看状态再显示日志"
+6. LLM 执行 `git status && git log -5` 成功（**阶段 1 解决此步骤**）
 
-**当前问题**：步骤 3 失败，返回"Windows shell 模式也尚未完全支持"
+**当前阻塞点**：步骤 6 的命令链（含 `&&`）在 Windows 上失败，返回"Windows shell 模式尚未支持"
 
 ### 故事 2：长对话流畅滚动
 
@@ -1213,7 +1213,7 @@ console.log('Hardware acceleration enabled:', !app.commandLine.hasSwitch('disabl
 - ✅ 包含中文文件名的项目路径可正常工作
 - ✅ **macOS/Linux 回归测试通过（功能零破坏）**
 - ✅ 代码审查确认：Windows 逻辑在单独分支，未修改 Unix 代码路径
-- **注意**：无元字符命令（如单独的 `git add .`、`git branch`）不在本阶段范围，继续走原有 Windows argv hard deny
+- **注意**：无元字符命令（如单独的 `git add .`、`git branch`）不在本阶段范围，走 argv 路径在 Windows 上可以正常执行
 
 #### 阶段 2：前端性能优化（1-2 天，P1）
 
