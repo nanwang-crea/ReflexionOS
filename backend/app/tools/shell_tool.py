@@ -8,7 +8,7 @@ from app.config.settings import config_manager
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.command_policy import CommandAction, CommandDecision, CommandPolicy
 from app.security.effect_category import EffectCategory
-from app.security.path_security import PathSecurity
+from app.security.path_security import ExternalPathError, PathSecurity
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.factory import NullSandbox
@@ -347,7 +347,87 @@ class ShellTool(BaseTool):
         sandbox_extra_paths: list[str] | None = None,
     ) -> ToolResult:
         if sys.platform == "win32":
-            return ToolResult(success=False, error="Windows shell 模式尚未支持")
+            # ========== Windows 第一阶段执行分支 ==========
+            # 注意：命令内路径参数校验已在策略层完成（command_policy.py）
+            #       这里只处理执行层的 cwd 和 sandbox_extra_paths 校验
+
+            # 1. 路径限制（部分对齐 Unix sandbox）
+            # 验证 cwd 在白名单内
+            try:
+                validated_cwd = self.path_security.validate_path(cwd)
+            except ExternalPathError as e:
+                return ToolResult(success=False, error=f"工作目录不在允许范围: {e}")
+
+            # 验证 sandbox_extra_paths（若有）也在白名单内
+            if sandbox_extra_paths:
+                for extra_path in sandbox_extra_paths:
+                    try:
+                        self.path_security.validate_path(extra_path)
+                    except ExternalPathError as e:
+                        return ToolResult(success=False, error=f"额外路径 {extra_path} 不在允许范围: {e}")
+
+            # 2. 网络权限检查（不对齐，策略层已拒绝）
+            allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
+
+            # Windows 第一阶段：继续拒绝网络型命令（因无沙箱强制）
+            if effect_category == EffectCategory.NETWORK_OUT:
+                return ToolResult(
+                    success=False,
+                    error="Windows 第一阶段不支持网络型 shell 命令（无沙箱强制），请在 macOS/Linux 上执行"
+                )
+
+            # 本地命令：记录网络权限标志（供审计，但无技术强制）
+            if not allow_network:
+                logger.warning(
+                    "Windows shell 命令未授权网络访问（无沙箱强制）: %s, cwd=%s",
+                    command, validated_cwd
+                )
+
+            # 3. 审计日志（与 Unix 一致）
+            logger.info(
+                "执行 Windows shell 命令: %s, cwd=%s, network=%s, effect=%s",
+                command, validated_cwd, allow_network, effect_category
+            )
+
+            # 构建 Windows 命令（无需语法转换，策略层只允许 && 和 ||）
+            process = await asyncio.create_subprocess_shell(
+                f'cmd.exe /c "{command}"',
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=validated_cwd,
+                env=self._build_env(),
+            )
+
+            try:
+                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+            except TimeoutError:
+                process.kill()
+                logger.error("Windows shell 命令执行超时: %s", command)
+                return ToolResult(success=False, error=f"命令执行超时 ({timeout}秒)")
+
+            # 编码处理：UTF-8 优先，GBK 回退
+            try:
+                stdout_str = stdout.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    stdout_str = stdout.decode('gbk')
+                except UnicodeDecodeError:
+                    stdout_str = stdout.decode('utf-8', errors='replace')
+
+            try:
+                stderr_str = stderr.decode('utf-8')
+            except UnicodeDecodeError:
+                try:
+                    stderr_str = stderr.decode('gbk')
+                except UnicodeDecodeError:
+                    stderr_str = stderr.decode('utf-8', errors='replace')
+
+            return ToolResult(
+                success=(process.returncode == 0),
+                output=stdout_str,
+                error=stderr_str if process.returncode != 0 else "",
+                data={"return_code": process.returncode},
+            )
 
         if self.sandbox.is_available():
             allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
