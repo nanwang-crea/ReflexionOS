@@ -444,6 +444,61 @@ class ShellTool(BaseTool):
             except UnicodeDecodeError:
                 return data.decode("utf-8", errors="replace")
 
+    def _sync_subprocess_run_shell(
+        self,
+        command: str,
+        cwd: str,
+        timeout: int,
+    ) -> ToolResult:
+        """
+        同步执行 subprocess（shell 模式），在线程池中调用。
+        仅用于 Windows 平台，绕过事件循环的子进程支持限制。
+
+        注意：接收原始命令，内部包装 cmd.exe /c
+
+        Args:
+            command: 原始 shell 命令（不含 cmd.exe /c）
+            cwd: 工作目录
+            timeout: 超时秒数
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        import subprocess
+
+        shell_command = f'cmd.exe /c "{command}"'
+
+        try:
+            result = subprocess.run(
+                shell_command,
+                cwd=cwd,
+                env=self._build_env(),
+                capture_output=True,
+                timeout=timeout,
+                shell=True,  # shell 模式
+                check=False,
+            )
+
+            output = self._decode_windows_output(result.stdout)
+            error = self._decode_windows_output(result.stderr)
+
+            return ToolResult(
+                success=(result.returncode == 0),
+                output=output.strip(),
+                error=error.strip() if error else None,
+                data={"return_code": result.returncode},
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("同步 shell subprocess 执行超时: %s", command)
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"Shell 命令执行超时（{timeout}秒）",
+            )
+        except Exception as e:
+            logger.error("同步 shell subprocess 执行异常: %s", e, exc_info=True)
+            return ToolResult(success=False, output=None, error=str(e))
+
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
         effect_category: EffectCategory | None = None,
