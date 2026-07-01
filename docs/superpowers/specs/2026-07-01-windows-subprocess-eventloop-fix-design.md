@@ -52,7 +52,9 @@ File ".../asyncio/base_events.py", line 528, in _make_subprocess_transport
 
 ### 做什么
 
-1. **修复 Windows 子进程执行**：无论用户如何启动后端（带不带 `--reload`），所有 git 命令都能正常执行
+1. **修复 Windows 子进程执行**：无论用户如何启动后端（带不带 `--reload`），Windows 白名单允许范围内的 git 命令都能正常执行
+   - 无元字符命令（argv 模式）：所有 git 子命令（经策略层路径校验）
+   - 有元字符命令（shell 模式）：仅 4 个纯读 git 子命令（status/log/diff/show）+ 命令链（`&&`/`||`）
 2. **跨平台兼容**：macOS/Linux 现有功能和性能 **零影响**
 3. **保持开发体验**：用户可以继续使用 `--reload` 进行热重载开发
 
@@ -152,69 +154,107 @@ shell_tool._execute_argv/shell (非 Windows 分支)
 
 #### 1. `_execute_argv` 修改
 
-**当前实现**（line ~288-312）：
+**当前签名**（line ~288）：
 ```python
-async def _execute_argv(self, argv: list[str], cwd: str, timeout: int) -> ShellResult:
-    # Windows 上 asyncio.create_subprocess_exec 不可用，需要用 shell 模式
-    if sys.platform == "win32":
-        command_str = " ".join(shlex.quote(arg) for arg in argv)
-        process = await asyncio.create_subprocess_shell(  # ← 这里会失败
-            command_str, ...
-        )
-    else:
-        process = await asyncio.create_subprocess_exec(*argv, ...)
+async def _execute_argv(
+    self, argv: list[str], cwd: str, timeout: int,
+    effect_category: EffectCategory | None = None,
+) -> ToolResult:
 ```
 
-**修复后**：
+**当前 Windows 分支**（line ~288-312）：
 ```python
-async def _execute_argv(self, argv: list[str], cwd: str, timeout: int) -> ShellResult:
-    if sys.platform == "win32":
-        # Windows: 用线程池执行同步 subprocess，不依赖事件循环的子进程支持
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None,  # 使用默认线程池
-            self._sync_subprocess_run,  # 同步执行函数
-            argv,
-            cwd,
-            timeout,
-        )
-        return result
-    else:
-        # macOS/Linux: 保持原有异步 subprocess（零改动）
-        process = await asyncio.create_subprocess_exec(*argv, ...)
-        # ... 原有逻辑
-```
-
-#### 2. `_execute_shell` 修改
-
-**当前 Windows 分支**（line ~428）：
-```python
-process = await asyncio.create_subprocess_shell(
-    shell_command,  # cmd.exe /c "{command}"
-    stdout=asyncio.subprocess.PIPE,
-    stderr=asyncio.subprocess.PIPE,
-    cwd=cwd,
-    env=self._build_env(),
-)
+if sys.platform == "win32":
+    command_str = " ".join(shlex.quote(arg) for arg in argv)
+    process = await asyncio.create_subprocess_shell(  # ← 这里会失败
+        command_str, ...
+    )
+else:
+    process = await asyncio.create_subprocess_exec(*argv, ...)
 ```
 
 **修复后**：
 ```python
 if sys.platform == "win32":
-    # Windows: 线程池 + 同步 subprocess
+    # Windows: 用线程池执行同步 subprocess，不依赖事件循环的子进程支持
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(
+        None,  # 使用默认线程池
+        self._sync_subprocess_run,  # 同步执行函数
+        argv,
+        cwd,
+        timeout,
+    )
+else:
+    # macOS/Linux: 保持原有异步 subprocess（零改动）
+    process = await asyncio.create_subprocess_exec(*argv, ...)
+    # ... 原有逻辑保持不变
+```
+
+#### 2. `_execute_shell` 修改
+
+**当前签名**（line ~378）：
+```python
+async def _execute_shell(
+    self, command: str, cwd: str, timeout: int,
+    effect_category: EffectCategory | None = None,
+    sandbox_allow_network: bool = False,
+    sandbox_extra_paths: list[str] | None = None,
+) -> ToolResult:
+```
+
+**当前 Windows 分支结构**（line ~384-470）：
+```python
+if sys.platform == "win32":
+    # 1. cwd 路径校验（line 390-394）
+    validated_cwd = self.path_security.validate_path(cwd)
+    
+    # 2. sandbox_extra_paths 校验（line 397-402）
+    if sandbox_extra_paths:
+        for extra_path in sandbox_extra_paths:
+            self.path_security.validate_path(extra_path)
+    
+    # 3. NETWORK_OUT 拒绝（line 408-412）
+    if effect_category == EffectCategory.NETWORK_OUT:
+        return ToolResult(success=False, error="Windows 第一阶段不支持网络型 shell 命令")
+    
+    # 4. 审计日志（line 422-425）
+    logger.info("执行 Windows shell 命令: %s, cwd=%s, network=%s, effect=%s", ...)
+    
+    # 5. 子进程启动（line 428-434）← 这里会失败
+    process = await asyncio.create_subprocess_shell(
+        f'cmd.exe /c "{command}"', ...
+    )
+    
+    # 6. 编码处理（line 443-463）
+    # UTF-8 → GBK 降级
+```
+
+**修复方案**：
+**只替换步骤 5（子进程启动方式），保留步骤 1-4、6 的所有逻辑**
+
+```python
+if sys.platform == "win32":
+    # 1-4. 保持现有的前置校验和审计逻辑（line 389-425）
+    validated_cwd = self.path_security.validate_path(cwd)
+    # ... sandbox_extra_paths 校验
+    # ... NETWORK_OUT 拒绝
+    # ... 审计日志
+    
+    # 5. 子进程启动 ← 改用线程池
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         None,
-        self._sync_subprocess_run_shell,  # shell 模式的同步执行函数
-        shell_command,
-        cwd,
+        self._sync_subprocess_run_shell,
+        command,  # 原始命令（辅助函数内再包 cmd.exe /c）
+        validated_cwd,
         timeout,
     )
     return result
 else:
     # macOS/Linux: 保持原有异步 subprocess（零改动）
     process = await asyncio.create_subprocess_shell(...)
-    # ... 原有逻辑
+    # ... 原有逻辑保持不变
 ```
 
 #### 3. 新增同步执行辅助函数
@@ -227,7 +267,7 @@ def _sync_subprocess_run(
     argv: list[str],
     cwd: str,
     timeout: int,
-) -> ShellResult:
+) -> ToolResult:
     """
     同步执行 subprocess（argv 模式），在线程池中调用。
     仅用于 Windows 平台，绕过事件循环的子进程支持限制。
@@ -246,32 +286,35 @@ def _sync_subprocess_run(
         output = self._decode_windows_output(result.stdout)
         error = self._decode_windows_output(result.stderr)
         
-        return ShellResult(
+        return ToolResult(
             success=(result.returncode == 0),
             output=output.strip(),
             error=error.strip() if error else None,
+            data={"return_code": result.returncode},
         )
     except subprocess.TimeoutExpired:
-        return ShellResult(
+        return ToolResult(
             success=False,
             output=None,
             error=f"命令执行超时（{timeout}秒）",
         )
     except Exception as e:
         logger.error("同步 subprocess 执行异常: %s", e, exc_info=True)
-        return ShellResult(success=False, output=None, error=str(e))
+        return ToolResult(success=False, output=None, error=str(e))
 
 def _sync_subprocess_run_shell(
     self,
-    shell_command: str,
+    command: str,
     cwd: str,
     timeout: int,
-) -> ShellResult:
+) -> ToolResult:
     """
     同步执行 subprocess（shell 模式），在线程池中调用。
     仅用于 Windows 平台，绕过事件循环的子进程支持限制。
+    
+    注意：接收原始命令，内部包装 cmd.exe /c
     """
-    # shell_command 已经是 cmd.exe /c "{原始命令}" 格式
+    shell_command = f'cmd.exe /c "{command}"'
     try:
         result = subprocess.run(
             shell_command,
@@ -286,20 +329,21 @@ def _sync_subprocess_run_shell(
         output = self._decode_windows_output(result.stdout)
         error = self._decode_windows_output(result.stderr)
         
-        return ShellResult(
+        return ToolResult(
             success=(result.returncode == 0),
             output=output.strip(),
-            error=error.strip() if error,
+            error=error.strip() if error else None,
+            data={"return_code": result.returncode},
         )
     except subprocess.TimeoutExpired:
-        return ShellResult(
+        return ToolResult(
             success=False,
             output=None,
             error=f"Shell 命令执行超时（{timeout}秒）",
         )
     except Exception as e:
         logger.error("同步 shell subprocess 执行异常: %s", e, exc_info=True)
-        return ShellResult(success=False, output=None, error=str(e))
+        return ToolResult(success=False, output=None, error=str(e))
 
 def _decode_windows_output(self, data: bytes) -> str:
     """
