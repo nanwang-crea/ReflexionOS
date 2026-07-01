@@ -304,17 +304,15 @@ class ShellTool(BaseTool):
                 argv, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
 
-        # Windows 上 asyncio.create_subprocess_exec 不可用，需要用 shell 模式
+        # Windows: 用线程池执行同步 subprocess，不依赖事件循环的子进程支持
         if sys.platform == "win32":
-            # 将 argv 转换为 shell 命令字符串（需要正确转义）
-            import shlex
-            command_str = " ".join(shlex.quote(arg) for arg in argv)
-            process = await asyncio.create_subprocess_shell(
-                command_str,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=self._build_env(),
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # 使用默认线程池
+                self._sync_subprocess_run,
+                argv,
+                cwd,
+                timeout,
             )
         else:
             process = await asyncio.create_subprocess_exec(
