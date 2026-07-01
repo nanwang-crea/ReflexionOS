@@ -546,44 +546,14 @@ class ShellTool(BaseTool):
                 command, validated_cwd, allow_network, effect_category
             )
 
-            # 构建 Windows 命令（无需语法转换，策略层只允许 && 和 ||）
-            process = await asyncio.create_subprocess_shell(
-                f'cmd.exe /c "{command}"',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=validated_cwd,
-                env=self._build_env(),
-            )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
-            except TimeoutError:
-                process.kill()
-                logger.error("Windows shell 命令执行超时: %s", command)
-                return ToolResult(success=False, error=f"命令执行超时 ({timeout}秒)")
-
-            # 编码处理：UTF-8 优先，GBK 回退
-            try:
-                stdout_str = stdout.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    stdout_str = stdout.decode('gbk')
-                except UnicodeDecodeError:
-                    stdout_str = stdout.decode('utf-8', errors='replace')
-
-            try:
-                stderr_str = stderr.decode('utf-8')
-            except UnicodeDecodeError:
-                try:
-                    stderr_str = stderr.decode('gbk')
-                except UnicodeDecodeError:
-                    stderr_str = stderr.decode('utf-8', errors='replace')
-
-            return ToolResult(
-                success=(process.returncode == 0),
-                output=stdout_str,
-                error=stderr_str if process.returncode != 0 else "",
-                data={"return_code": process.returncode},
+            # 构建 Windows 命令并执行（线程池 + 同步 subprocess）
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                self._sync_subprocess_run_shell,
+                command,  # 原始命令（辅助函数内部包装 cmd.exe /c）
+                validated_cwd,
+                timeout,
             )
 
         if self.sandbox.is_available():
