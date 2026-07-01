@@ -256,6 +256,7 @@ class ShellTool(BaseTool):
 
         try:
             if decision.execution_mode == "shell":
+                logger.info("开始执行 shell 模式: command=%s, cwd=%s", decision.command, cwd)
                 return await self._execute_shell(
                     decision.command, cwd, timeout, decision.effect_category,
                     sandbox_allow_network=sandbox_allow_network,
@@ -265,11 +266,14 @@ class ShellTool(BaseTool):
                 argv = decision.argv
                 if argv is None:
                     return ToolResult(success=False, error="argv 模式决策缺少 argv")
-                return await self._execute_argv(
+                logger.info("开始执行 argv 模式: argv=%s, cwd=%s", argv, cwd)
+                result = await self._execute_argv(
                     argv, cwd, timeout, decision.effect_category,
                     sandbox_allow_network=sandbox_allow_network,
                     sandbox_extra_paths=sandbox_extra_paths,
                 )
+                logger.info("argv 模式执行完成: success=%s, output_len=%d", result.success, len(result.output or ''))
+                return result
         except FileNotFoundError:
             cmd_name = decision.command.split()[0] if decision.command else "command"
             logger.error("命令不存在: %s", decision.command)
@@ -282,7 +286,7 @@ class ShellTool(BaseTool):
             logger.error("Shell 执行系统错误: %s", e)
             return ToolResult(success=False, error=f"执行错误: {e} (errno={e.errno})", data={"return_code": -1})
         except Exception as e:
-            logger.error("Shell 执行异常: %s", e)
+            logger.error("Shell 执行异常: %s (type=%s)", e, type(e).__name__, exc_info=True)
             return ToolResult(success=False, error=str(e))
 
     async def _execute_argv(
@@ -300,10 +304,23 @@ class ShellTool(BaseTool):
                 argv, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
 
-        process = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
-            env=self._build_env(),
-        )
+        # Windows 上 asyncio.create_subprocess_exec 不可用，需要用 shell 模式
+        if sys.platform == "win32":
+            # 将 argv 转换为 shell 命令字符串（需要正确转义）
+            import shlex
+            command_str = " ".join(shlex.quote(arg) for arg in argv)
+            process = await asyncio.create_subprocess_shell(
+                command_str,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=self._build_env(),
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
+                env=self._build_env(),
+            )
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
@@ -312,8 +329,26 @@ class ShellTool(BaseTool):
             logger.error("命令执行超时: %s", " ".join(argv))
             return ToolResult(success=False, error=f"命令执行超时 ({timeout}秒)")
 
-        output = stdout.decode("utf-8", errors="ignore")
-        error = stderr.decode("utf-8", errors="ignore")
+        # Windows 上需要处理 GBK 编码
+        if sys.platform == "win32":
+            try:
+                output = stdout.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    output = stdout.decode("gbk")
+                except UnicodeDecodeError:
+                    output = stdout.decode("utf-8", errors="replace")
+
+            try:
+                error = stderr.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    error = stderr.decode("gbk")
+                except UnicodeDecodeError:
+                    error = stderr.decode("utf-8", errors="replace")
+        else:
+            output = stdout.decode("utf-8", errors="ignore")
+            error = stderr.decode("utf-8", errors="ignore")
 
         if process.returncode == 0:
             logger.info("argv 命令执行成功: %s", " ".join(argv))
@@ -339,6 +374,75 @@ class ShellTool(BaseTool):
                 return self._create_approval_result(decision, elevation=error_info)
             friendly_error = self._friendly_error(process.returncode, error, output, argv[0] if argv else "")
             return ToolResult(success=False, output=output, error=friendly_error, data={"return_code": process.returncode})
+
+    def _sync_subprocess_run(
+        self,
+        argv: list[str],
+        cwd: str,
+        timeout: int,
+    ) -> ToolResult:
+        """
+        同步执行 subprocess（argv 模式），在线程池中调用。
+        仅用于 Windows 平台，绕过事件循环的子进程支持限制。
+
+        Args:
+            argv: 命令参数列表
+            cwd: 工作目录
+            timeout: 超时秒数
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                argv,
+                cwd=cwd,
+                env=self._build_env(),
+                capture_output=True,
+                timeout=timeout,
+                check=False,  # 不抛异常，通过返回码判断
+            )
+
+            # GBK/UTF-8 编码降级（复用现有逻辑）
+            output = self._decode_windows_output(result.stdout)
+            error = self._decode_windows_output(result.stderr)
+
+            return ToolResult(
+                success=(result.returncode == 0),
+                output=output.strip(),
+                error=error.strip() if error else None,
+                data={"return_code": result.returncode},
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("同步 subprocess 执行超时: %s", " ".join(argv))
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"命令执行超时（{timeout}秒）",
+            )
+        except Exception as e:
+            logger.error("同步 subprocess 执行异常: %s", e, exc_info=True)
+            return ToolResult(success=False, output=None, error=str(e))
+
+    def _decode_windows_output(self, data: bytes) -> str:
+        """
+        解码 Windows 子进程输出，GBK/UTF-8 降级处理。
+
+        Args:
+            data: 子进程输出的原始字节
+
+        Returns:
+            str: 解码后的字符串
+        """
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return data.decode("gbk")
+            except UnicodeDecodeError:
+                return data.decode("utf-8", errors="replace")
 
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
