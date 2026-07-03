@@ -77,14 +77,14 @@ export function createProviderActions(options: CreateProviderActionsOptions) {
     }: {
       selectedSavedProvider: ProviderInstance | null
       resetDraft: () => void
-      confirmDelete: (provider: ProviderInstance) => boolean
+      confirmDelete: (provider: ProviderInstance) => Promise<boolean>
     }) {
       if (!selectedSavedProvider) {
         resetDraft()
         return
       }
 
-      if (!confirmDelete(selectedSavedProvider)) {
+      if (!(await confirmDelete(selectedSavedProvider))) {
         return
       }
 

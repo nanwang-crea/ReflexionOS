@@ -46,6 +46,32 @@ describe('workspace.store 会话级状态', () => {
     expect(useWorkspaceStore.getState().lastSeenEventSeqBySessionId['session-1']).toBe(8)
   })
 
+  it('resetSessionSeen 清除指定会话的已读基线（回退到 0），不影响其他会话', async () => {
+    const { useWorkspaceStore } = await import('../workspace.store')
+    const { markSessionSeen, resetSessionSeen } = useWorkspaceStore.getState()
+
+    markSessionSeen('session-1', 120)
+    markSessionSeen('session-2', 30)
+
+    resetSessionSeen('session-1')
+
+    // session-1 的 seen 被清除，等价回退到 0，后续小序号事件能判为未读。
+    expect('session-1' in useWorkspaceStore.getState().lastSeenEventSeqBySessionId).toBe(false)
+    // session-2 不受影响。
+    expect(useWorkspaceStore.getState().lastSeenEventSeqBySessionId['session-2']).toBe(30)
+
+    // 回退后 markSessionSeen 从 0 重新单调前进。
+    markSessionSeen('session-1', 5)
+    expect(useWorkspaceStore.getState().lastSeenEventSeqBySessionId['session-1']).toBe(5)
+  })
+
+  it('resetSessionSeen 对不存在的会话是幂等无副作用', async () => {
+    const { useWorkspaceStore } = await import('../workspace.store')
+    const before = useWorkspaceStore.getState().lastSeenEventSeqBySessionId
+    useWorkspaceStore.getState().resetSessionSeen('not-there')
+    expect(useWorkspaceStore.getState().lastSeenEventSeqBySessionId).toBe(before)
+  })
+
   it('markSessionSyncDegraded / clearSessionSyncHealth 正确设置与清除', async () => {
     const { useWorkspaceStore } = await import('../workspace.store')
     const { markSessionSyncDegraded, clearSessionSyncHealth } = useWorkspaceStore.getState()

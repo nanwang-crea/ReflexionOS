@@ -3,6 +3,7 @@ import { useSessionStore } from '@/features/sessions/stores/session.store'
 
 const createSessionMock = vi.fn()
 const updateSessionMock = vi.fn()
+const resetSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 const listProjectSessionsMock = vi.fn()
 
@@ -10,6 +11,7 @@ vi.mock('../api/session.api', () => ({
   sessionApi: {
     createSession: createSessionMock,
     updateSession: updateSessionMock,
+    resetSession: resetSessionMock,
     deleteSession: deleteSessionMock,
     listProjectSessions: listProjectSessionsMock,
   },
@@ -19,6 +21,7 @@ describe('sessionActions', () => {
   beforeEach(() => {
     createSessionMock.mockReset()
     updateSessionMock.mockReset()
+    resetSessionMock.mockReset()
     deleteSessionMock.mockReset()
     listProjectSessionsMock.mockReset()
     listProjectSessionsMock.mockResolvedValue({ data: [] })
@@ -165,6 +168,41 @@ describe('sessionActions', () => {
     expect(listProjectSessionsMock).toHaveBeenCalledWith('project-1')
     expect(session.preferredProviderId).toBe('provider-a')
     expect(session.preferredModelId).toBe('model-a')
+  })
+
+  it('resets a session through the api and upserts the cleared session into sessionStore', async () => {
+    useSessionStore.getState().setProjectSessions('project-1', [{
+      id: 'session-1',
+      projectId: 'project-1',
+      title: '会话',
+      lastEventSeq: 120,
+      activeTurnId: 'turn-9',
+      createdAt: '2026-04-20T00:00:00Z',
+      updatedAt: '2026-04-20T00:00:00Z',
+    }])
+    resetSessionMock.mockResolvedValue({
+      data: {
+        id: 'session-1',
+        projectId: 'project-1',
+        title: '会话',
+        lastEventSeq: 0,
+        activeTurnId: null,
+        createdAt: '2026-04-20T00:00:00Z',
+        updatedAt: '2026-04-20T00:02:00Z',
+      },
+    })
+
+    const { resetSession } = await import('../session.actions')
+    const session = await resetSession('session-1')
+
+    expect(resetSessionMock).toHaveBeenCalledWith('session-1')
+    // 用返回的 Session 回写列表真值：计数清零、活跃 turn 清空，标题/位置保留。
+    const stored = useSessionStore.getState().sessionsByProjectId['project-1'][0]
+    expect(stored.id).toBe('session-1')
+    expect(stored.title).toBe('会话')
+    expect(stored.lastEventSeq).toBe(0)
+    expect(stored.activeTurnId).toBeNull()
+    expect(session.lastEventSeq).toBe(0)
   })
 
   it('deletes a session through the api and removes it from sessionStore', async () => {

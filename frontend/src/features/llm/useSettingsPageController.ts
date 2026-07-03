@@ -192,7 +192,7 @@ export function useSettingsPageController(options?: {
     await providerActions.deleteProvider({
       selectedSavedProvider,
       resetDraft,
-      confirmDelete: (provider) => dialogService.confirmAction(`确定删除供应商"${provider.name}"吗？`),
+      confirmDelete: (provider) => dialogService.confirmAction(`确定删除供应商"${provider.name}"吗？`, { variant: 'danger' }),
     })
   }, [dialogService, providerActions, resetDraft, selectedSavedProvider])
 

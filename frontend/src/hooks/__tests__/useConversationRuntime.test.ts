@@ -20,10 +20,14 @@ const {
   wsOnMock,
   wsHandlers,
   conversationStoreState,
+  resetSessionActionMock,
+  resetSessionSeenMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (data: unknown) => void>()
 
   return {
+    resetSessionActionMock: vi.fn(),
+    resetSessionSeenMock: vi.fn(),
     getConversationMock: vi.fn(),
     setSnapshotMock: vi.fn(),
     applyEventMock: vi.fn(),
@@ -110,6 +114,10 @@ vi.mock('@/features/sessions/stores/session.store', () => ({
   },
 }))
 
+vi.mock('@/features/sessions/session.actions', () => ({
+  resetSession: resetSessionActionMock,
+}))
+
 vi.mock('@/shared/stores/toast.store', () => ({
   useToastStore: {
     getState: () => ({
@@ -124,6 +132,7 @@ vi.mock('@/features/workspace/stores/workspace.store', () => ({
       sessionSyncHealthBySessionId: {} as Record<string, 'degraded'>,
       markSessionSyncDegraded: vi.fn(),
       clearSessionSyncHealth: vi.fn(),
+      resetSessionSeen: resetSessionSeenMock,
     }),
   },
 }))
@@ -215,6 +224,8 @@ describe('useConversationRuntime', () => {
     wsApproveToolMock.mockReset()
     wsDenyToolMock.mockReset()
     wsOnMock.mockClear()
+    resetSessionActionMock.mockReset()
+    resetSessionSeenMock.mockReset()
     wsHandlers.clear()
 
     conversationStoreState.conversationsBySessionId = {}
@@ -591,5 +602,37 @@ describe('useConversationRuntime', () => {
 
     expect(getConversationMock).toHaveBeenCalledTimes(2)
     expect(setSnapshotMock).toHaveBeenLastCalledWith('session-1', snapshot)
+  })
+
+  it('resetConversationRuntime: 成功后才清显示并回退未读基线', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    resetSessionActionMock.mockResolvedValue({ id: 'session-1', lastEventSeq: 0, activeTurnId: null })
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+    await flushAsyncEffects()
+    clearConversationMock.mockClear()
+
+    await runtime.resetConversationRuntime()
+
+    expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
+    expect(clearConversationMock).toHaveBeenCalledWith('session-1')
+    expect(resetSessionSeenMock).toHaveBeenCalledWith('session-1')
+  })
+
+  it('resetConversationRuntime: 后端失败则不清任何前端状态', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    resetSessionActionMock.mockRejectedValue(new Error('boom'))
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+    await flushAsyncEffects()
+    clearConversationMock.mockClear()
+
+    await runtime.resetConversationRuntime()
+
+    expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
+    expect(clearConversationMock).not.toHaveBeenCalled()
+    expect(resetSessionSeenMock).not.toHaveBeenCalled()
   })
 })

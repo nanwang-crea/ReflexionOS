@@ -27,7 +27,7 @@ from app.models.conversation import (
     RunStatus,
 )
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
-from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
+from app.models.session import DEFAULT_SESSION_TITLE, Session, SessionUpdate
 from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.security.command_effect_registry import CommandEffectRegistry
@@ -681,6 +681,26 @@ class AgentService:
         )
 
         return cancelled
+
+    async def reset_session(self, session_id: str) -> Session:
+        """重置对话：先停后清。
+
+        先在写锁外取消活跃 run（cancel_run 内部自取写锁并 await 任务真停，
+        整段持锁会死锁），再交给 conversation_service 在写锁内重校验后清库。
+        """
+        session = self.session_repo.get(session_id)
+        if not session:
+            raise NotFoundValueError("会话不存在")
+
+        conversation = self.conversation_service.get_snapshot(session_id)
+        active_run_id = resolve_active_run_id_from_conversation(conversation)
+        if active_run_id:
+            try:
+                await self.cancel_run(active_run_id)
+            except Exception:
+                logger.warning("重置前取消活跃运行失败: run_id=%s", active_run_id)
+
+        return self.conversation_service.reset_session(session_id)
 
     async def edit_and_rerun(
         self,
