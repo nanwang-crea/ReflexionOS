@@ -260,12 +260,23 @@ class SandboxRunResult:
         argv: list[str],
         *,
         cwd: str,
+        timeout: int = 300,
         allowed_paths: list[str] | None = None,
         read_only_paths: list[str] | None = None,
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> SandboxRunResult | None:
-        """直接执行 argv 命令并返回结果。默认为 None（seatbelt/landlock 不覆盖）。"""
+        """直接执行 argv 命令并返回结果。默认为 None（seatbelt/landlock 不覆盖）。
+        
+        Args:
+            argv: 命令参数列表
+            cwd: 工作目录
+            timeout: 超时秒数（传给底层执行机制，如 proc.communicate）
+            allowed_paths: 允许写入的路径
+            read_only_paths: 只读路径
+            allow_network: 是否允许网络
+            allow_ipc: 是否允许 IPC
+        """
         return None
 
     def run_shell_command(
@@ -273,12 +284,23 @@ class SandboxRunResult:
         command: str,
         *,
         cwd: str,
+        timeout: int = 300,
         allowed_paths: list[str] | None = None,
         read_only_paths: list[str] | None = None,
         allow_network: bool = False,
         allow_ipc: bool = False,
     ) -> SandboxRunResult | None:
-        """直接执行 shell 命令并返回结果。默认为 None。"""
+        """直接执行 shell 命令并返回结果。默认为 None。
+        
+        Args:
+            command: shell 命令字符串
+            cwd: 工作目录
+            timeout: 超时秒数
+            allowed_paths: 允许写入的路径
+            read_only_paths: 只读路径
+            allow_network: 是否允许网络
+            allow_ipc: 是否允许 IPC
+        """
         return None
 ```
 
@@ -435,57 +457,6 @@ git add backend/app/security/command_effect_registry.py \
        backend/tests/test_security/test_command_policy_windows_builtin.py
 git commit -m "feat: 直接注册 Windows builtin + runas→ESCALATE"
 ```
-
----
-
-### 备忘项 A: posix-split Windows 路径验证
-
-**说明：** 这是 spec 431 行记录的已知限制，**不是修改代码的任务**，而是验证任务，在 Task 5 之前执行。
-
-- [ ] **Step A.1: 编写 Windows 路径解析验证脚本**
-
-```python
-# 在 Windows 机器上运行，验证 shlex.split(posix=True) 对反斜杠路径的行为
-import shlex
-
-test_cases = [
-    ("cd C:\\Users\\test", ["cd", "C:\\Users\\test"]),  # 期望：正确拆分
-    ("copy C:\\a\\b D:\\c\\d", ["copy", "C:\\a\\b", "D:\\c\\d"]),
-    ("dir \"C:\\Program Files\\\"", ["dir", "C:\\Program Files\\"]),
-]
-
-for cmd, expected in test_cases:
-    try:
-        result = shlex.split(cmd, posix=True)
-        print(f"OK:   {cmd} → {result}")
-    except ValueError as e:
-        print(f"FAIL: {cmd} → {e}")
-```
-
-- [ ] **Step A.2: 若 posix=True 拆坏反斜杠路径**
-
-改用 `shlex.split(cmd, posix=False)` 重新测试全部用例：
-```python
-for cmd, expected in test_cases:
-    result = shlex.split(cmd, posix=False)
-    print(f"posix=False: {cmd} → {result}")
-```
-
-- [ ] **Step A.3: 记录结论到文件**
-
-将验证结果写入 `docs/superpowers/notes/posix-split-windows-verification.md`，供后续 Windows 分支参考。
-
----
-
-### 备忘项 B: run_shell_command 同级交付
-
-**说明：** 这是 spec 578/607 行记录的交付约束，确保 WindowsSandbox 主类同时实现 `run_command` 和 `run_shell_command`。
-
-**约束：** Task 5（Windows 沙盒主类）的验收标准必须同时包含：
-1. `run_command` — 用于 argv 模式，CreateProcessAsUserW 执行
-2. `run_shell_command` — 用于 shell 模式，cmd.exe /c + CreateProcessAsUserW 执行
-
-两个方法在 Unelevated 和 Elevated 档都要覆盖，缺一不可。
 
 ---
 
@@ -903,7 +874,7 @@ def test_is_available_not_on_windows(windows_sandbox):
 
 
 def test_run_command_argv_mode(windows_sandbox):
-    """run_command 应以 CreateProcessAsUserW 执行 argv"""
+    """run_command 应调用 _exec_in_sandbox 执行 argv（Task 5 stub 阶段使用 Popen）"""
     with patch("sys.platform", "win32"):
         with patch.object(windows_sandbox, "_exec_in_sandbox") as mock_exec:
             mock_exec.return_value = (True, "hello", None, 0)
@@ -916,7 +887,7 @@ def test_run_command_argv_mode(windows_sandbox):
 
 
 def test_run_shell_command_shell_mode(windows_sandbox):
-    """run_shell_command 应以 cmd.exe /c + CreateProcessAsUserW 执行"""
+    """run_shell_command 应调用 _exec_in_sandbox 执行 cmd.exe /c（Task 5 stub 阶段使用 Popen）"""
     with patch("sys.platform", "win32"):
         with patch.object(windows_sandbox, "_exec_in_sandbox") as mock_exec:
             mock_exec.return_value = (True, "dir output", None, 0)
@@ -1651,7 +1622,10 @@ if sys.platform == "win32":
 # 改后：
 if sys.platform == "win32":
     if self.sandbox_available and hasattr(self.sandbox, 'run_command'):
-        result = self.sandbox.run_command(argv, cwd=cwd, allowed_paths=...)
+        result = self.sandbox.run_command(
+            argv, cwd=cwd, timeout=timeout,
+            allowed_paths=...,  # 从 path_security 提取
+        )
         if result is not None:
             return ToolResult(
                 success=result.success, output=result.output,
@@ -1669,7 +1643,8 @@ if sys.platform == "win32":
     if self.sandbox_available and hasattr(self.sandbox, 'run_shell_command'):
         # 替换 NETWORK_OUT 硬拒绝（:530-534）为沙盒执行
         result = self.sandbox.run_shell_command(
-            command, cwd=validated_cwd, allowed_paths=...,
+            command, cwd=validated_cwd, timeout=timeout,
+            allowed_paths=...,  # 从 path_security 提取
             allow_network=allow_network,
         )
         if result is not None:
@@ -1724,13 +1699,18 @@ class SessionModel(Base):
     permission_mode: Mapped[str] = mapped_column(String, nullable=False, default="auto")
 ```
 
-- [ ] **Step 11.3: Repository update 加赋值**
+- [ ] **Step 11.3: Repository update 加 permission_mode 字段赋值**
 
 ```python
 # backend/app/storage/repositories/session_repo.py
-# 在 update 方法中加：
-if value := payload.permission_mode:
-    session.permission_mode = value
+# 在 update 方法（:41-58）中加一行（:53 agent_mode 赋值后）：
+model.title = session.title
+model.preferred_provider_id = session.preferred_provider_id
+model.preferred_model_id = session.preferred_model_id
+model.agent_mode = session.agent_mode
+model.permission_mode = session.permission_mode  # 新增
+model.last_event_seq = session.last_event_seq
+model.active_turn_id = session.active_turn_id
 ```
 
 - [ ] **Step 11.4: WebSocket handler 加 set_permission_mode**
@@ -1788,9 +1768,14 @@ const setPermissionMode = useCallback((mode: PermissionMode) => {
 
 ```python
 # backend/app/services/agent_service.py:918 审批恢复调用点
-# 改前：无 session_id，无法读 DB
-# 改后：从 pending_turn.run_id 回溯 session_id，读 permission_mode
-# 参照 start_turn:212 的 permission_mode 读取方式
+# 当前：_execute_approved_tool(pending: PendingToolApproval, *, run_id: str)
+#       pending 已有 session_id 字段（来自 PendingToolApproval 结构）
+# 改动：_build_run_tool_registry(project_path, session_id=None) 签名加 session_id 参数
+#       读取 session.permission_mode 并传给 ShellTool
+# 调用点改为：
+tool_registry = getattr(loop, "tool_registry", None) or self._build_run_tool_registry(
+    project_path, session_id=pending.session_id
+)
 ```
 
 - [ ] **Step 11.9: 提交**
@@ -1819,78 +1804,110 @@ git commit -m "feat: 权限模式前后端通路（permission_mode 字段 + WebS
 ```python
 # backend/tests/test_security/test_sandbox_windows_integration.py
 import sys
+import tempfile
+import os
 from unittest.mock import patch, MagicMock
 import pytest
 from app.security.permission_mode import PermissionMode
 from app.security.command_policy import CommandPolicy, CommandAction
-from app.security.effect_category import EffectCategory
-from app.tools.shell_tool import ShellTool
+from app.security.shell_security import ShellSecurity
+from app.security.path_security import PathSecurity
+from app.security.command_effect_registry import CommandEffectRegistry
 
 
 @pytest.fixture
-def mock_sandbox():
-    """Mock WindowsSandbox 使其 is_available=True"""
-    mock = MagicMock()
-    mock.is_available.return_value = True
-    mock.run_command.return_value = MagicMock(success=True, output="", error=None, return_code=0)
-    mock.run_shell_command.return_value = MagicMock(success=True, output="", error=None, return_code=0)
-    return mock
+def win_policy_auto_sandbox():
+    """Windows 平台 + AUTO 模式 + 沙盒可用"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root_dir = os.path.realpath(tmpdir)
+        shell_sec = ShellSecurity(platform_name="win32")
+        policy = CommandPolicy(
+            shell_sec,
+            PathSecurity([root_dir], base_dir=root_dir),
+            CommandEffectRegistry(),
+            permission_mode=PermissionMode.AUTO,
+            sandbox_available=True,
+        )
+        yield policy
 
 
-def test_dir_read_only_auto(mock_sandbox):
+@pytest.fixture
+def win_policy_yolo_sandbox():
+    """Windows 平台 + YOLO 模式 + 沙盒可用"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root_dir = os.path.realpath(tmpdir)
+        shell_sec = ShellSecurity(platform_name="win32")
+        policy = CommandPolicy(
+            shell_sec,
+            PathSecurity([root_dir], base_dir=root_dir),
+            CommandEffectRegistry(),
+            permission_mode=PermissionMode.YOLO,
+            sandbox_available=True,
+        )
+        yield policy
+
+
+@pytest.fixture
+def win_policy_yolo_no_sandbox():
+    """Windows 平台 + YOLO 模式 + 沙盒不可用"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root_dir = os.path.realpath(tmpdir)
+        shell_sec = ShellSecurity(platform_name="win32")
+        policy = CommandPolicy(
+            shell_sec,
+            PathSecurity([root_dir], base_dir=root_dir),
+            CommandEffectRegistry(),
+            permission_mode=PermissionMode.YOLO,
+            sandbox_available=False,
+        )
+        yield policy
+
+
+@pytest.fixture
+def win_policy_auto_no_sandbox():
+    """Windows 平台 + AUTO 模式 + 沙盒不可用"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root_dir = os.path.realpath(tmpdir)
+        shell_sec = ShellSecurity(platform_name="win32")
+        policy = CommandPolicy(
+            shell_sec,
+            PathSecurity([root_dir], base_dir=root_dir),
+            CommandEffectRegistry(),
+            permission_mode=PermissionMode.AUTO,
+            sandbox_available=False,
+        )
+        yield policy
+
+
+def test_dir_read_only_auto(win_policy_auto_sandbox):
     """#1 AUTO dir → READ_ONLY → ALLOW"""
-    with patch("sys.platform", "win32"):
-        policy = CommandPolicy(
-            MagicMock(), MagicMock(), MagicMock(),
-            permission_mode=PermissionMode.AUTO, sandbox_available=True,
-        )
-        decision = policy.evaluate("dir")
-        assert decision.action != CommandAction.DENY
+    decision = win_policy_auto_sandbox.evaluate("dir")
+    assert decision.action != CommandAction.DENY
 
 
-def test_runas_always_deny_auto(mock_sandbox):
+def test_runas_always_deny_yolo(win_policy_yolo_sandbox):
     """#7 YOLO runas → ESCALATE → DENY"""
-    with patch("sys.platform", "win32"):
-        policy = CommandPolicy(
-            MagicMock(), MagicMock(), MagicMock(),
-            permission_mode=PermissionMode.YOLO, sandbox_available=True,
-        )
-        decision = policy.evaluate("runas /user:admin cmd")
-        assert decision.action == CommandAction.DENY
+    decision = win_policy_yolo_sandbox.evaluate("runas /user:admin cmd")
+    assert decision.action == CommandAction.DENY
 
 
-def test_yolo_no_sandbox_deny():
+def test_yolo_no_sandbox_deny(win_policy_yolo_no_sandbox):
     """#8 YOLO + 沙盒不可用 → DENY"""
-    with patch("sys.platform", "win32"):
-        policy = CommandPolicy(
-            MagicMock(), MagicMock(), MagicMock(),
-            permission_mode=PermissionMode.YOLO, sandbox_available=False,
-        )
-        decision = policy.evaluate("dir")
-        assert decision.action == CommandAction.DENY
+    decision = win_policy_yolo_no_sandbox.evaluate("dir")
+    assert decision.action == CommandAction.DENY
 
 
-def test_dir_pipe_findstr(mock_sandbox):
+def test_dir_pipe_findstr(win_policy_auto_sandbox):
     """#2b AUTO dir | findstr → registry 认得 → READ_ONLY"""
-    with patch("sys.platform", "win32"):
-        policy = CommandPolicy(
-            MagicMock(), MagicMock(), MagicMock(),
-            permission_mode=PermissionMode.AUTO, sandbox_available=True,
-        )
-        decision = policy.evaluate("dir | findstr foo")
-        assert decision.action != CommandAction.DENY
+    decision = win_policy_auto_sandbox.evaluate("dir | findstr foo")
+    assert decision.action != CommandAction.DENY
 
 
-def test_sandbox_fallback_whitelist_active():
+def test_sandbox_fallback_whitelist_active(win_policy_auto_no_sandbox):
     """#11 沙盒不可用降级 → 白名单恢复"""
-    with patch("sys.platform", "win32"):
-        policy = CommandPolicy(
-            MagicMock(), MagicMock(), MagicMock(),
-            permission_mode=PermissionMode.AUTO, sandbox_available=False,
-        )
-        decision = policy.evaluate("git status && dir")
-        # dir 在无沙盒时被白名单拦截
-        assert decision.action == CommandAction.DENY
+    decision = win_policy_auto_no_sandbox.evaluate("git status && dir")
+    # dir 在无沙盒时被白名单拦截
+    assert decision.action == CommandAction.DENY
 
 
 def test_seatbelt_landlock_unchanged():
