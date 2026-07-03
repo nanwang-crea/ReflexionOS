@@ -128,11 +128,12 @@ class SubAgentRunner:
         
         async def callback_with_run_id(event_type: str, data: dict[str, Any]) -> None:
             """
-            包装事件回调，自动添加 run_id 和 parent_session_id 到 payload 中。
+            包装事件回调，自动添加 run_id 到 payload 中。
             - run_id: SubAgent 的运行 ID（如 sub-run-xxx）
-            - parent_session_id: 父 Agent 的 session ID，用于前端路由审批响应到正确的 WebSocket 连接
+            注意：parent_session_id 由 delegate_tool.py 在外层回调中注入，
+            此处不设置，避免覆盖正确的父 session ID。
             """
-            enriched_data = {**data, "run_id": run_id, "parent_session_id": self._session_id}
+            enriched_data = {**data, "run_id": run_id}
             await base_callback(event_type, enriched_data)
         
         loop = RapidExecutionLoop(

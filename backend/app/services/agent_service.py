@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.config.settings import config_manager
 from app.errors import NotFoundValueError
+from app.execution.approval_flow import ApprovalFlow
 from app.execution.approval_store import PendingApprovalStore
 from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
@@ -109,6 +110,8 @@ class AgentService:
         self._upload_cleanup_task: asyncio.Task | None = None
         self._browser_tools: dict[str, _BrowserTool] = {}
         self._browser_tools_lock = threading.Lock()
+        # session_id → approval_flow 映射，用于 SubAgent 审批结果路由
+        self._session_approval_flows: dict[str, "ApprovalFlow"] = {}
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
@@ -463,6 +466,22 @@ class AgentService:
             elif event_type.startswith("metrics:"):
                 await self.conversation_broadcaster.send_event(session_id, event_type, data)
             elif event_type.startswith("sub_agent:"):
+                # SubAgent 审批事件：注册到 pending_approval_store，使用父 session_id
+                # 这样用户点击审批时后端能找到对应的审批记录
+                if event_type == "sub_agent:approval:required":
+                    approval_id = data.get("approval_id")
+                    if isinstance(approval_id, str) and approval_id:
+                        self.pending_approval_store.create(
+                            approval_id=approval_id,
+                            session_id=session_id,  # 使用父 session_id
+                            turn_id="",
+                            run_id=str(data.get("run_id", "")),
+                            step_number=int(data.get("step_number") or 0),
+                            tool_call_id=str(data.get("tool_call_id") or ""),
+                            tool_name=str(data.get("tool_name") or ""),
+                            tool_arguments=data.get("arguments") if isinstance(data.get("arguments"), dict) else {},
+                            approval_payload=data.get("approval") if isinstance(data.get("approval"), dict) else {},
+                        )
                 # 子 agent 事件直接透传到前端，不经过 runtime adapter 持久化
                 # 前端通过 WebSocket 消息中的 sub_agent: 前缀识别并路由到子 agent store
                 await self.conversation_broadcaster.send_event(session_id, event_type, data)
@@ -481,6 +500,9 @@ class AgentService:
             context_window=resolved_llm.context_window,
         )
         self._execution_loops[run_id] = execution_loop
+        # 存储 session → approval_flow 映射，供 SubAgent 审批结果路由使用
+        if hasattr(execution_loop, "approval_flow"):
+            self._session_approval_flows[session_id] = execution_loop.approval_flow
 
         # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
         # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path, approval_flow, event_callback）
@@ -785,10 +807,36 @@ class AgentService:
         approval_event_type: EventType,
         decision: AllowApprovalDecision = "allow_once",
     ) -> None:
-        terminal_event_type: EventType | None = None
-        terminal_payload: dict | None = None
+        is_sub_agent_run = run_id.startswith("sub-run-")
 
         with self.conversation_service.acquire_session_write_lock(session_id):
+            # ── SubAgent 审批路径 ──
+            # SubAgent 的 run 未存储到数据库，直接操作 approval_flow 恢复执行
+            if is_sub_agent_run:
+                pending = self.pending_approval_store.get(approval_id)
+                if pending is None:
+                    raise NotFoundValueError("审批不存在")
+                if pending.status != "pending":
+                    raise ValueError("审批已处理")
+
+                approval_flow = self._session_approval_flows.get(session_id)
+                if approval_flow is None:
+                    raise NotFoundValueError("审批流不存在")
+
+                if approval_event_type == EventType.APPROVAL_APPROVED:
+                    self.pending_approval_store.approve(approval_id, decision=decision)
+                    # SubAgent 共享父 Agent 的 approval_flow，直接设置结果恢复执行
+                    approval_flow.set_approval_result({
+                        "success": True,
+                        "output": None,
+                        "error": None,
+                    })
+                else:
+                    self.pending_approval_store.deny(approval_id)
+                    approval_flow.set_approval_result(None)
+                return
+
+            # ── 主 Agent 审批路径 ──
             run = self.conversation_service.get_run(run_id)
             if run is None:
                 raise NotFoundValueError("运行不存在")
@@ -805,6 +853,9 @@ class AgentService:
                 raise ValueError("审批不属于当前运行")
             if pending.status != "pending":
                 raise ValueError("审批已处理")
+
+            terminal_event_type: EventType | None = None
+            terminal_payload: dict | None = None
 
             if approval_event_type == EventType.APPROVAL_APPROVED:
                 self.pending_approval_store.approve(approval_id, decision=decision)

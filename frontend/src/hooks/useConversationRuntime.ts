@@ -564,7 +564,7 @@ export function useConversationRuntime(
       return
     }
 
-    ws.approveTool({ runId, approvalId, decision: 'allow_once' })
+    ws.approveTool({ runId, approvalId, decision: 'allow_once', parentSessionId })
   }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
   const denyTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
@@ -576,7 +576,7 @@ export function useConversationRuntime(
       return
     }
 
-    ws.denyTool({ runId, approvalId })
+    ws.denyTool({ runId, approvalId, parentSessionId })
   }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
   const trustTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
@@ -588,7 +588,7 @@ export function useConversationRuntime(
       return
     }
 
-    ws.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
+    ws.approveTool({ runId, approvalId, decision: 'trust_and_allow', parentSessionId })
   }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
   const editAndRerun = useCallback((payload: {

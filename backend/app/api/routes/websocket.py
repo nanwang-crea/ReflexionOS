@@ -209,16 +209,20 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 try:
                     # 从 run_id 获取实际的 session_id，支持 SubAgent 审批
-                    # SubAgent 的 run_id 属于 SubAgent session，不是当前 WebSocket 连接的 session
+                    # SubAgent 的 run_id 未存储到数据库，使用前端传递的 parent_session_id 路由
                     run = conversation_service.get_run(run_id)
-                    if run is None:
-                        await _send_error(
-                            websocket,
-                            code="invalid_request",
-                            message="运行不存在",
-                        )
-                        continue
-                    target_session_id = run.session_id
+                    if run is not None:
+                        target_session_id = run.session_id
+                    else:
+                        parent_session_id = msg_data.get("parent_session_id")
+                        if not isinstance(parent_session_id, str) or not parent_session_id:
+                            await _send_error(
+                                websocket,
+                                code="invalid_request",
+                                message="parent_session_id 不能为空",
+                            )
+                            continue
+                        target_session_id = parent_session_id
 
                     if msg_type == "conversation:approve_tool":
                         decision_str = msg_data.get("decision", "allow_once")

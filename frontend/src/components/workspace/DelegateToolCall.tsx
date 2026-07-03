@@ -106,12 +106,14 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
           const approvalData = payload.approval as Record<string, unknown> | undefined
           const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
           const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
+          const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
           
           if (approvalId && runId) {
             // 构造审批对象，与 SubAgentDetailPanel 的逻辑一致
             tool.approval = {
               runId,
               approvalId,
+              parentSessionId,
               shell: approvalData && typeof approvalData.shell === 'object'
                 ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
                 : undefined,
