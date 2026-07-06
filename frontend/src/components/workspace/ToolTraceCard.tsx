@@ -67,7 +67,7 @@ export function ToolTraceCard({
     const args = typeof message.payloadJson.arguments === 'object' && message.payloadJson.arguments !== null
       ? message.payloadJson.arguments as Record<string, unknown>
       : undefined
-    return <DelegateToolCall detail={detail} args={args} />
+    return <DelegateToolCall detail={detail} args={args} onApprovalAction={onApprovalAction} />
   }
 
   return (

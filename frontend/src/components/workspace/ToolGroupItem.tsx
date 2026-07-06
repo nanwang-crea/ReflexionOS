@@ -24,6 +24,7 @@ export const ToolGroupItem = memo(function ToolGroupItem({
       <DelegateToolCall
         detail={details[0]}
         args={details[0].arguments}
+        onApprovalAction={onApprovalAction}
       />
     )
   }
