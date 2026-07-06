@@ -40,11 +40,14 @@ class DelegateTool(BaseTool):
         self,
         runner_factory: RunnerFactory,
         event_callback: EventCallback | None = None,
+        parent_session_id: str | None = None,  # 主 Agent 的 session_id，用于 SubAgent 审批路由
     ):
         super().__init__()
         self._runner_factory = runner_factory
         # 外部注入的事件回调，用于将子 agent 执行事件实时推送到前端
         self._event_callback: EventCallback | None = event_callback
+        # 主 Agent 的 session_id，注入到 SubAgent 审批事件中
+        self._parent_session_id: str | None = parent_session_id
 
     @property
     def name(self) -> str:
@@ -116,18 +119,22 @@ class DelegateTool(BaseTool):
             if self._event_callback:
                 parent_cb = self._event_callback
                 call_id = delegate_call_id
+                parent_sid = self._parent_session_id  # 主 Agent 的 session_id
 
                 async def _sub_agent_event_callback(
                     event_type: str, data: dict[str, Any]
                 ) -> None:
-                    # 注入 delegate_call_id 和 task 描述，前端用于关联和展示
+                    # 扁平化发送所有字段，前端 WebSocket 层会自动包装成 SubAgentEventDto 结构
+                    # 前端会将 delegate_call_id 提取出来，其他字段放入 payload 中
                     enriched = {
-                        **data,
                         "delegate_call_id": call_id,
-                        "task": task[:200],
+                        "task": task[:200],  # 附加任务描述，方便前端展示
+                        "parent_session_id": parent_sid,  # 注入主 Agent 的 session_id，用于审批路由
+                        **data,  # 展开原始事件数据（包括 run_id、tool_call_id、approval 等）
                     }
-                    # 添加 sub_agent: 前缀，让前端区分主/子 agent 事件
-                    await parent_cb(f"sub_agent:{event_type}", enriched)
+                    # 为事件类型添加 sub_agent: 前缀，前端会去掉前缀得到原始事件类型
+                    prefixed_event_type = f"sub_agent:{event_type}"
+                    await parent_cb(prefixed_event_type, enriched)
 
                 runner._event_callback = _sub_agent_event_callback
 

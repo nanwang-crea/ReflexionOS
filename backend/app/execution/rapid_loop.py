@@ -62,6 +62,7 @@ class RapidExecutionLoop:
         max_steps: int | None = None,
         event_callback: Callable[[str, dict], Awaitable[None]] | None = None,
         context_window: int = 128000,
+        approval_flow: ApprovalFlow | None = None,  # 可选的共享审批流（用于 SubAgent）
     ):
         self.llm = llm
         self._tool_registry = tool_registry
@@ -81,7 +82,9 @@ class RapidExecutionLoop:
             tool_registry=self._tool_registry,
             emit=self._emit,
         )
-        self.approval_flow = ApprovalFlow(emit=self._emit)
+        # 如果传入了 approval_flow，则复用它（用于 SubAgent 共享主 Agent 的审批流）
+        # 否则创建新的审批流实例（用于主 Agent）
+        self.approval_flow = approval_flow or ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
         self.plan_file_sync = PlanFileSync()
 
@@ -441,9 +444,15 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """审批子处理器：等待审批结果，决定后续状态。"""
+        logger.info("[_handle_approval] Entering: tool=%s, step_number=%s", step.tool, step.step_number)
         result.status = LoopStatus.WAITING_FOR_APPROVAL
         result.result = step.output
 
+        # 发送运行状态事件：通知整个运行进入"等待审批"状态
+        # 注意：此时 tool_call_executor 已发送了 approval:required 事件（包含完整工具信息）
+        # 此事件用于标记运行状态，与 approval:required 协同工作：
+        # - approval:required: 工具层审批细节（前端用于显示审批对话框，包含完整参数）
+        # - run:waiting_for_approval: 运行层状态标记（前端用于更新运行状态）
         await self._emit(
             "run:waiting_for_approval",
             {
@@ -451,10 +460,13 @@ class RapidExecutionLoop:
                 "approval_id": step.approval_id,
                 "step_number": step.step_number,
                 "tool_name": step.tool,
+                "tool_call_id": step.tool_call_id,
             },
         )
 
+        logger.info("[_handle_approval] Calling wait_for_approval, tool=%s", step.tool)
         approval = await self.approval_flow.wait_for_approval(step, result.id)
+        logger.info("[_handle_approval] wait_for_approval returned: approved=%s, success=%s", approval.approved, approval.success)
 
         if approval.approved:
             result.status = LoopStatus.RESUMING
@@ -473,6 +485,7 @@ class RapidExecutionLoop:
             # Emit tool:result so the runtime adapter closes the
             # waiting-for-approval tool_trace (updates payload and
             # streamState from streaming → completed/failed).
+            logger.info("[_handle_approval] Emitting tool:result for tool=%s, tool_call_id=%s", step.tool, step.tool_call_id)
             await self._emit(
                 "tool:result",
                 {
@@ -485,6 +498,7 @@ class RapidExecutionLoop:
                     "duration": 0.0,
                 },
             )
+            logger.info("[_handle_approval] tool:result emitted successfully")
 
             await self._emit(
                 "run:resuming",

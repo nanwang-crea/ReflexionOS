@@ -390,6 +390,139 @@ describe('conversationReducer', () => {
     expect(refreshed.messagesById['msg-live'].streamState).toBe('streaming')
   })
 
+  describe('sub_agent events', () => {
+    it('strips sub_agent: prefix and processes events normally', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-sub-1',
+        sessionId: 'session-1',
+        seq: 10,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'msg-sub-tool',
+        eventType: 'sub_agent:message.created',
+        payloadJson: {
+          message_id: 'msg-sub-tool',
+          role: 'assistant',
+          message_type: 'tool_trace',
+          turn_message_index: 4,
+          display_mode: 'default',
+          content_text: '',
+          payload_json: {
+            tool_name: 'file',
+            arguments: { action: 'read', path: '/tmp/test.ts' },
+          },
+        },
+        createdAt: '2026-04-24T10:00:10Z',
+        delegate_call_id: 'delegate-call-123',
+      })
+
+      expect(next.messagesById['msg-sub-tool']).toBeDefined()
+      expect(next.messagesById['msg-sub-tool'].messageType).toBe('tool_trace')
+      expect(next.lastEventSeq).toBe(10)
+    })
+
+    it('handles sub_agent:run.waiting_for_approval correctly', () => {
+      const base = applyConversationSnapshot(undefined, buildSnapshot())
+
+      const next = applyConversationEvent(base, {
+        id: 'evt-sub-2',
+        sessionId: 'session-1',
+        seq: 11,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: null,
+        eventType: 'sub_agent:run.waiting_for_approval',
+        payloadJson: {},
+        createdAt: '2026-04-24T10:00:11Z',
+        delegate_call_id: 'delegate-call-123',
+      })
+
+      expect(next.runsById['run-1'].status).toBe('waiting_for_approval')
+    })
+
+    it('handles complete sub_agent approval workflow', () => {
+      // 模拟完整的子 agent 审批流程
+      let state = applyConversationSnapshot(undefined, buildSnapshot())
+
+      // 1. 父 agent 创建 delegate tool call
+      state = applyConversationEvent(state, {
+        id: 'evt-delegate-1',
+        sessionId: 'session-1',
+        seq: 10,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'msg-delegate',
+        eventType: 'message.created',
+        payloadJson: {
+          message_id: 'msg-delegate',
+          role: 'assistant',
+          message_type: 'tool_trace',
+          turn_message_index: 3,
+          display_mode: 'default',
+          content_text: '',
+          payload_json: {
+            tool_name: 'delegate',
+            tool_call_id: 'delegate-call-123',
+            arguments: { task: 'Fix the bug in utils.ts' },
+          },
+        },
+        createdAt: '2026-04-24T10:00:10Z',
+      })
+
+      // 2. 子 agent 创建工具调用消息（需要审批）
+      state = applyConversationEvent(state, {
+        id: 'evt-sub-tool',
+        sessionId: 'session-1',
+        seq: 11,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: 'msg-sub-tool',
+        eventType: 'sub_agent:message.created',
+        payloadJson: {
+          message_id: 'msg-sub-tool',
+          role: 'assistant',
+          message_type: 'tool_trace',
+          turn_message_index: 4,
+          display_mode: 'default',
+          content_text: '',
+          payload_json: {
+            tool_name: 'shell',
+            tool_call_id: 'shell-call-456',
+            arguments: { command: 'rm -rf /tmp/cache' },
+          },
+        },
+        createdAt: '2026-04-24T10:00:11Z',
+        delegate_call_id: 'delegate-call-123',
+      })
+
+      // 3. 子 agent run 进入等待审批状态
+      state = applyConversationEvent(state, {
+        id: 'evt-sub-waiting',
+        sessionId: 'session-1',
+        seq: 12,
+        turnId: 'turn-1',
+        runId: 'run-1',
+        messageId: null,
+        eventType: 'sub_agent:run.waiting_for_approval',
+        payloadJson: {},
+        createdAt: '2026-04-24T10:00:12Z',
+        delegate_call_id: 'delegate-call-123',
+      })
+
+      // 验证状态
+      expect(state.messagesById['msg-delegate']).toBeDefined()
+      expect(state.messagesById['msg-delegate'].payloadJson.tool_name).toBe('delegate')
+      
+      expect(state.messagesById['msg-sub-tool']).toBeDefined()
+      expect(state.messagesById['msg-sub-tool'].payloadJson.tool_name).toBe('shell')
+      
+      expect(state.runsById['run-1'].status).toBe('waiting_for_approval')
+      expect(state.lastEventSeq).toBe(12)
+    })
+  })
+
   describe('run intermediate status events', () => {
     it('updates run status to running when run.started arrives', () => {
       const base = applyConversationSnapshot(undefined, buildSnapshot())

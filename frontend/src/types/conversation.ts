@@ -118,6 +118,8 @@ export interface ConversationEvent {
   eventType: string
   payloadJson: Record<string, unknown>
   createdAt: string
+  // 用于标识子 agent 事件，关联到父 agent 的 delegate tool call
+  delegate_call_id?: string
 }
 
 export interface ConversationLiveMessage {

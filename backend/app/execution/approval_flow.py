@@ -1,10 +1,13 @@
 """审批流 — 只负责等待/接收审批结果，返回结构化 ApprovalResult。"""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from app.execution.models import LoopStep
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,8 +33,10 @@ class ApprovalFlow:
 
     def set_approval_result(self, result: dict | None) -> None:
         """外部调用：审批结果写入"""
+        logger.info("[ApprovalFlow] set_approval_result called: result=%s, _resume_event.is_set()=%s", result is not None, self._resume_event.is_set())
         self._pending_result = result
         self._resume_event.set()
+        logger.info("[ApprovalFlow] _resume_event.set() called, waiters should wake up")
 
     async def wait_for_approval(self, step: LoopStep, run_id: str) -> ApprovalResult:
         """
@@ -42,12 +47,15 @@ class ApprovalFlow:
         2. 根据返回的 ApprovalResult 决定状态转移
         3. 发送后续事件（tool:result / run:cancelled 等）
         """
+        logger.info("[ApprovalFlow] wait_for_approval: waiting for _resume_event, run_id=%s, tool=%s", run_id, step.tool)
         await self._resume_event.wait()
+        logger.info("[ApprovalFlow] _resume_event.wait() returned, reading _pending_result")
         result = self._pending_result
         self._pending_result = None
         self._resume_event = asyncio.Event()
 
         if result is not None:
+            logger.info("[ApprovalFlow] Approval granted: success=%s", result.get("success", False))
             return ApprovalResult(
                 approved=True,
                 output=result.get("output"),
@@ -55,4 +63,5 @@ class ApprovalFlow:
                 success=result.get("success", False),
             )
         else:
+            logger.info("[ApprovalFlow] Approval denied")
             return ApprovalResult(approved=False)

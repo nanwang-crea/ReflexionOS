@@ -144,7 +144,7 @@ function buildCancelRunMessage(runId: string) {
 
 function buildToolApprovalMessage(
   type: 'conversation:approve_tool' | 'conversation:deny_tool',
-  payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }
+  payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow'; parentSessionId?: string }
 ) {
   const data: Record<string, string> = {
     approval_id: payload.approvalId,
@@ -152,6 +152,9 @@ function buildToolApprovalMessage(
   }
   if (payload.decision) {
     data.decision = payload.decision
+  }
+  if (payload.parentSessionId) {
+    data.parent_session_id = payload.parentSessionId
   }
   return { type, data }
 }
@@ -343,13 +346,14 @@ class SessionConversationWebSocket {
     }
   }
 
-  approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }): void {
+  approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow'; parentSessionId?: string }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:approve_tool', payload)))
+      const message = buildToolApprovalMessage('conversation:approve_tool', payload)
+      this.ws.send(JSON.stringify(message))
     }
   }
 
-  denyTool(payload: { runId: string; approvalId: string }): void {
+  denyTool(payload: { runId: string; approvalId: string; parentSessionId?: string }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:deny_tool', payload)))
     }

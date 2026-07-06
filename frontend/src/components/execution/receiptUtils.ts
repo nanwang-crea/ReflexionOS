@@ -35,6 +35,7 @@ export interface ActionReceiptDetail {
   approval?: {
     runId: string
     approvalId: string
+    parentSessionId?: string  // SubAgent 的父 session ID，用于路由审批响应
     suggestedTrust?: { prefix?: string[]; permission?: string; pattern?: string }
     shell?: ShellApprovalPayload
     sandboxNetwork?: SandboxNetworkPayload

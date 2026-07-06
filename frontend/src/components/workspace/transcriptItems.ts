@@ -60,9 +60,12 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
     const approvalPayload = isRecord(approvalObj?.payload) ? approvalObj.payload : undefined
     const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
     const suggestedTrust = isRecord(approvalObj?.suggested_trust) ? approvalObj.suggested_trust : undefined
+    // 提取 parent_session_id，用于 SubAgent 审批路由
+    const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
     detail.approval = {
       runId: message.runId,
       approvalId: payload.approval_id,
+      parentSessionId: parentSessionId,  // SubAgent 的父 session ID
       suggestedTrust: suggestedTrust ?? undefined,
       ...(hasShellPayload ? {
         shell: {

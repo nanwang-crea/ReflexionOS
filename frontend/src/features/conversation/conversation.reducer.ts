@@ -357,44 +357,56 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     return currentState
   }
 
-  if (event.eventType === 'messages.truncated') {
-    return applyMessagesTruncated(currentState, event)
+  // 处理子 agent 事件：提取实际事件类型，保留 delegate_call_id
+  let actualEvent = event
+  if (event.eventType.startsWith('sub_agent:')) {
+    const actualEventType = event.eventType.replace('sub_agent:', '')
+    actualEvent = {
+      ...event,
+      eventType: actualEventType,
+      // delegate_call_id 已经在事件中，无需额外处理
+    }
+    // 注意：子 agent 事件会正常处理，delegate_call_id 可用于 UI 层判断是否需要特殊展示
   }
 
-  if (!event.messageId) {
-    if (event.eventType === 'turn.created') {
-      const p = event.payloadJson
-      const turnId = typeof p.turn_id === 'string' ? p.turn_id : (event.turnId ?? '')
+  if (actualEvent.eventType === 'messages.truncated') {
+    return applyMessagesTruncated(currentState, actualEvent)
+  }
+
+  if (!actualEvent.messageId) {
+    if (actualEvent.eventType === 'turn.created') {
+      const p = actualEvent.payloadJson
+      const turnId = typeof p.turn_id === 'string' ? p.turn_id : (actualEvent.turnId ?? '')
       if (currentState.turnsById[turnId]) {
-        return { ...currentState, lastEventSeq: event.seq }
+        return { ...currentState, lastEventSeq: actualEvent.seq }
       }
       const newTurn: ConversationTurn = {
         id: turnId,
-        sessionId: event.sessionId,
+        sessionId: actualEvent.sessionId,
         turnIndex: typeof p.turn_index === 'number' ? p.turn_index : 0,
         rootMessageId: typeof p.root_message_id === 'string' ? p.root_message_id : '',
         status: 'running',
         activeRunId: null,
-        createdAt: event.createdAt,
-        updatedAt: event.createdAt,
+        createdAt: actualEvent.createdAt,
+        updatedAt: actualEvent.createdAt,
         completedAt: null,
       }
       return {
         ...currentState,
-        lastEventSeq: event.seq,
+        lastEventSeq: actualEvent.seq,
         turnOrder: [...currentState.turnOrder, turnId],
         turnsById: { ...currentState.turnsById, [turnId]: newTurn },
       }
     }
 
-    if (event.runId) {
-      const run = currentState.runsById[event.runId]
-      if (event.eventType === 'run.created') {
-        const p = event.payloadJson
+    if (actualEvent.runId) {
+      const run = currentState.runsById[actualEvent.runId]
+      if (actualEvent.eventType === 'run.created') {
+        const p = actualEvent.payloadJson
         const newRun: ConversationRun = {
-          id: event.runId,
-          sessionId: event.sessionId,
-          turnId: event.turnId ?? '',
+          id: actualEvent.runId,
+          sessionId: actualEvent.sessionId,
+          turnId: actualEvent.turnId ?? '',
           attemptIndex: typeof p.attempt_index === 'number' ? p.attempt_index : 1,
           status: 'created',
           providerId: typeof p.provider_id === 'string' ? p.provider_id : null,
@@ -407,24 +419,24 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
         }
         return {
           ...currentState,
-          lastEventSeq: event.seq,
-          runsById: { ...currentState.runsById, [event.runId]: newRun },
+          lastEventSeq: actualEvent.seq,
+          runsById: { ...currentState.runsById, [actualEvent.runId]: newRun },
         }
       }
       if (run) {
-        if (event.eventType === 'run.completed') {
-          const finishedAt = typeof event.payloadJson.finished_at === 'string' ? event.payloadJson.finished_at : null
+        if (actualEvent.eventType === 'run.completed') {
+          const finishedAt = typeof actualEvent.payloadJson.finished_at === 'string' ? actualEvent.payloadJson.finished_at : null
           const messagesById: Record<string, ConversationMessage> = Object.fromEntries(
             Object.entries(currentState.messagesById).map(([messageId, message]) => {
               if (
-                message.runId === event.runId &&
+                message.runId === actualEvent.runId &&
                 (message.streamState === 'idle' || message.streamState === 'streaming')
               ) {
                 return [messageId, {
                   ...message,
                   streamState: 'completed' as const,
                   completedAt: finishedAt ?? message.completedAt,
-                  updatedAt: event.createdAt,
+                  updatedAt: actualEvent.createdAt,
                 }]
               }
               return [messageId, message]
@@ -433,10 +445,10 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
 
           return {
             ...currentState,
-            lastEventSeq: event.seq,
+            lastEventSeq: actualEvent.seq,
             runsById: {
               ...currentState.runsById,
-              [event.runId]: {
+              [actualEvent.runId]: {
                 ...run,
                 status: 'completed',
                 finishedAt,
@@ -445,18 +457,18 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
             messagesById,
           }
         }
-        if (event.eventType === 'run.failed' || event.eventType === 'run.cancelled') {
-          const terminalState: ConversationStreamState = event.eventType === 'run.failed' ? 'failed' : 'cancelled'
+        if (actualEvent.eventType === 'run.failed' || actualEvent.eventType === 'run.cancelled') {
+          const terminalState: ConversationStreamState = actualEvent.eventType === 'run.failed' ? 'failed' : 'cancelled'
           const messagesById: Record<string, ConversationMessage> = Object.fromEntries(
             Object.entries(currentState.messagesById).map(([messageId, message]) => {
               if (
-                message.runId === event.runId &&
+                message.runId === actualEvent.runId &&
                 (message.streamState === 'idle' || message.streamState === 'streaming')
               ) {
                 return [messageId, {
                   ...message,
                   streamState: terminalState,
-                  updatedAt: event.createdAt,
+                  updatedAt: actualEvent.createdAt,
                 }]
               }
               return [messageId, message]
@@ -464,33 +476,33 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
           )
           return {
             ...currentState,
-            lastEventSeq: event.seq,
+            lastEventSeq: actualEvent.seq,
             runsById: {
               ...currentState.runsById,
-              [event.runId]: {
+              [actualEvent.runId]: {
                 ...run,
                 status: terminalState,
-                errorCode: typeof event.payloadJson.error_code === 'string' ? event.payloadJson.error_code : null,
-                errorMessage: typeof event.payloadJson.error_message === 'string' ? event.payloadJson.error_message : null,
+                errorCode: typeof actualEvent.payloadJson.error_code === 'string' ? actualEvent.payloadJson.error_code : null,
+                errorMessage: typeof actualEvent.payloadJson.error_message === 'string' ? actualEvent.payloadJson.error_message : null,
               },
             },
             messagesById,
           }
         }
         if (
-          event.eventType === 'run.started' ||
-          event.eventType === 'run.waiting_for_approval' ||
-          event.eventType === 'run.resuming'
+          actualEvent.eventType === 'run.started' ||
+          actualEvent.eventType === 'run.waiting_for_approval' ||
+          actualEvent.eventType === 'run.resuming'
         ) {
-          const newStatus = event.eventType === 'run.started' ? 'running'
-            : event.eventType === 'run.waiting_for_approval' ? 'waiting_for_approval'
+          const newStatus = actualEvent.eventType === 'run.started' ? 'running'
+            : actualEvent.eventType === 'run.waiting_for_approval' ? 'waiting_for_approval'
             : 'resuming'
           return {
             ...currentState,
-            lastEventSeq: event.seq,
+            lastEventSeq: actualEvent.seq,
             runsById: {
               ...currentState.runsById,
-              [event.runId]: { ...run, status: newStatus },
+              [actualEvent.runId]: { ...run, status: newStatus },
             },
           }
         }
@@ -498,15 +510,15 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     }
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
     }
   }
 
-  if (event.eventType === 'message.created') {
-    const p = event.payloadJson
-    const messageId = typeof p.message_id === 'string' ? p.message_id : event.messageId
+  if (actualEvent.eventType === 'message.created') {
+    const p = actualEvent.payloadJson
+    const messageId = typeof p.message_id === 'string' ? p.message_id : actualEvent.messageId
     if (currentState.messagesById[messageId]) {
-      return { ...currentState, lastEventSeq: event.seq }
+      return { ...currentState, lastEventSeq: actualEvent.seq }
     }
     const role = isValidRole(p.role) ? p.role : 'assistant'
     const messageType = isValidMessageType(p.message_type) ? p.message_type : 'tool_trace'
@@ -520,9 +532,9 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
 
     const newMessage: ConversationMessage = {
       id: messageId,
-      sessionId: event.sessionId,
-      turnId: event.turnId ?? currentState.session?.activeTurnId ?? '',
-      runId: event.runId ?? null,
+      sessionId: actualEvent.sessionId,
+      turnId: actualEvent.turnId ?? currentState.session?.activeTurnId ?? '',
+      runId: actualEvent.runId ?? null,
       turnMessageIndex,
       role,
       messageType,
@@ -531,13 +543,13 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
       contentText,
       payloadJson,
       attachments,
-      createdAt: event.createdAt,
-      updatedAt: event.createdAt,
+      createdAt: actualEvent.createdAt,
+      updatedAt: actualEvent.createdAt,
       completedAt: null,
     }
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
       messageOrder: [...currentState.messageOrder, messageId],
       messagesById: {
         ...currentState.messagesById,
@@ -546,80 +558,80 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
     }
   }
 
-  const currentMessage = currentState.messagesById[event.messageId]
+  const currentMessage = currentState.messagesById[actualEvent.messageId]
   if (!currentMessage) {
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
     }
   }
 
-  if (event.eventType === 'message.payload_updated') {
-    const payloadPatch = event.payloadJson.payload_json
-    const nextPayload = isRecord(payloadPatch) ? payloadPatch : event.payloadJson
+  if (actualEvent.eventType === 'message.payload_updated') {
+    const payloadPatch = actualEvent.payloadJson.payload_json
+    const nextPayload = isRecord(payloadPatch) ? payloadPatch : actualEvent.payloadJson
 
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
       messagesById: {
         ...currentState.messagesById,
-        [event.messageId]: {
+        [actualEvent.messageId]: {
           ...currentMessage,
           payloadJson: {
             ...currentMessage.payloadJson,
             ...nextPayload,
           },
-          updatedAt: event.createdAt,
+          updatedAt: actualEvent.createdAt,
         },
       },
     }
   }
 
-  if (event.eventType === 'message.content_committed') {
+  if (actualEvent.eventType === 'message.content_committed') {
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
       messagesById: {
         ...currentState.messagesById,
-        [event.messageId]: {
+        [actualEvent.messageId]: {
           ...currentMessage,
-          contentText: String(event.payloadJson.content_text ?? ''),
-          updatedAt: event.createdAt,
+          contentText: String(actualEvent.payloadJson.content_text ?? ''),
+          updatedAt: actualEvent.createdAt,
         },
       },
     }
   }
 
-  if (event.eventType === 'message.failed') {
+  if (actualEvent.eventType === 'message.failed') {
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
       messagesById: {
         ...currentState.messagesById,
-        [event.messageId]: {
+        [actualEvent.messageId]: {
           ...currentMessage,
           streamState: 'failed',
           payloadJson: {
             ...currentMessage.payloadJson,
-            ...event.payloadJson,
+            ...actualEvent.payloadJson,
           },
-          updatedAt: event.createdAt,
+          updatedAt: actualEvent.createdAt,
         },
       },
     }
   }
 
-  if (event.eventType === 'message.completed') {
+  if (actualEvent.eventType === 'message.completed') {
     return {
       ...currentState,
-      lastEventSeq: event.seq,
+      lastEventSeq: actualEvent.seq,
       messagesById: {
         ...currentState.messagesById,
-        [event.messageId]: {
+        [actualEvent.messageId]: {
           ...currentMessage,
           streamState: 'completed',
-          completedAt: event.createdAt,
-          updatedAt: event.createdAt,
+          completedAt: actualEvent.createdAt,
+          updatedAt: actualEvent.createdAt,
         },
       },
     }
@@ -627,7 +639,7 @@ export function applyConversationEvent(state: ConversationState, event: Conversa
 
   return {
     ...currentState,
-    lastEventSeq: event.seq,
+    lastEventSeq: actualEvent.seq,
   }
 }
 
