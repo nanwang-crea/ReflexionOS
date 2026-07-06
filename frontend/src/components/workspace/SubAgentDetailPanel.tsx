@@ -172,7 +172,7 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         const resultCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
         const matched = resultCallId
           ? toolGroup.find(d => d.id === resultCallId)
-          : toolGroup.find(d => d.status === 'running')
+          : toolGroup.find(d => d.status === 'running' || d.status === 'waiting_for_approval')
         if (matched) {
           matched.status = payload.success !== false ? 'success' : 'failed'
           matched.output = typeof payload.result === 'string' ? payload.result : undefined
@@ -180,6 +180,8 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
             matched.duration = payload.duration
           }
         }
+        // 刷新工具组，将 waiting_for_approval → success/failed 的状态变更反映到 UI
+        flushToolGroup()
         break
       }
 
@@ -189,16 +191,17 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         const errorCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
         const matchedErr = errorCallId
           ? toolGroup.find(d => d.id === errorCallId)
-          : toolGroup.find(d => d.status === 'running')
+          : toolGroup.find(d => d.status === 'running' || d.status === 'waiting_for_approval')
         if (matchedErr) {
           matchedErr.status = 'failed'
           matchedErr.error = typeof payload.error === 'string' ? payload.error : undefined
         }
+        // 刷新工具组，将 waiting_for_approval → failed 的状态变更反映到 UI
+        flushToolGroup()
         break
       }
 
       case 'approval:required': {
-        console.log('approval:required', payload)
         // 处理审批请求事件：找到对应的工具调用并设置为等待审批状态
         flushThinking(false)
         flushContent()

@@ -484,6 +484,7 @@ class AgentService:
                         )
                 # 子 agent 事件直接透传到前端，不经过 runtime adapter 持久化
                 # 前端通过 WebSocket 消息中的 sub_agent: 前缀识别并路由到子 agent store
+                logger.info("[event_callback] Broadcasting sub_agent event: type=%s, session_id=%s, has_tool_call_id=%s", event_type, session_id, "tool_call_id" in data)
                 await self.conversation_broadcaster.send_event(session_id, event_type, data)
             else:
                 await persist_and_broadcast(event_type, data)
@@ -821,19 +822,25 @@ class AgentService:
 
                 approval_flow = self._session_approval_flows.get(session_id)
                 if approval_flow is None:
+                    logger.error("[SubAgent Approval] approval_flow not found for session_id=%s", session_id)
                     raise NotFoundValueError("审批流不存在")
+
+                logger.info("[SubAgent Approval] Processing approval: session_id=%s, run_id=%s, approval_id=%s, decision=%s", session_id, run_id, approval_id, decision)
 
                 if approval_event_type == EventType.APPROVAL_APPROVED:
                     self.pending_approval_store.approve(approval_id, decision=decision)
                     # 执行已审批的工具，将执行结果通过 approval_flow 返回给 SubAgent
                     execution_result = await self._execute_approved_tool(pending, run_id=run_id)
+                    logger.info("[SubAgent Approval] Tool executed: success=%s, calling set_approval_result", execution_result.success)
                     approval_flow.set_approval_result({
                         "success": execution_result.success,
                         "output": execution_result.output,
                         "error": execution_result.error,
                     })
+                    logger.info("[SubAgent Approval] set_approval_result called, _resume_event should be set")
                 else:
                     self.pending_approval_store.deny(approval_id)
+                    logger.info("[SubAgent Approval] Denying approval, calling set_approval_result(None)")
                     approval_flow.set_approval_result(None)
                 return
 

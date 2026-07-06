@@ -136,6 +136,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
         const tool = resultCallId ? toolMap.get(resultCallId) : undefined
         
         if (tool && tool.status === 'waiting_for_approval') {
+          console.log('[DelegateToolCall] tool:result received for waiting_for_approval tool:', resultCallId, 'new status:', eventType === 'tool:error' ? 'failed' : 'success')
           tool.status = eventType === 'tool:error' ? 'failed' : 'success'
           // 从审批列表中移除
           const idx = approvalTools.indexOf(tool)
@@ -144,6 +145,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
       }
     }
     
+    console.log('[DelegateToolCall] pendingApprovalTools computed:', approvalTools.length, 'tools')
     return approvalTools
   }, [subAgentSteps])
 

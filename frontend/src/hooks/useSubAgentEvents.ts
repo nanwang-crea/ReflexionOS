@@ -38,6 +38,10 @@ export const useSubAgentEventsStore = create<SubAgentEventsState>((set) => ({
     const callId = event.delegate_call_id
     if (!callId) return
 
+    if (event.event_type === 'tool:result' || event.event_type === 'approval:required') {
+      console.log('[SubAgentStore] addEvent:', event.event_type, 'callId:', callId, 'tool_call_id:', event.payload.tool_call_id, 'approval_id:', event.payload.approval_id)
+    }
+
     set((state) => {
       const existing = state.steps.get(callId) ?? []
       const step: SubAgentStep = {
