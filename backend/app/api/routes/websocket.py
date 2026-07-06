@@ -215,14 +215,11 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                         target_session_id = run.session_id
                     else:
                         parent_session_id = msg_data.get("parent_session_id")
-                        if not isinstance(parent_session_id, str) or not parent_session_id:
-                            await _send_error(
-                                websocket,
-                                code="invalid_request",
-                                message="parent_session_id 不能为空",
-                            )
-                            continue
-                        target_session_id = parent_session_id
+                        if isinstance(parent_session_id, str) and parent_session_id:
+                            target_session_id = parent_session_id
+                        else:
+                            # 回退到当前 WebSocket 连接的 session_id
+                            target_session_id = session_id
 
                     if msg_type == "conversation:approve_tool":
                         decision_str = msg_data.get("decision", "allow_once")

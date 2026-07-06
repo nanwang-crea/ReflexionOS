@@ -825,11 +825,12 @@ class AgentService:
 
                 if approval_event_type == EventType.APPROVAL_APPROVED:
                     self.pending_approval_store.approve(approval_id, decision=decision)
-                    # SubAgent 共享父 Agent 的 approval_flow，直接设置结果恢复执行
+                    # 执行已审批的工具，将执行结果通过 approval_flow 返回给 SubAgent
+                    execution_result = await self._execute_approved_tool(pending, run_id=run_id)
                     approval_flow.set_approval_result({
-                        "success": True,
-                        "output": None,
-                        "error": None,
+                        "success": execution_result.success,
+                        "output": execution_result.output,
+                        "error": execution_result.error,
                     })
                 else:
                     self.pending_approval_store.deny(approval_id)
