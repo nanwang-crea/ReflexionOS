@@ -48,6 +48,7 @@ class Database:
                 self._configure_sqlite()
                 self._handle_legacy_schema_if_needed()
                 self._run_alembic_migrations()
+                self._migrate_session_mode_columns_if_needed()
                 self._migrate_session_cascade_schema_if_needed()
 
                 self.SessionLocal = sessionmaker(
@@ -183,6 +184,41 @@ class Database:
             }
 
         return ("turn_id", "turn_message_index") in unique_index_columns
+
+    def _migrate_session_mode_columns_if_needed(self) -> None:
+        """补齐历史数据库缺失的会话模式列。
+
+        函数名：_migrate_session_mode_columns_if_needed
+        入参：无
+        功能：在 Alembic 版本表与本地迁移文件不一致时，兜底补齐 sessions 表新增列。
+        运行逻辑：
+          1. 检查 sessions 表是否存在，避免新库初始化前误操作。
+          2. 读取当前列集合，仅对缺失的 agent_mode / permission_mode 执行 ALTER TABLE。
+          3. 使用 DEFAULT + NOT NULL，保证历史会话可直接映射到 ORM 模型。
+        出参：None - 直接修改当前数据库 schema
+        """
+        inspector = inspect(self.engine)
+        if "sessions" not in inspector.get_table_names():
+            return
+
+        session_columns = {column["name"] for column in inspector.get_columns("sessions")}
+        statements: list[str] = []
+        if "agent_mode" not in session_columns:
+            statements.append(
+                "ALTER TABLE sessions ADD COLUMN agent_mode VARCHAR NOT NULL DEFAULT 'build'"
+            )
+        if "permission_mode" not in session_columns:
+            statements.append(
+                "ALTER TABLE sessions ADD COLUMN permission_mode VARCHAR NOT NULL DEFAULT 'auto'"
+            )
+
+        if not statements:
+            return
+
+        logger.warning("检测到 sessions 表缺少模式列，执行兼容迁移: %s", statements)
+        with self.engine.begin() as connection:
+            for statement in statements:
+                connection.exec_driver_sql(statement)
 
     def _migrate_session_cascade_schema_if_needed(self) -> None:
         inspector = inspect(self.engine)

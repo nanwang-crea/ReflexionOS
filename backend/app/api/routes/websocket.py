@@ -270,6 +270,29 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
+            if msg_type == "session:set_permission_mode":
+                mode = msg_data.get("mode", "auto")
+                if mode not in ("ask", "auto", "yolo"):
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="permission_mode must be 'ask', 'auto', or 'yolo'",
+                    )
+                    continue
+
+                try:
+                    session_service.update_session(
+                        session_id,
+                        SessionUpdate(permission_mode=mode),
+                    )
+                    await send_ws_json(websocket, {
+                        "type": "session:permission_mode_changed",
+                        "data": {"session_id": session_id, "mode": mode},
+                    })
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
+                continue
+
 
             if msg_type == "plan:clear":
                 try:

@@ -33,6 +33,7 @@ from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
+from app.security.permission_mode import PermissionMode
 from app.security.sandbox.factory import create_sandbox
 from app.security.session_trust_store import SessionTrustStore, TrustRule
 from app.security.shell_security import ShellSecurity
@@ -132,6 +133,7 @@ class AgentService:
         project_path: str | None,
         session_id: str | None = None,
         trust_store: SessionTrustStore | None = None,
+        permission_mode: str = "auto",
     ) -> ToolRegistry:
         resolved_project_path = (
             str(Path(project_path).resolve())
@@ -165,6 +167,7 @@ class AgentService:
             ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox(),
             session_id=session_id,
             trust_store=trust_store,
+            permission_mode=PermissionMode(permission_mode) if permission_mode in {"ask", "auto", "yolo"} else PermissionMode.AUTO,
         ))
         registry.register(EditTool(path_security))
         registry.register(PlanTool())
@@ -213,6 +216,7 @@ class AgentService:
             raise ValueError("会话不属于当前项目")
 
         agent_mode = getattr(session, 'agent_mode', 'build') or 'build'
+        permission_mode = getattr(session, 'permission_mode', 'auto') or 'auto'
 
         before_seq = session.last_event_seq
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
@@ -241,6 +245,7 @@ class AgentService:
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
             agent_mode=agent_mode,
+            permission_mode=permission_mode,
         )
         return started
 
@@ -256,6 +261,7 @@ class AgentService:
         provider_id: str | None,
         model_id: str | None,
         agent_mode: str = "build",
+        permission_mode: str = "auto",
     ) -> asyncio.Task:
         running = self.running_tasks.get(run_id)
         if running is not None:
@@ -272,6 +278,7 @@ class AgentService:
                 provider_id=provider_id,
                 model_id=model_id,
                 agent_mode=agent_mode,
+                permission_mode=permission_mode,
             )
         )
         self.running_tasks[run_id] = execution_task
@@ -405,6 +412,7 @@ class AgentService:
         provider_id: str | None,
         model_id: str | None,
         agent_mode: str = "build",
+        permission_mode: str = "auto",
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
         cancel_event = asyncio.Event()
@@ -489,7 +497,7 @@ class AgentService:
             else:
                 await persist_and_broadcast(event_type, data)
 
-        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
+        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store, permission_mode=permission_mode)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         run_tool_registry.register(WorkingMemoryTool())
 
@@ -743,6 +751,9 @@ class AgentService:
         if not session:
             raise NotFoundValueError("会话不存在")
 
+        agent_mode = getattr(session, 'agent_mode', 'build') or 'build'
+        permission_mode = getattr(session, 'permission_mode', 'auto') or 'auto'
+
         conversation = self.conversation_service.get_snapshot(session_id)
         active_run_id = resolve_active_run_id_from_conversation(conversation)
         if active_run_id:
@@ -776,6 +787,8 @@ class AgentService:
             project_path=project.path,
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
+            agent_mode=agent_mode,
+            permission_mode=permission_mode,
         )
         return started
 

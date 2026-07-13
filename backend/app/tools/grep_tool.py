@@ -3,6 +3,9 @@ import logging
 import os
 import re
 import shutil
+import subprocess
+import sys
+from pathlib import PureWindowsPath
 from typing import Any
 
 from app.security.path_security import ExternalPathError, PathSecurity
@@ -87,6 +90,38 @@ class GrepTool(BaseTool):
             return await self._search_grep(validated_path, pattern, include)
         return await self._search_python(validated_path, pattern, include)
 
+    async def _run_search_command(self, cmd: list[str], timeout: int = 30) -> tuple[bytes, bytes]:
+        """执行搜索子进程并返回 stdout/stderr。
+
+        函数名：_run_search_command
+        入参：
+          - cmd (list[str]): 需要执行的 rg/grep 命令参数列表
+          - timeout (int): 子进程超时时间，单位秒
+        功能：在 Windows 上使用线程池包装同步 subprocess.run，其他平台保留 asyncio 子进程。
+        运行逻辑：
+          1. Windows SelectorEventLoop 不支持 asyncio 子进程，因此切到 asyncio.to_thread。
+          2. 非 Windows 继续使用 create_subprocess_exec，保持原有异步行为。
+          3. 两条路径都返回原始 bytes，交给上层统一解析。
+        出参：tuple[bytes, bytes] - stdout 与 stderr 的字节内容
+        """
+        if sys.platform == "win32":
+            # Windows SelectorEventLoop 不实现子进程 API；同步 subprocess 放线程池避免阻塞事件循环。
+            result = await asyncio.to_thread(
+                subprocess.run,
+                cmd,
+                capture_output=True,
+                timeout=timeout,
+                check=False,
+            )
+            return result.stdout, result.stderr
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        return await asyncio.wait_for(proc.communicate(), timeout=timeout)
+
     async def _search_ripgrep(self, path: str, pattern: str, include: str | None) -> ToolResult:
         cmd = [
             "rg",
@@ -105,13 +140,10 @@ class GrepTool(BaseTool):
         cmd.extend([pattern, path])
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await self._run_search_command(cmd, timeout=30)
         except TimeoutError:
+            return ToolResult(success=False, error="搜索超时 (30s)")
+        except subprocess.TimeoutExpired:
             return ToolResult(success=False, error="搜索超时 (30s)")
         except FileNotFoundError:
             return await self._search_grep(path, pattern, include)
@@ -136,19 +168,17 @@ class GrepTool(BaseTool):
     async def _search_grep(self, path: str, pattern: str, include: str | None) -> ToolResult:
         cmd = ["grep", "-rn", "-E", f"--max-count={MAX_MATCHES}"]
         if include:
-            cmd.extend(["--include", include])
+            # Git Bash grep 在 Windows subprocess(list argv) 下要求 --include=PATTERN，否则会把 PATTERN 当成位置参数。
+            cmd.append(f"--include={include}")
         for d in self.EXCLUDED_DIRS:
             cmd.extend(["--exclude-dir", d])
         cmd.extend([pattern, path])
 
         try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            stdout, stderr = await self._run_search_command(cmd, timeout=30)
         except TimeoutError:
+            return ToolResult(success=False, error="搜索超时 (30s)")
+        except subprocess.TimeoutExpired:
             return ToolResult(success=False, error="搜索超时 (30s)")
         except FileNotFoundError:
             return await self._search_python(path, pattern, include)
@@ -222,38 +252,60 @@ class GrepTool(BaseTool):
     def _parse_rg_output(self, output: str, base_path: str) -> list[dict]:
         matches = []
         for line in output.splitlines():
-            if ":" not in line:
+            parsed = self._split_search_output_line(line, base_path, file_optional=os.path.isfile(base_path))
+            if parsed is None:
                 continue
-            parts = line.split(":", 2)
-            if os.path.isfile(base_path):
-                file_path = base_path
-                line_num = parts[0]
-                content = line.split(":", 1)[1]
-            elif len(parts) >= 3:
-                file_path, line_num, content = parts[0], parts[1], parts[2]
-            else:
-                continue
-            try:
-                line_num = int(line_num)
-            except ValueError:
-                continue
+            file_path, line_num, content = parsed
             rel = os.path.relpath(file_path, base_path) if not os.path.isabs(file_path) else file_path
             matches.append({"file": rel, "line": line_num, "content": content.strip()[:200]})
         return matches
 
+    def _split_search_output_line(
+        self,
+        line: str,
+        base_path: str,
+        *,
+        file_optional: bool = False,
+    ) -> tuple[str, int, str] | None:
+        """解析 rg/grep 的 `file:line:content` 输出行。
+
+        函数名：_split_search_output_line
+        入参：
+          - line (str): rg/grep 输出的一行文本
+          - base_path (str): 搜索目标路径，用于单文件搜索补齐文件名
+          - file_optional (bool): 单文件 rg 输出可能省略文件名，仅输出 `line:content`
+        功能：兼容 Windows 盘符中的冒号，避免把 `C:\...` 的盘符冒号误认为字段分隔符。
+        运行逻辑：
+          1. 优先处理单文件 rg 的 `line:content` 形式。
+          2. 其余情况从右侧拆出 line/content，再在左侧保留完整文件路径。
+          3. line 字段无法转为整数时返回 None，由调用方跳过。
+        出参：tuple[str, int, str] | None - 文件路径、行号、内容，解析失败返回 None
+        """
+        if ":" not in line:
+            return None
+
+        if file_optional:
+            line_num_text, content = line.split(":", 1)
+            try:
+                return base_path, int(line_num_text), content
+            except ValueError:
+                pass
+
+        match = re.match(r"^(?P<file>(?:[A-Za-z]:)?[^:]*):(?P<line>\d+):(?P<content>.*)$", line)
+        if match is None:
+            return None
+        file_path = match.group("file")
+        if sys.platform == "win32" and PureWindowsPath(file_path).is_absolute():
+            file_path = os.fspath(PureWindowsPath(file_path))
+        return file_path, int(match.group("line")), match.group("content")
+
     def _parse_grep_output(self, output: str, base_path: str) -> list[dict]:
         matches = []
         for line in output.splitlines():
-            if ":" not in line:
+            parsed = self._split_search_output_line(line, base_path, file_optional=os.path.isfile(base_path))
+            if parsed is None:
                 continue
-            parts = line.split(":", 2)
-            if len(parts) < 3:
-                continue
-            file_path, line_num, content = parts[0], parts[1], parts[2]
-            try:
-                line_num = int(line_num)
-            except ValueError:
-                continue
+            file_path, line_num, content = parsed
             rel = os.path.relpath(file_path, base_path) if not os.path.isabs(file_path) else file_path
             matches.append({"file": rel, "line": line_num, "content": content.strip()[:200]})
         return matches

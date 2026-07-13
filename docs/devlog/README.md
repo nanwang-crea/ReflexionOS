@@ -7,6 +7,9 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-07-12 | Bug修复 | 修复 Windows 完整测试套件中的预存失败 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
+| 2026-06-26~27 | 新功能 | 应用内确认弹窗系统 - 替代浏览器原生 confirm | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
+| 2026-06-24 | 新功能 | 重置对话 - 清空历史保留会话，先停后清 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-06-24 | 新功能 | 子代理（Subagent）：后台任务执行与独立会话 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-06-23 | 配置优化 | 将 .claude 目录移出版本控制 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-06-23 | 新功能 | 工作记忆（Work Memory）：分层计划与上下文重构 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |

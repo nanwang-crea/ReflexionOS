@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import textwrap
 from datetime import datetime
@@ -231,8 +232,25 @@ class PromptManager:
             logger.warning("Failed to read prompt overlay: %s", path, exc_info=True)
         return ""
 
+    def _global_reflexion_dir(self) -> Path:
+        """返回全局 Reflexion overlay 目录。
+
+        函数名：_global_reflexion_dir
+        入参：无
+        功能：解析全局 `.reflexion` 目录，优先尊重测试和类 Unix 环境常用的 HOME。
+        运行逻辑：
+          1. Windows 的 Path.home() 优先 USERPROFILE，monkeypatch HOME 时不会生效。
+          2. 这里显式读取 HOME，保证测试隔离和跨平台行为一致。
+          3. HOME 未设置时退回 Path.home()，保持生产环境默认行为。
+        出参：Path - 全局 `.reflexion` 目录路径
+        """
+        home = os.environ.get("HOME")
+        if home:
+            return Path(home) / ".reflexion"
+        return Path.home() / ".reflexion"
+
     def _ensure_global_overlays(self) -> None:
-        reflexion_dir = Path.home() / ".reflexion"
+        reflexion_dir = self._global_reflexion_dir()
         try:
             reflexion_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -279,11 +297,12 @@ class PromptManager:
         后加载的内容追加在 system prompt 末尾，等效于优先级更高。
         """
         self._ensure_global_overlays()
+        global_reflexion_dir = self._global_reflexion_dir()
         paths = [
             # 全局 overlay（~/.reflexion/）
-            Path.home() / ".reflexion" / "soul.md",
-            Path.home() / ".reflexion" / "agent.md",
-            Path.home() / ".reflexion" / "memory.md",
+            global_reflexion_dir / "soul.md",
+            global_reflexion_dir / "agent.md",
+            global_reflexion_dir / "memory.md",
         ]
         if project_root:
             root = Path(project_root)

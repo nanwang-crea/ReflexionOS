@@ -10,13 +10,13 @@ from app.errors import SecurityError
 from app.security.command_arity import extract_prefix_rules
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.effect_category import (
-    EFFECT_ACTION_MAP,
     EFFECT_DANGER_LEVEL,
     CommandAction,
     EffectCategory,
     most_dangerous,
 )
 from app.security.path_security import PathSecurity
+from app.security.permission_mode import PermissionMode, resolve_action
 from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 
@@ -115,12 +115,16 @@ class CommandPolicy:
     def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity,
                  registry: CommandEffectRegistry | None = None,
                  trust_store: SessionTrustStore | None = None,
-                 session_id: str | None = None):
+                 session_id: str | None = None,
+                 permission_mode: PermissionMode = PermissionMode.AUTO,
+                 sandbox_available: bool = False):
         self.shell_security = shell_security
         self.path_security = path_security
         self.registry = registry or CommandEffectRegistry()
         self.trust_store = trust_store
         self._session_id = session_id
+        self.permission_mode = permission_mode
+        self.sandbox_available = sandbox_available
 
     def evaluate(
         self,
@@ -165,9 +169,10 @@ class CommandPolicy:
                 environment_snapshot=snapshot,
             )
 
-        if result.has_meta and self.shell_security._is_windows():
-            # ========== Windows 第一阶段：严格白名单策略 ==========
+        if result.has_meta and self.shell_security._is_windows() and not self.sandbox_available:
+            # ========== Windows 第一阶段：严格白名单策略（沙盒不可用时）==========
             # 原因：Windows 无 sandbox.wrap_shell_command，无法约束命令内自由路径参数
+            # 条件：sandbox_available=True 时旁路第一阶段，改由第二阶段沙盒执行流处理
             # 策略：(1) 只放行纯读的 git 子命令；(2) 复用 shell_security._validate_path_arguments 校验路径参数
 
             # 检查元字符：第一阶段只支持 && 和 ||（命令链）
@@ -444,8 +449,7 @@ class CommandPolicy:
             # Command substitution content is opaque → always require approval
             action = CommandAction.REQUIRE_APPROVAL
         else:
-            # All other shell commands use effect-based action map
-            action = EFFECT_ACTION_MAP[effect]
+            action = resolve_action(self.permission_mode, effect, sandbox_available=self.sandbox_available)
 
         # 3. Build reasons and risks (using quote-aware operator detection)
         reasons = []
@@ -544,7 +548,7 @@ class CommandPolicy:
 
         # 2. Classify using registry
         effect = self._classify_argv_command(argv)
-        action = EFFECT_ACTION_MAP[effect]
+        action = resolve_action(self.permission_mode, effect, sandbox_available=self.sandbox_available)
 
         # 3. Build decision details based on effect
         reasons = []

@@ -35,6 +35,7 @@ class SessionModel(Base):
     preferred_provider_id: Mapped[str | None] = mapped_column(String)
     preferred_model_id: Mapped[str | None] = mapped_column(String)
     agent_mode: Mapped[str] = mapped_column(String, nullable=False, default="build")
+    permission_mode: Mapped[str] = mapped_column(String, nullable=False, default="auto")
     last_event_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     active_turn_id: Mapped[str | None] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), index=True)

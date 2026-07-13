@@ -9,6 +9,7 @@ from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.command_policy import CommandAction, CommandDecision, CommandPolicy
 from app.security.effect_category import EffectCategory
 from app.security.path_security import ExternalPathError, PathSecurity
+from app.security.permission_mode import PermissionMode
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.factory import NullSandbox
@@ -74,6 +75,7 @@ class ShellTool(BaseTool):
         sandbox: SandboxProvider | None = None,
         session_id: str | None = None,
         trust_store: SessionTrustStore | None = None,
+        permission_mode: PermissionMode = PermissionMode.AUTO,
     ):
         self.security = security
         self.path_security = path_security
@@ -81,7 +83,14 @@ class ShellTool(BaseTool):
         self.sandbox = sandbox or NullSandbox()
         self._session_id = session_id
         self.trust_store = trust_store
-        self.policy = CommandPolicy(security, path_security, self.registry, trust_store=trust_store, session_id=session_id)
+        self.permission_mode = permission_mode
+        self.sandbox_available = self.sandbox.is_available()
+        self.policy = CommandPolicy(
+            security, path_security, self.registry,
+            trust_store=trust_store, session_id=session_id,
+            permission_mode=permission_mode,
+            sandbox_available=self.sandbox_available,
+        )
         self.sandbox_error_detector = SandboxErrorDetector()
 
     def _build_env(self) -> dict[str, str]:
@@ -300,6 +309,20 @@ class ShellTool(BaseTool):
             allowed_paths = list(self.path_security.allowed_base_paths)
             if sandbox_extra_paths:
                 allowed_paths.extend(sandbox_extra_paths)
+
+            # Windows: 优先走 sandbox.run_command（CreateProcessAsUser + Restricted Token）
+            if sys.platform == "win32":
+                result = self.sandbox.run_command(
+                    argv, cwd=cwd, timeout=timeout,
+                    allowed_paths=allowed_paths,
+                    allow_network=allow_network,
+                )
+                if result is not None:
+                    return ToolResult(
+                        success=result.success, output=result.output,
+                        error=result.error, data={"return_code": result.return_code},
+                    )
+
             argv = self.sandbox.wrap_command(
                 argv, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
@@ -504,18 +527,14 @@ class ShellTool(BaseTool):
         sandbox_extra_paths: list[str] | None = None,
     ) -> ToolResult:
         if sys.platform == "win32":
-            # ========== Windows 第一阶段执行分支 ==========
-            # 注意：命令内路径参数校验已在策略层完成（command_policy.py）
-            #       这里只处理执行层的 cwd 和 sandbox_extra_paths 校验
+            # ========== Windows 执行分支（第一阶段 / 第二阶段沙盒）==========
 
-            # 1. 路径限制（部分对齐 Unix sandbox）
-            # 验证 cwd 在白名单内
+            # 1. 路径限制（与 Unix 对齐）
             try:
                 validated_cwd = self.path_security.validate_path(cwd)
             except ExternalPathError as e:
                 return ToolResult(success=False, error=f"工作目录不在允许范围: {e}")
 
-            # 验证 sandbox_extra_paths（若有）也在白名单内
             if sandbox_extra_paths:
                 for extra_path in sandbox_extra_paths:
                     try:
@@ -523,35 +542,51 @@ class ShellTool(BaseTool):
                     except ExternalPathError as e:
                         return ToolResult(success=False, error=f"额外路径 {extra_path} 不在允许范围: {e}")
 
-            # 2. 网络权限检查（不对齐，策略层已拒绝）
+            # 2. 网络权限检查 + 允许路径（与 Unix _execute_argv 对齐）
             allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
+            allowed_paths = list(self.path_security.allowed_base_paths)
+            if sandbox_extra_paths:
+                allowed_paths.extend(sandbox_extra_paths)
 
-            # Windows 第一阶段：继续拒绝网络型命令（因无沙箱强制）
+            # 3. 沙盒可用时优先走 run_shell_command（CreateProcessAsUser + Restricted Token）
+            if self.sandbox.is_available():
+                result = self.sandbox.run_shell_command(
+                    command, cwd=validated_cwd, timeout=timeout,
+                    allowed_paths=allowed_paths,
+                    allow_network=allow_network,
+                )
+                if result is not None:
+                    return ToolResult(
+                        success=result.success, output=result.output,
+                        error=result.error, data={"return_code": result.return_code},
+                    )
+
+            # 4. 沙盒不可用时，继续拒绝网络型命令（无沙箱强制）
             if effect_category == EffectCategory.NETWORK_OUT:
                 return ToolResult(
                     success=False,
                     error="Windows 第一阶段不支持网络型 shell 命令（无沙箱强制），请在 macOS/Linux 上执行"
                 )
 
-            # 本地命令：记录网络权限标志（供审计，但无技术强制）
+            # 5. 本地命令：记录网络权限标志（供审计，但无技术强制）
             if not allow_network:
                 logger.warning(
                     "Windows shell 命令未授权网络访问（无沙箱强制）: %s, cwd=%s",
                     command, validated_cwd
                 )
 
-            # 3. 审计日志（与 Unix 一致）
+            # 6. 审计日志（与 Unix 一致）
             logger.info(
                 "执行 Windows shell 命令: %s, cwd=%s, network=%s, effect=%s",
                 command, validated_cwd, allow_network, effect_category
             )
 
-            # 构建 Windows 命令并执行（线程池 + 同步 subprocess）
+            # 7. 回退到同步线程池执行（第一阶段 / 无沙盒）
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(
                 None,
                 self._sync_subprocess_run_shell,
-                command,  # 原始命令（辅助函数内部包装 cmd.exe /c）
+                command,
                 validated_cwd,
                 timeout,
             )

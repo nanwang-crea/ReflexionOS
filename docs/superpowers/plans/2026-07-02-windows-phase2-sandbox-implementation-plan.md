@@ -828,7 +828,7 @@ git commit -m "feat: 实现 Windows ACL 写入边界（临时目录隔离）"
 - Test: `backend/tests/test_security/test_sandbox_windows.py`
 
 **约束：** 
-1. 本任务必须同时交付 `run_command`（argv 模式）和 `run_shell_command`（shell 模式），不可遗漏。参见备忘项 B。
+1. 本任务必须同时交付 `run_command`（argv 模式）和 `run_shell_command`（shell 模式），不可遗漏。
 2. **Stub 阶段**：_exec_in_sandbox 使用 subprocess.Popen，不调用真实 CreateProcessAsUserW。Task 6 替换为真实隔离后才提供沙盒保护。
 3. **Merge freeze**：完成后不合并到主线，仅本地/CI 单测通过即可。
 
@@ -943,7 +943,8 @@ Expected: `ModuleNotFoundError`
 # backend/app/security/sandbox/windows.py
 """Windows 沙盒提供者。
 
-通过 CreateProcessAsUserW + Restricted Token 实现命令执行隔离。
+Task 5（本任务）先交付 stub 执行骨架：_exec_in_sandbox 使用 subprocess.Popen，
+不提供真实隔离。真实的 CreateProcessAsUserW + Restricted Token 隔离在 Task 6 替换。
 支持 Unelevated（标准用户降权）和 Elevated（专用用户 + 防火墙）两档。
 
 macOS/Linux 平台 is_available() 返回 False。
