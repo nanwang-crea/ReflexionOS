@@ -13,6 +13,7 @@ from app.security.permission_mode import PermissionMode
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.factory import NullSandbox
+from app.security.sandbox.windows_cmd import is_cmd_internal_command
 from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
@@ -275,6 +276,16 @@ class ShellTool(BaseTool):
                 argv = decision.argv
                 if argv is None:
                     return ToolResult(success=False, error="argv 模式决策缺少 argv")
+                # Windows: cmd 内部命令（if/mkdir/copy/dir 等）无独立 .exe，
+                # CreateProcess 找不到可执行文件必败，降级走 shell 模式（cmd.exe /c）。
+                # 复用 decision.command 原始字符串，不用 list2cmdline 重建（实测会破坏带引号的路径）。
+                if sys.platform == "win32" and is_cmd_internal_command(argv[0] if argv else None):
+                    logger.info("argv 首命令为 cmd 内部命令，降级 shell 执行: %s", argv[0])
+                    return await self._execute_shell(
+                        decision.command, cwd, timeout, decision.effect_category,
+                        sandbox_allow_network=sandbox_allow_network,
+                        sandbox_extra_paths=sandbox_extra_paths,
+                    )
                 logger.info("开始执行 argv 模式: argv=%s, cwd=%s", argv, cwd)
                 result = await self._execute_argv(
                     argv, cwd, timeout, decision.effect_category,
