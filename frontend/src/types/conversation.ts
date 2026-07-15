@@ -15,6 +15,7 @@ export interface ConversationSessionDto {
   preferred_provider_id?: string | null
   preferred_model_id?: string | null
   agent_mode?: string
+  permission_mode?: string
   last_event_seq: number
   active_turn_id: string | null
   created_at: string
@@ -27,8 +28,11 @@ function isValidAgentMode(value: unknown): value is AgentMode {
   return value === 'build' || value === 'plan'
 }
 
+export type PermissionMode = 'ask' | 'auto' | 'yolo'
+
 export function toConversationSession(dto: ConversationSessionDto): ConversationSession {
   const agentMode = isValidAgentMode(dto.agent_mode) ? dto.agent_mode : 'build'
+  const permissionMode = dto.permission_mode === 'ask' || dto.permission_mode === 'auto' || dto.permission_mode === 'yolo' ? dto.permission_mode : 'auto'
   return {
     id: dto.id,
     projectId: dto.project_id,
@@ -36,6 +40,7 @@ export function toConversationSession(dto: ConversationSessionDto): Conversation
     preferredProviderId: dto.preferred_provider_id ?? undefined,
     preferredModelId: dto.preferred_model_id ?? undefined,
     agentMode,
+    permissionMode,
     lastEventSeq: dto.last_event_seq,
     activeTurnId: dto.active_turn_id,
     createdAt: dto.created_at,
@@ -50,6 +55,7 @@ export interface ConversationSession {
   preferredProviderId?: string
   preferredModelId?: string
   agentMode?: AgentMode
+  permissionMode?: PermissionMode
   lastEventSeq: number
   activeTurnId: string | null
   createdAt: string

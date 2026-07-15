@@ -71,6 +71,11 @@ export interface SessionModeChangedDto {
   mode: string
 }
 
+export interface SessionPermissionModeChangedDto {
+  session_id: string
+  mode: string
+}
+
 // 子 agent 执行事件 DTO（后端通过 sub_agent: 前缀广播）
 export interface SubAgentEventDto {
   /** 事件类型：tool:start, tool:result, tool:error, llm:content 等 */
@@ -103,6 +108,7 @@ interface SessionConversationEvents {
   'plan:recovered': { path: string; goal: string }
   'session:title_updated': SessionTitleUpdatedDto
   'session:mode_changed': SessionModeChangedDto
+  'session:permission_mode_changed': SessionPermissionModeChangedDto
   // 子 agent 事件：tool:start, tool:result, tool:error, llm:content 等
   'sub_agent:event': SubAgentEventDto
 }
@@ -298,6 +304,11 @@ class SessionConversationWebSocket {
 
     if (type === 'session:mode_changed') {
       this.emit('session:mode_changed', data as SessionModeChangedDto)
+      return
+    }
+
+    if (type === 'session:permission_mode_changed') {
+      this.emit('session:permission_mode_changed', data as SessionPermissionModeChangedDto)
       return
     }
 

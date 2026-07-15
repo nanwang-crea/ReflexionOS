@@ -10,13 +10,13 @@ from app.errors import SecurityError
 from app.security.command_arity import extract_prefix_rules
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.effect_category import (
-    EFFECT_ACTION_MAP,
     EFFECT_DANGER_LEVEL,
     CommandAction,
     EffectCategory,
     most_dangerous,
 )
 from app.security.path_security import PathSecurity
+from app.security.permission_mode import PermissionMode, resolve_action
 from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 
@@ -115,12 +115,16 @@ class CommandPolicy:
     def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity,
                  registry: CommandEffectRegistry | None = None,
                  trust_store: SessionTrustStore | None = None,
-                 session_id: str | None = None):
+                 session_id: str | None = None,
+                 permission_mode: PermissionMode = PermissionMode.AUTO,
+                 sandbox_available: bool = False):
         self.shell_security = shell_security
         self.path_security = path_security
         self.registry = registry or CommandEffectRegistry()
         self.trust_store = trust_store
         self._session_id = session_id
+        self.permission_mode = permission_mode
+        self.sandbox_available = sandbox_available
 
     def evaluate(
         self,
@@ -165,16 +169,107 @@ class CommandPolicy:
                 environment_snapshot=snapshot,
             )
 
-        if result.has_meta and self.shell_security._is_windows():
-            return CommandDecision(
-                action=CommandAction.DENY,
-                command=command,
-                execution_mode="shell",
-                cwd=resolved_cwd,
-                timeout=timeout,
-                reasons=["Windows shell 模式尚未支持"],
-                environment_snapshot=snapshot,
-            )
+        if result.has_meta and self.shell_security._is_windows() and not self.sandbox_available:
+            # ========== Windows 第一阶段：严格白名单策略（沙盒不可用时）==========
+            # 原因：Windows 无 sandbox.wrap_shell_command，无法约束命令内自由路径参数
+            # 条件：sandbox_available=True 时旁路第一阶段，改由第二阶段沙盒执行流处理
+            # 策略：(1) 只放行纯读的 git 子命令；(2) 复用 shell_security._validate_path_arguments 校验路径参数
+
+            # 检查元字符：第一阶段只支持 && 和 ||（命令链）
+            supported_on_windows = {'&&', '||'}
+            unsupported_on_windows = {'|', '<', '>', '>>', '2>', '&', ';'}
+
+            used_meta = self._extract_meta_chars(command_normalized)
+            unsupported_used = used_meta & unsupported_on_windows
+
+            if unsupported_used:
+                return CommandDecision(
+                    action=CommandAction.DENY,
+                    command=command,
+                    execution_mode="shell",
+                    cwd=resolved_cwd,
+                    timeout=timeout,
+                    reasons=[f"Windows 第一阶段不支持这些 shell 特性：{', '.join(unsupported_used)}"],
+                    environment_snapshot=snapshot,
+                )
+
+            # 拆分命令链（按 && 和 || 拆）
+            segments = self._split_shell_command(command_normalized)
+
+            for segment in segments:
+                segment_normalized = segment.strip()
+
+                # 检查是否是 git 命令
+                if not segment_normalized.startswith('git '):
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"Windows 第一阶段只支持 git 命令，不支持: {segment_normalized}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                # 解析命令为 argv（用于后续路径校验）
+                try:
+                    segment_argv = shlex.split(segment_normalized, posix=False)  # Windows 用非 POSIX 模式
+                except ValueError as e:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"命令解析失败: {e}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                if len(segment_argv) < 2:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=["git 命令缺少子命令"],
+                        environment_snapshot=snapshot,
+                    )
+
+                git_subcommand = segment_argv[1]
+
+                # 严格白名单：只允许纯读的子命令（无 -D/-m/add/remove 等写操作）
+                # 注意：不允许 branch、remote（它们有写子命令）
+                allowed_pure_read_subcommands = {'status', 'log', 'diff', 'show'}
+
+                if git_subcommand not in allowed_pure_read_subcommands:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"Windows 第一阶段只支持纯读 git 命令，不支持: git {git_subcommand}"],
+                        environment_snapshot=snapshot,
+                    )
+
+                # 路径参数校验：复用 shell_security._validate_path_arguments
+                # 这会校验命令中所有看起来像路径的参数（segment_argv[2:] 是 git 子命令的参数）
+                try:
+                    self.shell_security._validate_path_arguments(segment_argv[2:], self.path_security)
+                except SecurityError as e:
+                    return CommandDecision(
+                        action=CommandAction.DENY,
+                        command=command,
+                        execution_mode="shell",
+                        cwd=resolved_cwd,
+                        timeout=timeout,
+                        reasons=[f"路径参数不在允许范围: {e}"],
+                        environment_snapshot=snapshot,
+                    )
+
+            # 通过白名单检查：继续走 shell 执行流程
+            # 注意：macOS/Linux 的逻辑不修改
 
         if result.has_meta:
             return self._evaluate_shell_command(
@@ -186,6 +281,117 @@ class CommandPolicy:
         )
 
     # ── Shell command evaluation (pipe chains, redirects) ──────────
+
+    def _extract_meta_chars(self, command: str) -> set[str]:
+        """
+        提取命令中的 shell 元字符（quote-aware，忽略引号内的字符）
+
+        Args:
+            command: shell 命令字符串
+
+        Returns:
+            使用的元字符集合（如 {'&&', '||', '>'}）
+        """
+        meta_chars = set()
+
+        # 使用状态机跟踪引号边界
+        in_single_quote = False
+        in_double_quote = False
+        i = 0
+
+        while i < len(command):
+            char = command[i]
+
+            # 跟踪引号状态
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+                i += 1
+                continue
+            if char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+                i += 1
+                continue
+
+            # 在引号内，跳过
+            if in_single_quote or in_double_quote:
+                i += 1
+                continue
+
+            # 检查双字符元字符（&&、||、>>、2>）
+            if i + 1 < len(command):
+                two_char = command[i:i+2]
+                if two_char in {'&&', '||', '>>', '2>'}:
+                    meta_chars.add(two_char)
+                    i += 2
+                    continue
+
+            # 检查单字符元字符
+            if char in {'|', '<', '>', ';', '&'}:
+                meta_chars.add(char)
+
+            i += 1
+
+        return meta_chars
+
+    def _split_shell_command(self, command: str) -> list[str]:
+        """
+        按 && 和 || 拆分命令链（quote-aware）
+
+        Args:
+            command: shell 命令字符串
+
+        Returns:
+            命令片段列表
+        """
+        segments = []
+        current_segment = []
+        in_single_quote = False
+        in_double_quote = False
+        i = 0
+
+        while i < len(command):
+            char = command[i]
+
+            # 跟踪引号状态
+            if char == "'" and not in_double_quote:
+                in_single_quote = not in_single_quote
+                current_segment.append(char)
+                i += 1
+                continue
+            if char == '"' and not in_single_quote:
+                in_double_quote = not in_double_quote
+                current_segment.append(char)
+                i += 1
+                continue
+
+            # 在引号内，直接添加
+            if in_single_quote or in_double_quote:
+                current_segment.append(char)
+                i += 1
+                continue
+
+            # 检查 && 或 ||
+            if i + 1 < len(command):
+                two_char = command[i:i+2]
+                if two_char in {'&&', '||'}:
+                    # 保存当前片段
+                    segment_str = ''.join(current_segment).strip()
+                    if segment_str:
+                        segments.append(segment_str)
+                    current_segment = []
+                    i += 2
+                    continue
+
+            # 普通字符
+            current_segment.append(char)
+            i += 1
+
+        # 保存最后一个片段
+        segment_str = ''.join(current_segment).strip()
+        if segment_str:
+            segments.append(segment_str)
+
+        return segments
 
     def _evaluate_shell_command(
         self,
@@ -243,8 +449,7 @@ class CommandPolicy:
             # Command substitution content is opaque → always require approval
             action = CommandAction.REQUIRE_APPROVAL
         else:
-            # All other shell commands use effect-based action map
-            action = EFFECT_ACTION_MAP[effect]
+            action = resolve_action(self.permission_mode, effect, sandbox_available=self.sandbox_available)
 
         # 3. Build reasons and risks (using quote-aware operator detection)
         reasons = []
@@ -343,7 +548,7 @@ class CommandPolicy:
 
         # 2. Classify using registry
         effect = self._classify_argv_command(argv)
-        action = EFFECT_ACTION_MAP[effect]
+        action = resolve_action(self.permission_mode, effect, sandbox_available=self.sandbox_available)
 
         # 3. Build decision details based on effect
         reasons = []

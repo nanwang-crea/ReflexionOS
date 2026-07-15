@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_SESSION_TITLE = "新建聊天"
 
@@ -16,6 +16,14 @@ class SessionUpdate(BaseModel):
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
     agent_mode: str | None = None
+    permission_mode: str | None = None
+
+    @field_validator("permission_mode")
+    @classmethod
+    def validate_permission_mode(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("ask", "auto", "yolo"):
+            raise ValueError(f"permission_mode 必须是 'ask'、'auto' 或 'yolo'，收到: {v}")
+        return v
 
 
 class Session(BaseModel):
@@ -27,6 +35,7 @@ class Session(BaseModel):
     preferred_provider_id: str | None = None
     preferred_model_id: str | None = None
     agent_mode: str = "build"
+    permission_mode: str = "auto"
     last_event_seq: int = 0
     active_turn_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)

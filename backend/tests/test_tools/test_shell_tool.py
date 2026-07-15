@@ -1,11 +1,14 @@
 import os
+import sys
 import tempfile
+from pathlib import Path
 
 import pytest
 
 from app.errors import SecurityError
 from app.security.command_effect_registry import CommandEffectRegistry
-from app.security.path_security import PathSecurity
+from app.security.effect_category import EffectCategory
+from app.security.path_security import PathSecurity, ExternalPathError
 from app.security.sandbox.factory import NullSandbox
 from app.security.session_trust_store import SessionTrustStore, TrustRule
 from app.security.shell_security import ShellSecurity
@@ -63,6 +66,7 @@ class TestShellTool:
         assert "Python" in result.output
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows 第一阶段不支持管道 |")
     async def test_execute_command_with_pipe(self, shell_tool):
         # READ_ONLY pipe chain (echo | wc) is now ALLOW under effect classification
         result = await shell_tool.execute({"command": "echo hello | wc -c"})
@@ -91,6 +95,7 @@ class TestShellTool:
         assert result.success is False
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows 第一阶段只支持 git 命令，rm 会被拒绝")
     async def test_execute_pipe_command_returns_approval_required(self, shell_tool):
         # Destructive pipe chain (rm | something) requires approval
         result = await shell_tool.execute({"command": "rm file.txt && echo done"})
@@ -218,6 +223,7 @@ class TestShellTool:
             assert security.validate_path("nested") == nested_dir
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows 第一阶段只支持 git 命令，pwd/cd 不适用")
     async def test_execute_uses_project_base_dir_by_default(self, shell_tool):
         result = await shell_tool.execute({"command": "pwd"})
 
@@ -260,3 +266,97 @@ class TestShellTool:
         result = await shell_tool_with_trust.execute({"command": "rm -rf /"})
         assert result.success is False
         assert result.approval_required is False
+
+
+# Windows 执行层测试
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+@pytest.mark.asyncio
+async def test_windows_shell_execute_git_chain(tmp_path):
+    """测试 Windows shell 执行 git 命令链"""
+    # 准备：在 tmp_path 下初始化一个 git 仓库
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path)
+    (tmp_path / "test.txt").write_text("test")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True)
+
+    # 构造 shell_tool（允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
+
+    # 执行命令链
+    result = await shell_tool._execute_shell(
+        command="git status && git log --oneline -3",
+        cwd=str(tmp_path),
+        timeout=30,
+        effect_category=EffectCategory.READ_ONLY,
+        sandbox_allow_network=False,
+        sandbox_extra_paths=None,
+    )
+
+    assert result.success
+    assert "On branch" in result.output or "位于分支" in result.output
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+@pytest.mark.asyncio
+async def test_windows_shell_path_validation(tmp_path):
+    """测试 Windows shell 路径校验"""
+    # 构造 shell_tool（只允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
+
+    # 构造一个明确不在白名单的路径
+    outside_path = str(Path(tempfile.gettempdir()) / "definitely_not_allowed")
+
+    # 确保这个路径确实不在白名单内
+    try:
+        path_security.validate_path(outside_path)
+        pytest.fail("测试路径应该不在白名单内")
+    except ExternalPathError:
+        pass  # 预期行为
+
+    # 现在测试执行层是否正确拒绝
+    result = await shell_tool._execute_shell(
+        command="git status && echo test",
+        cwd=outside_path,
+        timeout=30,
+        effect_category=EffectCategory.READ_ONLY,
+        sandbox_allow_network=False,
+        sandbox_extra_paths=None,
+    )
+
+    assert not result.success
+    assert "工作目录不在允许范围" in result.error
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+@pytest.mark.asyncio
+async def test_windows_shell_network_denied(tmp_path):
+    """测试 Windows shell 拒绝网络型命令"""
+    # 构造 shell_tool（允许 tmp_path）
+    path_security = PathSecurity([str(tmp_path)], base_dir=str(tmp_path))
+    shell_security = ShellSecurity()
+    registry = CommandEffectRegistry()
+    sandbox = NullSandbox()
+    shell_tool = ShellTool(shell_security, path_security, registry, sandbox)
+
+    result = await shell_tool._execute_shell(
+        command="curl http://example.com && echo test",
+        cwd=str(tmp_path),
+        timeout=30,
+        effect_category=EffectCategory.NETWORK_OUT,
+        sandbox_allow_network=False,
+        sandbox_extra_paths=None,
+    )
+
+    assert not result.success
+    assert "不支持网络型 shell 命令" in result.error

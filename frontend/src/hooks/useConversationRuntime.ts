@@ -413,6 +413,11 @@ export function useConversationRuntime(
         useConversationStore.getState().setAgentMode(sessionId, data.mode)
       }
     })
+    ws.on('session:permission_mode_changed', (data: { session_id: string; mode: string }) => {
+      if (data.mode === 'ask' || data.mode === 'auto' || data.mode === 'yolo') {
+        useConversationStore.getState().setPermissionMode(sessionId, data.mode)
+      }
+    })
     ws.on('session:title_updated', (data) => {
       const store = useSessionStore.getState()
       const sessionsByProjectId = store.sessionsByProjectId
@@ -624,6 +629,21 @@ export function useConversationRuntime(
     })
   }, [currentSessionId])
 
+  const setPermissionMode = useCallback((mode: 'ask' | 'auto' | 'yolo') => {
+    if (!currentSessionId) {
+      return
+    }
+
+    const ws = connectionsRef.current.get(currentSessionId)?.ws
+    if (!ws?.isConnected()) {
+      return
+    }
+    ws.send({
+      type: 'session:set_permission_mode',
+      data: { mode },
+    })
+  }, [currentSessionId])
+
   const resetConversationRuntime = useCallback(async () => {
     if (!currentSessionId) {
       return
@@ -776,6 +796,7 @@ export function useConversationRuntime(
     trustTool,
     editAndRerun,
     setMode,
+    setPermissionMode,
     resetConversationRuntime,
     loadMore,
   }

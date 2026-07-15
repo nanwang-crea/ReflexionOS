@@ -22,12 +22,14 @@ interface ConversationStoreState {
   conversationsBySessionId: Record<string, ConversationState>
   planBySessionId: Record<string, Plan>
   agentModeBySessionId: Record<string, import('@/types/conversation').AgentMode>
+  permissionModeBySessionId: Record<string, import('@/types/conversation').PermissionMode>
   setSnapshot: (sessionId: string, snapshot: ConversationSnapshot) => void
   applyEvent: (sessionId: string, event: ConversationEvent) => void
   applyLiveEvent: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setLiveState: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setPlan: (sessionId: string, plan: Plan | null) => void
   setAgentMode: (sessionId: string, mode: import('@/types/conversation').AgentMode) => void
+  setPermissionMode: (sessionId: string, mode: import('@/types/conversation').PermissionMode) => void
   prependMessages: (sessionId: string, messages: ConversationMessage[], turns: ConversationTurn[], runs: ConversationRun[]) => void
   setPagination: (sessionId: string, pagination: Pick<ConversationSnapshot, 'hasMore' | 'nextBeforeTurnId'>) => void
   clearConversation: (sessionId: string) => void
@@ -37,6 +39,7 @@ export const createConversationStore = () => create<ConversationStoreState>((set
   conversationsBySessionId: {},
   planBySessionId: {},
   agentModeBySessionId: {},
+  permissionModeBySessionId: {},
   setSnapshot: (sessionId, snapshot) => set((state) => ({
     conversationsBySessionId: {
       ...state.conversationsBySessionId,
@@ -45,6 +48,10 @@ export const createConversationStore = () => create<ConversationStoreState>((set
     agentModeBySessionId: {
       ...state.agentModeBySessionId,
       [sessionId]: snapshot.session.agentMode ?? 'build',
+    },
+    permissionModeBySessionId: {
+      ...state.permissionModeBySessionId,
+      [sessionId]: snapshot.session.permissionMode ?? 'auto',
     },
   })),
   applyEvent: (sessionId, event) => set((state) => ({
@@ -92,6 +99,12 @@ export const createConversationStore = () => create<ConversationStoreState>((set
       [sessionId]: mode,
     },
   })),
+  setPermissionMode: (sessionId, mode) => set((state) => ({
+    permissionModeBySessionId: {
+      ...state.permissionModeBySessionId,
+      [sessionId]: mode,
+    },
+  })),
   prependMessages: (sessionId, messages, turns, runs) => set((state) => {
     const conversation = state.conversationsBySessionId[sessionId]
     if (!conversation) return state
@@ -126,6 +139,9 @@ export const createConversationStore = () => create<ConversationStoreState>((set
     ),
     agentModeBySessionId: Object.fromEntries(
       Object.entries(state.agentModeBySessionId).filter(([id]) => id !== sessionId)
+    ),
+    permissionModeBySessionId: Object.fromEntries(
+      Object.entries(state.permissionModeBySessionId).filter(([id]) => id !== sessionId)
     ),
   })),
 }))

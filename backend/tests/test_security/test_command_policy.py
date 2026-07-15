@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 
 import pytest
@@ -20,7 +21,8 @@ def policy(registry):
     with tempfile.TemporaryDirectory() as tmpdir:
         root_dir = os.path.realpath(tmpdir)
         path_security = PathSecurity([root_dir], base_dir=root_dir)
-        security = ShellSecurity()
+        # 默认使用 macOS/Linux 模拟（确保测试跨平台一致性）
+        security = ShellSecurity(platform_name="darwin")
         yield CommandPolicy(security, path_security, registry)
 
 
@@ -537,3 +539,184 @@ class TestCommandPolicyEvaluate:
         decision = policy.evaluate(command="echo hello", cwd=policy.path_security.base_dir)
         if decision.action == CommandAction.ALLOW:
             assert decision.suggested_prefix_rule is None
+
+
+# ── 16. EXTRACT META CHARS (quote-aware) ───────────────────────────
+
+
+class TestExtractMetaChars:
+    """测试 quote-aware 元字符提取方法"""
+
+    def test_extract_meta_chars_basic(self, policy):
+        """测试基本元字符提取"""
+
+        # 测试双字符元字符
+        assert policy._extract_meta_chars("git status && git log") == {'&&'}
+        assert policy._extract_meta_chars("cmd1 || cmd2") == {'||'}
+        assert policy._extract_meta_chars("echo test >> file.txt") == {'>>'}
+        assert policy._extract_meta_chars("cmd 2> error.log") == {'2>'}
+
+        # 测试单字符元字符
+        assert policy._extract_meta_chars("echo test > file.txt") == {'>'}
+        assert policy._extract_meta_chars("cmd1 ; cmd2") == {';'}
+        assert policy._extract_meta_chars("cmd1 | cmd2") == {'|'}
+        assert policy._extract_meta_chars("cmd &") == {'&'}
+        assert policy._extract_meta_chars("cat < input.txt") == {'<'}
+
+        # 测试混合
+        assert policy._extract_meta_chars("cmd1 && cmd2 || cmd3") == {'&&', '||'}
+        assert policy._extract_meta_chars("cmd1 | cmd2 > out.txt") == {'|', '>'}
+
+    def test_extract_meta_chars_quote_aware(self, policy):
+        """测试引号内元字符忽略"""
+
+        # 单引号内的元字符应该被忽略
+        assert policy._extract_meta_chars("echo 'a && b'") == set()
+        assert policy._extract_meta_chars("git commit -m 'fix: issue || bug'") == set()
+        assert policy._extract_meta_chars("echo 'test | grep foo'") == set()
+
+        # 双引号内的元字符应该被忽略
+        assert policy._extract_meta_chars('echo "a && b"') == set()
+        assert policy._extract_meta_chars('git commit -m "feat: add > and <"') == set()
+
+        # 引号外的元字符应该被识别
+        assert policy._extract_meta_chars("echo 'test' && git status") == {'&&'}
+        assert policy._extract_meta_chars('git log && echo "done"') == {'&&'}
+        assert policy._extract_meta_chars("echo 'a' | wc -l") == {'|'}
+
+        # 混合引号和元字符
+        assert policy._extract_meta_chars("cmd 'arg1 && arg2' && cmd2") == {'&&'}
+        assert policy._extract_meta_chars('echo "test > file" > output.txt') == {'>'}
+
+    def test_extract_meta_chars_edge_cases(self, policy):
+        """测试边界情况"""
+
+        # 空字符串
+        assert policy._extract_meta_chars("") == set()
+
+        # 只有引号
+        assert policy._extract_meta_chars("''") == set()
+        assert policy._extract_meta_chars('""') == set()
+
+        # 未闭合引号（只关心完整性，不验证语法正确性）
+        assert policy._extract_meta_chars("echo 'test && no close") == set()
+
+        # 连续元字符
+        assert policy._extract_meta_chars("cmd1 && cmd2 && cmd3") == {'&&'}
+        assert policy._extract_meta_chars("cmd >>& file") == {'>>', '&'}
+
+
+# ── 17. SPLIT SHELL COMMAND (quote-aware) ──────────────────────────
+
+
+class TestSplitShellCommand:
+    """测试 quote-aware 命令链拆分方法"""
+
+    def test_split_shell_command_basic(self, policy):
+        """测试基本命令链拆分"""
+
+        # 单个命令
+        assert policy._split_shell_command("git status") == ["git status"]
+
+        # && 拆分
+        assert policy._split_shell_command("git status && git log") == [
+            "git status",
+            "git log"
+        ]
+
+        # || 拆分
+        assert policy._split_shell_command("cmd1 || cmd2") == ["cmd1", "cmd2"]
+
+        # 混合拆分
+        assert policy._split_shell_command("cmd1 && cmd2 || cmd3") == [
+            "cmd1",
+            "cmd2",
+            "cmd3"
+        ]
+
+    def test_split_shell_command_quote_aware(self, policy):
+        """测试引号内操作符不拆分"""
+
+        # 单引号内的 && 不应拆分
+        assert policy._split_shell_command("echo 'a && b'") == ["echo 'a && b'"]
+
+        # 双引号内的 || 不应拆分
+        assert policy._split_shell_command('echo "a || b"') == ['echo "a || b"']
+
+        # 引号外的操作符应拆分
+        assert policy._split_shell_command("echo 'test' && git status") == [
+            "echo 'test'",
+            "git status"
+        ]
+
+
+# ── 18. WINDOWS SHELL WHITELIST ────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+class TestWindowsShellWhitelistAllowed:
+    """测试 Windows shell 白名单：允许场景"""
+
+    def test_git_status_and_git_log_allowed(self, win_policy):
+        """纯 git 白名单命令链应该放行"""
+        decision = win_policy.evaluate(command="git status && git log")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.execution_mode == "shell"
+
+    def test_git_diff_or_git_show_allowed(self, win_policy):
+        """纯 git 白名单命令链（||）应该放行"""
+        decision = win_policy.evaluate(command="git diff || git show")
+        assert decision.action == CommandAction.ALLOW
+        assert decision.execution_mode == "shell"
+
+    def test_git_status_with_flags_allowed(self, win_policy):
+        """带标志位的 git 白名单命令应该放行"""
+        decision = win_policy.evaluate(command="git status --short && git log --oneline")
+        assert decision.action == CommandAction.ALLOW
+
+    def test_complex_git_chain_allowed(self, win_policy):
+        """复杂的 git 白名单命令链应该放行"""
+        decision = win_policy.evaluate(command="git status && git diff && git log && git show HEAD")
+        assert decision.action == CommandAction.ALLOW
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific test")
+class TestWindowsShellWhitelistDenied:
+    """测试 Windows shell 白名单：拒绝场景"""
+
+    def test_git_chain_with_non_git_command_denied(self, win_policy):
+        """git 命令链混杂非 git 命令应该拒绝"""
+        decision = win_policy.evaluate(command="git status && dir")
+        assert decision.action == CommandAction.DENY
+        assert decision.execution_mode == "shell"
+        assert "只支持 git 命令" in decision.reasons[0]
+
+    def test_git_push_denied(self, win_policy):
+        """git push（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git status && git push")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_add_denied(self, win_policy):
+        """git add（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git add . && git status")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_commit_denied(self, win_policy):
+        """git commit（白名单外）应该拒绝"""
+        decision = win_policy.evaluate(command="git status && git commit -m 'test'")
+        assert decision.action == CommandAction.DENY
+        assert "只支持纯读 git 命令" in decision.reasons[0]
+
+    def test_git_with_redirect_denied(self, win_policy):
+        """git 命令带重定向（>）应该拒绝"""
+        decision = win_policy.evaluate(command="git status > output.txt")
+        assert decision.action == CommandAction.DENY
+        assert "不支持" in decision.reasons[0]
+
+    def test_git_with_pipe_denied(self, win_policy):
+        """git 命令带管道（|）应该拒绝"""
+        decision = win_policy.evaluate(command="git log | findstr foo")
+        assert decision.action == CommandAction.DENY
+        assert "不支持" in decision.reasons[0]

@@ -193,3 +193,171 @@ Agent 在处理复杂任务时，需要能够"分身"执行子任务（如并行
 ### 经验教训/待办
 - 经验：子代理的会话隔离很重要，避免主子 Agent 的状态互相干扰；工作记忆架构为子代理提供了良好的基础。
 - 待办：补充前端子代理展示（子任务列表、进度条）；补充主子 Agent 通信的完整示例与文档。
+
+---
+
+## [2026-06-24] [新功能] 重置对话 - 清空历史保留会话，先停后清
+
+- **类型**: 新功能
+- **提交**: d98beec0 (feat: 重置对话 - 清空历史保留会话，先停后清)
+- **涉及文件**: backend/app/services/conversation_service.py, backend/app/services/agent_service.py, backend/app/api/routes/sessions.py, frontend/src/pages/AgentWorkspace.tsx, frontend/src/hooks/useConversationRuntime.ts, frontend/src/features/sessions/session.actions.ts, frontend/src/features/workspace/stores/workspace.store.ts
+- **关联**: 需求见 docs/superpowers/specs/2026-06-23-reset-conversation-design.md; 计划见 docs/superpowers/plans/2026-06-24-reset-conversation-implementation-plan.md
+
+### 问题/需求
+工作区头部的"重置对话"按钮之前只清空前端内存缓存，后端 DB 中的对话历史（turns/runs/messages/events）完全未删除。用户切走再切回该会话，旧对话会原样恢复，按钮形同虚设。需要实现真正的重置：清空该会话的 DB 对话历史，但保留会话 ID、标题与位置；重新进入不再恢复旧对话。若重置时有 run 在执行，先停后清。
+
+### 原因
+（新功能，无 bug 根因。）背景：原 `resetConversationRuntime` 只做前端三件事（关 WebSocket、清前端缓存、清取消标志），未触及后端 DB。Agent 每次执行从 DB 重建上下文，因此旧数据残留会导致"假重置"。
+
+### 修复/实现方法
+1. **后端**：
+   - `conversation_service.reset_session`：在写锁内重校验无活跃 run 后级联删除 DB 对话数据（turns/runs/messages/events/search_documents）
+   - `agent_service.reset_session`：写锁外先调用 `cancel_run` 停止运行中的任务
+   - 新增 API：`POST /api/sessions/{id}/reset`，冲突时返回 400 ValidationError
+   
+2. **前端**：
+   - `session.actions.resetSession`：调用 API 后回写会话列表真值（清空 activeTurnId）
+   - `workspace.store.resetSessionSeen`：回退未读基线到 0
+   - `resetConversationRuntime`：成功后才清前端显示状态，失败时保持原状态不变
+   - `AgentWorkspace`：二次确认对话框（"此操作不可恢复"）
+
+3. **测试**：后端 service/agent/API 共 11 个测试用例，前端 store/action/hook 全覆盖
+
+### 过程
+1. 阅读需求 spec（2026-06-23-reset-conversation-design.md），明确"清空历史保留会话、先停后清、不可恢复"语义
+2. 编写实现计划（2026-06-24-reset-conversation-implementation-plan.md），分 4 阶段：后端 service → API → 前端集成 → 测试
+3. 实现后端：conversation_service 写锁级联删除 + agent_service cancel_run 前置
+4. 实现前端：actions 层异步调用 + runtime hook 状态清理 + workspace 回写真值
+5. 补充测试：后端 11 例、前端 store/action/hook 覆盖各场景（运行中/空会话/已取消等）
+6. 手动验证：创建会话 → 发消息 → 重置 → 切走切回确认空白
+
+### 测试验证及结果
+- **后端测试**（11 例全绿）：
+  - conversation_service: 重置成功、运行中拒绝、会话不存在、级联删除完整性
+  - agent_service: 先停后清、无运行时直接清、cancel 异常处理
+  - API: 200 成功、409 运行中冲突、404 会话不存在
+- **前端测试**（全绿）：
+  - session.actions: API 调用、列表真值回写
+  - workspace.store: 未读基线回退
+  - useConversationRuntime: 成功清理、失败保持原状
+- **手动验证**: 创建会话 → 多轮对话 → 重置 → 切走切回 ✅ 确认空白
+- **结论**: 重置对话功能已完整实现，先停后清逻辑正确，不可恢复语义达成。
+
+### 经验教训/待办
+- 经验：危险操作必须二次确认；先停后清的顺序很重要（写锁外 cancel，写锁内 delete）；前端需同步回写列表真值和未读基线，否则 UI 不一致。
+- 待办：无。功能已完整。
+
+---
+
+## [2026-06-26~27] [新功能] 应用内确认弹窗系统 - 替代浏览器原生 confirm
+
+- **类型**: 新功能（前端基础设施）
+- **提交**: 59027862 → 70f54682（共 9 个提交）
+  - 59027862: 新增确认弹框单例 store(状态+Promise桥接)
+  - 55528b99: 新增 ConfirmDialog 展示组件与宿主
+  - a2a6b0df: 补完 useEffect 依赖 + 焦点陷阱
+  - 6c47b9b8: confirmAction 改为异步走应用内确认框
+  - 00dbbc98: 在 App 根挂载 ConfirmDialogHost
+  - 802f28e5: 重置对话改用异步应用内确认框
+  - 0799ca32: 重新生成消息改用异步应用内确认框，修正测试 mock
+  - 32dda77f: sidebar 删除与 LLM 删除链路改用异步确认（含 action 层 async 化）
+  - 70f54682: 放宽重置/重新生成回调类型为异步友好
+- **涉及文件**: frontend/src/shared/stores/confirmDialog.store.ts, frontend/src/components/common/ConfirmDialog.tsx, frontend/src/services/dialogService.ts, frontend/src/App.tsx, 以及所有使用 confirmAction 的地方
+- **关联**: 替代原有的 `window.confirm()`，统一交互体验
+
+### 问题/需求
+项目多处危险操作（重置对话、删除会话、删除 LLM provider、重新生成消息）都用浏览器原生 `window.confirm()` 二次确认，但原生弹窗：
+1. 样式无法定制，与应用 UI 风格不一致
+2. 阻塞 JS 主线程，无法与异步流程友好配合
+3. 测试时需 mock `window.confirm`，脆弱且不真实
+
+需要实现统一的**应用内确认弹窗系统**：可定制样式、异步友好、测试友好、全局单例复用。
+
+### 原因
+（新功能，无 bug 根因。）背景：随着功能增多，危险操作越来越多，原生 confirm 的局限性暴露（样式割裂、同步阻塞、测试困难）。
+
+### 修复/实现方法
+1. **单例 store**（confirmDialog.store.ts）：
+   - Zustand store 管理弹窗状态（open/title/message/confirmText/cancelText）
+   - Promise 桥接：`show()` 返回 Promise，用户点击确认/取消后 resolve(true/false)
+   - 支持并发调用排队（队列模式）
+
+2. **展示组件**（ConfirmDialog.tsx）：
+   - 读取 store 状态，渲染弹窗 UI（遮罩层 + 卡片 + 按钮）
+   - 焦点陷阱：弹窗打开时焦点锁定在确认/取消按钮，ESC 关闭
+   - 补完 useEffect 依赖，避免闭包陷阱
+
+3. **宿主挂载**（App.tsx）：
+   - 在应用根挂载 `<ConfirmDialogHost />`，全局单例
+   - 任何组件调用 `confirmDialogStore.show()` 都走同一个弹窗实例
+
+4. **统一接口**（dialogService.ts）：
+   - `confirmAction()` 改为异步：`const ok = await confirmAction(...); if (!ok) return;`
+   - 逐步迁移所有 `window.confirm` 调用点（重置对话、删除会话、删除 provider、重新生成消息）
+
+5. **回调类型放宽**（70f54682）：
+   - 原 `onReset/onRegenerate` 等回调是同步的，改为 `() => void | Promise<void>`
+   - 支持异步确认流程，不阻塞调用方
+
+### 过程
+1. 设计单例 store + Promise 桥接模式
+2. 实现 ConfirmDialog 展示组件，补完焦点陷阱与依赖
+3. 在 App 根挂载宿主
+4. 逐个迁移危险操作调用点：重置对话 → 重新生成 → sidebar 删除 → LLM 删除
+5. 修正测试 mock（不再 mock window.confirm，改为 mock confirmDialogStore）
+6. 放宽回调类型，确保异步流程友好
+
+### 测试验证及结果
+- **单元测试**：
+  - confirmDialog.store.test.ts（56 行）：Promise 桥接、队列、取消逻辑 ✅
+  - dialogService.test.ts：异步 confirmAction 流程 ✅
+  - 各调用点测试（useCurrentSessionViewModel, useSidebarSessionActions 等）：mock 改为异步 ✅
+- **手动验证**：
+  - 触发重置对话 → 弹出应用内确认框（非原生）→ 确认/取消逻辑正确 ✅
+  - 删除会话、删除 provider、重新生成消息 → 同样走应用内确认 ✅
+  - ESC 关闭、焦点陷阱 ✅
+- **结论**: 应用内确认弹窗系统已全面替代原生 confirm，统一交互体验，测试友好。
+
+### 经验教训/待办
+- 经验：Promise 桥接模式是同步 UI 与异步业务的好方案；焦点陷阱需显式补完 useEffect 依赖；渐进式迁移比一次性重写更安全。
+- 待办：考虑扩展支持自定义按钮（如"删除并不再提示"）；考虑支持多弹窗并发显示（目前是队列单例）。
+
+---
+
+## [2026-07-12] [Bug修复] 修复 Windows 完整测试套件中的预存失败
+
+- **类型**: Bug修复
+- **涉及文件**: backend/app/tools/grep_tool.py, backend/app/tools/edit_tool.py, backend/app/execution/prompt_manager.py, backend/tests/test_security/test_sandbox.py
+- **关联**: （无，尚未提交）
+
+### 问题/需求
+在验证 Windows Phase 2 沙箱改动时，相关沙箱/权限测试已通过，但完整 backend 测试套件暴露 8 个预存失败。用户要求继续排查并修复其中可确认的 Windows 预存问题，同时记录问题定位与修复过程。
+
+### 原因
+1. `grep_tool` 在 Windows 上使用 `asyncio.create_subprocess_exec` 调用 `rg/grep`。当测试或运行环境使用 Windows SelectorEventLoop 时，asyncio 子进程 API 不可用，会抛 `NotImplementedError`；同时 Git Bash `grep` 输出的 Windows 盘符路径包含冒号，原解析逻辑按 `:` 简单拆分会把 `C:` 误判成字段分隔符；`--include` 也需要使用 `--include=*.py` 形式。
+2. `edit_tool` 已显式把内容转换为 CRLF 后，仍用 Windows 文本模式写文件，导致 Python 再次把 `\n` 转为 `\r\n`，最终出现 `\r\r\n`。
+3. `PromptManager` 使用 `Path.home()` 查找全局 `.reflexion` overlay。Windows 下 `Path.home()` 优先 `USERPROFILE`，测试中 monkeypatch 的 `HOME` 不生效，导致读取到真实用户目录而非测试隔离目录。
+4. OpenAI 兼容适配器 User-Agent 断言与当前源码不一致（测试期待 `claude-cli/`，源码为 `codex-cli/2.1.177`）。该项按用户选择本次不修改。
+
+### 修复/实现方法
+1. `grep_tool` 新增 `_run_search_command`：Windows 下通过 `asyncio.to_thread(subprocess.run)` 执行同步子进程，绕过 SelectorEventLoop 子进程限制；非 Windows 保持原 asyncio 子进程路径。
+2. `grep_tool` 新增统一输出行解析，兼容 `C:\...:line:content` 这类 Windows 盘符路径，并调整 GNU grep include 参数为 `--include=PATTERN`。
+3. `edit_tool` 写入已显式转换换行符的内容时加 `newline=""`，避免 Windows 文本模式二次转换。
+4. `PromptManager` 增加 `_global_reflexion_dir()`，优先读取 `HOME`，未设置时再退回 `Path.home()`，保证测试隔离与跨平台一致性。
+5. `test_sandbox.py` 对 macOS seatbelt 专属 `/bin/zsh` 断言加 `skipif(sys.platform != "darwin")`，避免 Windows 上的无关平台误报。
+
+### 过程
+1. 先跑完整 backend 测试套件，确认 8 个失败：4 个 grep、1 个 edit CRLF、1 个 prompt overlay、2 个 OpenAI header。
+2. stash/对照后确认失败并非 Windows 沙箱改动引入，而是预存问题。
+3. 复现 grep 根因：Windows SelectorEventLoop 下 `asyncio.create_subprocess_exec` 抛 `NotImplementedError`；进一步打印 Git Bash grep 原始输出，定位 Windows 盘符冒号解析和 `--include` 参数形式问题。
+4. 分别修复 grep、edit、prompt_manager 三类问题；OpenAI UA 按用户选择保留现状。
+5. 维护开发日志，记录根因、修法与验证结果。
+
+### 测试验证及结果
+- `python -m pytest tests/test_tools/test_grep_tool.py tests/test_tools/test_edit_tool.py::TestEditToolStrReplace::test_crlf_preserved tests/test_execution/test_prompt_manager.py::TestPromptManager::test_get_system_prompt_merges_global_and_project_overlays -q` ✅：`9 passed`
+- `python -m pytest tests/test_tools/test_grep_tool.py tests/test_tools/test_edit_tool.py tests/test_execution/test_prompt_manager.py tests/test_security/test_sandbox_windows.py tests/test_security/test_sandbox_windows_acl.py tests/test_security/test_sandbox_windows_firewall.py tests/test_security/test_sandbox_windows_token.py tests/test_security/test_sandbox_windows_user.py tests/test_security/test_sandbox_windows_integration.py tests/test_security/test_sandbox_base.py tests/test_security/test_permission_mode.py tests/test_security/test_command_policy_sandbox_conditional.py tests/test_security/test_command_policy_windows_builtin.py tests/test_security/test_sandbox.py -q` ✅：`197 passed, 1 skipped`
+- **结论**: grep/edit/prompt_manager 三类 Windows 预存失败已解决；OpenAI UA 失败按用户要求本次不改，完整套件仍会保留该已知失败。
+
+### 经验教训/待办
+- 经验：Windows 上不能假设 asyncio 子进程可用，涉及外部命令的工具需要像 shell_tool 一样考虑 SelectorEventLoop；解析命令行工具输出时不能按冒号简单拆 Windows 路径；已显式转换换行符时必须禁用文本模式自动 newline 转换。
+- 待办：后续单独确认 OpenAI 兼容适配器 User-Agent 期望值：若 `codex-cli/2.1.177` 是故意策略，则应改测试；若是误改，则应改源码回 `claude-cli/`。
