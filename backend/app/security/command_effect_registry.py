@@ -302,9 +302,31 @@ class CommandEffectRegistry:
             ("rmdir", EffectCategory.DESTRUCTIVE),
             ("format", EffectCategory.DESTRUCTIVE),
             ("diskpart", EffectCategory.DESTRUCTIVE),
-            ("cmd", EffectCategory.ESCALATE),
-            ("powershell", EffectCategory.ESCALATE),
-            ("pwsh", EffectCategory.ESCALATE),
         ]
         for cmd, base_cat in windows_commands:
             self.register(cmd, CommandEffectEntry(category=base_cat))
+
+        # PowerShell/cmd —— ESCALATE 基类，与 bash -c 同等语义：
+        # -Command/-c/-EncodedCommand（PowerShell）、/c、/k（cmd）都是"交给解释器执行任意命令"，
+        # 通过 flag_overrides 降级为 CODE_GEN，交由 command_policy._shell_interpreter_override 判断
+        # （命中类路径参数进一步降级为 WRITE_PROJECT；裸调用无参数维持 ESCALATE 拒绝）。
+        for interp in ["powershell", "pwsh"]:
+            self.register(interp, CommandEffectEntry(
+                category=EffectCategory.ESCALATE,
+                flag_overrides={
+                    "-Command": EffectCategory.CODE_GEN,
+                    "-command": EffectCategory.CODE_GEN,
+                    "-c": EffectCategory.CODE_GEN,
+                    "-EncodedCommand": EffectCategory.CODE_GEN,
+                    "-encodedcommand": EffectCategory.CODE_GEN,
+                },
+            ))
+        self.register("cmd", CommandEffectEntry(
+            category=EffectCategory.ESCALATE,
+            flag_overrides={
+                "/c": EffectCategory.CODE_GEN,
+                "/C": EffectCategory.CODE_GEN,
+                "/k": EffectCategory.CODE_GEN,
+                "/K": EffectCategory.CODE_GEN,
+            },
+        ))

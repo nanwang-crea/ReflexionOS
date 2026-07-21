@@ -525,7 +525,9 @@ class AgentService:
                 input_data=input_data,
                 expected_output=expected_output,
                 project_path=project_path,
-                session_id=f"{session_id}-sub",
+                # 并发 delegate 场景下多个子 agent 会同时创建，固定拼接会话 id 会
+                # 相互碰撞，改为每次调用附加唯一短后缀
+                session_id=f"{session_id}-sub-{uuid4().hex[:8]}",
                 event_callback=event_callback,  # 传递事件回调，使 SubAgent 事件能发送到前端
                 parent_approval_flow=execution_loop.approval_flow,  # 共享主 Agent 的审批流
             )
@@ -849,12 +851,12 @@ class AgentService:
                         "success": execution_result.success,
                         "output": execution_result.output,
                         "error": execution_result.error,
-                    })
-                    logger.info("[SubAgent Approval] set_approval_result called, _resume_event should be set")
+                    }, approval_id=approval_id)
+                    logger.info("[SubAgent Approval] set_approval_result called for approval_id=%s", approval_id)
                 else:
                     self.pending_approval_store.deny(approval_id)
                     logger.info("[SubAgent Approval] Denying approval, calling set_approval_result(None)")
-                    approval_flow.set_approval_result(None)
+                    approval_flow.set_approval_result(None, approval_id=approval_id)
                 return
 
             # ── 主 Agent 审批路径 ──
@@ -894,7 +896,7 @@ class AgentService:
                         "success": execution_result.success,
                         "output": execution_result.output,
                         "error": execution_result.error,
-                    })
+                    }, approval_id=approval_id)
                 else:
                     terminal_event_type = EventType.RUN_COMPLETED
                     terminal_payload = {
@@ -910,7 +912,7 @@ class AgentService:
 
                 loop = self._execution_loops.get(run_id)
                 if loop is not None:
-                    loop.set_approval_result(None)
+                    loop.set_approval_result(None, approval_id=approval_id)
                 else:
                     terminal_event_type = EventType.RUN_CANCELLED
                     terminal_payload = {

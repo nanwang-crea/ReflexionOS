@@ -24,6 +24,7 @@ EventCallback = Callable[[str, dict[str, Any]], Coroutine[Any, Any, None]]
 
 from app.execution.models import LoopResult, LoopStatus
 from app.execution.rapid_loop import RapidExecutionLoop
+from app.execution.runtime_tool_definitions import ToolSetConfig
 from app.llm import LLMAdapterFactory
 from app.llm.base import UniversalLLMInterface
 from app.models.llm_config import ResolvedLLMConfig
@@ -142,6 +143,9 @@ class SubAgentRunner:
             max_steps=self._max_steps,
             event_callback=callback_with_run_id,
             approval_flow=self._parent_approval_flow,  # 共享主 Agent 的审批流
+            # 子 agent 任务通常已明确要执行的操作（如指定的 shell 命令），跳过主 Agent
+            # 那套"首轮只给探索工具"的门禁，否则第一轮看不到 shell 会误报"没有该工具"
+            tool_set_config=ToolSetConfig(skip_exploration_gate=True),
         )
 
         # 3. 构建 task_content（包含 input_data 和 expected_output）

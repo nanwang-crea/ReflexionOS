@@ -51,7 +51,8 @@ class ShellSecurity:
         if self._is_windows():
             return (
                 "Current platform is Windows. Use Windows executable commands, e.g. `where python`, "
-                "`python --version`; do not use cmd /c or PowerShell."
+                "`python --version`. `cmd /c` and `powershell -Command` are allowed but require user "
+                "approval (they may take a while to be approved) — prefer direct commands when possible."
             )
         return (
             f"Current platform is {self.platform_label}. "
@@ -84,6 +85,14 @@ class ShellSecurity:
         except ValueError as exc:
             raise SecurityError(message=f"命令解析失败: {exc}", detail={"source": "shell"}) from exc
 
+        if self._is_windows():
+            # shlex.split(posix=False) 为保留 Windows 路径反斜杠（如 C:\Users\foo），
+            # 不会像 posix 模式那样剥离引号，导致整段被双引号包裹的参数
+            # （如 powershell -Command "Write-Output 'x'"）原样带着外层引号传给 subprocess，
+            # PowerShell/cmd 收到字面量引号后不会当命令执行，而是原样回显。
+            # 这里只剥离"整体被一对双引号包裹"的 token，不触碰未加引号的路径参数。
+            argv = [self._strip_wrapping_quotes(token) for token in argv]
+
         if not argv:
             raise SecurityError(message="命令不能为空", detail={"source": "shell"})
 
@@ -97,6 +106,13 @@ class ShellSecurity:
 
     def _is_windows(self) -> bool:
         return self.platform_name.startswith("win")
+
+    @staticmethod
+    def _strip_wrapping_quotes(token: str) -> str:
+        """剥离整体被一对双引号包裹的 token 的外层引号（仅 Windows posix=False 场景使用）"""
+        if len(token) >= 2 and token[0] == '"' and token[-1] == '"':
+            return token[1:-1]
+        return token
 
     def _command_name(self, command: str) -> str:
         normalized = command.replace("\\", "/").split("/")[-1].lower()
@@ -117,10 +133,16 @@ class ShellSecurity:
                     )
                 path_security.validate_path(os.path.expanduser(candidate))
 
+    # Windows 风格标志：/c、/k、/Command 这类"斜杠+纯字母"参数（cmd、powershell 的标志语法），
+    # 与真实的类 Unix 绝对路径（如 /mnt/c/foo，含多段路径分隔符）区分开，避免被误判为路径参数
+    _WINDOWS_STYLE_FLAG_PATTERN = re.compile(r"^/[A-Za-z]+$")
+
     def _path_candidates(self, arg: str) -> list[str]:
         if arg.startswith("-") and "=" in arg:
             return [arg.split("=", 1)[1]]
         if arg.startswith("-"):
+            return []
+        if self._WINDOWS_STYLE_FLAG_PATTERN.match(arg):
             return []
         return [arg]
 

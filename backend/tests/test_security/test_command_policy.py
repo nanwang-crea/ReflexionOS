@@ -35,6 +35,17 @@ def win_policy(registry):
         yield CommandPolicy(security, path_security, registry)
 
 
+@pytest.fixture
+def win_policy_sandboxed(registry):
+    """模拟 Windows Phase 2 沙箱已启用的场景：跳过第一阶段严格白名单，
+    走 _evaluate_shell_command 的效果分类判断（真实生产环境路径）。"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        root_dir = os.path.realpath(tmpdir)
+        path_security = PathSecurity([root_dir], base_dir=root_dir)
+        security = ShellSecurity(platform_name="win32")
+        yield CommandPolicy(security, path_security, registry, sandbox_available=True)
+
+
 # ── 1. READ_ONLY commands ──────────────────────────────────────
 
 
@@ -503,6 +514,28 @@ class TestFullPipelineIntegration:
         ]
         for cmd, expected_cat, expected_action in cases:
             decision = policy.evaluate(command=cmd)
+            assert decision.effect_category == expected_cat, \
+                f"{cmd}: expected {expected_cat}, got {decision.effect_category}"
+            assert decision.action == expected_action, \
+                f"{cmd}: expected {expected_action}, got {decision.action}"
+
+    def test_windows_shell_interpreter_file_arg_vs_inline(self, win_policy_sandboxed):
+        """Windows 解释器（powershell/pwsh/cmd）应与 bash -c 同等语义：
+        -Command/-c/-EncodedCommand/cmd 的 /c -> CODE_GEN；裸调用（无参数）维持 ESCALATE -> DENY。
+        必须用 sandbox_available=True 的 policy，跳过 Windows 第一阶段严格白名单。"""
+        cases = [
+            ("powershell", EffectCategory.ESCALATE, CommandAction.DENY),
+            ('powershell -Command "Write-Output hi"', EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ('powershell -NoProfile -Command "Start-Sleep -Seconds 3; Write-Output \'B done\'"',
+             EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ("pwsh", EffectCategory.ESCALATE, CommandAction.DENY),
+            ('pwsh -Command "Write-Output hi"', EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ("cmd", EffectCategory.ESCALATE, CommandAction.DENY),
+            ("cmd /c ver", EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+            ('cmd /c "echo hi"', EffectCategory.CODE_GEN, CommandAction.REQUIRE_APPROVAL),
+        ]
+        for cmd, expected_cat, expected_action in cases:
+            decision = win_policy_sandboxed.evaluate(command=cmd)
             assert decision.effect_category == expected_cat, \
                 f"{cmd}: expected {expected_cat}, got {decision.effect_category}"
             assert decision.action == expected_action, \

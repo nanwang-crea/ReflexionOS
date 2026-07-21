@@ -57,6 +57,9 @@ class ToolSetConfig:
     )
     # sub-agent 模式下排除的工具名（防止递归调用 delegate 等）
     sub_agent_tools: frozenset[str] = field(default_factory=frozenset)
+    # 跳过首轮"探索工具收窄"门禁：子 agent 任务通常已明确要执行的操作（如 shell 命令），
+    # 不需要像主 Agent 一样先观察后行动，首轮就应看到完整工具集
+    skip_exploration_gate: bool = False
 
 
 DEFAULT_TOOL_SET_CONFIG = ToolSetConfig()
@@ -105,9 +108,10 @@ class RuntimeToolDefinitions:
     def _allowed_tool_names(self, context: LoopContext) -> set[str]:
         # 先排除 sub_agent_tools 中的工具（如 delegate 在 sub-agent 模式下）
         exclude = self.config.sub_agent_tools
-        if context.steps:
-            return set(self.tool_registry.list_tools_excluding(exclude))
         available = set(self.tool_registry.list_tools_excluding(exclude))
+        # 已执行过步骤，或配置为跳过首轮探索门禁（子 agent 场景）：直接给全量工具
+        if context.steps or self.config.skip_exploration_gate:
+            return available
         exploration_tools = available.intersection(self.config.exploration_tools)
         return exploration_tools or available
 
