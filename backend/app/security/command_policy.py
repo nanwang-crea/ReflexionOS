@@ -61,8 +61,16 @@ HARD_DENY_SHELL_PATTERNS: set[str] = {"curl", "wget"}
 # Shell interpreters whose -c flag means CODE_GEN
 SHELL_INTERPRETERS = {"bash", "sh", "zsh", "fish", "ksh", "csh"}
 
+# Windows 解释器：powershell/pwsh 的 -Command、cmd 的 /c 语义上等价于 bash -c，
+# 同样交给 _shell_interpreter_override 判断（是否降级为 CODE_GEN/WRITE_PROJECT）
+WINDOWS_SHELL_INTERPRETERS = {"powershell", "pwsh", "cmd"}
+
 # Inline eval flags that prevent file-argument downgrade
-INLINE_EVAL_FLAGS = {"-c", "-e", "--eval"}
+INLINE_EVAL_FLAGS = {
+    "-c", "-e", "--eval",
+    "-Command", "-command", "-EncodedCommand", "-encodedcommand",
+    "/c", "/C", "/k", "/K",
+}
 
 
 def _capture_environment_snapshot(cwd: str) -> EnvironmentSnapshot:
@@ -647,7 +655,7 @@ class CommandPolicy:
                     effect = subcmd_effect
 
         # Shell interpreter override: bash script.sh → WRITE_PROJECT
-        if command_name in SHELL_INTERPRETERS:
+        if command_name in SHELL_INTERPRETERS or command_name in WINDOWS_SHELL_INTERPRETERS:
             effect = self._shell_interpreter_override(command_name, argv, effect)
 
         return effect
@@ -657,8 +665,12 @@ class CommandPolicy:
     ) -> EffectCategory:
         """Override shell interpreter classification based on arguments.
 
+        Applies to both Unix shells (bash/sh/...) and Windows interpreters
+        (powershell/pwsh/cmd) — same semantics, different flag spellings.
+
         Rules:
-        1. If -c/-e/--eval present → CODE_GEN (no override)
+        1. If an inline-eval flag is present (-c/-e/--eval/-Command/-EncodedCommand/
+           /c/etc., see INLINE_EVAL_FLAGS) → CODE_GEN (no override)
         2. If a non-flag argument looks like a file path → WRITE_PROJECT
         3. Otherwise → keep current effect (ESCALATE → DENY)
         """

@@ -915,6 +915,9 @@ class TestRapidExecutionLoop:
         )
         assert approval_event["data"]["tool_call_id"] == tool_call.id
         assert approval_event["data"]["approval_id"] == "approval-1"
+        # run_id 必须携带在 approval:required 事件里：子 agent 场景下前端
+        # 靠这个字段把审批卡片关联到对应的 DelegateToolCall（无法从其他事件拼出）
+        assert approval_event["data"]["run_id"] == result.id
 
     @pytest.mark.asyncio
     async def test_approval_required_without_metadata_fails_instead_of_waiting(
@@ -1874,5 +1877,271 @@ class TestHardenedLoopIntegration:
             or "option" in result.result.lower()
             or "blocked" in result.result.lower()
         )
+
+
+class SlowDelegateTool(BaseTool):
+    """模拟 delegate 工具：按 args["label"] 控制延时/成败，用于验证并发行为。"""
+
+    def __init__(self, delay: float = 0.05, calls: list | None = None):
+        self.delay = delay
+        self.calls = calls if calls is not None else []
+
+    @property
+    def name(self) -> str:
+        return "delegate"
+
+    @property
+    def description(self) -> str:
+        return "Mock delegate tool"
+
+    def get_schema(self):
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": {
+                "type": "object",
+                "properties": {"label": {"type": "string"}},
+            },
+        }
+
+    async def execute(self, args):
+        label = args.get("label", "")
+        self.calls.append(("start", label))
+        await asyncio.sleep(self.delay)
+        self.calls.append(("end", label))
+        if args.get("should_fail"):
+            return ToolResult(success=False, error=f"{label} failed")
+        return ToolResult(success=True, output=f"{label} done")
+
+
+def _make_stream_collect_llm() -> AsyncMock:
+    """构造带 stream_collect 的 mock llm，驱动方式与 stream_complete 保持一致。
+
+    _call_llm 走的是 llm.stream_collect，而不是 stream_complete，
+    因此这里复刻 TestRapidExecutionLoop.mock_llm 里的收集逻辑，
+    使 TestDelegateConcurrency 里通过设置 llm.stream_complete 驱动的
+    mock 流程能被 RapidExecutionLoop 正确调用到。
+    """
+    llm = AsyncMock()
+    llm.get_model_name = lambda: "test-model"
+
+    async def stream_collect(
+        messages, tools=None, *, on_content=None, on_reasoning=None,
+        max_empty_retries=3, track_first_chunk_latency=False,
+    ):
+        content_parts = []
+        tool_calls = []
+        finish_reason = "stop"
+
+        async for chunk in llm.stream_complete(messages, tools):
+            if chunk.type == "content" and chunk.content:
+                content_parts.append(chunk.content)
+                if on_content:
+                    await on_content(chunk.content)
+            elif chunk.type == "tool_calls":
+                tool_calls = chunk.tool_calls
+                finish_reason = chunk.finish_reason or "tool_calls"
+                break
+            elif chunk.type == "done":
+                finish_reason = chunk.finish_reason or "stop"
+                break
+
+        response = LLMResponse(
+            content="".join(content_parts),
+            reasoning_content=None,
+            tool_calls=tool_calls,
+            finish_reason=finish_reason,
+            model=llm.get_model_name(),
+        )
+        return response, None
+
+    llm.stream_collect = stream_collect
+    return llm
+
+
+class TestDelegateConcurrency:
+    """连续 delegate 段并发执行行为验证。"""
+
+    @staticmethod
+    def _tool_call(label: str, *, should_fail: bool = False) -> LLMToolCall:
+        return LLMToolCall(
+            id=f"call-{label}",
+            name="delegate",
+            arguments={"label": label, "should_fail": should_fail},
+        )
+
+    @pytest.mark.asyncio
+    async def test_consecutive_delegates_run_concurrently(self):
+        """多个连续 delegate 调用应并发执行，总耗时接近单次延时而非线性叠加。"""
+        registry = ToolRegistry()
+        calls: list = []
+        registry.register(SlowDelegateTool(delay=0.08, calls=calls))
+
+        call_count = [0]
+        llm = _make_stream_collect_llm()
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[
+                        self._tool_call("a"),
+                        self._tool_call("b"),
+                        self._tool_call("c"),
+                    ],
+                    finish_reason="tool_calls",
+                )
+            else:
+                yield StreamChunk(type="content", content="完成")
+                yield StreamChunk(type="done", finish_reason="stop")
+
+        llm.stream_complete = mock_stream
+
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=5, context_window=128000
+        )
+
+        result = await loop.run("并发委托任务")
+
+        assert len(result.steps) == 3
+        assert all(step.status == StepStatus.SUCCESS for step in result.steps)
+
+        # 并发证据：不比较总耗时（loop.run 本身有固定框架开销，绝对阈值不稳定），
+        # 而是直接验证三个调用的 start/end 时序——若真正并发，三者应几乎同时
+        # start，且都先于任意一个 end 发生；若退化为串行，会出现 start-end
+        # 交替的模式。
+        start_events = [c for c in calls if c[0] == "start"]
+        end_events = [c for c in calls if c[0] == "end"]
+        assert len(start_events) == 3
+        first_end_index = calls.index(end_events[0])
+        assert all(calls.index(s) < first_end_index for s in start_events)
+
+    @pytest.mark.asyncio
+    async def test_delegate_run_does_not_reorder_other_write_calls(self):
+        """delegate 段与普通写操作交叉出现时，不应打乱模型返回的原始顺序。"""
+        registry = ToolRegistry()
+        calls: list = []
+        registry.register(SlowDelegateTool(delay=0.01, calls=calls))
+        registry.register(MockTool())
+
+        call_count = [0]
+        llm = _make_stream_collect_llm()
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[
+                        self._tool_call("a"),
+                        LLMToolCall(id="mock-1", name="mock", arguments={}),
+                        self._tool_call("b"),
+                    ],
+                    finish_reason="tool_calls",
+                )
+            else:
+                yield StreamChunk(type="content", content="完成")
+                yield StreamChunk(type="done", finish_reason="stop")
+
+        llm.stream_complete = mock_stream
+
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=5, context_window=128000
+        )
+
+        result = await loop.run("交叉顺序任务")
+
+        assert [step.tool for step in result.steps] == ["delegate", "mock", "delegate"]
+        assert [step.step_number for step in result.steps] == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_one_delegate_failure_does_not_affect_others_in_batch(self):
+        """并发批次内一个 delegate 失败，不应影响同批其他 delegate 的结果。"""
+        registry = ToolRegistry()
+        calls: list = []
+        registry.register(SlowDelegateTool(delay=0.01, calls=calls))
+
+        call_count = [0]
+        llm = _make_stream_collect_llm()
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[
+                        self._tool_call("a"),
+                        self._tool_call("b", should_fail=True),
+                        self._tool_call("c"),
+                    ],
+                    finish_reason="tool_calls",
+                )
+            else:
+                yield StreamChunk(type="content", content="完成")
+                yield StreamChunk(type="done", finish_reason="stop")
+
+        llm.stream_complete = mock_stream
+
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=5, context_window=128000
+        )
+
+        result = await loop.run("部分失败任务")
+
+        statuses = {step.tool_call_id: step.status for step in result.steps}
+        assert statuses["call-a"] == StepStatus.SUCCESS
+        assert statuses["call-b"] == StepStatus.FAILED
+        assert statuses["call-c"] == StepStatus.SUCCESS
+
+    @pytest.mark.asyncio
+    async def test_delegate_batches_respect_max_concurrent(self, monkeypatch):
+        """超过 max_concurrent 数量的连续 delegate 应分批执行，而非一次性全部并发。"""
+        from app.config.settings import config_manager
+
+        monkeypatch.setattr(
+            config_manager.settings.subagent, "max_concurrent", 2
+        )
+
+        registry = ToolRegistry()
+        calls: list = []
+        registry.register(SlowDelegateTool(delay=0.05, calls=calls))
+
+        call_count = [0]
+        llm = _make_stream_collect_llm()
+
+        async def mock_stream(messages, tools=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                yield StreamChunk(
+                    type="tool_calls",
+                    tool_calls=[
+                        self._tool_call("a"),
+                        self._tool_call("b"),
+                        self._tool_call("c"),
+                    ],
+                    finish_reason="tool_calls",
+                )
+            else:
+                yield StreamChunk(type="content", content="完成")
+                yield StreamChunk(type="done", finish_reason="stop")
+
+        llm.stream_complete = mock_stream
+
+        loop = RapidExecutionLoop(
+            llm=llm, tool_registry=registry, max_steps=5, context_window=128000
+        )
+
+        result = await loop.run("分批并发任务")
+
+        assert len(result.steps) == 3
+        assert all(step.status == StepStatus.SUCCESS for step in result.steps)
+
+        # max_concurrent=2：第一批 a+b 应并发（几乎同时 start），c 单独一批，
+        # 其 start 必须发生在 a、b 都 end 之后（证明确实分批而非三者一起并发）。
+        end_ab_indices = [calls.index(("end", "a")), calls.index(("end", "b"))]
+        start_c_index = calls.index(("start", "c"))
+
+        assert start_c_index > max(end_ab_indices)
 
 

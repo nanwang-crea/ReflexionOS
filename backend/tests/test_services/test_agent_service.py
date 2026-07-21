@@ -1211,7 +1211,7 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
         def get_approval_resume_event(self):
             return self._approval_resume_event
 
-        def set_approval_result(self, result):
+        def set_approval_result(self, result, approval_id=None):
             self._approval_result = result
             self._approval_resume_event.set()
 

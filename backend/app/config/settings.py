@@ -64,6 +64,8 @@ class SubAgentSettings(BaseModel):
 
     # 子代理单次委托的最大执行步数
     max_steps: int = Field(default=100, ge=1, le=500)
+    # 同一批连续 delegate 调用的最大并发数
+    max_concurrent: int = Field(default=3, ge=1, le=20)
 
 
 class UISettings(BaseModel):

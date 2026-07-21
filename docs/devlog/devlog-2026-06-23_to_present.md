@@ -361,3 +361,38 @@ Agent 在处理复杂任务时，需要能够"分身"执行子任务（如并行
 ### 经验教训/待办
 - 经验：Windows 上不能假设 asyncio 子进程可用，涉及外部命令的工具需要像 shell_tool 一样考虑 SelectorEventLoop；解析命令行工具输出时不能按冒号简单拆 Windows 路径；已显式转换换行符时必须禁用文本模式自动 newline 转换。
 - 待办：后续单独确认 OpenAI 兼容适配器 User-Agent 期望值：若 `codex-cli/2.1.177` 是故意策略，则应改测试；若是误改，则应改源码回 `claude-cli/`。
+
+
+---
+
+## [2026-07-15] [提示词优化] 系统提示词强制每次回复称呼用户为“大哥”
+
+- **类型**: 提示词优化
+- **涉及文件**: backend/app/execution/prompts/system.txt, backend/app/execution/prompts/glm/system.txt, backend/tests/test_execution/test_prompt_manager.py
+- **关联**: （无，尚未提交）
+
+### 问题/需求
+用户要求在提示词中追加一条规则：每次回复必须称呼用户为“大哥”。该规则需要同时覆盖默认英文提示词族和 GLM 中文提示词族，避免不同模型族行为不一致。
+
+### 原因
+（提示词优化，无 bug 根因。）现有 system prompt 只有通用沟通风格约束，没有明确的用户称呼要求。
+
+### 修复/实现方法
+1. 在默认提示词 backend/app/execution/prompts/system.txt 的环境信息之后新增 Communication 小节，加入 “In every reply, address the user as "大哥".”。
+2. 在 GLM 提示词 backend/app/execution/prompts/glm/system.txt 的环境信息之后新增“沟通要求”小节，加入“每次回复都必须称呼用户为“大哥”。”。
+3. 在 backend/tests/test_execution/test_prompt_manager.py 增加默认提示词和 GLM 提示词断言，防止后续提示词改动误删该规则。
+
+### 过程
+1. 定位 PromptManager 的模型族模板加载逻辑，确认默认与 GLM system prompt 分别来自 prompts/system.txt 和 prompts/glm/system.txt。
+2. 以最小范围编辑两个 system prompt，不改动 final response、plan mode 或执行链路逻辑。
+3. 更新 prompt manager 测试，分别覆盖默认模型族和 GLM 模型族。
+4. 顺带审阅 subagent 主链路，确认本次称呼规则属于全局 system prompt 层，不需要在 SubAgentRunner 或 DelegateTool 中做额外分支。
+
+### 测试验证及结果
+- python -m pytest tests/test_execution/test_prompt_manager.py -q ✅：33 passed
+- pnpm test -- conversation.reducer.test.ts ✅：25 passed
+- **结论**: 两个模型族的 system prompt 都会注入“大哥”称呼规则；现有 subagent 前端事件 reducer 测试仍通过。
+
+### 经验教训/待办
+- 经验：模型族提示词要成对更新，并用测试锁住关键行为规则。
+- 待办：如果未来新增更多 prompt family，需要同步补齐同类沟通规则断言。

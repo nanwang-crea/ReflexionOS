@@ -165,6 +165,9 @@ class ToolCallExecutor:
                         "approval_id": approval.approval_id,
                         "step_number": step_number,
                         "approval": approval.model_dump(),
+                        # run_id 供子 agent 场景下前端关联审批到具体的 delegate 调用
+                        # （DelegateToolCall.tsx / SubAgentDetailPanel.tsx 需要 run_id 才能提交审批结果）
+                        "run_id": context.run_id,
                     },
                 )
 
