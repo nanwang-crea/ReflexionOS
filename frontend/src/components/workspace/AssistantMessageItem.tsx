@@ -3,6 +3,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { MessageActions } from './MessageActions'
 import type { ConversationMessage, ConversationRun } from '@/types/conversation'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
+import { useMessageContextMenu } from '@/hooks/useMessageContextMenu'
 
 const transcriptClassName = [
   'max-w-[920px]',
@@ -51,9 +52,11 @@ export const AssistantMessageItem = memo(function AssistantMessageItem({
   const run = runId != null ? runsById?.[runId] : undefined
   const errorCode = (typeof payloadJson?.error_code === 'string' ? payloadJson.error_code : undefined) ?? run?.errorCode ?? undefined
   const errorMessage = (typeof payloadJson?.error_message === 'string' ? payloadJson.error_message : undefined) ?? run?.errorMessage ?? undefined
+  // 助手消息无选区时复制原始 Markdown 源码（即 contentText，MarkdownRenderer 的渲染输入）
+  const handleContextMenu = useMessageContextMenu(() => contentText)
 
   return (
-    <div className="mb-6 group">
+    <div className="mb-6 group" onContextMenu={handleContextMenu}>
       {contentText && (
         <MarkdownRenderer
           content={contentText}
