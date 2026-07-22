@@ -13,6 +13,7 @@ import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import { useSubAgentSteps } from '@/hooks/useSubAgentEvents'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
+import { buildReceiptDetail } from '@/components/execution/receiptUtils'
 
 /**
  * 从子 Agent 事件流中提取真实的工具执行步数
@@ -84,13 +85,9 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
         const args = payload.arguments as Record<string, unknown> | undefined
         
         if (toolCallId) {
-          toolMap.set(toolCallId, {
-            toolName,
-            toolUseId: toolCallId,
-            arguments: args || {},
-            status: 'running',
-            timestamp: new Date().toISOString(),
-          })
+          const tool = buildReceiptDetail(toolCallId, toolName, args)
+          tool.status = 'running'
+          toolMap.set(toolCallId, tool)
         }
       }
       
@@ -205,7 +202,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
           <div className="border-t border-edge px-4 py-3 space-y-3">
             {pendingApprovalTools.map((tool) => (
               <ActionReceipt
-                key={tool.toolUseId}
+                key={tool.id}
                 details={[tool]}
                 status="waiting_for_approval"
                 onApprovalAction={onApprovalAction}
