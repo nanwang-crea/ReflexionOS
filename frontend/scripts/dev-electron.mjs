@@ -125,10 +125,14 @@ async function main() {
 
   await waitForServer(viteUrl)
 
+  // ELECTRON_RUN_AS_NODE causes Electron to run as a plain Node.js process
+  // without any GUI. Strip it from the environment so the window opens normally.
+  const { ELECTRON_RUN_AS_NODE, ...childEnv } = process.env
+
   electronProcess = spawn(electronBinary, ['./electron/main.cjs'], {
     cwd: frontendDir,
     env: {
-      ...process.env,
+      ...childEnv,
       ELECTRON_RENDERER_URL: viteUrl,
     },
     stdio: 'inherit',
