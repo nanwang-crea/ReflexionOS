@@ -9,6 +9,7 @@ import { WorkspaceSidebar } from './components/layout/WorkspaceSidebar'
 import { useThemeStore, applyTheme } from '@/shared/stores/theme.store'
 import { ToastContainer } from '@/components/common/Toast'
 import { ConfirmDialogHost } from '@/components/common/ConfirmDialog'
+import { ContextMenuHost } from '@/components/common/ContextMenu'
 
 function useThemeEffect() {
   const theme = useThemeStore((s) => s.theme)
@@ -55,6 +56,7 @@ function App() {
       </div>
       <ToastContainer />
       <ConfirmDialogHost />
+      <ContextMenuHost />
     </Router>
   )
 }
