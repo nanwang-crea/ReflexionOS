@@ -17,7 +17,7 @@ function createProject(id: string): Project {
 function createDialogService(overrides: Partial<DialogService> = {}): DialogService {
   return {
     notifyError: vi.fn(),
-    confirmAction: vi.fn(() => true),
+    confirmAction: vi.fn(async () => true),
     promptText: vi.fn(() => null),
     ...overrides,
   }

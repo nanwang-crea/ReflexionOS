@@ -9,6 +9,8 @@ interface ActionReceiptProps {
   details: ActionReceiptDetail[]
   onApprovalAction?: ApprovalActionHandler
   onDetailClick?: (detail: ActionReceiptDetail) => void
+  /** 是否为子代理的审批，用于区分标题显示 */
+  isSubAgent?: boolean
 }
 
 function hasApproval(detail: ActionReceiptDetail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } {
@@ -217,9 +219,11 @@ const ActionReceiptDetailRow = memo(function ActionReceiptDetailRow({
 const ApprovalCard = memo(function ApprovalCard({
   details,
   onApprovalAction,
+  isSubAgent,
 }: {
   details: ActionReceiptDetail[]
   onApprovalAction: (action: ApprovalActionType, payload: ApprovalActionPayload) => void
+  isSubAgent?: boolean
 }) {
   const approvalDetails = useMemo(() =>
     details
@@ -279,15 +283,15 @@ const ApprovalCard = memo(function ApprovalCard({
       <div className="flex flex-col gap-3 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
           <ShieldAlert className="h-4 w-4 shrink-0 text-content-muted" />
-          <span>需要批准执行命令</span>
+          <span>{isSubAgent ? '子代理需要批准执行命令' : '需要批准执行命令'}</span>
         </div>
         <p className="text-sm text-content-muted">{summary}</p>
 
         {approvalDetails.map((detail) => (
           <div key={detail.id} className="rounded-lg border border-edge bg-surface-secondary px-3 py-2">
-            {detail.shell && <ShellApprovalDetail shell={detail.shell} />}
-            {detail.sandboxNetwork && <SandboxNetworkDetail payload={detail.sandboxNetwork} />}
-            {detail.sandboxPath && <SandboxPathDetail payload={detail.sandboxPath} />}
+            {detail.shell && <ShellApprovalDetail key="shell" shell={detail.shell} />}
+            {detail.sandboxNetwork && <SandboxNetworkDetail key="network" payload={detail.sandboxNetwork} />}
+            {detail.sandboxPath && <SandboxPathDetail key="path" payload={detail.sandboxPath} />}
           </div>
         ))}
       </div>
@@ -343,7 +347,7 @@ const ApprovalCard = memo(function ApprovalCard({
   )
 })
 
-export const ActionReceipt = memo(function ActionReceipt({ status, details, onApprovalAction, onDetailClick }: ActionReceiptProps) {
+export const ActionReceipt = memo(function ActionReceipt({ status, details, onApprovalAction, onDetailClick, isSubAgent }: ActionReceiptProps) {
   const [open, setOpen] = useState(false)
   const topRef = useRef<HTMLButtonElement>(null)
 
@@ -378,7 +382,7 @@ export const ActionReceipt = memo(function ActionReceipt({ status, details, onAp
   }
 
   if (status === 'waiting_for_approval' && onApprovalAction) {
-    return <ApprovalCard details={details} onApprovalAction={onApprovalAction} />
+    return <ApprovalCard details={details} onApprovalAction={onApprovalAction} isSubAgent={isSubAgent} />
   }
 
   return (

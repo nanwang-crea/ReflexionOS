@@ -1,6 +1,6 @@
 from app.execution.context_manager import LoopContext
 from app.execution.plan_engine import Plan, PlanStep
-from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
+from app.execution.runtime_tool_definitions import RuntimeToolDefinitions, ToolSetConfig
 from app.tools.base import BaseTool, ToolResult
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
@@ -179,6 +179,52 @@ def test_skill_tool_in_tool_order():
 
     assert "skill" in DEFAULT_TOOL_SET_CONFIG.tool_order
     assert DEFAULT_TOOL_SET_CONFIG.tool_order.index("skill") == 0
+
+
+def test_skip_exploration_gate_exposes_shell_on_first_turn():
+    # 子 agent 场景：skip_exploration_gate=True 时，即便 context.steps 为空
+    # （首轮调用），也应直接拿到全量工具（含 shell），不被收窄成 exploration_tools。
+    registry = ToolRegistry()
+    registry.register(FileLikeTool())
+    registry.register(GrepLikeTool())
+    registry.register(GlobLikeTool())
+    registry.register(EditLikeTool())
+    registry.register(ShellLikeTool())
+    context = LoopContext(task="执行 shell 命令")
+
+    definitions = RuntimeToolDefinitions(
+        registry, config=ToolSetConfig(skip_exploration_gate=True)
+    ).for_context(context)
+
+    assert [definition.name for definition in definitions] == [
+        "file",
+        "grep",
+        "glob",
+        "edit",
+        "shell",
+    ]
+
+
+def test_skip_exploration_gate_defaults_to_false_and_does_not_affect_main_agent():
+    registry = ToolRegistry()
+    registry.register(FileLikeTool())
+    registry.register(GrepLikeTool())
+    registry.register(GlobLikeTool())
+    registry.register(EditLikeTool())
+    registry.register(ShellLikeTool())
+    registry.register(MemoryLikeTool())
+    registry.register(SkillLikeTool())
+    context = LoopContext(task="先看看项目")
+
+    definitions = RuntimeToolDefinitions(registry).for_context(context)
+
+    assert [definition.name for definition in definitions] == [
+        "skill",
+        "file",
+        "grep",
+        "glob",
+        "memory",
+    ]
 
 
 def test_context_definitions_expose_mutating_tools_after_exploration_started():

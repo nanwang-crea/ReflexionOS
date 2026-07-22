@@ -51,6 +51,14 @@ async def update_session(session_id: str, payload: SessionUpdate):
         raise value_error_to_app_error(exc, resource="会话") from exc
 
 
+@router.post("/sessions/{session_id}/reset", response_model=Session)
+async def reset_session(session_id: str):
+    try:
+        return await agent_service.reset_session(session_id)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="会话") from exc
+
+
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     try:

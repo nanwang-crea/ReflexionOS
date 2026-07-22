@@ -13,6 +13,7 @@ tiktoken
 gitpython
 pyyaml
 requests
+pywin32==308; sys_platform == "win32"
 
 # Test dependencies
 pytest==8.3.4

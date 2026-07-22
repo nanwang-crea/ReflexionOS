@@ -29,6 +29,10 @@ interface WorkspaceState extends WorkspaceUiState {
   setSearchOpen: (open: boolean) => void
   // 记录某会话已读到的事件序号（用户进入会话并完成最新快照同步后调用）。
   markSessionSeen: (sessionId: string, lastEventSeq: number) => void
+  // 重置某会话的已读基线（清除其 seen，等价于回退到 0）。
+  // 这是 markSessionSeen 单调递增之外唯一允许 seen 回退的入口，专供「重置对话」使用：
+  // 后端 last_event_seq 清零后从 1 重新计数，若不回退 seen 会导致重置后长期“永不未读”。
+  resetSessionSeen: (sessionId: string) => void
   // 标记某会话连接同步异常（后台重连耗尽 / 被降级），切回时据此强制补拉。
   markSessionSyncDegraded: (sessionId: string) => void
   // 清除某会话的同步异常标记（重连成功 / 切回补拉成功后调用）。
@@ -102,6 +106,15 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             [sessionId]: lastEventSeq,
           },
         }
+      }),
+
+      resetSessionSeen: (sessionId) => set((state) => {
+        if (!(sessionId in state.lastSeenEventSeqBySessionId)) {
+          return state
+        }
+        const next = { ...state.lastSeenEventSeqBySessionId }
+        delete next[sessionId]
+        return { lastSeenEventSeqBySessionId: next }
       }),
 
       markSessionSyncDegraded: (sessionId) => set((state) => {

@@ -17,6 +17,7 @@ from app.models.conversation import (
     TurnStatus,
 )
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
+from app.models.session import Session
 from app.storage.database import db as default_db
 from app.storage.repositories.conversation_event_repo import ConversationEventRepository
 from app.storage.repositories.message_repo import MessageRepository
@@ -434,6 +435,49 @@ class ConversationService:
             )
 
         return deleted_turn_ids, surviving_user_content
+
+    def reset_session(self, session_id: str) -> "Session":
+        """清空会话历史但保留会话本身（清空历史、保留会话）。
+
+        在写锁内重校验无活跃 run 后，真实级联删除该 session 全部
+        turn/run/message/event/search，并把 active_turn_id / last_event_seq 归零。
+        语义等价于把会话截断到第 0 个 turn 之前。
+        """
+        with self.acquire_session_write_lock(session_id):
+            session = self.session_repo.get(session_id)
+            if session is None:
+                raise NotFoundValueError("会话不存在")
+
+            active_run: Run | None = None
+            if session.active_turn_id is not None:
+                turn = self.turn_repo.get(session.active_turn_id)
+                if turn is not None and turn.active_run_id is not None:
+                    active_run = self.run_repo.get(turn.active_run_id)
+            if active_run is not None and active_run.status in {
+                RunStatus.RUNNING,
+                RunStatus.WAITING_FOR_APPROVAL,
+            }:
+                raise ValueError("会话仍有运行中的任务，无法重置")
+
+            turn_ids = [t.id for t in self.turn_repo.list_by_session(session_id)]
+            if turn_ids:
+                self.message_search_repo.delete_by_turn_ids(turn_ids)
+                self.message_repo.delete_by_turn_ids(turn_ids)
+                self.run_repo.delete_by_turn_ids(turn_ids)
+                self.event_repo.delete_by_turn_ids(turn_ids)
+                self.turn_repo.delete_by_session_after_index(session_id, 0)
+
+            latest_session = self.session_repo.get(session_id)
+            self.session_repo.update(
+                latest_session.model_copy(
+                    update={"active_turn_id": None, "last_event_seq": 0}
+                )
+            )
+
+            cleared_session = self.session_repo.get(session_id)
+            if cleared_session is None:
+                raise NotFoundValueError("会话不存在")
+            return cleared_session
 
     def edit_and_rerun(
         self,

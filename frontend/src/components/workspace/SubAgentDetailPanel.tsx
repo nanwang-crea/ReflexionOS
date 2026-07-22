@@ -18,6 +18,7 @@ import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
 import { buildReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
+import type { ToolApprovalActionHandler } from './ToolTraceCard'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,6 +33,8 @@ interface SubAgentDetailPanelProps {
   isRunning: boolean
   /** 关闭面板回到主对话 */
   onClose: () => void
+  /** 审批操作处理函数，传递给 ActionReceipt */
+  onApprovalAction?: ToolApprovalActionHandler
 }
 
 /** 渲染项：将原始步骤分组为可渲染的结构 */
@@ -94,14 +97,20 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
   /** 刷新工具组 */
   const flushToolGroup = () => {
     if (toolGroup.length > 0) {
-      // 判断整体状态
+      // 判断整体状态：优先检测等待审批状态
+      const anyWaitingApproval = toolGroup.some(d => d.status === 'waiting_for_approval')
       const allDone = toolGroup.every(d =>
         d.status === 'success' || d.status === 'failed' || d.status === 'cancelled'
       )
       const anyFailed = toolGroup.some(d => d.status === 'failed')
-      const status: ActionReceiptStatus = allDone
-        ? (anyFailed ? 'partial_failed' : 'completed')
-        : 'running'
+      
+      // 状态优先级：waiting_for_approval > completed/partial_failed > running
+      const status: ActionReceiptStatus = anyWaitingApproval
+        ? 'waiting_for_approval'
+        : allDone
+          ? (anyFailed ? 'partial_failed' : 'completed')
+          : 'running'
+      
       items.push({
         kind: 'tool_group',
         details: [...toolGroup],
@@ -163,7 +172,7 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         const resultCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
         const matched = resultCallId
           ? toolGroup.find(d => d.id === resultCallId)
-          : toolGroup.find(d => d.status === 'running')
+          : toolGroup.find(d => d.status === 'running' || d.status === 'waiting_for_approval')
         if (matched) {
           matched.status = payload.success !== false ? 'success' : 'failed'
           matched.output = typeof payload.result === 'string' ? payload.result : undefined
@@ -171,6 +180,8 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
             matched.duration = payload.duration
           }
         }
+        // 刷新工具组，将 waiting_for_approval → success/failed 的状态变更反映到 UI
+        flushToolGroup()
         break
       }
 
@@ -180,10 +191,54 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         const errorCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
         const matchedErr = errorCallId
           ? toolGroup.find(d => d.id === errorCallId)
-          : toolGroup.find(d => d.status === 'running')
+          : toolGroup.find(d => d.status === 'running' || d.status === 'waiting_for_approval')
         if (matchedErr) {
           matchedErr.status = 'failed'
           matchedErr.error = typeof payload.error === 'string' ? payload.error : undefined
+        }
+        // 刷新工具组，将 waiting_for_approval → failed 的状态变更反映到 UI
+        flushToolGroup()
+        break
+      }
+
+      case 'approval:required': {
+        // 处理审批请求事件：找到对应的工具调用并设置为等待审批状态
+        flushThinking(false)
+        flushContent()
+        const approvalCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+        const matchedApproval = approvalCallId
+          ? toolGroup.find(d => d.id === approvalCallId)
+          : toolGroup.find(d => d.status === 'running')
+        
+        if (matchedApproval) {
+          matchedApproval.status = 'waiting_for_approval'
+          
+          // 从后端事件中提取审批信息
+          const approvalData = payload.approval as Record<string, unknown> | undefined
+          const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
+          const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
+          const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
+
+          if (approvalId && runId) {
+            // 构造审批对象，与前端 ActionReceiptDetail.approval 结构一致
+            matchedApproval.approval = {
+              runId,
+              approvalId,
+              parentSessionId,  // SubAgent 的父 session ID，用于路由审批响应
+              shell: approvalData && typeof approvalData.shell === 'object'
+                ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
+                : undefined,
+              sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'
+                ? approvalData as { approval_kind: 'sandbox_network_elevation'; command: string; execution_mode: string; reasons: string[]; risks: string[] }
+                : undefined,
+              sandboxPath: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_path_elevation'
+                ? approvalData as { approval_kind: 'sandbox_path_elevation'; command: string; execution_mode: string; denied_paths: string[]; reasons: string[]; risks: string[] }
+                : undefined,
+            }
+            
+            // 保存完整的审批数据（用于构造审批 UI）
+            matchedApproval.data = payload
+          }
         }
         break
       }
@@ -236,7 +291,13 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
 // RenderItem — 单个渲染项
 // ---------------------------------------------------------------------------
 
-const RenderItem = memo(function RenderItem({ item }: { item: SubAgentRenderItem }) {
+const RenderItem = memo(function RenderItem({
+  item,
+  onApprovalAction,
+}: {
+  item: SubAgentRenderItem
+  onApprovalAction?: ToolApprovalActionHandler
+}) {
   switch (item.kind) {
     case 'thinking':
       return (
@@ -255,7 +316,7 @@ const RenderItem = memo(function RenderItem({ item }: { item: SubAgentRenderItem
     case 'tool_group':
       return (
         <div className="px-4 py-2">
-          <ActionReceipt details={item.details} status={item.status} />
+          <ActionReceipt details={item.details} status={item.status} onApprovalAction={onApprovalAction} />
         </div>
       )
 
@@ -299,6 +360,7 @@ export function SubAgentDetailPanel({
   steps,
   isRunning,
   onClose,
+  onApprovalAction,
 }: SubAgentDetailPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const isNearBottomRef = useRef(true)
@@ -402,7 +464,7 @@ export function SubAgentDetailPanel({
         {renderItems.length > 0 && (
           <div className="max-w-[920px] mx-auto w-full py-2">
             {renderItems.map((item) => (
-              <RenderItem key={item.key} item={item} />
+              <RenderItem key={item.key} item={item} onApprovalAction={onApprovalAction} />
             ))}
 
             {/* 运行中的尾部指示器 */}

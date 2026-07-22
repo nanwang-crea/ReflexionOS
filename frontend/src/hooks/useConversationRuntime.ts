@@ -5,6 +5,7 @@ import {
   useConversationStore,
 } from '@/features/conversation/stores/conversation.store'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
+import { resetSession } from '@/features/sessions/session.actions'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
@@ -412,6 +413,11 @@ export function useConversationRuntime(
         useConversationStore.getState().setAgentMode(sessionId, data.mode)
       }
     })
+    ws.on('session:permission_mode_changed', (data: { session_id: string; mode: string }) => {
+      if (data.mode === 'ask' || data.mode === 'auto' || data.mode === 'yolo') {
+        useConversationStore.getState().setPermissionMode(sessionId, data.mode)
+      }
+    })
     ws.on('session:title_updated', (data) => {
       const store = useSessionStore.getState()
       const sessionsByProjectId = store.sessionsByProjectId
@@ -505,6 +511,11 @@ export function useConversationRuntime(
     return connectionsRef.current.get(sessionId) ?? null
   }, [])
 
+  // 按 sessionId 直接获取连接。用于 SubAgent 场景，已知 parentSessionId。
+  const resolveConnectionBySessionId = useCallback((sessionId: string): SessionConnection | null => {
+    return connectionsRef.current.get(sessionId) ?? null
+  }, [])
+
   const startTurn = useCallback(async (payload: StartTurnPayload) => {
     const content = payload.message.trim()
     if (!content) {
@@ -549,32 +560,41 @@ export function useConversationRuntime(
     ws.cancelRun(runId)
   }, [currentSessionId, setSessionCancelling])
 
-  const approveTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const approveTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
-    ws.approveTool({ runId, approvalId, decision: 'allow_once' })
-  }, [resolveConnectionByRunId])
+    ws.approveTool({ runId, approvalId, decision: 'allow_once', parentSessionId })
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
-  const denyTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const denyTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
-    ws.denyTool({ runId, approvalId })
-  }, [resolveConnectionByRunId])
+    ws.denyTool({ runId, approvalId, parentSessionId })
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
-  const trustTool = useCallback((runId: string, approvalId: string) => {
-    const ws = resolveConnectionByRunId(runId)?.ws
+  const trustTool = useCallback((runId: string, approvalId: string, parentSessionId?: string) => {
+    // 如果提供了 parentSessionId（SubAgent 场景），优先使用它查找连接
+    const ws = parentSessionId
+      ? resolveConnectionBySessionId(parentSessionId)?.ws
+      : resolveConnectionByRunId(runId)?.ws
     if (!ws?.isConnected()) {
       return
     }
 
-    ws.approveTool({ runId, approvalId, decision: 'trust_and_allow' })
-  }, [resolveConnectionByRunId])
+    ws.approveTool({ runId, approvalId, decision: 'trust_and_allow', parentSessionId })
+  }, [resolveConnectionByRunId, resolveConnectionBySessionId])
 
   const editAndRerun = useCallback((payload: {
     messageId: string
@@ -609,14 +629,41 @@ export function useConversationRuntime(
     })
   }, [currentSessionId])
 
-  const resetConversationRuntime = useCallback(() => {
+  const setPermissionMode = useCallback((mode: 'ask' | 'auto' | 'yolo') => {
     if (!currentSessionId) {
       return
     }
 
+    const ws = connectionsRef.current.get(currentSessionId)?.ws
+    if (!ws?.isConnected()) {
+      return
+    }
+    ws.send({
+      type: 'session:set_permission_mode',
+      data: { mode },
+    })
+  }, [currentSessionId])
+
+  const resetConversationRuntime = useCallback(async () => {
+    if (!currentSessionId) {
+      return
+    }
+
+    // 先清后端历史（先停后清），成功后才同步前端真值与显示；失败则不动任何状态。
+    try {
+      await resetSession(currentSessionId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '重置对话失败'
+      useToastStore.getState().addToast('error', `重置对话失败: ${message}`)
+      return
+    }
+
+    // resetSession 已用返回的 Session 回写 session.store（列表真值）。
+    // 此处补齐：清聊天区快照、回退未读基线、关连接与取消标志。
+    useConversationStore.getState().clearConversation(currentSessionId)
+    useWorkspaceStore.getState().resetSessionSeen(currentSessionId)
     closeSessionConnection(currentSessionId)
     setSessionCancelling(currentSessionId, false)
-    useConversationStore.getState().clearConversation(currentSessionId)
   }, [closeSessionConnection, currentSessionId, setSessionCancelling])
 
   // 连接调度：当前会话必连；其余活跃会话（运行中 / 待审批等）按优先级补连，
@@ -749,6 +796,7 @@ export function useConversationRuntime(
     trustTool,
     editAndRerun,
     setMode,
+    setPermissionMode,
     resetConversationRuntime,
     loadMore,
   }

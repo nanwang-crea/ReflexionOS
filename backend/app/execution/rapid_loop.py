@@ -20,7 +20,11 @@ from app.execution.models import (
 )
 from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
-from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
+from app.execution.runtime_tool_definitions import (
+    DEFAULT_TOOL_SET_CONFIG,
+    RuntimeToolDefinitions,
+    ToolSetConfig,
+)
 from app.execution.tool_call_executor import ToolCallExecutor
 from app.llm.base import (
     LLMMessage,
@@ -62,6 +66,8 @@ class RapidExecutionLoop:
         max_steps: int | None = None,
         event_callback: Callable[[str, dict], Awaitable[None]] | None = None,
         context_window: int = 128000,
+        approval_flow: ApprovalFlow | None = None,  # 可选的共享审批流（用于 SubAgent）
+        tool_set_config: ToolSetConfig | None = None,  # 可选的工具集配置（用于 SubAgent 跳过首轮探索门禁）
     ):
         self.llm = llm
         self._tool_registry = tool_registry
@@ -70,7 +76,10 @@ class RapidExecutionLoop:
         self.event_callback = event_callback
         self.context_window = context_window
         self._overflow_retry_count = 0
-        self.tool_definitions = RuntimeToolDefinitions(self._tool_registry)
+        self.tool_definitions = RuntimeToolDefinitions(
+            self._tool_registry,
+            config=tool_set_config or DEFAULT_TOOL_SET_CONFIG,
+        )
         self.message_builder = LoopMessageBuilder(
             prompt_manager=self.prompt_manager,
             max_context_groups=self.MAX_CONTEXT_GROUPS,
@@ -81,7 +90,9 @@ class RapidExecutionLoop:
             tool_registry=self._tool_registry,
             emit=self._emit,
         )
-        self.approval_flow = ApprovalFlow(emit=self._emit)
+        # 如果传入了 approval_flow，则复用它（用于 SubAgent 共享主 Agent 的审批流）
+        # 否则创建新的审批流实例（用于主 Agent）
+        self.approval_flow = approval_flow or ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
         self.plan_file_sync = PlanFileSync()
 
@@ -97,11 +108,10 @@ class RapidExecutionLoop:
                 logger.error("事件回调失败: %s", e)
                 raise
 
-    def get_approval_resume_event(self) -> asyncio.Event:
-        return self.approval_flow._resume_event
-
-    def set_approval_result(self, result: dict | None) -> None:
-        self.approval_flow.set_approval_result(result)
+    def set_approval_result(
+        self, result: dict | None, approval_id: str | None = None
+    ) -> None:
+        self.approval_flow.set_approval_result(result, approval_id=approval_id)
 
     def _create_summarizer(self) -> Callable[[str, str], Awaitable[str]]:
         """创建摘要生成器回调（解耦 LLM 依赖）"""
@@ -365,55 +375,67 @@ class RapidExecutionLoop:
                     rt.consecutive_failures = 0
                     context.metadata.setdefault("_recent_tool_signatures", []).clear()
                     return LoopPhase.PLANNING
-        for tool_call in write_calls:
-            self._record_tool_signature(context, tool_call)
-            rt.step_num += 1
-            step = await self.tool_executor.execute(tool_call, context, rt.step_num)
-            result.steps.append(step)
-            context.add_step(step)
+        write_index = 0
+        while write_index < len(write_calls):
+            tool_call = write_calls[write_index]
 
-            if step.status == StepStatus.WAITING_FOR_APPROVAL:
-                return await self._handle_approval(step, context, result, rt)
+            if tool_call.name != "delegate":
+                self._record_tool_signature(context, tool_call)
+                rt.step_num += 1
+                step = await self.tool_executor.execute(tool_call, context, rt.step_num)
+                result.steps.append(step)
+                context.add_step(step)
 
-            if step.status == StepStatus.FAILED:
-                rt.consecutive_failures += 1
-                await self._emit(
-                    "tool:error",
-                    {
-                        "tool_name": tool_call.name,
-                        "step_number": step.step_number,
-                        "tool_call_id": step.tool_call_id,
-                        "success": False,
-                        "output": step.output,
-                        "error": step.error,
-                        "duration": step.duration,
-                        "arguments": step.args,
-                    },
+                if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                    return await self._handle_approval(step, context, result, rt)
+
+                phase, needs_error_recovery = await self._finalize_write_step(
+                    tool_call, step, context, rt
                 )
-                if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                    error_recovery_needed = True
-            else:
-                rt.consecutive_failures = 0
-                rt.has_executed_tools = True
+                error_recovery_needed = error_recovery_needed or needs_error_recovery
+                if phase is not None:
+                    return phase
 
-            if self._is_doom_loop(context):
-                doom_prompt = (
-                    f"[Doom Loop Detected] You have called "
-                    f"{tool_call.name} with the same arguments "
-                    f"{self.DOOM_LOOP_THRESHOLD} times in a row, "
-                    f"and it keeps failing or producing no progress.\n"
-                    f"Arguments: {json.dumps(tool_call.arguments)}\n"
-                    f"Last error: {step.error or 'no error (success but no progress)'}\n\n"
-                    f"You MUST change your approach:\n"
-                    f"- If the tool keeps failing, try a different "
-                    f"tool or different arguments.\n"
-                    f"- If you are stuck, mark the step as blocked in the plan tool.\n"
-                    f"- Do NOT retry with the same parameters again."
+                write_index += 1
+                continue
+
+            # 连续的 delegate 段：按 max_concurrent 分批并发执行。
+            # delegate 不会触发 WAITING_FOR_APPROVAL（审批已在子 agent
+            # 内部通过共享的 approval_flow 消化完毕），因此并发批次内
+            # 无需处理审批中断，收尾逻辑与串行路径完全一致。
+            delegate_run: list[LLMToolCall] = []
+            while (
+                write_index < len(write_calls)
+                and write_calls[write_index].name == "delegate"
+            ):
+                delegate_run.append(write_calls[write_index])
+                write_index += 1
+
+            max_concurrent = config_manager.settings.subagent.max_concurrent
+            for chunk_start in range(0, len(delegate_run), max_concurrent):
+                chunk = delegate_run[chunk_start : chunk_start + max_concurrent]
+                for tc in chunk:
+                    self._record_tool_signature(context, tc)
+
+                start_step = rt.step_num + 1
+                chunk_steps = await asyncio.gather(
+                    *[
+                        self.tool_executor.execute(tc, context, start_step + i)
+                        for i, tc in enumerate(chunk)
+                    ]
                 )
-                context.add_message(MessageRole.USER, doom_prompt)
-                rt.consecutive_failures = 0
-                context.metadata.setdefault("_recent_tool_signatures", []).clear()
-                return LoopPhase.PLANNING
+                rt.step_num = start_step + len(chunk) - 1
+
+                for tc, step in zip(chunk, chunk_steps, strict=True):
+                    result.steps.append(step)
+                    context.add_step(step)
+
+                    phase, needs_error_recovery = await self._finalize_write_step(
+                        tc, step, context, rt
+                    )
+                    error_recovery_needed = error_recovery_needed or needs_error_recovery
+                    if phase is not None:
+                        return phase
 
         if error_recovery_needed:
             return LoopPhase.ERROR_RECOVERY
@@ -433,6 +455,66 @@ class RapidExecutionLoop:
 
         return LoopPhase.PLANNING
 
+    async def _finalize_write_step(
+        self,
+        tool_call: LLMToolCall,
+        step: LoopStep,
+        context: LoopContext,
+        rt: RuntimeState,
+    ) -> tuple[LoopPhase | None, bool]:
+        """写操作单步收尾：失败计数/emit、doom loop 检测。
+
+        串行 write_call 和并发 delegate 批次共用同一份收尾逻辑，避免
+        两条路径的失败处理/doom loop 检测出现不一致。
+
+        返回 (phase, needs_error_recovery)：
+        - phase 非 None 时，调用方应立即以该 phase 结束 _handle_tool_execution。
+        - needs_error_recovery 为 True 时，调用方应在本轮循环结束后转入 ERROR_RECOVERY。
+        """
+        needs_error_recovery = False
+
+        if step.status == StepStatus.FAILED:
+            rt.consecutive_failures += 1
+            await self._emit(
+                "tool:error",
+                {
+                    "tool_name": tool_call.name,
+                    "step_number": step.step_number,
+                    "tool_call_id": step.tool_call_id,
+                    "success": False,
+                    "output": step.output,
+                    "error": step.error,
+                    "duration": step.duration,
+                    "arguments": step.args,
+                },
+            )
+            if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
+                needs_error_recovery = True
+        else:
+            rt.consecutive_failures = 0
+            rt.has_executed_tools = True
+
+        if self._is_doom_loop(context):
+            doom_prompt = (
+                f"[Doom Loop Detected] You have called "
+                f"{tool_call.name} with the same arguments "
+                f"{self.DOOM_LOOP_THRESHOLD} times in a row, "
+                f"and it keeps failing or producing no progress.\n"
+                f"Arguments: {json.dumps(tool_call.arguments)}\n"
+                f"Last error: {step.error or 'no error (success but no progress)'}\n\n"
+                f"You MUST change your approach:\n"
+                f"- If the tool keeps failing, try a different "
+                f"tool or different arguments.\n"
+                f"- If you are stuck, mark the step as blocked in the plan tool.\n"
+                f"- Do NOT retry with the same parameters again."
+            )
+            context.add_message(MessageRole.USER, doom_prompt)
+            rt.consecutive_failures = 0
+            context.metadata.setdefault("_recent_tool_signatures", []).clear()
+            return LoopPhase.PLANNING, needs_error_recovery
+
+        return None, needs_error_recovery
+
     async def _handle_approval(
         self,
         step: LoopStep,
@@ -441,9 +523,15 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """审批子处理器：等待审批结果，决定后续状态。"""
+        logger.info("[_handle_approval] Entering: tool=%s, step_number=%s", step.tool, step.step_number)
         result.status = LoopStatus.WAITING_FOR_APPROVAL
         result.result = step.output
 
+        # 发送运行状态事件：通知整个运行进入"等待审批"状态
+        # 注意：此时 tool_call_executor 已发送了 approval:required 事件（包含完整工具信息）
+        # 此事件用于标记运行状态，与 approval:required 协同工作：
+        # - approval:required: 工具层审批细节（前端用于显示审批对话框，包含完整参数）
+        # - run:waiting_for_approval: 运行层状态标记（前端用于更新运行状态）
         await self._emit(
             "run:waiting_for_approval",
             {
@@ -451,10 +539,13 @@ class RapidExecutionLoop:
                 "approval_id": step.approval_id,
                 "step_number": step.step_number,
                 "tool_name": step.tool,
+                "tool_call_id": step.tool_call_id,
             },
         )
 
+        logger.info("[_handle_approval] Calling wait_for_approval, tool=%s", step.tool)
         approval = await self.approval_flow.wait_for_approval(step, result.id)
+        logger.info("[_handle_approval] wait_for_approval returned: approved=%s, success=%s", approval.approved, approval.success)
 
         if approval.approved:
             result.status = LoopStatus.RESUMING
@@ -473,6 +564,7 @@ class RapidExecutionLoop:
             # Emit tool:result so the runtime adapter closes the
             # waiting-for-approval tool_trace (updates payload and
             # streamState from streaming → completed/failed).
+            logger.info("[_handle_approval] Emitting tool:result for tool=%s, tool_call_id=%s", step.tool, step.tool_call_id)
             await self._emit(
                 "tool:result",
                 {
@@ -485,6 +577,7 @@ class RapidExecutionLoop:
                     "duration": 0.0,
                 },
             )
+            logger.info("[_handle_approval] tool:result emitted successfully")
 
             await self._emit(
                 "run:resuming",

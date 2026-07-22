@@ -8,8 +8,9 @@
 ## [2026-06-23] [新功能] 多会话并行：运行中切换、独立运行、侧边栏状态与未读基线
 
 - **类型**: 新功能
+- **提交**: 7d587e02 (feat: 多会话并行 - 每会话独立连接、调度、动作路由与断线降级 #4) + 786c7c2b (首次实现)
 - **涉及文件**: frontend/src/hooks/useConversationRuntime.ts, frontend/src/features/workspace/stores/workspace.store.ts, frontend/src/features/conversation/stores/conversation.store.ts, frontend/src/components/layout/WorkspaceSidebar.tsx, frontend/src/components/layout/sidebarSessionState.ts, frontend/src/components/layout/SessionStatusBadge.tsx, frontend/src/utils/sessionActivity.ts, frontend/src/hooks/useSessionUnreadState.ts, frontend/src/features/conversation/hooks/useImageUpload.ts, frontend/src/pages/AgentWorkspace.tsx
-- **关联**: 分支 feature/multi-session-parallel（尚未提交）；需求见 docs/superpowers/specs/2026-06-22-multi-session-parallel-requirements.md
+- **关联**: PR #4; 需求见 docs/superpowers/specs/2026-06-22-multi-session-parallel-requirements.md
 
 ### 问题/需求
 原前端是"单激活会话运行时"模型：workspace 只有一个 currentSessionId，useConversationRuntime 只维护当前会话的一条 WebSocket 连接。用户在会话 A 运行中切到 B 时，A 虽在后端继续执行，但前端对 A 的状态感知、列表提示、后台更新和未读判定都不完整。需要补齐成真正可用的多会话并行体验：运行中可切换、不同会话各自独立运行、切回能恢复正确状态、侧边栏能识别哪些会话在运行/等待审批/有未读。
@@ -41,3 +42,357 @@
 ### 经验教训/待办
 - 经验：未读基线必须用 last_event_seq 而非时间戳/临时 UI 标志，刷新后才稳定；sidebar 状态必须由派生计算得出，不另存独立真值，避免多处不一致。
 - 待办：补浏览器端到端手动验证（切换/并行/刷新/降级）；本期未做 transcript 滚动位置按会话记忆与列表摘要预览；改动尚未提交，需走 git-commit。
+
+---
+
+## [2026-06-23] [流程规范] 新增 spec-plan-before-coding skill 与重置对话设计
+
+- **类型**: 流程规范 + 设计文档
+- **提交**: 5f11901c (docs: 新增重置对话设计文档与 spec-plan-before-coding skill)
+- **涉及文件**: .claude/skills/spec-plan-before-coding/SKILL.md, docs/superpowers/specs/2026-06-23-reset-conversation-design.md
+- **关联**: commit 5f11901c
+
+### 问题/需求
+项目缺少强制性的功能开发流程约束：开发者往往直接开始编码，导致设计不完整、遗漏边界情况、实现返工。需要建立"先写 spec（需求规范）→ 再写 plan（实现计划）→ 最后编码"的强制流程。同时，重置对话功能需要明确设计文档。
+
+### 原因
+（流程改进，无 bug 根因。）背景：项目已有多个 spec 文档，但没有强制要求每次功能/修复前必须先写 spec + plan，缺少工具层面的流程保障。
+
+### 修复/实现方法
+1. **新增 spec-plan-before-coding skill**（92 行）：
+   - 明确三阶段流程：spec（需求规范/设计文档）→ plan（实现计划）→ code（编码实现）
+   - 禁止跳过 spec/plan 直接编码
+   - spec 包含：问题陈述、目标、核心决策、边界情况、不做什么、验收标准
+   - plan 包含：文件清单、步骤分解、风险点、测试策略
+   - 文档存放位置：docs/superpowers/specs/ 和 docs/superpowers/plans/
+   - 触发：任何新功能、重要修复、架构变更
+
+2. **新增重置对话设计文档**（129 行）：
+   - 明确"重置对话"语义：清空历史保留会话（删 message/run/action/file，保 session 记录）
+   - 安全约束：先停止运行中的任务再清理，否则拒绝；删除不可恢复，需确认对话框
+   - 数据库级联删除顺序：action → run → message → conversation_file
+   - 前端交互：菜单入口、确认对话框、运行中禁用、成功/失败提示
+
+### 过程
+1. 设计 spec-plan-before-coding skill，明确三阶段流程与每阶段产物要求
+2. 编写重置对话设计文档，覆盖需求、数据模型、API、前端交互、测试用例
+3. 提交到仓库作为项目流程规范
+
+### 测试验证及结果
+- **文档质量验证**: 手动审查 skill 与 spec 文档结构完整性 ✅
+- **结论**: 流程规范已就位，后续功能开发需遵循此流程。重置对话功能的实现待后续按此规范执行。
+
+### 经验教训/待办
+- 经验：强制流程需要工具层面（skill）保障，仅靠人工约定容易被忽略。
+- 待办：实现重置对话功能（按已写好的 spec 执行）；确保团队成员知晓新流程。
+
+---
+
+## [2026-06-23] [新功能] 工作记忆（Work Memory）：分层计划与上下文重构
+
+- **类型**: 新功能（后端架构）
+- **提交**: d7cf9844 (Feature/work memory #5)
+- **涉及文件**: backend/app/core/work_memory/（新增模块）、context 相关重构
+- **关联**: PR #5
+
+### 问题/需求
+Agent 缺少"工作记忆"能力：对话过程中产生的临时计划、中间状态、执行进度等信息无处存放，导致长对话中 Agent 频繁遗忘已做的事、重复询问用户、无法延续之前的计划。需要引入分层的工作记忆系统，支持计划管理与上下文装配。
+
+### 原因
+（新功能，无 bug 根因。）背景：项目原有 context 管理较扁平，缺少对"计划"这一核心概念的显式建模，也缺少将工作记忆注入到 LLM 上下文的机制。
+
+### 修复/实现方法
+1. **新增 work_memory 模块**：分层计划管理（计划创建/更新/查询）、工作记忆存储
+2. **重构 context 架构**：统一上下文装配接口，支持将工作记忆（计划、中间结果等）注入到 Agent 的 prompt 中
+3. **修复残留引用**：清理旧代码中对废弃 context 接口的引用
+4. **简化计划架构**：移除过度复杂的嵌套层级，保持计划结构扁平化
+
+### 过程
+1. 添加分层计划数据模型与 API
+2. 重构 context 模块，统一上下文装配流程
+3. 修复代码结构与残留引用
+4. 优化工作记忆设置，修复潜在 bug
+5. 经过多轮迭代（7 个内部 commit）完成架构简化
+
+### 测试验证及结果
+- **单元测试**: 工作记忆模块核心逻辑通过（具体测试数未在 PR 中列出）
+- **集成验证**: 后端启动正常，context 装配无报错
+- **结论**: 工作记忆基础架构已就位，后续可在此基础上扩展更丰富的记忆能力。
+
+### 经验教训/待办
+- 经验：计划架构要避免过度设计，扁平化优于深层嵌套；context 重构需谨慎处理残留引用。
+- 待办：补充工作记忆的前端展示（计划面板）；补充端到端测试验证工作记忆在长对话中的效果。
+
+---
+
+## [2026-06-23] [配置优化] 将 .claude 目录移出版本控制
+
+- **类型**: 配置优化
+- **提交**: c5ce5087 (chore: 将 .claude 目录移出版本控制)
+- **涉及文件**: .gitignore
+
+### 问题/需求
+.claude 目录包含用户的本地会话记录、临时文件、个人配置等，不应纳入版本控制。每个开发者的 .claude 内容不同，提交到 git 会导致频繁的合并冲突和隐私泄露。
+
+### 原因
+.claude 目录在项目初期被错误地纳入了版本控制（.gitignore 中未排除）。
+
+### 修复/实现方法
+在 .gitignore 中添加 `.claude/`，将其移出版本控制。已提交的 .claude 文件通过 `git rm --cached` 移除。
+
+### 过程
+1. 编辑 .gitignore，添加 `.claude/`
+2. 执行 `git rm -r --cached .claude/` 移除已跟踪文件
+3. 提交修改
+
+### 测试验证及结果
+- **验证**: git status 确认 .claude/ 不再被跟踪 ✅
+- **结论**: .claude 目录已正确排除，不会再产生版本控制冲突。
+
+### 经验教训/待办
+- 经验：项目初期应尽早确定哪些目录是"本地专用"，避免后期清理麻烦。
+- 待办：无。
+
+---
+
+## [2026-06-24] [新功能] 子代理（Subagent）：后台任务执行与独立会话
+
+- **类型**: 新功能（后端 + 前端）
+- **提交**: f5911b8f (Feature/subagent #6)
+- **涉及文件**: backend/app/core/subagent/（新增模块）、前端子代理相关组件
+- **关联**: PR #6
+
+### 问题/需求
+Agent 在处理复杂任务时，需要能够"分身"执行子任务（如并行搜索多个文件、同时调研多个方案、后台验证多个假设），而不阻塞主对话流。需要引入子代理机制：主 Agent 可以启动多个子 Agent，子 Agent 在独立的会话中运行，完成后将结果返回给主 Agent。
+
+### 原因
+（新功能，无 bug 根因。）背景：当前架构是"一个会话 = 一个 Agent 实例"，无法支持一个 Agent 启动多个并发子任务的场景。
+
+### 修复/实现方法
+1. **后端子代理核心**：
+   - 新增 subagent 模块，支持子 Agent 创建、执行、状态管理
+   - 子 Agent 拥有独立的 session、conversation、run，与主 Agent 隔离
+   - 后台执行：子 Agent 在后台异步运行，不阻塞主对话
+   - 结果返回：子 Agent 完成后将结果通过回调/事件返回给主 Agent
+
+2. **工作记忆增强**：基于 PR #5 的工作记忆架构，子 Agent 的中间状态也纳入工作记忆管理
+
+3. **稳定性修复**：修复工作记忆的脆弱性（阶段性提交中已修复潜在 bug）
+
+### 过程
+1. 在工作记忆基础上（PR #5）继续开发子代理功能
+2. 实现子 Agent 的创建、执行、状态同步
+3. 修复工作记忆的潜在 bug，优化设置
+4. 子代理后台执行已实现并验证可用
+
+### 测试验证及结果
+- **后端验证**: 子 Agent 可后台执行，状态正确同步 ✅
+- **前端验证**: 暂无前端展示（计划后续补充）
+- **结论**: 子代理后台执行机制已就位，可支持主 Agent 启动并发子任务。
+
+### 经验教训/待办
+- 经验：子代理的会话隔离很重要，避免主子 Agent 的状态互相干扰；工作记忆架构为子代理提供了良好的基础。
+- 待办：补充前端子代理展示（子任务列表、进度条）；补充主子 Agent 通信的完整示例与文档。
+
+---
+
+## [2026-06-24] [新功能] 重置对话 - 清空历史保留会话，先停后清
+
+- **类型**: 新功能
+- **提交**: d98beec0 (feat: 重置对话 - 清空历史保留会话，先停后清)
+- **涉及文件**: backend/app/services/conversation_service.py, backend/app/services/agent_service.py, backend/app/api/routes/sessions.py, frontend/src/pages/AgentWorkspace.tsx, frontend/src/hooks/useConversationRuntime.ts, frontend/src/features/sessions/session.actions.ts, frontend/src/features/workspace/stores/workspace.store.ts
+- **关联**: 需求见 docs/superpowers/specs/2026-06-23-reset-conversation-design.md; 计划见 docs/superpowers/plans/2026-06-24-reset-conversation-implementation-plan.md
+
+### 问题/需求
+工作区头部的"重置对话"按钮之前只清空前端内存缓存，后端 DB 中的对话历史（turns/runs/messages/events）完全未删除。用户切走再切回该会话，旧对话会原样恢复，按钮形同虚设。需要实现真正的重置：清空该会话的 DB 对话历史，但保留会话 ID、标题与位置；重新进入不再恢复旧对话。若重置时有 run 在执行，先停后清。
+
+### 原因
+（新功能，无 bug 根因。）背景：原 `resetConversationRuntime` 只做前端三件事（关 WebSocket、清前端缓存、清取消标志），未触及后端 DB。Agent 每次执行从 DB 重建上下文，因此旧数据残留会导致"假重置"。
+
+### 修复/实现方法
+1. **后端**：
+   - `conversation_service.reset_session`：在写锁内重校验无活跃 run 后级联删除 DB 对话数据（turns/runs/messages/events/search_documents）
+   - `agent_service.reset_session`：写锁外先调用 `cancel_run` 停止运行中的任务
+   - 新增 API：`POST /api/sessions/{id}/reset`，冲突时返回 400 ValidationError
+   
+2. **前端**：
+   - `session.actions.resetSession`：调用 API 后回写会话列表真值（清空 activeTurnId）
+   - `workspace.store.resetSessionSeen`：回退未读基线到 0
+   - `resetConversationRuntime`：成功后才清前端显示状态，失败时保持原状态不变
+   - `AgentWorkspace`：二次确认对话框（"此操作不可恢复"）
+
+3. **测试**：后端 service/agent/API 共 11 个测试用例，前端 store/action/hook 全覆盖
+
+### 过程
+1. 阅读需求 spec（2026-06-23-reset-conversation-design.md），明确"清空历史保留会话、先停后清、不可恢复"语义
+2. 编写实现计划（2026-06-24-reset-conversation-implementation-plan.md），分 4 阶段：后端 service → API → 前端集成 → 测试
+3. 实现后端：conversation_service 写锁级联删除 + agent_service cancel_run 前置
+4. 实现前端：actions 层异步调用 + runtime hook 状态清理 + workspace 回写真值
+5. 补充测试：后端 11 例、前端 store/action/hook 覆盖各场景（运行中/空会话/已取消等）
+6. 手动验证：创建会话 → 发消息 → 重置 → 切走切回确认空白
+
+### 测试验证及结果
+- **后端测试**（11 例全绿）：
+  - conversation_service: 重置成功、运行中拒绝、会话不存在、级联删除完整性
+  - agent_service: 先停后清、无运行时直接清、cancel 异常处理
+  - API: 200 成功、409 运行中冲突、404 会话不存在
+- **前端测试**（全绿）：
+  - session.actions: API 调用、列表真值回写
+  - workspace.store: 未读基线回退
+  - useConversationRuntime: 成功清理、失败保持原状
+- **手动验证**: 创建会话 → 多轮对话 → 重置 → 切走切回 ✅ 确认空白
+- **结论**: 重置对话功能已完整实现，先停后清逻辑正确，不可恢复语义达成。
+
+### 经验教训/待办
+- 经验：危险操作必须二次确认；先停后清的顺序很重要（写锁外 cancel，写锁内 delete）；前端需同步回写列表真值和未读基线，否则 UI 不一致。
+- 待办：无。功能已完整。
+
+---
+
+## [2026-06-26~27] [新功能] 应用内确认弹窗系统 - 替代浏览器原生 confirm
+
+- **类型**: 新功能（前端基础设施）
+- **提交**: 59027862 → 70f54682（共 9 个提交）
+  - 59027862: 新增确认弹框单例 store(状态+Promise桥接)
+  - 55528b99: 新增 ConfirmDialog 展示组件与宿主
+  - a2a6b0df: 补完 useEffect 依赖 + 焦点陷阱
+  - 6c47b9b8: confirmAction 改为异步走应用内确认框
+  - 00dbbc98: 在 App 根挂载 ConfirmDialogHost
+  - 802f28e5: 重置对话改用异步应用内确认框
+  - 0799ca32: 重新生成消息改用异步应用内确认框，修正测试 mock
+  - 32dda77f: sidebar 删除与 LLM 删除链路改用异步确认（含 action 层 async 化）
+  - 70f54682: 放宽重置/重新生成回调类型为异步友好
+- **涉及文件**: frontend/src/shared/stores/confirmDialog.store.ts, frontend/src/components/common/ConfirmDialog.tsx, frontend/src/services/dialogService.ts, frontend/src/App.tsx, 以及所有使用 confirmAction 的地方
+- **关联**: 替代原有的 `window.confirm()`，统一交互体验
+
+### 问题/需求
+项目多处危险操作（重置对话、删除会话、删除 LLM provider、重新生成消息）都用浏览器原生 `window.confirm()` 二次确认，但原生弹窗：
+1. 样式无法定制，与应用 UI 风格不一致
+2. 阻塞 JS 主线程，无法与异步流程友好配合
+3. 测试时需 mock `window.confirm`，脆弱且不真实
+
+需要实现统一的**应用内确认弹窗系统**：可定制样式、异步友好、测试友好、全局单例复用。
+
+### 原因
+（新功能，无 bug 根因。）背景：随着功能增多，危险操作越来越多，原生 confirm 的局限性暴露（样式割裂、同步阻塞、测试困难）。
+
+### 修复/实现方法
+1. **单例 store**（confirmDialog.store.ts）：
+   - Zustand store 管理弹窗状态（open/title/message/confirmText/cancelText）
+   - Promise 桥接：`show()` 返回 Promise，用户点击确认/取消后 resolve(true/false)
+   - 支持并发调用排队（队列模式）
+
+2. **展示组件**（ConfirmDialog.tsx）：
+   - 读取 store 状态，渲染弹窗 UI（遮罩层 + 卡片 + 按钮）
+   - 焦点陷阱：弹窗打开时焦点锁定在确认/取消按钮，ESC 关闭
+   - 补完 useEffect 依赖，避免闭包陷阱
+
+3. **宿主挂载**（App.tsx）：
+   - 在应用根挂载 `<ConfirmDialogHost />`，全局单例
+   - 任何组件调用 `confirmDialogStore.show()` 都走同一个弹窗实例
+
+4. **统一接口**（dialogService.ts）：
+   - `confirmAction()` 改为异步：`const ok = await confirmAction(...); if (!ok) return;`
+   - 逐步迁移所有 `window.confirm` 调用点（重置对话、删除会话、删除 provider、重新生成消息）
+
+5. **回调类型放宽**（70f54682）：
+   - 原 `onReset/onRegenerate` 等回调是同步的，改为 `() => void | Promise<void>`
+   - 支持异步确认流程，不阻塞调用方
+
+### 过程
+1. 设计单例 store + Promise 桥接模式
+2. 实现 ConfirmDialog 展示组件，补完焦点陷阱与依赖
+3. 在 App 根挂载宿主
+4. 逐个迁移危险操作调用点：重置对话 → 重新生成 → sidebar 删除 → LLM 删除
+5. 修正测试 mock（不再 mock window.confirm，改为 mock confirmDialogStore）
+6. 放宽回调类型，确保异步流程友好
+
+### 测试验证及结果
+- **单元测试**：
+  - confirmDialog.store.test.ts（56 行）：Promise 桥接、队列、取消逻辑 ✅
+  - dialogService.test.ts：异步 confirmAction 流程 ✅
+  - 各调用点测试（useCurrentSessionViewModel, useSidebarSessionActions 等）：mock 改为异步 ✅
+- **手动验证**：
+  - 触发重置对话 → 弹出应用内确认框（非原生）→ 确认/取消逻辑正确 ✅
+  - 删除会话、删除 provider、重新生成消息 → 同样走应用内确认 ✅
+  - ESC 关闭、焦点陷阱 ✅
+- **结论**: 应用内确认弹窗系统已全面替代原生 confirm，统一交互体验，测试友好。
+
+### 经验教训/待办
+- 经验：Promise 桥接模式是同步 UI 与异步业务的好方案；焦点陷阱需显式补完 useEffect 依赖；渐进式迁移比一次性重写更安全。
+- 待办：考虑扩展支持自定义按钮（如"删除并不再提示"）；考虑支持多弹窗并发显示（目前是队列单例）。
+
+---
+
+## [2026-07-12] [Bug修复] 修复 Windows 完整测试套件中的预存失败
+
+- **类型**: Bug修复
+- **涉及文件**: backend/app/tools/grep_tool.py, backend/app/tools/edit_tool.py, backend/app/execution/prompt_manager.py, backend/tests/test_security/test_sandbox.py
+- **关联**: （无，尚未提交）
+
+### 问题/需求
+在验证 Windows Phase 2 沙箱改动时，相关沙箱/权限测试已通过，但完整 backend 测试套件暴露 8 个预存失败。用户要求继续排查并修复其中可确认的 Windows 预存问题，同时记录问题定位与修复过程。
+
+### 原因
+1. `grep_tool` 在 Windows 上使用 `asyncio.create_subprocess_exec` 调用 `rg/grep`。当测试或运行环境使用 Windows SelectorEventLoop 时，asyncio 子进程 API 不可用，会抛 `NotImplementedError`；同时 Git Bash `grep` 输出的 Windows 盘符路径包含冒号，原解析逻辑按 `:` 简单拆分会把 `C:` 误判成字段分隔符；`--include` 也需要使用 `--include=*.py` 形式。
+2. `edit_tool` 已显式把内容转换为 CRLF 后，仍用 Windows 文本模式写文件，导致 Python 再次把 `\n` 转为 `\r\n`，最终出现 `\r\r\n`。
+3. `PromptManager` 使用 `Path.home()` 查找全局 `.reflexion` overlay。Windows 下 `Path.home()` 优先 `USERPROFILE`，测试中 monkeypatch 的 `HOME` 不生效，导致读取到真实用户目录而非测试隔离目录。
+4. OpenAI 兼容适配器 User-Agent 断言与当前源码不一致（测试期待 `claude-cli/`，源码为 `codex-cli/2.1.177`）。该项按用户选择本次不修改。
+
+### 修复/实现方法
+1. `grep_tool` 新增 `_run_search_command`：Windows 下通过 `asyncio.to_thread(subprocess.run)` 执行同步子进程，绕过 SelectorEventLoop 子进程限制；非 Windows 保持原 asyncio 子进程路径。
+2. `grep_tool` 新增统一输出行解析，兼容 `C:\...:line:content` 这类 Windows 盘符路径，并调整 GNU grep include 参数为 `--include=PATTERN`。
+3. `edit_tool` 写入已显式转换换行符的内容时加 `newline=""`，避免 Windows 文本模式二次转换。
+4. `PromptManager` 增加 `_global_reflexion_dir()`，优先读取 `HOME`，未设置时再退回 `Path.home()`，保证测试隔离与跨平台一致性。
+5. `test_sandbox.py` 对 macOS seatbelt 专属 `/bin/zsh` 断言加 `skipif(sys.platform != "darwin")`，避免 Windows 上的无关平台误报。
+
+### 过程
+1. 先跑完整 backend 测试套件，确认 8 个失败：4 个 grep、1 个 edit CRLF、1 个 prompt overlay、2 个 OpenAI header。
+2. stash/对照后确认失败并非 Windows 沙箱改动引入，而是预存问题。
+3. 复现 grep 根因：Windows SelectorEventLoop 下 `asyncio.create_subprocess_exec` 抛 `NotImplementedError`；进一步打印 Git Bash grep 原始输出，定位 Windows 盘符冒号解析和 `--include` 参数形式问题。
+4. 分别修复 grep、edit、prompt_manager 三类问题；OpenAI UA 按用户选择保留现状。
+5. 维护开发日志，记录根因、修法与验证结果。
+
+### 测试验证及结果
+- `python -m pytest tests/test_tools/test_grep_tool.py tests/test_tools/test_edit_tool.py::TestEditToolStrReplace::test_crlf_preserved tests/test_execution/test_prompt_manager.py::TestPromptManager::test_get_system_prompt_merges_global_and_project_overlays -q` ✅：`9 passed`
+- `python -m pytest tests/test_tools/test_grep_tool.py tests/test_tools/test_edit_tool.py tests/test_execution/test_prompt_manager.py tests/test_security/test_sandbox_windows.py tests/test_security/test_sandbox_windows_acl.py tests/test_security/test_sandbox_windows_firewall.py tests/test_security/test_sandbox_windows_token.py tests/test_security/test_sandbox_windows_user.py tests/test_security/test_sandbox_windows_integration.py tests/test_security/test_sandbox_base.py tests/test_security/test_permission_mode.py tests/test_security/test_command_policy_sandbox_conditional.py tests/test_security/test_command_policy_windows_builtin.py tests/test_security/test_sandbox.py -q` ✅：`197 passed, 1 skipped`
+- **结论**: grep/edit/prompt_manager 三类 Windows 预存失败已解决；OpenAI UA 失败按用户要求本次不改，完整套件仍会保留该已知失败。
+
+### 经验教训/待办
+- 经验：Windows 上不能假设 asyncio 子进程可用，涉及外部命令的工具需要像 shell_tool 一样考虑 SelectorEventLoop；解析命令行工具输出时不能按冒号简单拆 Windows 路径；已显式转换换行符时必须禁用文本模式自动 newline 转换。
+- 待办：后续单独确认 OpenAI 兼容适配器 User-Agent 期望值：若 `codex-cli/2.1.177` 是故意策略，则应改测试；若是误改，则应改源码回 `claude-cli/`。
+
+
+---
+
+## [2026-07-15] [提示词优化] 系统提示词强制每次回复称呼用户为“大哥”
+
+- **类型**: 提示词优化
+- **涉及文件**: backend/app/execution/prompts/system.txt, backend/app/execution/prompts/glm/system.txt, backend/tests/test_execution/test_prompt_manager.py
+- **关联**: （无，尚未提交）
+
+### 问题/需求
+用户要求在提示词中追加一条规则：每次回复必须称呼用户为“大哥”。该规则需要同时覆盖默认英文提示词族和 GLM 中文提示词族，避免不同模型族行为不一致。
+
+### 原因
+（提示词优化，无 bug 根因。）现有 system prompt 只有通用沟通风格约束，没有明确的用户称呼要求。
+
+### 修复/实现方法
+1. 在默认提示词 backend/app/execution/prompts/system.txt 的环境信息之后新增 Communication 小节，加入 “In every reply, address the user as "大哥".”。
+2. 在 GLM 提示词 backend/app/execution/prompts/glm/system.txt 的环境信息之后新增“沟通要求”小节，加入“每次回复都必须称呼用户为“大哥”。”。
+3. 在 backend/tests/test_execution/test_prompt_manager.py 增加默认提示词和 GLM 提示词断言，防止后续提示词改动误删该规则。
+
+### 过程
+1. 定位 PromptManager 的模型族模板加载逻辑，确认默认与 GLM system prompt 分别来自 prompts/system.txt 和 prompts/glm/system.txt。
+2. 以最小范围编辑两个 system prompt，不改动 final response、plan mode 或执行链路逻辑。
+3. 更新 prompt manager 测试，分别覆盖默认模型族和 GLM 模型族。
+4. 顺带审阅 subagent 主链路，确认本次称呼规则属于全局 system prompt 层，不需要在 SubAgentRunner 或 DelegateTool 中做额外分支。
+
+### 测试验证及结果
+- python -m pytest tests/test_execution/test_prompt_manager.py -q ✅：33 passed
+- pnpm test -- conversation.reducer.test.ts ✅：25 passed
+- **结论**: 两个模型族的 system prompt 都会注入“大哥”称呼规则；现有 subagent 前端事件 reducer 测试仍通过。
+
+### 经验教训/待办
+- 经验：模型族提示词要成对更新，并用测试锁住关键行为规则。
+- 待办：如果未来新增更多 prompt family，需要同步补齐同类沟通规则断言。

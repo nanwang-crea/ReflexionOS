@@ -128,7 +128,7 @@ export function useSidebarProjectActions({
       return
     }
 
-    const confirmed = dialogService.confirmAction(`确定删除项目“${project.name}”吗？项目下的聊天也会一并移除。`)
+    const confirmed = await dialogService.confirmAction(`确定删除项目”${project.name}”吗？项目下的聊天也会一并移除。`, { variant: 'danger' })
     if (!confirmed) {
       return
     }

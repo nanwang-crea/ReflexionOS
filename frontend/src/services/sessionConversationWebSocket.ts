@@ -71,6 +71,11 @@ export interface SessionModeChangedDto {
   mode: string
 }
 
+export interface SessionPermissionModeChangedDto {
+  session_id: string
+  mode: string
+}
+
 // 子 agent 执行事件 DTO（后端通过 sub_agent: 前缀广播）
 export interface SubAgentEventDto {
   /** 事件类型：tool:start, tool:result, tool:error, llm:content 等 */
@@ -103,6 +108,7 @@ interface SessionConversationEvents {
   'plan:recovered': { path: string; goal: string }
   'session:title_updated': SessionTitleUpdatedDto
   'session:mode_changed': SessionModeChangedDto
+  'session:permission_mode_changed': SessionPermissionModeChangedDto
   // 子 agent 事件：tool:start, tool:result, tool:error, llm:content 等
   'sub_agent:event': SubAgentEventDto
 }
@@ -144,7 +150,7 @@ function buildCancelRunMessage(runId: string) {
 
 function buildToolApprovalMessage(
   type: 'conversation:approve_tool' | 'conversation:deny_tool',
-  payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }
+  payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow'; parentSessionId?: string }
 ) {
   const data: Record<string, string> = {
     approval_id: payload.approvalId,
@@ -152,6 +158,9 @@ function buildToolApprovalMessage(
   }
   if (payload.decision) {
     data.decision = payload.decision
+  }
+  if (payload.parentSessionId) {
+    data.parent_session_id = payload.parentSessionId
   }
   return { type, data }
 }
@@ -298,6 +307,11 @@ class SessionConversationWebSocket {
       return
     }
 
+    if (type === 'session:permission_mode_changed') {
+      this.emit('session:permission_mode_changed', data as SessionPermissionModeChangedDto)
+      return
+    }
+
     // 子 agent 事件：后端以 sub_agent:tool:start, sub_agent:tool:result 等类型发送
     // data 是扁平结构，需要映射为 SubAgentEventDto：event_type + delegate_call_id + payload
     if (type.startsWith('sub_agent:')) {
@@ -343,13 +357,14 @@ class SessionConversationWebSocket {
     }
   }
 
-  approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow' }): void {
+  approveTool(payload: { runId: string; approvalId: string; decision?: 'allow_once' | 'trust_and_allow'; parentSessionId?: string }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:approve_tool', payload)))
+      const message = buildToolApprovalMessage('conversation:approve_tool', payload)
+      this.ws.send(JSON.stringify(message))
     }
   }
 
-  denyTool(payload: { runId: string; approvalId: string }): void {
+  denyTool(payload: { runId: string; approvalId: string; parentSessionId?: string }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildToolApprovalMessage('conversation:deny_tool', payload)))
     }
