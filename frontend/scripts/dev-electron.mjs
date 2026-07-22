@@ -1,7 +1,8 @@
+import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -124,6 +125,13 @@ async function main() {
   console.log(`\nVite ready at ${viteUrl}\n`)
 
   await waitForServer(viteUrl)
+
+  // Ensure the Electron binary exists before spawning.
+  // On macOS 26+, Gatekeeper can silently remove the unsigned Electron.app.
+  const fixScript = path.resolve(__dirname, 'fix-electron.mjs')
+  if (fs.existsSync(fixScript)) {
+    spawnSync('node', [fixScript], { stdio: 'inherit' })
+  }
 
   // ELECTRON_RUN_AS_NODE causes Electron to run as a plain Node.js process
   // without any GUI. Strip it from the environment so the window opens normally.
