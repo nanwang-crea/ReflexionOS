@@ -1,6 +1,7 @@
 import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
+import { useMessageContextMenu } from '@/hooks/useMessageContextMenu'
 
 interface MessageAttachment {
   id: string
@@ -36,6 +37,9 @@ export const UserMessageItem = memo(function UserMessageItem({
   showActions,
   attachments = [],
 }: UserMessageItemProps) {
+  // 用户消息无选区时复制整条消息全文
+  const handleContextMenu = useMessageContextMenu(() => contentText)
+
   // 从 filePath 中提取 session_id 和 attachment_id
   const getImageUrl = (attachment: MessageAttachment) => {
     // filePath 格式: storage/uploads/{session_id}/{timestamp}_{file_id}.ext
@@ -100,7 +104,10 @@ export const UserMessageItem = memo(function UserMessageItem({
           </div>
         </div>
       ) : (
-        <div className="max-w-[min(720px,calc(100%_-_16px))] whitespace-pre-wrap break-words rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary">
+        <div
+          className="max-w-[min(720px,calc(100%_-_16px))] whitespace-pre-wrap break-words rounded-2xl bg-surface-tertiary px-5 py-4 text-[15px] leading-7 text-content-secondary"
+          onContextMenu={handleContextMenu}
+        >
           {contentText}
         </div>
       )}
