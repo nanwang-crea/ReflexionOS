@@ -7,7 +7,10 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-07-21 | Bug修复 | 修复 PowerShell/cmd 引号残留与子agent首轮工具门禁问题 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-07-15 | 提示词优化 | 系统提示词强制每次回复称呼用户为“大哥” | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
+| 2026-07-14 | Bug修复 | Windows argv 模式对 cmd 内部命令降级走 cmd.exe /c | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
+| 2026-07-13 | 新功能 | Windows Phase 2 沙箱与会话级权限模式 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-07-12 | Bug修复 | 修复 Windows 完整测试套件中的预存失败 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-06-26~27 | 新功能 | 应用内确认弹窗系统 - 替代浏览器原生 confirm | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-06-24 | 新功能 | 重置对话 - 清空历史保留会话，先停后清 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
