@@ -13,10 +13,11 @@
 **本次要做：**
 - 移除"对话/代码"tab 切换，对话（`WorkspaceTranscript` + `ChatInput`）始终占据主区
 - 代码面板（`CodeTab` + `FileSidebar` + `TerminalPanel`）改为固定在右侧、可展开/收起的面板
-- 面板默认**收起**
-- 面板展开时宽度**固定**（非按比例），默认 480px，可拖拽调整，调整后的宽度持久化保存（跨会话/重启记忆）
+- 面板**每次启动默认收起**（`codePanelOpen` 不持久化，固定初始值 `false`）
+- 面板展开时宽度**固定**（非按比例），**480px 是编辑区宽度，不含 `FileSidebar`**；实际右侧总占宽 = `codePanelWidth + sidebarWidth`（文件树侧边栏展开时）；默认 480px，可拖拽调整，调整后的宽度持久化保存
+- 最大宽度公式：`effectiveMax = viewportWidth - (sidebarOpen ? sidebarWidth : 0) - MIN_CHAT_WIDTH`（`MIN_CHAT_WIDTH` 定为 400px），clamp 在以下时机均需执行：拖拽中、窗口 resize、persist rehydrate 后
 - Header 上的"对话/代码"切换按钮替换为一个"展开/收起代码面板"的图标按钮
-- 收起时不卸载代码面板内部状态（已打开的文件、编辑内容、终端会话保留），仅隐藏显示
+- 收起时不卸载代码面板内部状态（已打开的文件、编辑内容、终端会话保留），仅用 CSS 隐藏；隐藏态需设置 `inert` + `aria-hidden` + `pointer-events-none`，防止不可见内容被键盘 Tab 焦点访问
 - 跨平台（Windows + macOS）验证拖拽调宽、面板展开/收起动画、持久化状态读写一致
 
 **本次不做：**
@@ -40,11 +41,11 @@
 
 `codeTab.store.ts` 中：
 - 移除 `WorkspaceTab` 类型和 `workspaceTab` 字段、`setWorkspaceTab` action
-- 新增 `codePanelOpen: boolean`（默认 `false`）+ `setCodePanelOpen(open: boolean)` + `toggleCodePanel()`
-- 新增 `codePanelWidth: number`（默认 480，复用 `MIN_SIDEBAR_WIDTH`/新增 `MAX_CODE_PANEL_WIDTH` 做 clamp，具体范围见下）+ `setCodePanelWidth(width: number)`
+- 新增 `codePanelOpen: boolean`（默认 `false`，**不持久化**）+ `setCodePanelOpen(open: boolean)` + `toggleCodePanel()`
+- 新增 `codePanelWidth: number`（默认 480）+ `setCodePanelWidth(width: number)`；宽度 clamp 规则：`MIN_CODE_PANEL_WIDTH = 320`，`MAX = viewportWidth - (sidebarOpen ? sidebarWidth : 0) - MIN_CHAT_WIDTH`（`MIN_CHAT_WIDTH = 400`）。**clamp 必须在三处执行**：① `setCodePanelWidth` 调用时（拖拽中）；② `window` resize 事件触发时（监听 resize，宽度超出则收敛）；③ store 初始化/rehydrate 时（`persist` 的 `onRehydrateStorage` 钩子里执行一次 clamp）
 - `openFile`/`setActiveFile` 里原来 `workspaceTab: 'code'` 的赋值，改为 `codePanelOpen: true`（打开文件即展开面板，语义不变，只是字段改名）
 
-整个 store 用 `persist` 包裹，`name: 'reflexion-code-panel'`，只持久化 `codePanelOpen` 和 `codePanelWidth`（`partialize`），不持久化 `openFiles`/`activeFileId` 等会话态数据（这些应随会话/项目切换重新加载，不应跨重启残留）。
+store 用 `persist` 包裹，`name: 'reflexion-code-panel'`，`partialize` **只持久化 `codePanelWidth`**，不持久化 `codePanelOpen`（每次启动固定初始值 `false`）和 `openFiles`/`activeFileId` 等会话态数据。
 
 ### 2. `FileSidebar` 联动关系解耦
 
@@ -64,12 +65,18 @@
   </div>
 
   {/* 代码面板：固定宽度，展开/收起用 width + overflow 控制，不卸载 */}
+  {/* 收起态同时设置 inert + aria-hidden + pointer-events-none，防止焦点跑进不可见区域 */}
   <div
     className="flex h-full shrink-0 overflow-hidden border-l border-edge transition-[width] duration-200"
     style={{ width: codePanelOpen ? codePanelWidth : 0 }}
+    inert={!codePanelOpen ? '' : undefined}
+    aria-hidden={!codePanelOpen}
   >
-    <div className="flex h-full flex-col bg-surface-primary" style={{ width: codePanelWidth }}>
-      {/* 面板内自己的小 header：文件名/终端切换按钮，从原 WorkspaceHeader 里代码相关按钮迁移过来 */}
+    <div
+      className={`flex h-full flex-col bg-surface-primary ${!codePanelOpen ? 'pointer-events-none' : ''}`}
+      style={{ width: codePanelWidth }}
+    >
+      {/* WorkspaceHeader 里的文件栏/终端按钮仍留在顶部 Header，不新建面板内 header */}
       <div className="flex-1 min-h-0 overflow-hidden">
         <CodeTab />
       </div>
@@ -87,7 +94,8 @@
 关键点：
 - 代码面板容器宽度收起时设为 `0`（配合 `overflow-hidden`），而不是加 `hidden` class——这样 CSS transition 才能对 `width` 生效，产生展开/收起的滑动动画；内部 `CodeTab`/`TerminalPanel` 组件树始终挂载，状态不丢失。
 - 内层多包一层固定宽度的 `div`（`style={{ width: codePanelWidth }}`），是为了让内容在收起过程中不被压缩换行，只是被外层 `overflow-hidden` 裁掉——避免动画过程中出现内容挤压的跳动。
-- 原来 `WorkspaceHeader` 里"展开/收起文件栏""显示/隐藏终端"两个按钮（第 29-56 行，条件 `workspaceTab === 'code'`）保留在同一个 Header 里即可，改判断条件为 `codePanelOpen`；不需要为代码面板单独再造一个 header 组件（YAGNI，现有结构已经够用，只是判断条件换掉）。
+- 收起态同时加 `inert`（HTML 属性，阻止所有键盘/鼠标事件和焦点穿透）+ `aria-hidden={true}`（对屏幕阅读器隐藏）+ `pointer-events-none`（冗余保险，覆盖不支持 `inert` 的旧 Chromium 版本）。`inert` 在 React 中以字符串空值传递（`inert=""`），TypeScript 类型声明须确认（Electron 内嵌 Chromium 已支持 `inert`，无需 polyfill）。
+- 代码面板**不新建自己的 header 组件**。文件栏/终端开关按钮继续放在同一个 `WorkspaceHeader` 里，仅把 `workspaceTab === 'code'` 的判断条件改为 `codePanelOpen`。
 
 ### 4. `WorkspaceHeader.tsx` 改动
 
@@ -97,16 +105,25 @@
 
 ### 5. 拖拽调宽
 
-新增 `handleResizeMouseDown`，逻辑与 `FileSidebar.tsx`（第 50-74 行）拖拽调宽完全一致的模式：`mousedown` 记录起始坐标和宽度，`mousemove` 计算 delta 更新宽度（**注意拖拽方向**：代码面板在右侧，手柄贴左边缘，鼠标左移应该增宽——delta 计算方向与 `FileSidebar` 相反，需要显式验证，不能直接照抄符号），`mouseup` 清理监听器和 `document.body.style.cursor`。宽度范围 clamp：`MIN_CODE_PANEL_WIDTH = 320`，`MAX_CODE_PANEL_WIDTH` 取窗口宽度的 80%（避免在小窗口/单显示器全屏时把对话区挤没，Windows/macOS 窗口初始尺寸不同，用相对窗口宽度的动态上限比写死像素值更稳）。
+新增 `handleResizeMouseDown`，逻辑与 `FileSidebar.tsx`（第 50-74 行）拖拽调宽完全一致的模式：`mousedown` 记录起始坐标和宽度，`mousemove` 计算 delta 调用 `setCodePanelWidth`（**注意拖拽方向**：代码面板在右侧，手柄贴左边缘，鼠标左移应该增宽——delta 计算方向与 `FileSidebar` 相反，需要显式验证，不能直接照抄符号），`mouseup` 清理监听器和 `document.body.style.cursor`。
+
+宽度 clamp 统一由 `setCodePanelWidth` 内部执行，公式：
+```
+min = MIN_CODE_PANEL_WIDTH (320)
+max = window.innerWidth - (sidebarOpen ? sidebarWidth : 0) - MIN_CHAT_WIDTH (400)
+codePanelWidth = Math.max(min, Math.min(max, requestedWidth))
+```
+`setCodePanelWidth` 需读取 store 里的 `sidebarOpen`/`sidebarWidth` 当前值计算 max，而不是在组件层硬编码。拖拽以外的两个 clamp 时机（window resize、rehydrate）也调用同一个 `setCodePanelWidth`，保证规则统一。
 
 ## 数据流
 
 ```
 用户点击 Header 的代码面板 toggle 按钮
   → toggleCodePanel()
-    → codePanelOpen 翻转（persist 中间件自动写入 localStorage）
+    → codePanelOpen 翻转（仅内存态，不写 localStorage）
     → AgentWorkspace 的 useEffect 联动 FileSidebar 的 sidebarOpen
     → 代码面板容器 width 在 0 与 codePanelWidth 间过渡动画
+    → 收起时：面板设置 inert / aria-hidden / pointer-events-none，键盘焦点无法进入
 
 用户在对话中点击某条 ActionReceipt 详情（handleDetailClick）
   → openFile(path, viewMode) / setActiveFile(path, language)
@@ -115,25 +132,37 @@
 
 用户拖拽面板左边缘手柄
   → handleResizeMouseDown → mousemove 计算 delta → setCodePanelWidth(clamp(width))
-    → persist 中间件写入 localStorage，下次打开应用记住宽度
+    → clamp 公式：max(320, min(viewportWidth - sidebarWidth? - 400, requested))
+    → persist 中间件写入 localStorage（只存宽度），下次打开应用记住宽度
+
+应用启动/刷新
+  → persist rehydrate 恢复 codePanelWidth
+  → onRehydrateStorage 钩子调用 setCodePanelWidth(rehydratedWidth) 触发一次 clamp
+  → codePanelOpen 固定为初始值 false，不受 persist 影响
+
+窗口缩小
+  → window resize 事件 → 若 codePanelWidth 超出新 effectiveMax → setCodePanelWidth(effectiveMax)
 ```
 
 ## 兼容性（跨平台）
 
 - 布局改动是纯 CSS flex + inline style + Tailwind transition，不涉及 Electron 主进程或任何平台特定 API，Windows/macOS 渲染行为一致。
 - 拖拽调宽复用 `FileSidebar.tsx` 已验证过的原生鼠标事件模式（非某个仅在单一平台测试过的库），Windows/macOS 都已有该模式的实际使用先例。
-- `MAX_CODE_PANEL_WIDTH` 用窗口宽度百分比而非固定像素上限，避免 Windows/macOS 默认窗口尺寸不同导致的体验差异（例如 macOS 上某些机型默认窗口更小，固定像素上限可能占满全部对话区）。
+- `effectiveMax` 用 `window.innerWidth - sidebarWidth? - MIN_CHAT_WIDTH` 而非固定像素，避免 Windows/macOS 默认窗口尺寸不同以及文件树侧边栏展开宽度不同导致的对话区被挤压。
 - `localStorage` 持久化在 Electron 渲染进程中跨平台行为一致（底层走 Chromium 标准 Web Storage，不依赖文件系统路径），不需要额外处理路径分隔符等平台差异。
 - CSS `transition` 动画在两平台的 Chromium 渲染内核一致，不需要做平台判断分支；但需要实测 Windows 下 `width` transition 是否有明显掉帧（如有，可考虑降级为 `transform: scaleX` 或直接去掉动画，本设计暂定先用 `width` transition，测试阶段验证性能）。
 
 ## 测试要点
 
-- 默认打开应用：对话始终可见，代码面板默认收起（宽度 0，不占对话区空间）
-- 点击 Header 的展开按钮：代码面板从右侧滑出，宽度为上次记住的值（或默认 480px 首次使用）
-- 从对话里点击文件/diff 详情（`handleDetailClick`）：代码面板自动展开并加载对应文件，即使之前是收起状态
-- 收起代码面板后再展开：之前打开的文件列表、编辑内容（包括未保存的 dirty 状态）、终端会话都还在，没有被卸载重置
-- 拖拽面板左边缘手柄调整宽度：宽度实时跟随鼠标，松开后保持；刷新页面/重启应用后宽度保持一致（验证 `persist` 生效）
-- 拖拽到最小值/最大值：分别验证 clamp 生效，不能拖到负数或超过窗口宽度把对话区挤没
-- 缩小窗口后 `MAX_CODE_PANEL_WIDTH` 跟随窗口宽度百分比重新计算，不会出现代码面板宽度超过当前窗口宽度的情况
-- Windows + macOS 双平台分别验证：展开/收起动画流畅度、拖拽调宽手感、`localStorage` 持久化的宽度和展开状态在重启应用后正确恢复
+- **启动行为**：每次启动/刷新，代码面板固定收起（`codePanelOpen = false`），与上次退出时的状态无关；宽度恢复为上次记住的值（或默认 480px）
+- **展开/收起**：点击 Header toggle 按钮，面板从右侧滑出/收回，宽度为 persist 的值
+- **自动展开**：从对话中点击文件/diff 详情，代码面板自动展开并加载对应文件，即使之前是收起状态
+- **状态保留**：收起后再展开，已打开的文件列表、未保存的编辑内容、终端会话全部保留（DOM 未卸载）
+- **收起态隔离**：面板收起时键盘 Tab 焦点不能进入（`inert`），屏幕阅读器不读取（`aria-hidden`），鼠标事件不响应（`pointer-events-none`）
+- **拖拽调宽**：宽度实时跟随鼠标，clamp 在 MIN(320) / effectiveMax 边界生效；松开后宽度持久化到 localStorage
+- **窗口缩小 clamp**：缩小窗口时，若 codePanelWidth 超出当前 effectiveMax，自动收敛到 effectiveMax；验证对话区始终保留 MIN_CHAT_WIDTH(400px) 空间
+- **rehydrate clamp**：持久化的宽度在 rehydrate 时经过一次 clamp，不会因在大窗口上记录的宽度在小窗口重开后溢出
+- **文件树展开时 clamp**：打开 FileSidebar 后，若 codePanelWidth + sidebarWidth 导致 effectiveMax 降低，codePanelWidth 需同步收敛
+- **持久化验证**：重启应用后宽度与退出前一致；`codePanelOpen` 不被持久化，重启后固定为 false
+- Windows + macOS 双平台分别验证：展开/收起动画流畅度、拖拽调宽手感、各 clamp 时机均正常触发
 - 原有"展开/收起文件栏""显示/隐藏终端"两个 Header 按钮功能不受影响，判断条件从 `workspaceTab === 'code'` 改为 `codePanelOpen` 后行为等价
