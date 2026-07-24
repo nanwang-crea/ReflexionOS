@@ -52,7 +52,11 @@ class ShellSecurity:
             return (
                 "Current platform is Windows. Use Windows executable commands, e.g. `where python`, "
                 "`python --version`. `cmd /c` and `powershell -Command` are allowed but require user "
-                "approval (they may take a while to be approved) — prefer direct commands when possible."
+                "approval (they may take a while to be approved) — prefer direct commands when possible. "
+                "`%` is special in both cmd (batch variable, e.g. `%D`) and PowerShell (ForEach-Object alias) — "
+                "commands like `git log --pretty=format:\"%h|%an\"` will fail or be misparsed unless escaped "
+                "(`%%h` in cmd, `` `%h `` in PowerShell). Prefer `git shortlog` or `--no-pager` with a "
+                "simple format when possible to avoid escaping issues."
             )
         return (
             f"Current platform is {self.platform_label}. "

@@ -113,15 +113,23 @@ class RapidExecutionLoop:
     ) -> None:
         self.approval_flow.set_approval_result(result, approval_id=approval_id)
 
-    def _create_summarizer(self) -> Callable[[str, str], Awaitable[str]]:
-        """创建摘要生成器回调（解耦 LLM 依赖）"""
+    def _create_summarizer(
+        self, context: LoopContext
+    ) -> Callable[[str, str], Awaitable[str]]:
+        """创建摘要生成器回调（解耦 LLM 依赖）
+
+        Args:
+            context: 当前循环上下文，用于读取已有的压缩摘要
+                     （RapidExecutionLoop 实例本身不持有 context，
+                     必须由调用方传入，否则会因 self.context 不存在而报错）
+        """
 
         async def summarizer(task: str, transcript: str) -> str:
             system_prompt = self.prompt_manager.get_midrun_compression_system_prompt()
             user_prompt = self.prompt_manager.get_midrun_compression_prompt(
                 task=task,
                 transcript=transcript,
-                existing_summary=self.context.compressor.get_compacted_summary(),
+                existing_summary=context.compressor.get_compacted_summary(),
             )
             response = await self.llm.complete(
                 [
@@ -897,7 +905,7 @@ class RapidExecutionLoop:
         ):
             await context.compressor.compact_tier3(
                 task=context.task,
-                summarizer=self._create_summarizer(),
+                summarizer=self._create_summarizer(context),
             )
 
         tools = (
@@ -1012,7 +1020,7 @@ class RapidExecutionLoop:
                 try:
                     await context.compressor.compact_tier3(
                         task=context.task,
-                        summarizer=self._create_summarizer(),
+                        summarizer=self._create_summarizer(context),
                     )
                     context.compressor.prune_tool_outputs(
                         protect_recent_groups=config_manager.settings.execution.prune_protect_groups,
