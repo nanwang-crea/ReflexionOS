@@ -65,7 +65,8 @@ backend/.pytest-home/
 docs/interview/
 
 # 开发日志（README 索引和正文汇总文件已纳入版本库维护，其余个人草稿不上库）
-docs/devlog/
+# 注意：git 不支持"忽略目录再白名单子文件"，须用排除模式代替
+docs/devlog/*
 !docs/devlog/README.md
 !docs/devlog/devlog-*.md
 
