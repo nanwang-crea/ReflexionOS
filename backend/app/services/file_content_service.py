@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -69,6 +71,32 @@ class FileContentService:
     def _make_security(self, project_path: str) -> PathSecurity:
         return create_project_security(project_path)
 
+    async def _run_git(self, argv: list[str], cwd: str, timeout: float) -> tuple[int, bytes, bytes]:
+        """
+        执行 git 子进程，返回 (returncode, stdout, stderr)。
+
+        Windows 下 uvicorn --reload 会强制切换到 WindowsSelectorEventLoopPolicy，
+        该事件循环不支持 asyncio.create_subprocess_exec（直接抛 NotImplementedError），
+        因此 Windows 平台改用线程池 + 同步 subprocess.run 绕过限制（与 shell_tool.py 一致）。
+        """
+        if sys.platform == "win32":
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, self._run_git_sync, argv, cwd, timeout)
+
+        process = await asyncio.create_subprocess_exec(
+            *argv, cwd=cwd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        return process.returncode, stdout, stderr
+
+    def _run_git_sync(self, argv: list[str], cwd: str, timeout: float) -> tuple[int, bytes, bytes]:
+        """同步执行 git 子进程，仅在线程池中被 Windows 分支调用。"""
+        result = subprocess.run(
+            argv, cwd=cwd, capture_output=True, timeout=timeout, check=False,
+        )
+        return result.returncode, result.stdout, result.stderr
+
     async def get_file_content(self, project_id: str, path: str) -> dict:
         project_path = self._get_project_path(project_id)
         security = self._make_security(project_path)
@@ -115,14 +143,10 @@ class FileContentService:
         resolved_project_path = os.path.realpath(project_path)
         relative_path = os.path.relpath(validated_path, resolved_project_path)
         try:
-            result = await asyncio.create_subprocess_exec(
-                "git", "show", f"HEAD:{relative_path}",
-                cwd=project_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            returncode, stdout, stderr = await self._run_git(
+                ["git", "show", f"HEAD:{relative_path}"], cwd=project_path, timeout=10,
             )
-            stdout, stderr = await result.communicate()
-            if result.returncode == 0:
+            if returncode == 0:
                 original = stdout.decode("utf-8", errors="replace")
             else:
                 err_msg = stderr.decode("utf-8", errors="replace").strip()
@@ -130,6 +154,8 @@ class FileContentService:
                 original = ""
         except FileNotFoundError:
             raise ValidationError("git 命令不可用，无法获取 diff")
+        except (TimeoutError, subprocess.TimeoutExpired):
+            raise ValidationError("获取 diff 超时")
 
         if abs_path.exists() and abs_path.is_file():
             try:
@@ -162,16 +188,12 @@ class FileContentService:
         status_map: dict[str, str] = {}
 
         try:
-            result = await asyncio.create_subprocess_exec(
-                "git", "status", "--porcelain",
-                cwd=project_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            returncode, stdout, _ = await self._run_git(
+                ["git", "status", "--porcelain"], cwd=project_path, timeout=10,
             )
-            stdout, _ = await asyncio.wait_for(result.communicate(), timeout=10)
-            if result.returncode != 0:
+            if returncode != 0:
                 return {}
-        except (FileNotFoundError, TimeoutError):
+        except (FileNotFoundError, TimeoutError, subprocess.TimeoutExpired):
             return {}
 
         for line in stdout.decode("utf-8", errors="replace").splitlines():
