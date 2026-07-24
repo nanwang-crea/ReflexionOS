@@ -30,6 +30,7 @@ htmlcov/
 # Build artifacts
 build/
 dist/
+.next/
 *.egg-info/
 .eggs/
 frontend/build-resources/
@@ -63,8 +64,10 @@ backend/.pytest-home/
 # 面试准备资料
 docs/interview/
 
-# 开发日志
+# 开发日志（README 索引和正文汇总文件已纳入版本库维护，其余个人草稿不上库）
 docs/devlog/
+!docs/devlog/README.md
+!docs/devlog/devlog-*.md
 
 # 实现计划（草稿）
 docs/superpowers/plans/

@@ -483,3 +483,90 @@ cmd 内部命令没有独立的 `.exe` 文件，`CreateProcess` 按 argv[0] 找�
 
 ### 经验教训/待办
 - 经验：新增一类 shell 解释器时，`command_effect_registry`（效果分类+flag_overrides）和 `command_policy`（解释器判断路径+INLINE_EVAL_FLAGS）必须成对更新，只改一处会导致虽然分类对了但仍然走不到降级判断，或反之。
+
+---
+
+## [2026-07-22] [Bug修复] 修复打包安装后启动崩溃（全局Python环境污染导致误打包重型依赖）
+
+- **类型**: Bug修复
+- **涉及文件**: backend/requirements.txt, frontend/scripts/package-backend.mjs
+- **关联**: 提交 `9166da5c`
+
+### 问题/需求
+打包生成安装包并安装后，启动应用弹窗报错"Backend Startup Failed - 后端进程已退出 (code=1, signal=null)"，无法正常使用。
+
+### 原因
+1. `frontend/scripts/package-backend.mjs` 调用打包时使用的是本机全局 `pyinstaller`（全局 Python 环境），而该环境被其他项目污染，装有 torch、nltk、transformers、llama-index、modelscope 等与本项目无关的重型库。
+2. `llama-index`/`modelscope`/`transformers` 都声明了对 nltk 的依赖，nltk 又依赖 scipy/numpy，PyInstaller 的依赖分析把这条无关依赖链一并收集进了 exe。
+3. numpy 在同一进程内被 import 两次时会触发已知 bug（numpy/numpy#28271）：`RuntimeError: CPU dispatcher tracer already initlized`，这是 exe 启动即崩溃、进程 code=1 退出的直接原因。
+4. 排查过程中还发现 `backend/requirements.txt` 长期缺失 `python-multipart`——FastAPI 的 `UploadFile`/`File()` 路由声明时才检测该依赖是否安装，import 阶段不报错，此前全局环境"意外"装了它所以从未暴露；换成干净环境后暴露为新错误 `RuntimeError: Form data requires "python-multipart" to be installed.`。
+
+### 修复/实现方法
+1. 为 backend 建立专属虚拟环境 `backend/.venv`，只安装 `requirements.txt` 声明的依赖，从根本上避免全局环境污染导致的误打包。
+2. 修改 `package-backend.mjs`：优先使用 `backend/.venv` 中的 `pyinstaller`（Windows: `.venv/Scripts/pyinstaller.exe`，macOS/Linux: `.venv/bin/pyinstaller`），venv 不存在时 fallback 到全局 `pyinstaller` 保持向后兼容。
+3. 在 `requirements.txt` 补齐缺失的 `python-multipart==0.0.20`。
+4. 曾怀疑是 PyInstaller spec 里的 UPX 压缩导致 numpy dispatcher 重复初始化（改 `upx=False` 验证），复现同样报错后确认该假设错误，已还原 spec 文件，不保留无关改动。
+
+### 过程
+1. 用 systematic-debugging 流程排查：先假设 UPX 压缩是根因，修改 spec 验证后依然报同样错误，假设被推翻，回到 Phase 1 重新分析。
+2. 检查全局 Python 环境（`where python`、`VIRTUAL_ENV` 为空），确认打包用的是全局解释器；用 `importlib.metadata` 查询确认 llama-index/modelscope/transformers 都在全局 site-packages 里且依赖 nltk。
+3. 定位真正根因为环境污染，创建 `backend/.venv` 并只装 `requirements.txt` 声明的依赖，确认其中无 nltk/torch/numpy/scipy/transformers 等污染性依赖。
+4. 用干净 venv 重新打包，运行 exe 又暴露出新错误（缺 `python-multipart`），补齐依赖后再次打包验证。
+
+### 测试验证及结果
+- 手动运行 `reflexion-backend.exe`，等待约 15 秒（首次启动含 skill 目录扫描），`curl http://127.0.0.1:8000/health` 返回 `{"status":"healthy"}`，HTTP 200。✅
+- 跑完整 `pnpm dist:win` 重新生成安装包，COLLECT 阶段耗时从原先十几分钟压缩到约 5.6 秒，印证包体积大幅减小（去除了 torch 等无关大型依赖）。✅
+- **结论**: 已解决，新安装包验证通过（`frontend/release/ReflexionOS Setup 1.1.0.exe`）。
+
+### 经验教训/待办
+- 经验：PyInstaller 打包必须用项目专属虚拟环境，不能依赖全局 Python 环境——全局环境里其他项目装的无关依赖会被静默收集进 exe，且这类问题在开发机上不会暴露（因为直接跑 `python main.py` 不受影响），只有在打包后的冻结环境里才会触发。
+- 经验：隐式依赖（如 FastAPI 的 `python-multipart`）在 import 阶段不报错，只有实际触发对应代码路径时才报错，容易被全局环境"意外满足"掩盖，必须用干净环境走一遍完整功能才能发现。
+- 待办：`backend/.venv` 目前只在 Windows 机器上建过，macOS/Linux 打包前需要各自在对应系统上创建 venv 并安装依赖，该过程未自动化。
+
+## [2026-07-24] [Bug修复] Windows 下代码 tab 文件树和 diff 加载失败（SelectorEventLoop 不支持子进程）
+
+- **类型**: Bug修复
+- **涉及文件**: `backend/app/services/file_content_service.py`
+- **关联**: （无）
+
+### 问题/需求
+点击"代码"tab 后，右侧文件栏一直显示"加载中..."，文件树无法加载，文件内容也不能显示。
+同样操作在 macOS 上完全正常，仅 Windows 复现。
+
+### 原因
+`file_content_service.py` 的 `_get_git_status_map`（获取文件树 git 状态）和 `get_diff_content`（获取 diff 内容）两处函数内部直接调用 `asyncio.create_subprocess_exec` 跑 git 命令。
+
+`start-dev.sh` / `start.sh` 均以 `uvicorn --reload` 启动后端；uvicorn 在 Windows + `--reload` 组合下会强制切换为 `WindowsSelectorEventLoopPolicy`（见 `uvicorn/loops/asyncio.py`），该事件循环**不支持子进程**——任何 `asyncio.create_subprocess_exec` 调用都会立即抛出 `NotImplementedError`。
+
+`_get_git_status_map` 的异常捕获只覆盖了 `(FileNotFoundError, TimeoutError)`，`NotImplementedError` 未被拦截，导致异常冒泡到路由层，文件树接口返回 500，前端加载失败。
+
+macOS 使用 kqueue-based 默认事件循环，天然支持子进程，故不受影响。
+
+### 修复/实现方法
+新增 `_run_git` 辅助异步方法，内部对平台做分支：
+- **Windows**：用 `loop.run_in_executor(None, self._run_git_sync, ...)` 在线程池中执行同步的 `subprocess.run`，完全绕开事件循环的子进程支持限制。
+- **其他平台**：保持原有 `asyncio.create_subprocess_exec` + `asyncio.wait_for` 逻辑不变。
+
+将 `_get_git_status_map` 和 `get_diff_content` 中原有的直接子进程调用替换为统一的 `await self._run_git(...)`；同时补全异常捕获，增加 `subprocess.TimeoutExpired`。
+
+此模式与 `shell_tool.py` 中已验证的 Windows 兼容方案完全一致（`shell_tool.py` 此前已因同样问题修复过）。
+
+### 过程
+1. 读取 `WorkspaceHeader.tsx`、`AgentWorkspace.tsx`、`CodeTab.tsx` 确认前端"代码"tab 的渲染链路，定位到 `FileSidebar` 一直处于 loading 状态。
+2. 读取 `FileSidebar.tsx`，发现 `fileApi.getTree` 请求触发文件树加载，且 loading 状态依赖请求结果。
+3. 读取 `file_content_service.py`，发现 `_get_git_status_map` 直接用 `asyncio.create_subprocess_exec`，且 except 只捕获 `FileNotFoundError`/`TimeoutError`。
+4. 读取现有测试 `test_shell_tool_windows_eventloop.py`，发现同样的坑在 `shell_tool.py` 已有文档和修复，确认根因。
+5. 在 `WindowsSelectorEventLoopPolicy` 下实测复现：`create_subprocess_exec` 立即抛 `NotImplementedError`。
+6. 提取 `shell_tool.py` 的 `run_in_executor` 模式，在 `file_content_service.py` 新增 `_run_git` / `_run_git_sync`，替换两处调用。
+7. 再次实测验证：selector loop 下 `_get_git_status_map` 正常返回 git 状态，`_build_tree` 正常构建文件树，`git show` 正常返回内容。
+
+### 测试验证及结果
+- 在 `WindowsSelectorEventLoopPolicy` 下直接调用 `_get_git_status_map`：不再抛 `NotImplementedError`，返回 12 条 git 状态条目 ✅
+- `_run_git` 执行 `git show HEAD:CLAUDE.md`：正常返回，无异常 ✅
+- 运行 `tests/test_tools/test_shell_tool_windows_eventloop.py` + `tests/test_file_content_api.py`：12 项全部通过 ✅
+- **结论**: Windows 下文件树和 diff 接口已恢复正常，macOS 行为不受影响
+
+### 经验教训/待办
+- 经验：`uvicorn --reload` 在 Windows 下会切 `WindowsSelectorEventLoopPolicy`，任何在请求处理链路里调用 `asyncio.create_subprocess_exec` 的代码都会炸——必须全局改用 `run_in_executor` + 同步 `subprocess.run`。这是 Windows 平台必须统一处理的坑，不能仅修一处。
+- 经验：同类问题在 `shell_tool.py` 已踩过并留下测试文件，但 `file_content_service.py` 新增 git 子进程调用时没有参照，说明跨文件的模式一致性需要 review checklist 显式覆盖。
+- 待办：项目里其他地方是否还有直接用 `asyncio.create_subprocess_exec` 的调用值得做一次全局 grep 排查，避免留下同类隐患。
