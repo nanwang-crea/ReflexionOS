@@ -94,6 +94,7 @@ describe('conversationApi', () => {
         preferredProviderId: 'provider-a',
         preferredModelId: undefined,
         agentMode: 'build',
+        permissionMode: 'auto',
         lastEventSeq: 2,
         activeTurnId: 'turn-1',
         createdAt: '2026-04-24T10:00:00Z',

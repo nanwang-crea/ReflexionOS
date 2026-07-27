@@ -71,7 +71,7 @@ describe('useSidebarProjectActions', () => {
 
     await actions.handleDeleteProject(createProject('project-a'))
 
-    expect(dialogService.confirmAction).toHaveBeenCalledWith('确定删除项目”project-a”吗？项目下的聊天也会一并移除。')
+    expect(dialogService.confirmAction).toHaveBeenCalledWith('确定删除项目”project-a”吗？项目下的聊天也会一并移除。', { variant: 'danger' })
     expect(deleteProjectApiMock).toHaveBeenCalledWith('project-a')
     expect(removeProject).toHaveBeenCalledWith('project-a')
     expect(setCurrentProject).toHaveBeenCalledWith(null)
