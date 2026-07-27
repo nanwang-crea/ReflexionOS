@@ -1,3 +1,9 @@
+/**
+ * AgentWorkspace 页面布局测试：验证 ChatInput 居中、对话记录底部安全距离、
+ * 代码面板收起时宽度归零等核心布局行为。
+ * 使用 renderToStaticMarkup 进行服务端渲染式快照检验，无需 DOM 交互。
+ */
+
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import AgentWorkspace from '../AgentWorkspace'
@@ -48,8 +54,12 @@ vi.mock('@/features/conversation/stores/conversation.store', () => ({
 
 vi.mock('@/features/code/stores/codeTab.store', () => ({
   useCodeTabStore: (selector: (state: unknown) => unknown) => selector({
-    workspaceTab: 'chat',
+    codePanelOpen: false,
+    codePanelWidth: 480,
+    sidebarOpen: false,
+    sidebarWidth: 240,
     setSidebarOpen: vi.fn(),
+    setCodePanelWidth: vi.fn(),
     openFile: vi.fn(),
   }),
 }))
@@ -132,5 +142,16 @@ describe('AgentWorkspace', () => {
 
     expect(latestTranscriptProps?.bottomInset).toBe(80)
     expect(html).toContain('data-bottom-inset="80"')
+  })
+
+  it('always renders the chat transcript regardless of codePanelOpen', () => {
+    const html = renderToStaticMarkup(<AgentWorkspace />)
+    expect(html).toContain('data-workspace-transcript="true"')
+  })
+
+  it('collapses the code panel container to zero width when codePanelOpen is false', () => {
+    const html = renderToStaticMarkup(<AgentWorkspace />)
+    expect(html).toContain('data-code-panel="true"')
+    expect(html).toMatch(/data-code-panel="true"[^>]*style="[^"]*width:\s*0/)
   })
 })

@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState } from 'react'
+/**
+ * AgentWorkspace 页面：主工作区布局。
+ * 左侧对话区（常驻，flex-1）+ 右侧代码面板（可折叠，宽度可拖拽调整）+ 文件树侧边栏（代码面板展开时显示）。
+ * 键盘快捷键：Ctrl+` 切换终端、Ctrl+Shift+` 新建终端、Tab 切换 agent 模式（非输入框时）。
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
 import { CodeTab } from '@/components/workspace/CodeTab'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
@@ -23,8 +29,13 @@ import { FileSidebar } from '@/components/workspace/FileSidebar'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import type { AgentMode } from '@/types/conversation'
 
+// 对话记录区底部安全距离（px），在 ChatInput 高度测量完成前作为占位值防止内容被遮挡
 const CHAT_INPUT_FALLBACK_INSET_PX = 80
 
+/**
+ * AgentWorkspace 主页面组件。
+ * 输出：完整的工作区布局 JSX，包含 Header、对话记录、输入框、代码面板和文件树。
+ */
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
   const {
@@ -51,20 +62,27 @@ export default function AgentWorkspace() {
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
   )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
-  const workspaceTab = useCodeTabStore((s) => s.workspaceTab)
+  const codePanelOpen = useCodeTabStore((s) => s.codePanelOpen)
+  const codePanelWidth = useCodeTabStore((s) => s.codePanelWidth)
   const setSidebarOpen = useCodeTabStore((s) => s.setSidebarOpen)
+  const setCodePanelWidth = useCodeTabStore((s) => s.setCodePanelWidth)
   const openFile = useCodeTabStore((s) => s.openFile)
   const togglePanel = useTerminalStore((s) => s.togglePanel)
   const createTerminal = useTerminalStore((s) => s.createTerminal)
   const currentProject = useProjectStore((s) => s.currentProject)
 
+  /**
+   * 切换 Agent 模式（build/plan），运行中不允许切换。
+   */
   const toggleMode = useCallback(() => {
     if (!currentSessionId || isRunning) return
     const newMode: AgentMode = agentMode === 'build' ? 'plan' : 'build'
     setMode(newMode)
   }, [currentSessionId, agentMode, isRunning, setMode])
 
-  // 重置对话是破坏性操作，先二次确认再执行（先停后清，不可恢复）。
+  /**
+   * 重置对话：破坏性操作，先弹二次确认对话框再执行（先停后清，不可恢复）。
+   */
   const handleReset = useCallback(async () => {
     if (!currentSessionId) return
     const confirmed = await nativeDialogService.confirmAction(
@@ -75,6 +93,7 @@ export default function AgentWorkspace() {
     void resetConversationRuntime()
   }, [currentSessionId, resetConversationRuntime])
 
+  // 注册全局键盘快捷键
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === '`' && e.ctrlKey && !e.shiftKey) {
@@ -86,6 +105,7 @@ export default function AgentWorkspace() {
         const cwd = currentProject?.path ?? ''
         createTerminal(cwd)
       }
+      // Tab 键切换 agent 模式，仅在焦点不在输入框时触发
       if (e.key === 'Tab' && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
         if (!(e.target instanceof HTMLElement)) return
         if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return
@@ -97,16 +117,16 @@ export default function AgentWorkspace() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [togglePanel, createTerminal, currentProject, toggleMode])
 
+  // 代码面板开关与文件树 sidebarOpen 保持联动（关闭代码面板时同步关闭文件树）
   useEffect(() => {
-    if (workspaceTab === 'code') {
-      setSidebarOpen(true)
-    } else {
-      setSidebarOpen(false)
-    }
-  }, [workspaceTab, setSidebarOpen])
+    setSidebarOpen(codePanelOpen)
+  }, [codePanelOpen, setSidebarOpen])
 
-  // ChatInputFrame is a flex sibling (not overlay), so no dynamic inset needed
-
+  /**
+   * 点击执行详情（ActionReceiptDetail）时，自动在代码面板打开对应文件。
+   * edit/create/delete 类操作用 diff 视图，其他用 edit 视图。
+   * 输入：detail（操作详情，包含 arguments.path 和 category）
+   */
   const handleDetailClick = useCallback((detail: ActionReceiptDetail) => {
     const args = detail.arguments
     if (!args || typeof args !== 'object') return
@@ -116,7 +136,7 @@ export default function AgentWorkspace() {
     openFile(path, viewMode)
   }, [openFile])
 
-  // When plan disappears (run ends), reset minimized state so next plan starts expanded
+  // plan 消失（run 结束）时重置最小化状态，确保下次 plan 出现时展开显示
   const effectivePlanMinimized = plan ? isPlanMinimized : false
 
   const viewModel = useCurrentSessionViewModel({
@@ -157,6 +177,10 @@ export default function AgentWorkspace() {
     uploadAll,
   } = useImageUpload(currentSessionId ?? null)
 
+  /**
+   * 添加图片附件：若当前模型不支持视觉，展示提示 toast。
+   * 输入：files（File 数组）
+   */
   const handleImageAdd = useCallback(
     (files: File[]) => {
       if (viewModel.selection.modelId && !supportsVision(viewModel.selection.modelId)) {
@@ -175,6 +199,10 @@ export default function AgentWorkspace() {
     [viewModel.selection.modelId, addFiles]
   )
 
+  /**
+   * 发送消息：先上传图片附件，再发送文本 + attachmentIds，发送后清空附件。
+   * 输入：message（用户输入文本）
+   */
   const handleSend = useCallback(
     async (message: string) => {
       try {
@@ -189,18 +217,48 @@ export default function AgentWorkspace() {
     [sendMessage, uploadAll, clearAttachments]
   )
 
+  // 代码面板左边缘拖拽调宽的 refs（记录拖拽起始状态，避免 closure 过期）
+  const resizingRef = useRef(false)
+  const startXRef = useRef(0)
+  const startWidthRef = useRef(0)
+
+  /**
+   * 代码面板左边缘拖拽开始处理器：记录起始位置和宽度，注册 mousemove/mouseup 监听。
+   * 手柄贴代码面板左边缘：鼠标左移（clientX 减小）→ delta 为负 → width 增大（符合直觉）。
+   * 输入：e（React.MouseEvent）
+   */
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    resizingRef.current = true
+    startXRef.current = e.clientX
+    startWidthRef.current = codePanelWidth
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!resizingRef.current) return
+      // 手柄贴代码面板左边缘，鼠标左移（clientX 减小）→ delta 为负 → width 增大（正确）
+      const delta = moveEvent.clientX - startXRef.current
+      setCodePanelWidth(startWidthRef.current - delta)
+    }
+
+    const onMouseUp = () => {
+      resizingRef.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [codePanelWidth, setCodePanelWidth])
+
   return (
     <>
       <div className="flex h-full">
-        <div className={`flex h-full flex-col bg-surface-primary flex-1 min-w-0 ${workspaceTab === 'code' ? '' : 'hidden'}`}>
-          <WorkspaceHeader {...viewModel.headerProps} />
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <CodeTab />
-          </div>
-          <TerminalPanel />
-        </div>
-
-        <div className={`flex h-full flex-col bg-surface-primary flex-1 min-w-0 ${workspaceTab === 'chat' ? '' : 'hidden'}`}>
+        {/* 对话区：常驻，flex-1 占满剩余宽度 */}
+        <div className="flex h-full flex-col bg-surface-primary flex-1 min-w-0">
           <WorkspaceHeader {...viewModel.headerProps} />
           <WorkspaceTranscript
             {...viewModel.transcriptProps}
@@ -212,6 +270,7 @@ export default function AgentWorkspace() {
             bottomInset={CHAT_INPUT_FALLBACK_INSET_PX}
           />
 
+          {/* 输入区：与对话记录同宽（max-w-[1280px] mx-auto），不使用 overlay */}
           <div className="border-t border-edge bg-surface-primary">
              <div data-chat-input-frame className="mx-auto w-full max-w-[1280px] p-4">
               {plan && effectivePlanMinimized && (
@@ -236,7 +295,34 @@ export default function AgentWorkspace() {
             </div>
           </div>
         </div>
-        {workspaceTab === 'code' && <FileSidebar />}
+
+        {/* 代码面板：固定宽度，收起时 width→0（CSS transition），不卸载 DOM（保留编辑器状态）
+            inert 属性在收起时禁用键盘/鼠标交互，防止隐藏元素响应 Tab 键等操作 */}
+        <div
+          data-code-panel="true"
+          className="flex h-full shrink-0 overflow-hidden border-l border-edge transition-[width] duration-200"
+          style={{ width: codePanelOpen ? codePanelWidth : 0 }}
+          {...(!codePanelOpen ? { inert: '' } : {})}
+          aria-hidden={!codePanelOpen}
+        >
+          {/* 左边缘拖拽手柄（1px 宽，鼠标悬停显示 col-resize 光标） */}
+          <div
+            onMouseDown={handleResizeMouseDown}
+            className="shrink-0 w-1 cursor-col-resize"
+          />
+          <div
+            className={`flex h-full flex-col bg-surface-primary ${!codePanelOpen ? 'pointer-events-none' : ''}`}
+            style={{ width: codePanelWidth }}
+          >
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <CodeTab />
+            </div>
+            <TerminalPanel />
+          </div>
+        </div>
+
+        {/* 文件树侧边栏：仅在代码面板展开时渲染 */}
+        {codePanelOpen && <FileSidebar />}
       </div>
     </>
   )
