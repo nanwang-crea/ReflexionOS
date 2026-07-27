@@ -93,7 +93,9 @@ function resolvePackagedBackendExecutable(resourcesPath, platform = process.plat
     ? `${PACKAGED_BACKEND_NAME}.exe`
     : PACKAGED_BACKEND_NAME
 
-  return path.join(resourcesPath, PACKAGED_BACKEND_DIR, executableName)
+  // 统一用 posix 风格（/）拼接，而不是宿主机的 path.join —— 否则在 Windows 上
+  // 计算路径会拼出反斜杠，与 Electron resourcesPath 的惯例（始终用 /）不一致。
+  return path.posix.join(resourcesPath, PACKAGED_BACKEND_DIR, executableName)
 }
 
 function buildBackendLaunchPlan(options) {
