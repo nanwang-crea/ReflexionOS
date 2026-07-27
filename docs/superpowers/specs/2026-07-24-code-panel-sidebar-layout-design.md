@@ -115,6 +115,16 @@ codePanelWidth = Math.max(min, Math.min(max, requestedWidth))
 ```
 `setCodePanelWidth` 需读取 store 里的 `sidebarOpen`/`sidebarWidth` 当前值计算 max，而不是在组件层硬编码。拖拽以外的两个 clamp 时机（window resize、rehydrate）也调用同一个 `setCodePanelWidth`，保证规则统一。
 
+### 约束冲突决策（方案 B）
+
+三项宽度约束的最坏情况：`MIN_CODE_PANEL_WIDTH(320) + MAX_SIDEBAR_WIDTH(480) + MIN_CHAT_WIDTH(400) = 1200px`，超出原主窗口 `minWidth: 1180`。
+
+采用**方案 B**：提高应用主窗口最小宽度。
+
+由于代码面板宽度约束使用的是渲染进程 `window.innerWidth`，而 Electron `BrowserWindow.minWidth` 约束的是窗口外框宽度，二者之间存在系统边框占用差异（Windows 下 resize border 约 8-12px）。为保证最坏情况下渲染区 `window.innerWidth` 仍满足 1200px 的内容区预算，将主窗口 `minWidth` 从 `1180` 提高到 **`1220`**，预留约 20px 的非内容区余量。
+
+本次**不引入**"空间不足时自动收起 FileSidebar"的额外联动逻辑（方案 D）。
+
 ## 数据流
 
 ```
@@ -166,3 +176,4 @@ codePanelWidth = Math.max(min, Math.min(max, requestedWidth))
 - **持久化验证**：重启应用后宽度与退出前一致；`codePanelOpen` 不被持久化，重启后固定为 false
 - Windows + macOS 双平台分别验证：展开/收起动画流畅度、拖拽调宽手感、各 clamp 时机均正常触发
 - 原有"展开/收起文件栏""显示/隐藏终端"两个 Header 按钮功能不受影响，判断条件从 `workspaceTab === 'code'` 改为 `codePanelOpen` 后行为等价
+- **最小窗口宽度验证**：将窗口缩到最小宽度（1220px），打开代码面板并将 FileSidebar 拉至最大宽度（480px），验证此时渲染区 `window.innerWidth` 仍足以容纳 320 + 480 + 400 的内容预算，聊天区不会被压穿 `MIN_CHAT_WIDTH`
