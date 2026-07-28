@@ -50,9 +50,9 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ### Curated Memory（项目级）
 
 - Curated memory 以项目为粒度落盘，目录为：
-  - `{memory.base_dir}/projects/<project_id>/USER.md`
-  - `{memory.base_dir}/projects/<project_id>/MEMORY.md`
-  - 以及对应的 `curated_user.json` / `curated_memory.json`（条目化存储）
+- 有 `project_path` 时：`{project_path}/.reflexion/memory.md`
+- 无 `project_path` 时：`{memory.base_dir}/projects/<project_id>/memory.md`
+- 存储 format 为 Markdown（单一数据源，无 JSON），按 `## Section` 分组（Preference / Rule / Constraint / Fact），每个条目为 `- content` 列表项。
 - `memory.base_dir` 来自 `app.config.settings.config_manager.settings.memory.base_dir`。
   - 当前默认值是 `~/.reflexion/memory`（可按团队约定改为 `~/.reflexion/memories`）。
 
@@ -68,7 +68,7 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
   - 表现为 `message_type=system_notice`，payload 中 `derived=true`
   - 默认 `display_mode=collapsed`
   - 同时带有 `exclude_from_recall=true` / `exclude_from_memory_promotion=true`
-- Context assembly（运行时两层上下文：静态 system sections + recent messages）不再注入 supplemental block；MemoryTool 写入后由 _refresh_memory_sections() 刷新 system_sections 中的 USER/MEMORY 段。
+- Context assembly（运行时两层上下文：静态 system sections + recent messages）不再注入 supplemental block；LLM 通过 edit 工具直接编辑 .reflexion/memory.md，写入后由 PromptManager 在下一轮自动加载。
 
 ## 测试
 

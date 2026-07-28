@@ -1,19 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
-
-from app.memory.curated_store import CuratedMemoryStore
 from app.models.conversation import MessageType
-from app.orchestration.skill_registry import SkillRegistry
 from app.services.conversation_service import ConversationService
-
-
-class ContextAssemblyResult(BaseModel):
-    system_sections: list[str]
-    recent_messages: list[dict[str, Any]]
 
 
 def _message_to_seed_dict(message: Any, supports_vision: bool | None = None) -> list[dict[str, Any]]:
@@ -87,13 +77,17 @@ def _tool_trace_to_paired_seeds(message: Any) -> list[dict[str, Any]]:
     return [assistant_msg, tool_msg]
 
 
-def build_context_assembly(
-    *,
-    static_blocks: list[str],
-    recent_messages: list[dict[str, Any]],
-) -> ContextAssemblyResult:
-    result_messages: list[dict[str, Any]] = []
-    for message in recent_messages:
+def _filter_seed_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """过滤和规范化 seed 消息。
+
+    原先 build_context_assembly 的过滤逻辑内联于此：
+    - 去除空 role
+    - 规范化 content（None → ""，保留多模态 list 格式）
+    - 去除空内容消息（无文本、无 tool_calls）
+    - 保留 tool_calls 和 tool_call_id 字段
+    """
+    result: list[dict[str, Any]] = []
+    for message in messages:
         role = str(message.get("role") or "").strip()
         if not role:
             continue
@@ -107,7 +101,11 @@ def build_context_assembly(
             content = str(raw_content)
         tool_calls = message.get("tool_calls")
         tool_call_id = message.get("tool_call_id")
-        has_content = (isinstance(content, list) and len(content) > 0) or (isinstance(content, str) and content.strip()) or tool_calls
+        has_content = (
+            (isinstance(content, list) and len(content) > 0)
+            or (isinstance(content, str) and content.strip())
+            or tool_calls
+        )
         if not has_content:
             continue
         entry: dict[str, Any] = {"role": role, "content": content}
@@ -115,87 +113,42 @@ def build_context_assembly(
             entry["tool_calls"] = tool_calls
         if tool_call_id is not None:
             entry["tool_call_id"] = tool_call_id
-        result_messages.append(entry)
-
-    return ContextAssemblyResult(
-        system_sections=[block for block in static_blocks if str(block or "").strip()],
-        recent_messages=result_messages,
-    )
+        result.append(entry)
+    return result
 
 
-class ContextAssembler:
+class ConversationHistoryLoader:
     """
-    Build the context assembly used by runtime execution:
-    - static system sections (AGENTS/USER/MEMORY)
-    - recent seeded messages (conversation history)
+    从数据库加载对话历史并转换为 LLM seed dict 格式。
+
+    职责单一：只管对话历史，不管静态上下文（AGENTS.md、Skills 等）。
+    静态上下文由 PromptManager 统一管理。
     """
 
     def __init__(
         self,
         *,
         conversation_service: ConversationService,
-        curated_store: CuratedMemoryStore | None = None,
-        skill_registry: SkillRegistry | None = None,
     ):
         self.conversation_service = conversation_service
-        self.curated_store = curated_store or CuratedMemoryStore()
-        self.skill_registry = skill_registry
 
-    def build_for_session(
+    def load_for_session(
         self,
         *,
         session_id: str,
         project_id: str,
-        project_path: str | None = None,
         current_turn_id: str | None = None,
         max_seed_messages: int = 8,
         max_tool_traces: int = 20,
         scan_limit: int = 200,
         supports_vision: bool | None = None,
-    ) -> ContextAssemblyResult:
-        static_blocks: list[str] = []
+    ) -> list[dict[str, Any]]:
+        """加载对话历史，返回过滤后的 seed messages 列表。
 
-        # 1) AGENTS.md (project rules) if present.
-        if project_path:
-            agents_path = Path(project_path) / "AGENTS.md"
-            if agents_path.exists() and agents_path.is_file():
-                agents_content = agents_path.read_text(encoding="utf-8")
-                static_blocks.append(
-                    f"Project rules (from {agents_path}):\n{agents_content}"
-                )
-
-        # 1.5) Inject enabled skill metadata into system context.
-        if self.skill_registry:
-            enabled_skills = self.skill_registry.list_enabled_skills()
-            if enabled_skills:
-                skill_section_parts = ["""## Available Skills
-
-When a skill clearly matches your current task, load it first using the 'skill' tool with action='load'.
-
-### Skill usage guidelines:
-1. Before starting a task, briefly consider whether an available skill matches.
-2. If a skill matches, use the 'skill' tool with action='load' to read its full content.
-3. Follow the loaded skill's instructions — skills provide proven workflows for complex tasks.
-4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly — check them when relevant.
-5. Implementation skills guide execution — use them after process skills when applicable.
-6. A skill's hard gates and checklists are important safeguards — respect them.
-
-### Available skills:"""]
-                for s in enabled_skills:
-                    req_str = ", ".join(s.required_skills)
-                    req = f" (requires: {req_str})" if s.required_skills else ""
-                    skill_section_parts.append(f"- **{s.name}**: {s.description}{req}")
-                static_blocks.append("\n".join(skill_section_parts))
-
-        # 2) Curated USER/MEMORY (project-level) if any active entries exist.
-        for target in ("user", "memory"):
-            entries = self.curated_store.load_entries(project_id=project_id, target=target)
-            if any(entry.status == "active" for entry in entries):
-                static_blocks.append(
-                    self.curated_store.render_markdown(project_id=project_id, target=target)
-                )
-
-        # 3) Recent seed candidates (SQL-level filter + slice).
+        注意：project_path 参数已移除。AGENTS.md 加载已移至 PromptManager，
+        Skills 注入也已移至 PromptManager。
+        """
+        # 从数据库获取最近的 seed 候选消息
         candidates = self.conversation_service.list_recent_seed_candidates(
             session_id,
             current_turn_id=current_turn_id,
@@ -203,11 +156,11 @@ When a skill clearly matches your current task, load it first using the 'skill' 
             scan_limit=scan_limit,
             max_tool_traces=max_tool_traces,
         )
-        recent_messages: list[dict[str, Any]] = []
-        for msg in candidates:
-            recent_messages.extend(_message_to_seed_dict(msg, supports_vision))
 
-        return build_context_assembly(
-            static_blocks=static_blocks,
-            recent_messages=recent_messages,
-        )
+        # 将消息模型转为 seed dict 格式
+        raw_messages: list[dict[str, Any]] = []
+        for msg in candidates:
+            raw_messages.extend(_message_to_seed_dict(msg, supports_vision))
+
+        # 过滤和规范化
+        return _filter_seed_messages(raw_messages)

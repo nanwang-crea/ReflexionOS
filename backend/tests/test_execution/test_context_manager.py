@@ -62,13 +62,11 @@ class TestLoopContext:
                 {"role": "tool", "content": "tool output", "tool_call_id": "call_001"},
                 "bad seed",
             ],
-            system_sections=["AGENTS instructions"],
         )
 
         assert context.task == "继续处理"
         assert context.project_path == "/tmp/reflexion"
         assert context.run_id == "run-123"
-        assert context.system_sections == ["AGENTS instructions"]
         assert [
             (message["role"], message.get("content"))
             for message in context.compressor.get_messages()

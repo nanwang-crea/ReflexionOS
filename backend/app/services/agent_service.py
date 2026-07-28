@@ -8,7 +8,9 @@ from uuid import uuid4
 
 from app.config.settings import config_manager
 from app.errors import NotFoundValueError
+from app.execution.approval_flow import ApprovalFlow
 from app.execution.approval_store import PendingApprovalStore
+from app.execution.conversation_history_loader import ConversationHistoryLoader
 from app.execution.models import LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
@@ -16,7 +18,6 @@ from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
 from app.llm.observability import LLMCallObservabilityContext, llm_observability_scope
-from app.memory.context_assembly import ContextAssembler
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
@@ -27,12 +28,13 @@ from app.models.conversation import (
     RunStatus,
 )
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
-from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
+from app.models.session import DEFAULT_SESSION_TITLE, Session, SessionUpdate
 from app.observability.runtime import RuntimeObservabilityRecorder, ToolObservabilityContext
 from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.path_security import PathSecurity
+from app.security.permission_mode import PermissionMode
 from app.security.sandbox.factory import create_sandbox
 from app.security.session_trust_store import SessionTrustStore, TrustRule
 from app.security.shell_security import ShellSecurity
@@ -45,12 +47,14 @@ from app.tools.explore_tool import ExploreTool
 from app.tools.file_tool import FileTool
 from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
-from app.tools.memory_tool import MemoryTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
 from app.tools.shell_tool import ShellTool
 from app.tools.skill_tool import SkillTool
+from app.tools.working_memory_tool import WorkingMemoryTool
+from app.tools.delegate_tool import DelegateTool
+from app.agents.sub_agent_runner import SubAgentRunner
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,7 @@ from .conversation_service import ConversationService
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
+from .attachment_service import convert_attachments_to_content_parts
 
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
@@ -108,6 +113,8 @@ class AgentService:
         self._upload_cleanup_task: asyncio.Task | None = None
         self._browser_tools: dict[str, _BrowserTool] = {}
         self._browser_tools_lock = threading.Lock()
+        # session_id → approval_flow 映射，用于 SubAgent 审批结果路由
+        self._session_approval_flows: dict[str, "ApprovalFlow"] = {}
         self.project_repo = project_repo or ProjectRepository(db)
         self.session_repo = session_repo or SessionRepository(db)
         self.conversation_service = conversation_service or default_conversation_service
@@ -116,10 +123,11 @@ class AgentService:
         self.pending_approval_store = pending_approval_store or PendingApprovalStore()
         self.session_service = session_service
         self.observability_collector = observability_collector
-        self.prompt_manager = PromptManager()
-        self.context_assembler = ContextAssembler(
+        self.prompt_manager = PromptManager(skill_registry=global_skill_registry)
+        # ConversationHistoryLoader 只负责对话历史加载，
+        # 静态上下文（Skills 等）由 PromptManager 统一管理
+        self.history_loader = ConversationHistoryLoader(
             conversation_service=self.conversation_service,
-            skill_registry=global_skill_registry,
         )
         self.trust_store = SessionTrustStore()
 
@@ -128,6 +136,7 @@ class AgentService:
         project_path: str | None,
         session_id: str | None = None,
         trust_store: SessionTrustStore | None = None,
+        permission_mode: str = "auto",
     ) -> ToolRegistry:
         resolved_project_path = (
             str(Path(project_path).resolve())
@@ -141,11 +150,10 @@ class AgentService:
             )
         )
 
-        from app.config.settings import config_manager as _cfg_paths
-        skill_install_dir = str(Path(_cfg_paths.settings.skill.install_dir).resolve())
+        skill_install_dir = str(Path(config_manager.settings.skill.install_dir).resolve())
         if skill_install_dir not in allowed_paths:
             allowed_paths.append(skill_install_dir)
-        plugin_cache_dir = str(Path(_cfg_paths.settings.plugin.package_cache_dir).resolve())
+        plugin_cache_dir = str(Path(config_manager.settings.plugin.package_cache_dir).resolve())
         if plugin_cache_dir not in allowed_paths:
             allowed_paths.append(plugin_cache_dir)
         base_dir = resolved_project_path or str(Path.cwd().resolve())
@@ -162,21 +170,19 @@ class AgentService:
             ShellSecurity(), path_security, CommandEffectRegistry(), create_sandbox(),
             session_id=session_id,
             trust_store=trust_store,
+            permission_mode=PermissionMode(permission_mode) if permission_mode in {"ask", "auto", "yolo"} else PermissionMode.AUTO,
         ))
         registry.register(EditTool(path_security))
-        registry.register(MemoryTool())
         registry.register(PlanTool())
         registry.register(ExploreTool(path_security))
-        from app.config.settings import config_manager as _cfg_mgr
-        _pkg_resolver = PackageResolver(Path(_cfg_mgr.settings.plugin.package_cache_dir))
+        _pkg_resolver = PackageResolver(Path(config_manager.settings.plugin.package_cache_dir))
         registry.register(SkillTool(global_skill_registry, resolver=_pkg_resolver))
 
         if _BrowserTool is not None and session_id is not None:
             with self._browser_tools_lock:
                 browser_tool = self._browser_tools.get(session_id)
                 if browser_tool is None:
-                    from app.config.settings import config_manager as _cfg_browser
-                    _browser_settings = _cfg_browser.settings.browser
+                    _browser_settings = config_manager.settings.browser
                     browser_tool = _BrowserTool(config=_browser_settings)
                     self._browser_tools[session_id] = browser_tool
                     logger.info("为 session=%s 创建新 BrowserTool 实例", session_id)
@@ -184,8 +190,7 @@ class AgentService:
                     logger.info("复用 session=%s 的已有 BrowserTool 实例", session_id)
             registry.register(browser_tool)
         elif _BrowserTool is not None:
-            from app.config.settings import config_manager as _cfg_browser
-            _browser_settings = _cfg_browser.settings.browser
+            _browser_settings = config_manager.settings.browser
             registry.register(_BrowserTool(config=_browser_settings))
 
         logger.info(
@@ -214,6 +219,7 @@ class AgentService:
             raise ValueError("会话不属于当前项目")
 
         agent_mode = getattr(session, 'agent_mode', 'build') or 'build'
+        permission_mode = getattr(session, 'permission_mode', 'auto') or 'auto'
 
         before_seq = session.last_event_seq
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
@@ -242,6 +248,7 @@ class AgentService:
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
             agent_mode=agent_mode,
+            permission_mode=permission_mode,
         )
         return started
 
@@ -257,6 +264,7 @@ class AgentService:
         provider_id: str | None,
         model_id: str | None,
         agent_mode: str = "build",
+        permission_mode: str = "auto",
     ) -> asyncio.Task:
         running = self.running_tasks.get(run_id)
         if running is not None:
@@ -273,6 +281,7 @@ class AgentService:
                 provider_id=provider_id,
                 model_id=model_id,
                 agent_mode=agent_mode,
+                permission_mode=permission_mode,
             )
         )
         self.running_tasks[run_id] = execution_task
@@ -406,6 +415,7 @@ class AgentService:
         provider_id: str | None,
         model_id: str | None,
         agent_mode: str = "build",
+        permission_mode: str = "auto",
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
         project = self.project_repo.get(project_id)
@@ -496,11 +506,35 @@ class AgentService:
                 await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
             elif event_type.startswith("metrics:"):
                 await self.conversation_broadcaster.send_event(session_id, event_type, data)
+            elif event_type.startswith("sub_agent:"):
+                # SubAgent 审批事件：注册到 pending_approval_store，使用父 session_id
+                # 这样用户点击审批时后端能找到对应的审批记录
+                if event_type == "sub_agent:approval:required":
+                    approval_id = data.get("approval_id")
+                    if isinstance(approval_id, str) and approval_id:
+                        self.pending_approval_store.create(
+                            approval_id=approval_id,
+                            session_id=session_id,  # 使用父 session_id
+                            turn_id="",
+                            run_id=str(data.get("run_id", "")),
+                            step_number=int(data.get("step_number") or 0),
+                            tool_call_id=str(data.get("tool_call_id") or ""),
+                            tool_name=str(data.get("tool_name") or ""),
+                            tool_arguments=data.get("arguments") if isinstance(data.get("arguments"), dict) else {},
+                            approval_payload=data.get("approval") if isinstance(data.get("approval"), dict) else {},
+                        )
+                # 子 agent 事件直接透传到前端，不经过 runtime adapter 持久化
+                # 前端通过 WebSocket 消息中的 sub_agent: 前缀识别并路由到子 agent store
+                logger.info("[event_callback] Broadcasting sub_agent event: type=%s, session_id=%s, has_tool_call_id=%s", event_type, session_id, "tool_call_id" in data)
+                await self.conversation_broadcaster.send_event(session_id, event_type, data)
             else:
                 await persist_and_broadcast(event_type, data)
 
-        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store)
+        run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store, permission_mode=permission_mode)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
+        run_tool_registry.register(WorkingMemoryTool())
+
+        # 先创建主 Agent 的 execution_loop（需要在工厂函数之前，以便获取其 approval_flow）
         execution_loop = RapidExecutionLoop(
             llm=llm,
             tool_registry=run_tool_registry,
@@ -508,6 +542,33 @@ class AgentService:
             context_window=resolved_llm.context_window,
         )
         self._execution_loops[run_id] = execution_loop
+        # 存储 session → approval_flow 映射，供 SubAgent 审批结果路由使用
+        if hasattr(execution_loop, "approval_flow"):
+            self._session_approval_flows[session_id] = execution_loop.approval_flow
+
+        # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
+        # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path, approval_flow, event_callback）
+        # event_callback 使子 agent 执行事件通过父级 SSE 链路实时推送到前端
+        # parent_approval_flow 使子 agent 的审批请求路由到主 agent（用户在同一界面处理）
+        def _delegate_runner_factory(task, input_data=None, expected_output=None):
+            return SubAgentRunner(
+                task=task,
+                llm_config=resolved_llm,
+                parent_tool_registry=run_tool_registry,
+                input_data=input_data,
+                expected_output=expected_output,
+                project_path=project_path,
+                # 并发 delegate 场景下多个子 agent 会同时创建，固定拼接会话 id 会
+                # 相互碰撞，改为每次调用附加唯一短后缀
+                session_id=f"{session_id}-sub-{uuid4().hex[:8]}",
+                event_callback=event_callback,  # 传递事件回调，使 SubAgent 事件能发送到前端
+                parent_approval_flow=execution_loop.approval_flow,  # 共享主 Agent 的审批流
+            )
+        run_tool_registry.register(DelegateTool(
+            runner_factory=_delegate_runner_factory,
+            event_callback=event_callback,
+            parent_session_id=session_id,  # 传递主 Agent 的 session_id，用于 SubAgent 审批路由
+        ))
 
         try:
             if session and session.title == DEFAULT_SESSION_TITLE:
@@ -521,10 +582,10 @@ class AgentService:
                 self._title_tasks[run_id] = title_task
                 title_task.add_done_callback(lambda _: self._title_tasks.pop(run_id, None))
 
-            assembly = self.context_assembler.build_for_session(
+            # 加载对话历史（不含静态上下文，静态上下文由 PromptManager 管理）
+            history_messages = self.history_loader.load_for_session(
                 session_id=session_id,
                 project_id=project_id,
-                project_path=project_path,
                 current_turn_id=turn_id,
                 supports_vision=resolved_llm.supports_vision,
             )
@@ -535,7 +596,6 @@ class AgentService:
             task_content: str | list[dict] = task
             user_message = self.conversation_service.message_repo.get_user_message_by_turn(turn_id)
             if user_message and user_message.attachments:
-                from app.services.attachment_service import convert_attachments_to_content_parts
                 content_parts = []
                 if task.strip():
                     content_parts.append({"type": "text", "text": task})
@@ -552,8 +612,7 @@ class AgentService:
                 project_path=project_path,
                 run_id=run_id,
                 session_id=session_id,
-                history_messages=assembly.recent_messages,
-                system_sections=assembly.system_sections,
+                history_messages=history_messages,
                 agent_mode=agent_mode,
             )
             if loop_result.status != LoopStatus.COMPLETED:
@@ -735,6 +794,26 @@ class AgentService:
 
         return cancelled
 
+    async def reset_session(self, session_id: str) -> Session:
+        """重置对话：先停后清。
+
+        先在写锁外取消活跃 run（cancel_run 内部自取写锁并 await 任务真停，
+        整段持锁会死锁），再交给 conversation_service 在写锁内重校验后清库。
+        """
+        session = self.session_repo.get(session_id)
+        if not session:
+            raise NotFoundValueError("会话不存在")
+
+        conversation = self.conversation_service.get_snapshot(session_id)
+        active_run_id = resolve_active_run_id_from_conversation(conversation)
+        if active_run_id:
+            try:
+                await self.cancel_run(active_run_id)
+            except Exception:
+                logger.warning("重置前取消活跃运行失败: run_id=%s", active_run_id)
+
+        return self.conversation_service.reset_session(session_id)
+
     async def edit_and_rerun(
         self,
         *,
@@ -752,6 +831,9 @@ class AgentService:
         session = self.session_repo.get(session_id)
         if not session:
             raise NotFoundValueError("会话不存在")
+
+        agent_mode = getattr(session, 'agent_mode', 'build') or 'build'
+        permission_mode = getattr(session, 'permission_mode', 'auto') or 'auto'
 
         conversation = self.conversation_service.get_snapshot(session_id)
         active_run_id = resolve_active_run_id_from_conversation(conversation)
@@ -786,6 +868,8 @@ class AgentService:
             project_path=project.path,
             provider_id=resolved_llm.provider_id,
             model_id=resolved_llm.model_id,
+            agent_mode=agent_mode,
+            permission_mode=permission_mode,
         )
         return started
 
@@ -818,10 +902,43 @@ class AgentService:
         approval_event_type: EventType,
         decision: AllowApprovalDecision = "allow_once",
     ) -> None:
-        terminal_event_type: EventType | None = None
-        terminal_payload: dict | None = None
+        is_sub_agent_run = run_id.startswith("sub-run-")
 
         with self.conversation_service.acquire_session_write_lock(session_id):
+            # ── SubAgent 审批路径 ──
+            # SubAgent 的 run 未存储到数据库，直接操作 approval_flow 恢复执行
+            if is_sub_agent_run:
+                pending = self.pending_approval_store.get(approval_id)
+                if pending is None:
+                    raise NotFoundValueError("审批不存在")
+                if pending.status != "pending":
+                    raise ValueError("审批已处理")
+
+                approval_flow = self._session_approval_flows.get(session_id)
+                if approval_flow is None:
+                    logger.error("[SubAgent Approval] approval_flow not found for session_id=%s", session_id)
+                    raise NotFoundValueError("审批流不存在")
+
+                logger.info("[SubAgent Approval] Processing approval: session_id=%s, run_id=%s, approval_id=%s, decision=%s", session_id, run_id, approval_id, decision)
+
+                if approval_event_type == EventType.APPROVAL_APPROVED:
+                    self.pending_approval_store.approve(approval_id, decision=decision)
+                    # 执行已审批的工具，将执行结果通过 approval_flow 返回给 SubAgent
+                    execution_result = await self._execute_approved_tool(pending, run_id=run_id)
+                    logger.info("[SubAgent Approval] Tool executed: success=%s, calling set_approval_result", execution_result.success)
+                    approval_flow.set_approval_result({
+                        "success": execution_result.success,
+                        "output": execution_result.output,
+                        "error": execution_result.error,
+                    }, approval_id=approval_id)
+                    logger.info("[SubAgent Approval] set_approval_result called for approval_id=%s", approval_id)
+                else:
+                    self.pending_approval_store.deny(approval_id)
+                    logger.info("[SubAgent Approval] Denying approval, calling set_approval_result(None)")
+                    approval_flow.set_approval_result(None, approval_id=approval_id)
+                return
+
+            # ── 主 Agent 审批路径 ──
             run = self.conversation_service.get_run(run_id)
             if run is None:
                 raise NotFoundValueError("运行不存在")
@@ -854,6 +971,8 @@ class AgentService:
                 project_name_snapshot=project.name if project else None,
                 session_title_snapshot=session.title if session else None,
             )
+            terminal_event_type: EventType | None = None
+            terminal_payload: dict | None = None
 
             if approval_event_type == EventType.APPROVAL_APPROVED:
                 self.pending_approval_store.approve(approval_id, decision=decision)
@@ -908,7 +1027,7 @@ class AgentService:
                             "total_duration_ms": total_duration_ms,
                             "execution_started_at": execution_started_at.isoformat(),
                         },
-                    })
+                    }, approval_id=approval_id)
                 else:
                     if observability_recorder is not None:
                         observability_recorder.record_tool_terminal(
@@ -965,7 +1084,7 @@ class AgentService:
 
                 loop = self._execution_loops.get(run_id)
                 if loop is not None:
-                    loop.set_approval_result(None)
+                    loop.set_approval_result(None, approval_id=approval_id)
                 else:
                     approval_wait_ms = self._duration_from_datetimes(
                         pending.tool_started_at,

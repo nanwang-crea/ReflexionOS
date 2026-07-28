@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 export interface PendingAttachment {
   id: string
@@ -87,6 +87,21 @@ async function uploadFile(
 
 export function useImageUpload(sessionId: string | null) {
   const [attachments, setAttachments] = useState<PendingAttachment[]>([])
+
+  // 切换会话时清空待上传附件，避免在 A 会话暂存的图片残留并误传到 B 会话。
+  // 同时释放预览用的 object URL，防止内存泄漏。
+  useEffect(() => {
+    return () => {
+      setAttachments((prev) => {
+        prev.forEach((attachment) => {
+          if (attachment.previewUrl) {
+            URL.revokeObjectURL(attachment.previewUrl)
+          }
+        })
+        return []
+      })
+    }
+  }, [sessionId])
 
   const addFiles = useCallback((files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith('image/'))

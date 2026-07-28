@@ -29,7 +29,7 @@ class ExecutionSettings(BaseModel):
 
 
 class MemorySettings(BaseModel):
-    """Curated memory 配置（项目级 USER.md / MEMORY.md 存储）"""
+    """Curated memory 配置（项目级 memory.md 存储路径）"""
 
     base_dir: str = Field(default_factory=lambda: str(Path.home() / ".reflexion" / "memory"))
 
@@ -57,6 +57,15 @@ class PluginSettings(BaseModel):
         default_factory=lambda: str(Path.home() / ".reflexion" / "packages")
     )
     auto_update: bool = False
+
+
+class SubAgentSettings(BaseModel):
+    """子代理配置"""
+
+    # 子代理单次委托的最大执行步数
+    max_steps: int = Field(default=100, ge=1, le=500)
+    # 同一批连续 delegate 调用的最大并发数
+    max_concurrent: int = Field(default=3, ge=1, le=20)
 
 
 class UISettings(BaseModel):
@@ -104,6 +113,7 @@ class AppSettings(BaseModel):
 
     llm: LLMSettings = LLMSettings()
     execution: ExecutionSettings = ExecutionSettings()
+    subagent: SubAgentSettings = Field(default_factory=SubAgentSettings)
     memory: MemorySettings = MemorySettings()
     ui: UISettings = UISettings()
     skill: SkillSettings = SkillSettings()

@@ -31,6 +31,8 @@ import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
 import type { SessionSummary } from '@/types/workspace'
 import type { Project } from '@/types/project'
 import { isConversationBusy } from './sidebarBusy'
+import { SessionStatusBadge } from './SessionStatusBadge'
+import { deriveSidebarSessionState, type SidebarSessionStatus } from './sidebarSessionState'
 import { useSidebarFilteredProjects } from './useSidebarFilteredProjects'
 import { useSidebarProjectActions } from './useSidebarProjectActions'
 import { useSidebarSessionActions } from './useSidebarSessionActions'
@@ -82,6 +84,7 @@ function SessionRow({
   session,
   active,
   busy,
+  sessionStatus,
   onSelect,
   onRename,
   onDelete,
@@ -89,6 +92,7 @@ function SessionRow({
   session: SessionSummary
   active: boolean
   busy: boolean
+  sessionStatus: SidebarSessionStatus
   onSelect: () => void
   onRename: (sessionId: string, title: string) => Promise<void>
   onDelete: () => void
@@ -163,12 +167,14 @@ function SessionRow({
         <button
           type="button"
           onClick={onSelect}
-          disabled={busy}
           className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
         >
           <span className="truncate">{session.title}</span>
-           <span className="shrink-0 text-content-muted">
-            {formatRelativeTime(session.updatedAt)}
+          <span className="flex shrink-0 items-center gap-2">
+            <SessionStatusBadge status={sessionStatus} />
+            <span className="text-content-muted">
+              {formatRelativeTime(session.updatedAt)}
+            </span>
           </span>
         </button>
       )}
@@ -224,6 +230,10 @@ export function WorkspaceSidebar() {
     currentSessionId ? state.conversationsBySessionId[currentSessionId] : undefined
   ))
   const activeAlerts = useMonitoringAlertStore((state) => state.activeAlerts)
+  // 订阅全部会话快照与已读基线，用于为每个会话项派生 sidebar 状态（运行/待审批/未读）。
+  const conversationsBySessionId = useConversationStore((state) => state.conversationsBySessionId)
+  const lastSeenEventSeqBySessionId = useWorkspaceStore((state) => state.lastSeenEventSeqBySessionId)
+  const sessionSyncHealthBySessionId = useWorkspaceStore((state) => state.sessionSyncHealthBySessionId)
   const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
 
   const [showProjectModal, setShowProjectModal] = useState(false)
@@ -306,11 +316,9 @@ export function WorkspaceSidebar() {
     navigate,
   })
 
+  // 切换项目 / 会话是纯导航操作，多连接运行时已保证切走后原会话不断连，
+  // 因此不再受“当前会话运行中”的 busy 限制——这是多会话并行的核心交互。
   const handleProjectSelect = (project: Project, projectSessions: SessionSummary[]) => {
-    if (busy) {
-      return
-    }
-
     setCurrentProject(project)
     setProjectExpanded(project.id, true)
 
@@ -322,10 +330,6 @@ export function WorkspaceSidebar() {
   }
 
   const handleSessionSelect = (project: Project, sessionId: string) => {
-    if (busy) {
-      return
-    }
-
     setCurrentProject(project)
     setProjectExpanded(project.id, true)
     setCurrentSessionId(sessionId)
@@ -483,11 +487,7 @@ export function WorkspaceSidebar() {
                     >
                                <button
                         type="button"
-                        onClick={() => {
-                          if (!busy) {
-                            toggleProjectExpanded(project.id)
-                          }
-                        }}
+                        onClick={() => toggleProjectExpanded(project.id)}
                          className="rounded p-0.5 text-content-muted hover:bg-surface-tertiary"
                       >
                         {expanded ? (
@@ -499,7 +499,6 @@ export function WorkspaceSidebar() {
                       <button
                         type="button"
                         onClick={() => handleProjectSelect(project, projectSessions)}
-                        disabled={busy}
                         className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1 py-0.5 text-left"
                       >
                          <Folder className="h-5 w-5 shrink-0 text-content-muted" />
@@ -524,6 +523,12 @@ export function WorkspaceSidebar() {
                           <>
                             {visibleSessions.map((session) => {
                               const active = currentSessionId === session.id && currentProject?.id === project.id
+                              const sessionStatus = deriveSidebarSessionState(
+                                session,
+                                conversationsBySessionId[session.id],
+                                lastSeenEventSeqBySessionId[session.id],
+                                sessionSyncHealthBySessionId[session.id],
+                              ).status
 
                               return (
                                 <SessionRow
@@ -531,6 +536,7 @@ export function WorkspaceSidebar() {
                                   session={session}
                                   active={active}
                                   busy={busy}
+                                  sessionStatus={sessionStatus}
                                   onSelect={() => handleSessionSelect(project, session.id)}
                                   onRename={handleRenameSession}
                                   onDelete={() => handleDeleteSession(session)}

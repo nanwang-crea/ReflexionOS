@@ -1,67 +1,136 @@
 {
+
   "name": "reflexion-os-frontend",
+
   "version": "1.1.0",
+
   "description": "ReflexionOS Desktop Application",
+
   "packageManager": "pnpm@10.30.3",
+
   "main": "electron/main.cjs",
+
   "pnpm": {
+
     "onlyBuiltDependencies": [
+
       "electron",
+
       "esbuild",
+
       "node-pty"
+
     ]
+
   },
+
   "type": "module",
+
   "scripts": {
+
     "dev": "node ./scripts/dev-electron.mjs",
+    "fix:electron": "node ./scripts/fix-electron.mjs",
+    "postinstall": "node ./scripts/fix-electron.mjs",
+
     "dev:web": "vite",
+
     "dev:desktop": "electron ./electron/main.cjs",
+
     "build": "tsc && vite build",
+
     "package:backend": "node ./scripts/package-backend.mjs",
+
     "prepare:backend-bin": "node ./scripts/prepare-backend-bin.mjs",
+
     "dist:mac": "pnpm build && pnpm package:backend && pnpm prepare:backend-bin && electron-builder --mac",
-    "dist:win": "pnpm build && pnpm package:backend && pnpm prepare:backend-bin && electron-builder --win",
+
+    "dist:win": "node ./scripts/build-win.mjs",
+
     "capture:screenshots": "pnpm build && node ./scripts/capture-screenshots.mjs",
+
     "preview": "vite preview",
+
     "start": "electron ./electron/main.cjs",
+
     "test": "vitest run",
+
     "test:watch": "vitest",
+
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0"
+
   },
+
   "dependencies": {
+
     "@monaco-editor/react": "^4.7.0",
+
     "@xterm/addon-fit": "^0.11.0",
+
     "@xterm/xterm": "^6.0.0",
+
     "axios": "^1.6.7",
+
     "framer-motion": "^12.38.0",
+
     "lucide-react": "^1.8.0",
+
     "monaco-editor": "^0.55.1",
+
     "node-pty": "^1.1.0",
+
     "react": "^18.2.0",
+
     "react-dom": "^18.2.0",
+
     "react-markdown": "^10.1.0",
+
     "react-router-dom": "^6.22.0",
+
     "react-virtuoso": "^4.18.7",
+
     "remark-gfm": "^4.0.1",
+
     "zustand": "^4.5.0"
+
   },
+
   "devDependencies": {
+
     "@eslint/js": "^9.25.1",
+
     "@types/react": "^18.2.55",
+
     "@types/react-dom": "^18.2.19",
+
     "@typescript-eslint/eslint-plugin": "^8.30.1",
+
     "@typescript-eslint/parser": "^8.30.1",
+
     "@vitejs/plugin-react": "^4.2.1",
+
     "autoprefixer": "^10.4.17",
+
     "electron": "^31.7.7",
+
     "electron-builder": "^24.13.3",
+
     "eslint": "^9.25.1",
+
     "eslint-plugin-react-hooks": "^5.2.0",
+
     "postcss": "^8.4.35",
+
     "tailwindcss": "^3.4.1",
+
     "typescript": "^5.3.3",
+
     "typescript-eslint": "^8.30.1",
+
     "vite": "^5.1.0",
+
     "vitest": "^1.6.1"
+
   }
+
 }
+

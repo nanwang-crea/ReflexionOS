@@ -20,7 +20,11 @@ from app.execution.models import (
 )
 from app.execution.plan_file_sync import PlanFileSync
 from app.execution.prompt_manager import PromptManager
-from app.execution.runtime_tool_definitions import RuntimeToolDefinitions
+from app.execution.runtime_tool_definitions import (
+    DEFAULT_TOOL_SET_CONFIG,
+    RuntimeToolDefinitions,
+    ToolSetConfig,
+)
 from app.execution.tool_call_executor import ToolCallExecutor
 from app.llm.base import (
     LLMMessage,
@@ -63,6 +67,8 @@ class RapidExecutionLoop:
         max_steps: int | None = None,
         event_callback: Callable[[str, dict], Awaitable[None]] | None = None,
         context_window: int = 128000,
+        approval_flow: ApprovalFlow | None = None,  # 可选的共享审批流（用于 SubAgent）
+        tool_set_config: ToolSetConfig | None = None,  # 可选的工具集配置（用于 SubAgent 跳过首轮探索门禁）
     ):
         self.llm = llm
         self._tool_registry = tool_registry
@@ -71,7 +77,10 @@ class RapidExecutionLoop:
         self.event_callback = event_callback
         self.context_window = context_window
         self._overflow_retry_count = 0
-        self.tool_definitions = RuntimeToolDefinitions(self._tool_registry)
+        self.tool_definitions = RuntimeToolDefinitions(
+            self._tool_registry,
+            config=tool_set_config or DEFAULT_TOOL_SET_CONFIG,
+        )
         self.message_builder = LoopMessageBuilder(
             prompt_manager=self.prompt_manager,
             max_context_groups=self.MAX_CONTEXT_GROUPS,
@@ -82,7 +91,9 @@ class RapidExecutionLoop:
             tool_registry=self._tool_registry,
             emit=self._emit,
         )
-        self.approval_flow = ApprovalFlow(emit=self._emit)
+        # 如果传入了 approval_flow，则复用它（用于 SubAgent 共享主 Agent 的审批流）
+        # 否则创建新的审批流实例（用于主 Agent）
+        self.approval_flow = approval_flow or ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
         self.plan_file_sync = PlanFileSync()
 
@@ -105,8 +116,10 @@ class RapidExecutionLoop:
     def get_approval_resume_event(self) -> asyncio.Event:
         return self.approval_flow._resume_event
 
-    def set_approval_result(self, result: dict | None) -> None:
-        self.approval_flow.set_approval_result(result)
+    def set_approval_result(
+        self, result: dict | None, approval_id: str | None = None
+    ) -> None:
+        self.approval_flow.set_approval_result(result, approval_id=approval_id)
 
     def _create_summarizer(self) -> Callable[[str, str], Awaitable[str]]:
         """创建摘要生成器回调（解耦 LLM 依赖）"""
@@ -206,21 +219,21 @@ class RapidExecutionLoop:
                     )
                 return LoopPhase.PLANNING
 
-        # 执行过工具，检查计划状态
-        if context.plan and not context.plan.is_complete:
-            # 检查是否是合理的停止（等待用户输入）
-            blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
-            current_step = context.plan.current_step
+        # 执行过工具，检查计划状态，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+        # if context.plan and not context.plan.is_complete:
+        #     # 检查是否是合理的停止（等待用户输入）
+        #     blocked_steps = [s for s in context.plan.steps if s.status == "blocked"]
+        #     current_step = context.plan.current_step
 
-            if blocked_steps and not current_step:
-                # 有阻塞步骤且没有进行中的步骤 - 合理停止
-                result.status = LoopStatus.COMPLETED
-                result.result = rt.response.content or "需要更多信息才能继续"
-                return LoopPhase.DONE
+        #     if blocked_steps and not current_step:
+        #         # 有阻塞步骤且没有进行中的步骤 - 合理停止
+        #         result.status = LoopStatus.COMPLETED
+        #         result.result = rt.response.content or "需要更多信息才能继续"
+        #         return LoopPhase.DONE
 
-            # 计划未完成但停止了 - 询问确认
-            logger.info("计划未完成但 LLM 停止，询问是否继续")
-            return await self._ask_continue_or_stop(context, rt)
+            # 计划未完成但停止了 - 直接进入总结阶段，先占时注释掉，判断是否需要这个地方，如果需要，再打开
+            # logger.info("计划未完成但 LLM 停止，进入总结阶段")
+            # return LoopPhase.FINAL_SUMMARY
 
         # 没计划或计划完成
         if rt.response.has_content:
@@ -231,42 +244,6 @@ class RapidExecutionLoop:
         else:
             # 没有最终回答，进入兜底总结
             return LoopPhase.FINAL_SUMMARY
-
-    async def _ask_continue_or_stop(
-        self,
-        context: LoopContext,
-        rt: RuntimeState,
-    ) -> LoopPhase:
-        """询问 LLM：计划未完成，确定要停止吗？"""
-
-        # 先把 assistant 的响应加到上下文
-        if rt.response.has_content:
-            context.add_message(MessageRole.ASSISTANT, content=rt.response.content)
-
-        # 防止无限循环：检查是否已经询问过
-        nudge_count = context.metadata.get("_plan_incomplete_nudge_count", 0)
-        if nudge_count >= 5:
-            # 已经问过 2 次了，强制进入总结
-            logger.warning("计划未完成但 LLM 持续停止，强制进入总结阶段")
-            return LoopPhase.FINAL_SUMMARY
-
-        context.metadata["_plan_incomplete_nudge_count"] = nudge_count + 1
-
-        pending = [s for s in context.plan.steps if s.status == "pending"]
-        completed = [s for s in context.plan.steps if s.status == "completed"]
-
-        prompt = (
-            f"Your plan has {len(pending)} pending steps (out of {len(context.plan.steps)} total, "
-            f"{len(completed)} completed):\n"
-            + "\n".join(f"  - {s.content}" for s in pending)
-            + "\n\nThe plan is NOT complete. You stopped without calling tools. Please:\n"
-            "A) Call the necessary tools to continue the next step, OR\n"
-            "B) Update the plan to mark steps as completed/blocked if the work is actually done."
-        )
-
-        context.add_message(MessageRole.USER, prompt)
-        context.metadata["_prefill_assistant"] = "I'll continue working on the plan. "
-        return LoopPhase.PLANNING
 
     def _record_tool_signature(
         self, context: LoopContext, tool_call: LLMToolCall
@@ -422,70 +399,67 @@ class RapidExecutionLoop:
                     rt.consecutive_failures = 0
                     context.metadata.setdefault("_recent_tool_signatures", []).clear()
                     return LoopPhase.PLANNING
-        for tool_call in write_calls:
-            self._record_tool_signature(context, tool_call)
-            rt.step_num += 1
-            step = await self.tool_executor.execute(tool_call, context, rt.step_num)
-            result.steps.append(step)
-            context.add_step(step)
+        write_index = 0
+        while write_index < len(write_calls):
+            tool_call = write_calls[write_index]
 
-            if step.status == StepStatus.WAITING_FOR_APPROVAL:
-                return await self._handle_approval(step, context, result, rt)
+            if tool_call.name != "delegate":
+                self._record_tool_signature(context, tool_call)
+                rt.step_num += 1
+                step = await self.tool_executor.execute(tool_call, context, rt.step_num)
+                result.steps.append(step)
+                context.add_step(step)
 
-            if step.status == StepStatus.FAILED:
-                rt.consecutive_failures += 1
-                await self._emit(
-                    "tool:error",
-                    {
-                        "tool_name": tool_call.name,
-                        "step_number": step.step_number,
-                        "tool_call_id": step.tool_call_id,
-                        "tool_call_metric_id": step.tool_call_metric_id,
-                        "invocation_id": step.invocation_id,
-                        "success": False,
-                        "output": step.output,
-                        "error": step.error,
-                        "duration": step.duration,
-                        "execution_duration_ms": int((step.duration or 0) * 1000),
-                        "total_duration_ms": int((step.duration or 0) * 1000),
-                        "execution_started_at": (
-                            step.execution_started_at.isoformat()
-                            if step.execution_started_at is not None
-                            else None
-                        ),
-                        "tool_started_at": (
-                            step.tool_started_at.isoformat()
-                            if step.tool_started_at is not None
-                            else None
-                        ),
-                        "terminal_reason": "failed",
-                        "arguments": step.args,
-                    },
+                if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                    return await self._handle_approval(step, context, result, rt)
+
+                phase, needs_error_recovery = await self._finalize_write_step(
+                    tool_call, step, context, rt
                 )
-                if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
-                    error_recovery_needed = True
-            else:
-                rt.consecutive_failures = 0
-                rt.has_executed_tools = True
+                error_recovery_needed = error_recovery_needed or needs_error_recovery
+                if phase is not None:
+                    return phase
 
-            if self._is_doom_loop(context):
-                doom_prompt = (
-                    f"[Doom Loop Detected] You have called "
-                    f"{tool_call.name} with the same arguments "
-                    f"{self.DOOM_LOOP_THRESHOLD} times in a row, "
-                    f"and it keeps failing or producing no progress.\n"
-                    f"Arguments: {json.dumps(tool_call.arguments)}\n"
-                    f"Last error: {step.error or 'no error (success but no progress)'}\n\n"
-                    f"You MUST change your approach:\n"
-                    f"- If the tool keeps failing, try a different "
-                    f"tool or different arguments.\n"
-                    f"- If you are stuck, mark the step as blocked in the plan tool.\n"
-                    f"- Do NOT retry with the same parameters again."
+                write_index += 1
+                continue
+
+            # 连续的 delegate 段：按 max_concurrent 分批并发执行。
+            # delegate 不会触发 WAITING_FOR_APPROVAL（审批已在子 agent
+            # 内部通过共享的 approval_flow 消化完毕），因此并发批次内
+            # 无需处理审批中断，收尾逻辑与串行路径完全一致。
+            delegate_run: list[LLMToolCall] = []
+            while (
+                write_index < len(write_calls)
+                and write_calls[write_index].name == "delegate"
+            ):
+                delegate_run.append(write_calls[write_index])
+                write_index += 1
+
+            max_concurrent = config_manager.settings.subagent.max_concurrent
+            for chunk_start in range(0, len(delegate_run), max_concurrent):
+                chunk = delegate_run[chunk_start : chunk_start + max_concurrent]
+                for tc in chunk:
+                    self._record_tool_signature(context, tc)
+
+                start_step = rt.step_num + 1
+                chunk_steps = await asyncio.gather(
+                    *[
+                        self.tool_executor.execute(tc, context, start_step + i)
+                        for i, tc in enumerate(chunk)
+                    ]
                 )
-                context.add_message(MessageRole.USER, doom_prompt)
-                rt.consecutive_failures = 0
-                context.metadata.setdefault("_recent_tool_signatures", []).clear()
-                return LoopPhase.PLANNING
+                rt.step_num = start_step + len(chunk) - 1
+
+                for tc, step in zip(chunk, chunk_steps, strict=True):
+                    result.steps.append(step)
+                    context.add_step(step)
+
+                    phase, needs_error_recovery = await self._finalize_write_step(
+                        tc, step, context, rt
+                    )
+                    error_recovery_needed = error_recovery_needed or needs_error_recovery
+                    if phase is not None:
+                        return phase
 
         if error_recovery_needed:
             return LoopPhase.ERROR_RECOVERY
@@ -505,6 +479,81 @@ class RapidExecutionLoop:
 
         return LoopPhase.PLANNING
 
+    async def _finalize_write_step(
+        self,
+        tool_call: LLMToolCall,
+        step: LoopStep,
+        context: LoopContext,
+        rt: RuntimeState,
+    ) -> tuple[LoopPhase | None, bool]:
+        """写操作单步收尾：失败计数/emit、doom loop 检测。
+
+        串行 write_call 和并发 delegate 批次共用同一份收尾逻辑，避免
+        两条路径的失败处理/doom loop 检测出现不一致。
+
+        返回 (phase, needs_error_recovery)：
+        - phase 非 None 时，调用方应立即以该 phase 结束 _handle_tool_execution。
+        - needs_error_recovery 为 True 时，调用方应在本轮循环结束后转入 ERROR_RECOVERY。
+        """
+        needs_error_recovery = False
+
+        if step.status == StepStatus.FAILED:
+            rt.consecutive_failures += 1
+            await self._emit(
+                "tool:error",
+                {
+                    "tool_name": tool_call.name,
+                    "step_number": step.step_number,
+                    "tool_call_id": step.tool_call_id,
+                    "tool_call_metric_id": step.tool_call_metric_id,
+                    "invocation_id": step.invocation_id,
+                    "success": False,
+                    "output": step.output,
+                    "error": step.error,
+                    "duration": step.duration,
+                    "execution_duration_ms": int((step.duration or 0) * 1000),
+                    "total_duration_ms": int((step.duration or 0) * 1000),
+                    "execution_started_at": (
+                        step.execution_started_at.isoformat()
+                        if step.execution_started_at is not None
+                        else None
+                    ),
+                    "tool_started_at": (
+                        step.tool_started_at.isoformat()
+                        if step.tool_started_at is not None
+                        else None
+                    ),
+                    "terminal_reason": "failed",
+                    "arguments": step.args,
+                },
+            )
+            if rt.consecutive_failures >= self.MAX_ERROR_RETRIES:
+                needs_error_recovery = True
+        else:
+            rt.consecutive_failures = 0
+            rt.has_executed_tools = True
+
+        if self._is_doom_loop(context):
+            doom_prompt = (
+                f"[Doom Loop Detected] You have called "
+                f"{tool_call.name} with the same arguments "
+                f"{self.DOOM_LOOP_THRESHOLD} times in a row, "
+                f"and it keeps failing or producing no progress.\n"
+                f"Arguments: {json.dumps(tool_call.arguments)}\n"
+                f"Last error: {step.error or 'no error (success but no progress)'}\n\n"
+                f"You MUST change your approach:\n"
+                f"- If the tool keeps failing, try a different "
+                f"tool or different arguments.\n"
+                f"- If you are stuck, mark the step as blocked in the plan tool.\n"
+                f"- Do NOT retry with the same parameters again."
+            )
+            context.add_message(MessageRole.USER, doom_prompt)
+            rt.consecutive_failures = 0
+            context.metadata.setdefault("_recent_tool_signatures", []).clear()
+            return LoopPhase.PLANNING, needs_error_recovery
+
+        return None, needs_error_recovery
+
     async def _handle_approval(
         self,
         step: LoopStep,
@@ -513,9 +562,15 @@ class RapidExecutionLoop:
         rt: RuntimeState,
     ) -> LoopPhase:
         """审批子处理器：等待审批结果，决定后续状态。"""
+        logger.info("[_handle_approval] Entering: tool=%s, step_number=%s", step.tool, step.step_number)
         result.status = LoopStatus.WAITING_FOR_APPROVAL
         result.result = step.output
 
+        # 发送运行状态事件：通知整个运行进入"等待审批"状态
+        # 注意：此时 tool_call_executor 已发送了 approval:required 事件（包含完整工具信息）
+        # 此事件用于标记运行状态，与 approval:required 协同工作：
+        # - approval:required: 工具层审批细节（前端用于显示审批对话框，包含完整参数）
+        # - run:waiting_for_approval: 运行层状态标记（前端用于更新运行状态）
         await self._emit(
             "run:waiting_for_approval",
             {
@@ -523,10 +578,13 @@ class RapidExecutionLoop:
                 "approval_id": step.approval_id,
                 "step_number": step.step_number,
                 "tool_name": step.tool,
+                "tool_call_id": step.tool_call_id,
             },
         )
 
+        logger.info("[_handle_approval] Calling wait_for_approval, tool=%s", step.tool)
         approval = await self.approval_flow.wait_for_approval(step, result.id)
+        logger.info("[_handle_approval] wait_for_approval returned: approved=%s, success=%s", approval.approved, approval.success)
 
         if approval.approved:
             result.status = LoopStatus.RESUMING
@@ -547,6 +605,7 @@ class RapidExecutionLoop:
             # Emit tool:result so the runtime adapter closes the
             # waiting-for-approval tool_trace (updates payload and
             # streamState from streaming → completed/failed).
+            logger.info("[_handle_approval] Emitting tool:result for tool=%s, tool_call_id=%s", step.tool, step.tool_call_id)
             await self._emit(
                 "tool:result",
                 {
@@ -574,6 +633,7 @@ class RapidExecutionLoop:
                     ),
                 },
             )
+            logger.info("[_handle_approval] tool:result emitted successfully")
 
             await self._emit(
                 "run:resuming",
@@ -710,7 +770,6 @@ class RapidExecutionLoop:
         session_id: str | None = None,
         created_at: datetime | None = None,
         history_messages: list[dict[str, str]] | None = None,
-        system_sections: list[str] | None = None,
         agent_mode: str = "build",
         task_content: str | list[dict] | None = None,
     ) -> LoopResult:
@@ -727,8 +786,7 @@ class RapidExecutionLoop:
             run_id: 运行 ID
             session_id: 会话 ID
             created_at: 创建时间
-            history_messages: 历史对话消息（来自 context assembler 的 recent_messages）
-            system_sections: 系统提示词片段列表
+            history_messages: 历史对话消息（来自 ConversationHistoryLoader 的 seed messages）
             agent_mode: Agent 模式（build/plan 等）
 
         Returns:
@@ -752,7 +810,6 @@ class RapidExecutionLoop:
             session_id=session_id,
             agent_mode=agent_mode,
             history_messages=history_messages,
-            system_sections=system_sections,
             task_content=task_content,
         )
 
@@ -765,8 +822,9 @@ class RapidExecutionLoop:
         logger.info("开始执行任务: %s", task)
 
         try:
+            # 尝试恢复旧计划，存储到 context.recovered_plan 供主循环使用
             if context.agent_mode != "plan":
-                await self._bootstrap_plan(context)
+                await self._try_recover_plan(context)
 
             handlers: dict[LoopPhase, Callable] = {
                 LoopPhase.PLANNING: self._handle_planning,
@@ -866,11 +924,11 @@ class RapidExecutionLoop:
 
     # -- helpers ----------------------------------------------------------
 
-    async def _bootstrap_plan(self, context: LoopContext) -> None:
-        """Bootstrap plan at task start: try to recover, check relevance, or create new."""
+    async def _try_recover_plan(self, context: LoopContext) -> None:
+        """尝试恢复旧计划，存储到 context.recovered_plan，由主循环决定是否使用。"""
         plan_tool = self.tool_definitions.get_plan_tool()
         if not plan_tool:
-            logger.info("Bootstrap plan: 无 plan_tool，跳过")
+            logger.info("无 plan_tool，跳过计划恢复")
             return
 
         # Set context for file operations
@@ -881,122 +939,17 @@ class RapidExecutionLoop:
         # Try to recover existing plan
         recovered_plan = plan_tool.try_recover(max_age_hours=24)
         logger.info(
-            "Bootstrap plan: recovered_plan=%s, goal=%s",
+            "计划恢复: recovered_plan=%s, goal=%s",
             recovered_plan is not None,
             recovered_plan.goal[:80] if recovered_plan else "N/A",
         )
 
         if recovered_plan:
-            is_relevant = await self._check_plan_relevance(context, recovered_plan)
-            logger.info("Bootstrap plan: 相关性检查结果=%s", is_relevant)
-
-            if is_relevant:
-                context.plan = recovered_plan
-                context.plan_file_path = plan_tool._file_path
-                await self._emit("plan:updated", context.plan.to_dict())
-                await self._emit(
-                    "plan:recovered",
-                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
-                )
-                logger.info("已恢复计划: %s", recovered_plan.goal[:80])
-                return
-            else:
-                logger.info(
-                    "恢复的计划 (goal: %s) 与新任务不相关: %s — 丢弃",
-                    recovered_plan.goal[:80],
-                    context.task[:80],
-                )
-                plan_tool.discard()
-                await self._emit(
-                    "plan:discarded",
-                    {"path": plan_tool._file_path, "goal": recovered_plan.goal},
-                )
-
-        # No plan or discarded, create new one via LLM
-        tools = self.tool_definitions.for_initial_plan()
-        messages = self.message_builder.build_initial_plan(context)
-
-        # 使用流式调用，让前端在计划阶段也能看到实时输出
-        with self._llm_observability_scope("initial_plan"):
-            response, _ = await self.llm.stream_collect(
-                messages,
-                tools,
-                on_content=lambda c: self._emit("llm:content", {"content": c}),
-                on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
-                max_empty_retries=0,
-            )
-
-        # Check for NO_PLAN response (task doesn't need a plan)
-        response_text = response.content or ""
-        if (
-            isinstance(response_text, str)
-            and response_text.strip().upper().startswith("NO_PLAN")
-            and not response.tool_calls
-        ):
-            logger.info("Bootstrap plan: LLM decided NO_PLAN for this task")
-            return
-
-        for tool_call in response.tool_calls:
-            if tool_call.name != plan_tool.name:
-                continue
-            result = await plan_tool.execute(tool_call.arguments)
-            if result.success and plan_tool.get_plan():
-                context.plan = plan_tool.get_plan()
-                context.plan_file_path = plan_tool._file_path
-                await self._emit("plan:updated", context.plan.to_dict())
-            elif result.error:
-                context.add_message(MessageRole.SYSTEM, f"初始计划创建失败: {result.error}")
-            return
-
-    async def _check_plan_relevance(self, context: LoopContext, plan) -> bool:
-        """Ask LLM whether the new task is related to the recovered plan."""
-        steps_lines = []
-        for i, s in enumerate(plan.steps, 1):
-            line = f"  {i}. [{s.status}] {s.content}"
-            if s.findings:
-                line += f"\n     Findings: {s.findings}"
-            steps_lines.append(line)
-        steps_detail = "\n".join(steps_lines)
-
-        prompt = f"""\
-You are deciding whether to RESUME an existing plan or DISCARD it and create a new one.
-
-Existing plan goal: {plan.goal}
-
-Full plan ({len(plan.steps)} steps):
-{steps_detail}
-
-New user task: {context.task}
-
-Question: Should the agent RESUME the existing plan (continue from where it left off)
-to fulfill the new task? Or should it DISCARD the plan and create a fresh one?
-
-Resume criteria (answer "yes" ONLY if ALL are true):
-1. The new task is asking to CONTINUE the same work described in the plan goal
-2. The remaining pending/blocked steps are directly relevant to completing the new task
-3. Starting a fresh plan would be wasteful because the completed steps already cover
-   what the new task needs
-
-Answer "no" if:
-- The new task is a DIFFERENT focus area, even if it's in the same project/domain
-- The new task only overlaps partially with the plan goal
-- The user wants to investigate or work on something specific, not continue the full plan
-
-Answer ONLY "yes" or "no".\
-"""
-        messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
-        try:
-            with self._llm_observability_scope("plan_relevance"):
-                response = await self.llm.complete(messages, tools=[])
-            answer = (response.content or "").strip().lower()
-            if answer.startswith("yes"):
-                return True
-            if answer.startswith("no"):
-                return False
-            return "yes" in answer
-        except Exception:
-            logger.warning("计划相关性检查失败，默认为不相关")
-            return False
+            # 存储旧计划到 context，由主循环在首轮注入提示，让 LLM 自己决定
+            context.recovered_plan = recovered_plan
+            logger.info("旧计划已恢复，将在首轮提示 LLM 决定是否继续")
+        else:
+            context.recovered_plan = None
 
     # -- LLM calls --------------------------------------------------------
 
@@ -1066,13 +1019,7 @@ Answer ONLY "yes" or "no".\
                 context, response, messages, tools, call_started_at
             )
 
-        # 5. Prefill 合并
-        prefill = context.metadata.pop("_prefill_assistant", None)
-        if prefill:
-            merged_content = (prefill + (response.content or "")) if response.content else prefill
-            response = response.model_copy(update={"content": merged_content or None})
-
-        # 6. 添加到上下文
+        # 5. 添加到上下文
         context.add_message(
             MessageRole.ASSISTANT,
             content=response.content or None,

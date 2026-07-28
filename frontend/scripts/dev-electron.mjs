@@ -1,7 +1,8 @@
+import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import process from 'node:process'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -48,6 +49,12 @@ function waitForServer(url, timeoutMs = 30000) {
   })
 }
 
+function parseViteUrl(output) {
+  const stripped = output.replace(/\x1b\[[0-9;]*m/g, '')
+  const match = stripped.match(/Local:\s+(https?:\/\/[^\s]+)/)
+  return match ? match[1] : null
+}
+
 function terminateChild(child) {
   if (!child || child.killed) {
     return
@@ -79,8 +86,30 @@ async function main() {
       ...process.env,
       BROWSER: 'none',
     },
-    stdio: 'inherit',
+    stdio: ['ignore', 'pipe', 'pipe'],
   })
+
+  let viteOutput = ''
+  let resolvedUrl = null
+  let urlResolve = null
+  const urlPromise = new Promise((resolve) => { urlResolve = resolve })
+
+  const onViteData = (chunk) => {
+    const text = chunk.toString()
+    process.stdout.write(text)
+    viteOutput += text
+
+    if (!resolvedUrl) {
+      const url = parseViteUrl(viteOutput)
+      if (url) {
+        resolvedUrl = url
+        urlResolve(url)
+      }
+    }
+  }
+
+  viteProcess.stdout.on('data', onViteData)
+  viteProcess.stderr.on('data', onViteData)
 
   viteProcess.on('exit', (code) => {
     if (!shuttingDown) {
@@ -88,13 +117,31 @@ async function main() {
     }
   })
 
-  await waitForServer('http://127.0.0.1:5173')
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('Timed out waiting for Vite to report URL')), 30000),
+  )
+
+  const viteUrl = await Promise.race([urlPromise, timeout])
+  console.log(`\nVite ready at ${viteUrl}\n`)
+
+  await waitForServer(viteUrl)
+
+  // Ensure the Electron binary exists before spawning.
+  // On macOS 26+, Gatekeeper can silently remove the unsigned Electron.app.
+  const fixScript = path.resolve(__dirname, 'fix-electron.mjs')
+  if (fs.existsSync(fixScript)) {
+    spawnSync('node', [fixScript], { stdio: 'inherit' })
+  }
+
+  // ELECTRON_RUN_AS_NODE causes Electron to run as a plain Node.js process
+  // without any GUI. Strip it from the environment so the window opens normally.
+  const { ELECTRON_RUN_AS_NODE, ...childEnv } = process.env
 
   electronProcess = spawn(electronBinary, ['./electron/main.cjs'], {
     cwd: frontendDir,
     env: {
-      ...process.env,
-      ELECTRON_RENDERER_URL: 'http://127.0.0.1:5173',
+      ...childEnv,
+      ELECTRON_RENDERER_URL: viteUrl,
     },
     stdio: 'inherit',
   })

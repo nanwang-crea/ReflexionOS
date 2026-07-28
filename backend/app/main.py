@@ -21,15 +21,13 @@ from app.api.routes import (
     websocket,
 )
 from app.app_services import agent_service
+from app.config.logging_config import get_log_file_path, setup_logging
 from app.errors import AppError
 
+# 初始化集中式日志配置（控制台 + 文件双输出，RotatingFileHandler 自动轮转）
+setup_logging(level=logging.INFO)
+
 logger = logging.getLogger("app")
-if not logger.handlers:
-    _handler = logging.StreamHandler()
-    _handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
-    logger.addHandler(_handler)
-logger.setLevel(logging.INFO)
-logger.propagate = False
 
 
 class RequestLoggingMiddleware:
@@ -149,3 +147,13 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+
+@app.get("/api/logs/info")
+async def logs_info():
+    """返回日志文件路径和配置信息，方便前端定位日志"""
+    log_path = get_log_file_path()
+    return {
+        "log_file": str(log_path) if log_path else None,
+        "log_dir": str(log_path.parent) if log_path else None,
+    }

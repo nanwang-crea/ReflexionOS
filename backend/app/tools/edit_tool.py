@@ -122,7 +122,7 @@ class EditTool(BaseTool):
 
             result = _convert_line_ending(result, line_ending)
 
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+            async with aiofiles.open(path, "w", encoding="utf-8", newline="") as f:
                 await f.write(result)
 
         return ToolResult(
@@ -150,7 +150,8 @@ class EditTool(BaseTool):
             if not content.endswith("\n"):
                 content += line_ending
             content += _convert_line_ending(normalized_new, line_ending)
-            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+            # Windows 文本模式会把 \n 再转换成 \r\n；newline="" 可保留上面显式转换出的 CRLF。
+            async with aiofiles.open(path, "w", encoding="utf-8", newline="") as f:
                 await f.write(content)
             return ToolResult(
                 success=True,

@@ -20,10 +20,14 @@ const {
   wsOnMock,
   wsHandlers,
   conversationStoreState,
+  resetSessionActionMock,
+  resetSessionSeenMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (data: unknown) => void>()
 
   return {
+    resetSessionActionMock: vi.fn(),
+    resetSessionSeenMock: vi.fn(),
     getConversationMock: vi.fn(),
     setSnapshotMock: vi.fn(),
     applyEventMock: vi.fn(),
@@ -74,11 +78,32 @@ vi.mock('@/features/conversation/api/conversation.api', () => ({
   },
 }))
 
-vi.mock('@/features/conversation/stores/conversation.store', () => ({
-  useConversationStore: {
-    getState: () => conversationStoreState,
+vi.mock('@/features/conversation/stores/conversation.store', () => {
+  // useConversationStore 既可作为 selector hook 调用（runtime 订阅活跃会话签名时），
+  // 也提供 getState（命令式读取）。两种用法都打到同一份 conversationStoreState。
+  const useConversationStore = ((selector?: (state: typeof conversationStoreState) => unknown) =>
+    selector ? selector(conversationStoreState) : conversationStoreState) as unknown as {
+      (selector?: (state: typeof conversationStoreState) => unknown): unknown
+      getState: () => typeof conversationStoreState
+    }
+  useConversationStore.getState = () => conversationStoreState
+
+  return {
+  useConversationStore,
+  // 按 runId 反查所属 sessionId：遍历各会话的 runsById（与真实实现一致）。
+  findSessionIdByRunId: (
+    conversationsBySessionId: Record<string, { runsById?: Record<string, unknown> }>,
+    runId: string,
+  ) => {
+    for (const [sessionId, conversation] of Object.entries(conversationsBySessionId)) {
+      if (conversation.runsById?.[runId]) {
+        return sessionId
+      }
+    }
+    return null
   },
-}))
+  }
+})
 
 vi.mock('@/features/sessions/stores/session.store', () => ({
   useSessionStore: {
@@ -89,10 +114,25 @@ vi.mock('@/features/sessions/stores/session.store', () => ({
   },
 }))
 
+vi.mock('@/features/sessions/session.actions', () => ({
+  resetSession: resetSessionActionMock,
+}))
+
 vi.mock('@/shared/stores/toast.store', () => ({
   useToastStore: {
     getState: () => ({
       addToast: vi.fn(),
+    }),
+  },
+}))
+
+vi.mock('@/features/workspace/stores/workspace.store', () => ({
+  useWorkspaceStore: {
+    getState: () => ({
+      sessionSyncHealthBySessionId: {} as Record<string, 'degraded'>,
+      markSessionSyncDegraded: vi.fn(),
+      clearSessionSyncHealth: vi.fn(),
+      resetSessionSeen: resetSessionSeenMock,
     }),
   },
 }))
@@ -184,6 +224,8 @@ describe('useConversationRuntime', () => {
     wsApproveToolMock.mockReset()
     wsDenyToolMock.mockReset()
     wsOnMock.mockClear()
+    resetSessionActionMock.mockReset()
+    resetSessionSeenMock.mockReset()
     wsHandlers.clear()
 
     conversationStoreState.conversationsBySessionId = {}
@@ -414,6 +456,17 @@ describe('useConversationRuntime', () => {
 
   it('routes approve and deny tool decisions through the session websocket channel', async () => {
     getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    conversationStoreState.conversationsBySessionId = {
+      'session-1': {
+        session: { activeTurnId: 'turn-1' },
+        turnsById: {
+          'turn-1': { activeRunId: 'run-1' },
+        },
+        runsById: {
+          'run-1': { status: 'waiting_for_approval' },
+        },
+      },
+    }
 
     const { useConversationRuntime } = await import('../useConversationRuntime')
     const runtime = useConversationRuntime('session-1')
@@ -549,5 +602,37 @@ describe('useConversationRuntime', () => {
 
     expect(getConversationMock).toHaveBeenCalledTimes(2)
     expect(setSnapshotMock).toHaveBeenLastCalledWith('session-1', snapshot)
+  })
+
+  it('resetConversationRuntime: 成功后才清显示并回退未读基线', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    resetSessionActionMock.mockResolvedValue({ id: 'session-1', lastEventSeq: 0, activeTurnId: null })
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+    await flushAsyncEffects()
+    clearConversationMock.mockClear()
+
+    await runtime.resetConversationRuntime()
+
+    expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
+    expect(clearConversationMock).toHaveBeenCalledWith('session-1')
+    expect(resetSessionSeenMock).toHaveBeenCalledWith('session-1')
+  })
+
+  it('resetConversationRuntime: 后端失败则不清任何前端状态', async () => {
+    getConversationMock.mockResolvedValue({ data: buildSnapshot() })
+    resetSessionActionMock.mockRejectedValue(new Error('boom'))
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const runtime = useConversationRuntime('session-1')
+    await flushAsyncEffects()
+    clearConversationMock.mockClear()
+
+    await runtime.resetConversationRuntime()
+
+    expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
+    expect(clearConversationMock).not.toHaveBeenCalled()
+    expect(resetSessionSeenMock).not.toHaveBeenCalled()
   })
 })

@@ -64,3 +64,7 @@ class ToolRegistry:
     def list_tools(self) -> list[str]:
         """列出所有注册的工具名称"""
         return sorted(self.tools.keys())
+
+    def list_tools_excluding(self, exclude: frozenset[str]) -> list[str]:
+        """返回排除指定工具名后的所有工具名列表（保持排序）"""
+        return sorted(name for name in self.tools if name not in exclude)

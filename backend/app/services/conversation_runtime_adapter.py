@@ -99,6 +99,9 @@ class ConversationRuntimeAdapter:
         if event_type == "approval:required":
             return self._append_events(self._approval_required_events(data))
 
+        if event_type == "run:waiting_for_approval":
+            return self._append_events(self._run_waiting_for_approval_events(data))
+
         if event_type == "run:resuming":
             return self._append_events(self._run_resuming_events(data))
 
@@ -281,6 +284,16 @@ class ConversationRuntimeAdapter:
         return events
 
     def _approval_required_events(self, data: dict) -> list[ConversationEvent]:
+        """
+        处理工具层审批请求事件 (approval:required)
+
+        职责：
+        - 生成工具消息的审批状态更新
+        - 生成 APPROVAL_REQUIRED 事件（携带完整工具信息，用于前端展示审批对话框）
+        - 同时生成 RUN_WAITING_FOR_APPROVAL 事件（标记整个运行进入等待审批状态）
+
+        事件来源：tool_call_executor.py 在执行工具时检测到需要审批
+        """
         tool_key = self._tool_key(data)
         message_id = self.tool_message_ids.get(tool_key)
         events: list[ConversationEvent] = []
@@ -291,6 +304,8 @@ class ConversationRuntimeAdapter:
 
         approval_id = data.get("approval_id")
         approval_payload = data.get("approval")
+        # 提取 parent_session_id（SubAgent 审批场景下由 DelegateTool 注入）
+        parent_session_id = data.get("parent_session_id")
         payload_update = {
             "tool_name": data.get("tool_name"),
             "arguments": data.get("arguments"),
@@ -300,6 +315,9 @@ class ConversationRuntimeAdapter:
             "approval": approval_payload,
             "status": "waiting_for_approval",
         }
+        # SubAgent 审批场景：携带 parent_session_id 让前端路由审批响应到正确的 WebSocket
+        if parent_session_id:
+            payload_update["parent_session_id"] = parent_session_id
         events.extend(
             [
                 self._new_event(
@@ -308,6 +326,8 @@ class ConversationRuntimeAdapter:
                     run_id=self.run_id,
                     payload_json={"payload_json": payload_update},
                 ),
+                # 工具层审批事件：携带完整的工具信息（名称、参数、风险提示等）
+                # 前端用此展示审批对话框
                 self._new_event(
                     event_type=EventType.APPROVAL_REQUIRED,
                     message_id=message_id,
@@ -319,8 +339,11 @@ class ConversationRuntimeAdapter:
                         "arguments": data.get("arguments"),
                         "step_number": data.get("step_number"),
                         "approval": approval_payload,
+                        **({"parent_session_id": parent_session_id} if parent_session_id else {}),
                     },
                 ),
+                # 运行状态事件：标记整个运行暂停
+                # 前端用此更新运行状态显示（如状态栏显示"运行暂停"）
                 self._new_event(
                     event_type=EventType.RUN_WAITING_FOR_APPROVAL,
                     run_id=self.run_id,
@@ -333,6 +356,37 @@ class ConversationRuntimeAdapter:
             ]
         )
         return events
+
+    def _run_waiting_for_approval_events(self, data: dict) -> list[ConversationEvent]:
+        """
+        处理执行循环层的运行暂停事件 (run:waiting_for_approval)
+        
+        职责：
+        - 标记整个运行进入"等待审批"状态
+        - 用于前端更新运行状态显示（状态栏、进度指示器等）
+        
+        事件来源：rapid_loop.py 在检测到工具步骤需要审批后，在执行循环层面发送此状态通知
+        
+        注意：
+        - 此事件与 approval:required 协同工作但职责不同
+        - approval:required 关注具体工具的审批细节（由工具执行器发送）
+        - run:waiting_for_approval 关注整体运行状态（由执行循环发送）
+        - 前端应同时监听两个事件：approval:required 显示审批对话框，run:waiting_for_approval 更新状态栏
+        """
+        return [
+            self._new_event(
+                event_type=EventType.RUN_WAITING_FOR_APPROVAL,
+                run_id=self.run_id,
+                payload_json={
+                    "run_id": data.get("run_id"),
+                    "approval_id": data.get("approval_id"),
+                    "step_number": data.get("step_number"),
+                    "tool_name": data.get("tool_name"),
+                    "tool_call_id": data.get("tool_call_id"),
+                    "arguments": data.get("arguments"),
+                },
+            )
+        ]
 
     def _run_resuming_events(self, data: dict) -> list[ConversationEvent]:
         return [

@@ -64,7 +64,7 @@ class TestOpenAIAdapter:
 
         headers = dict(adapter.client.default_headers)
 
-        assert "claude-cli/" in headers["User-Agent"]
+        assert "codex-cli/" in headers["User-Agent"]
         assert headers["Accept"] == "application/json"
         assert headers["Accept-Language"] == "en-US,en;q=0.9"
         assert headers["Cache-Control"] == "no-cache"

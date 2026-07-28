@@ -1,10 +1,17 @@
+from __future__ import annotations
+
 import logging
+import os
 import sys
 import textwrap
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from string import Template
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.orchestration.skill_registry import SkillRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -65,12 +72,6 @@ TEMPLATES_MANIFEST: list[dict] = [
         "family_specific": True,
     },
     {
-        "name": "initial_plan",
-        "file": "initial_plan.txt",
-        "variables": [],
-        "family_specific": True,
-    },
-    {
         "name": "final_response",
         "file": "final_response.txt",
         "variables": ["task"],
@@ -112,9 +113,10 @@ def _read_prompt_file(filename: str) -> str:
 class PromptManager:
     """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件，支持模型族子目录"""
 
-    def __init__(self, model_name: str = ""):
+    def __init__(self, model_name: str = "", skill_registry: SkillRegistry | None = None):
         self.templates: dict[str, PromptTemplate] = {}
         self.prompt_family = classify_prompt_family(model_name)
+        self.skill_registry = skill_registry
         self._load_templates()
 
     def _resolve_file(self, entry: dict) -> str:
@@ -230,8 +232,25 @@ class PromptManager:
             logger.warning("Failed to read prompt overlay: %s", path, exc_info=True)
         return ""
 
+    def _global_reflexion_dir(self) -> Path:
+        """返回全局 Reflexion overlay 目录。
+
+        函数名：_global_reflexion_dir
+        入参：无
+        功能：解析全局 `.reflexion` 目录，优先尊重测试和类 Unix 环境常用的 HOME。
+        运行逻辑：
+          1. Windows 的 Path.home() 优先 USERPROFILE，monkeypatch HOME 时不会生效。
+          2. 这里显式读取 HOME，保证测试隔离和跨平台行为一致。
+          3. HOME 未设置时退回 Path.home()，保持生产环境默认行为。
+        出参：Path - 全局 `.reflexion` 目录路径
+        """
+        home = os.environ.get("HOME")
+        if home:
+            return Path(home) / ".reflexion"
+        return Path.home() / ".reflexion"
+
     def _ensure_global_overlays(self) -> None:
-        reflexion_dir = Path.home() / ".reflexion"
+        reflexion_dir = self._global_reflexion_dir()
         try:
             reflexion_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -262,17 +281,37 @@ class PromptManager:
                 logger.warning("Failed to create global agent.md: %s", agent_path)
 
     def _overlay_paths(self, project_root: str | None) -> list[Path]:
+        """返回 system prompt overlay 文件的加载路径列表（按优先级从低到高排列）。
+
+        三个 overlay 文件的职责：
+        - soul.md   — Agent 人格/性格（"你是谁"）：定义身份、沟通风格、价值观。
+                       全局默认由 _ensure_global_overlays() 初始化，项目级可覆盖。
+        - agent.md  — 行为规则（"你怎么做事"）：定义执行策略、停止条件、错误处理等。
+                       全局默认由 _ensure_global_overlays() 初始化，项目级可覆盖。
+        - memory.md — 跨会话记忆（"记住什么"）：用户偏好、项目约定、历史教训等。
+                       无默认内容，由用户或 LLM（通过 edit 工具）手动写入。
+                       全局级 ~/.reflexion/memory.md 适用于所有项目，
+                       项目级 {project}/.reflexion/memory.md 适用于当前项目。
+
+        加载顺序：全局 → 项目级，同层按 soul → agent → memory 排列。
+        后加载的内容追加在 system prompt 末尾，等效于优先级更高。
+        """
         self._ensure_global_overlays()
+        global_reflexion_dir = self._global_reflexion_dir()
         paths = [
-            Path.home() / ".reflexion" / "soul.md",
-            Path.home() / ".reflexion" / "agent.md",
+            # 全局 overlay（~/.reflexion/）
+            global_reflexion_dir / "soul.md",
+            global_reflexion_dir / "agent.md",
+            global_reflexion_dir / "memory.md",
         ]
         if project_root:
             root = Path(project_root)
             paths.extend(
                 [
+                    # 项目级 overlay（{project}/.reflexion/），覆盖全局
                     root / ".reflexion" / "soul.md",
                     root / ".reflexion" / "agent.md",
+                    root / ".reflexion" / "memory.md",
                 ]
             )
         return paths
@@ -315,7 +354,50 @@ class PromptManager:
         )
         if coding_mode:
             sections.append(self.get_template("coding_appendix").render())
+
+        # 注入 Skills 元数据（原 ContextAssembler.build_for_session 中的逻辑）
+        skill_section = self._build_skill_section()
+        if skill_section:
+            sections.append(skill_section)
+
         return self._join_sections(sections)
+
+    # ------------------------------------------------------------------
+    # Skills 元数据注入
+    # ------------------------------------------------------------------
+
+    def _build_skill_section(self) -> str:
+        """构建 Skills 元数据 section，注入到 system prompt 末尾。
+
+        原 ContextAssembler 中的 Skills 注入逻辑迁移至此，
+        由 PromptManager 统一管理所有静态上下文。
+        AGENTS.md 已废弃，统一使用 agent.md overlay 机制。
+        """
+        if not self.skill_registry:
+            return ""
+
+        enabled_skills = self.skill_registry.list_enabled_skills()
+        if not enabled_skills:
+            return ""
+
+        parts = ["""## Available Skills
+
+When a skill clearly matches your current task, load it first using the 'skill' tool with action='load'.
+
+### Skill usage guidelines:
+1. Before starting a task, briefly consider whether an available skill matches.
+2. If a skill matches, use the 'skill' tool with action='load' to read its full content.
+3. Follow the loaded skill's instructions — skills provide proven workflows for complex tasks.
+4. Process skills (debugging, TDD, brainstorming) help you approach a task correctly — check them when relevant.
+5. Implementation skills guide execution — use them after process skills when applicable.
+6. A skill's hard gates and checklists are important safeguards — respect them.
+
+### Available skills:"""]
+        for s in enabled_skills:
+            req_str = ", ".join(s.required_skills)
+            req = f" (requires: {req_str})" if s.required_skills else ""
+            parts.append(f"- **{s.name}**: {s.description}{req}")
+        return "\n".join(parts)
 
     def get_plan_mode_prompt(
         self,
@@ -364,9 +446,6 @@ class PromptManager:
 
     def get_final_response_prompt(self, task: str) -> str:
         return self.get_template("final_response").render(task=task)
-
-    def get_initial_plan_prompt(self) -> str:
-        return self.get_template("initial_plan").render()
 
     def get_midrun_compression_system_prompt(self) -> str:
         return self.get_template("midrun_compress_system").render()

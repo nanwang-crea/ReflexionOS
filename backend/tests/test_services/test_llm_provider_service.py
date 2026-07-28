@@ -112,7 +112,7 @@ async def test_test_provider_connection_sets_browser_like_default_headers():
     kwargs = mock_openai.call_args.kwargs
     headers = kwargs["default_headers"]
 
-    assert "claude-cli/" in headers["User-Agent"]
+    assert "codex-cli/" in headers["User-Agent"]
     assert headers["Accept"] == "application/json"
     assert headers["Accept-Language"] == "en-US,en;q=0.9"
     assert headers["Cache-Control"] == "no-cache"

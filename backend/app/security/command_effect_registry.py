@@ -256,7 +256,7 @@ class CommandEffectRegistry:
             self.register(cmd, CommandEffectEntry(category=EffectCategory.DESTRUCTIVE))
 
         # ── ESCALATE ────────────────────────────────────────────────
-        escalate_commands = ["sudo", "su", "eval", "exec", "newgrp", "pkexec", "gksudo"]
+        escalate_commands = ["sudo", "su", "eval", "exec", "newgrp", "pkexec", "gksudo", "runas"]
         for cmd in escalate_commands:
             self.register(cmd, CommandEffectEntry(category=EffectCategory.ESCALATE))
 
@@ -278,18 +278,55 @@ class CommandEffectRegistry:
             self.register(cmd, CommandEffectEntry(category=EffectCategory.NETWORK_OUT))
 
         # ── Windows-specific ────────────────────────────────────────
+        # 注意：直接注册（不通过 platform_overrides；该字段虽存在但 lookup 从不消费）
+        # 跨平台安全：这些命令在 Unix 不存在或行为不同，但 register 本身无害
+        #  cd/chdir/dir/type/set/findstr/tree/ver/cls → 不存在也是 READ_ONLY 语义
+        #  copy/xcopy/move/ren/rename/md → 不存在也是 WRITE_PROJECT 语义
+        windows_builtin_read_only = [
+            "cd", "chdir", "dir", "type", "set", "findstr", "tree", "ver", "cls",
+        ]
+        for cmd in windows_builtin_read_only:
+            self.register(cmd, CommandEffectEntry(category=EffectCategory.READ_ONLY))
+
+        windows_builtin_write = [
+            "copy", "xcopy", "robocopy", "move", "ren", "rename", "md",
+        ]
+        for cmd in windows_builtin_write:
+            self.register(cmd, CommandEffectEntry(category=EffectCategory.WRITE_PROJECT))
+
+        # 保留原有 Windows 命令（直接注册，不用 platform_overrides）
         windows_commands = [
             ("del", EffectCategory.DESTRUCTIVE),
             ("erase", EffectCategory.DESTRUCTIVE),
             ("rd", EffectCategory.DESTRUCTIVE),
+            ("rmdir", EffectCategory.DESTRUCTIVE),
             ("format", EffectCategory.DESTRUCTIVE),
             ("diskpart", EffectCategory.DESTRUCTIVE),
-            ("cmd", EffectCategory.ESCALATE),
-            ("powershell", EffectCategory.ESCALATE),
-            ("pwsh", EffectCategory.ESCALATE),
         ]
         for cmd, base_cat in windows_commands:
-            self.register(cmd, CommandEffectEntry(
-                category=base_cat,
-                platform_overrides={"win32": base_cat},
+            self.register(cmd, CommandEffectEntry(category=base_cat))
+
+        # PowerShell/cmd —— ESCALATE 基类，与 bash -c 同等语义：
+        # -Command/-c/-EncodedCommand（PowerShell）、/c、/k（cmd）都是"交给解释器执行任意命令"，
+        # 通过 flag_overrides 降级为 CODE_GEN，交由 command_policy._shell_interpreter_override 判断
+        # （命中类路径参数进一步降级为 WRITE_PROJECT；裸调用无参数维持 ESCALATE 拒绝）。
+        for interp in ["powershell", "pwsh"]:
+            self.register(interp, CommandEffectEntry(
+                category=EffectCategory.ESCALATE,
+                flag_overrides={
+                    "-Command": EffectCategory.CODE_GEN,
+                    "-command": EffectCategory.CODE_GEN,
+                    "-c": EffectCategory.CODE_GEN,
+                    "-EncodedCommand": EffectCategory.CODE_GEN,
+                    "-encodedcommand": EffectCategory.CODE_GEN,
+                },
             ))
+        self.register("cmd", CommandEffectEntry(
+            category=EffectCategory.ESCALATE,
+            flag_overrides={
+                "/c": EffectCategory.CODE_GEN,
+                "/C": EffectCategory.CODE_GEN,
+                "/k": EffectCategory.CODE_GEN,
+                "/K": EffectCategory.CODE_GEN,
+            },
+        ))

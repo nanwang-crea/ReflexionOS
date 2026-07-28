@@ -60,9 +60,12 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
     const approvalPayload = isRecord(approvalObj?.payload) ? approvalObj.payload : undefined
     const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
     const suggestedTrust = isRecord(approvalObj?.suggested_trust) ? approvalObj.suggested_trust : undefined
+    // 提取 parent_session_id，用于 SubAgent 审批路由
+    const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
     detail.approval = {
       runId: message.runId,
       approvalId: payload.approval_id,
+      parentSessionId: parentSessionId,  // SubAgent 的父 session ID
       suggestedTrust: suggestedTrust ?? undefined,
       ...(hasShellPayload ? {
         shell: {
@@ -82,6 +85,12 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
   else if (typeof payload.error_message === 'string') { detail.error = payload.error_message }
 
   if (typeof payload.duration === 'number' && Number.isFinite(payload.duration)) { detail.duration = payload.duration }
+
+  // 将 tool_call_id 存入 data 字段，delegate 等工具需要它来关联 sub_agent 事件
+  // detail.id 是 message.id，而 sub_agent store 以 tool_call_id 为 key，两者不同
+  if (typeof payload.tool_call_id === 'string') {
+    detail.data = { ...detail.data, tool_call_id: payload.tool_call_id }
+  }
 
   return detail
 }

@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from typing import Any
 
@@ -10,11 +11,16 @@ from app.execution.context_manager import LoopContext
 from app.execution.models import LoopStep, StepStatus
 from app.execution.plan_file_sync import PlanFileSync
 from app.llm.base import LLMToolCall
-from app.memory.curated_store import CuratedMemoryStore
-from app.tools.memory_tool import MemoryTool
 from app.tools.registry import ToolRegistry
+from app.tools.working_memory_tool import WorkingMemoryTool
 
 logger = logging.getLogger(__name__)
+
+# 当前正在执行的工具调用 ID，由 ToolCallExecutor 在每次 execute 前设置
+# 供需要感知 call_id 的工具（如 DelegateTool）读取
+_current_tool_call_id: ContextVar[str] = ContextVar(
+    "_current_tool_call_id", default=""
+)
 
 READ_ONLY_TOOL_NAMES = frozenset({"grep", "glob", "session_recall"})
 READ_ONLY_FILE_ACTIONS = frozenset({"read", "search", "list"})
@@ -39,9 +45,6 @@ class ToolCallExecutor:
         if tool_call.name == "file":
             action = tool_call.arguments.get("action", "")
             return action in READ_ONLY_FILE_ACTIONS
-        if tool_call.name == "memory":
-            action = tool_call.arguments.get("action", "")
-            return action in ("get", "list", "search")
         return False
 
     def prepare_read_only_batch(
@@ -112,6 +115,7 @@ class ToolCallExecutor:
             if not tool:
                 raise ValueError(f"工具不存在: {tool_call.name}")
 
+            # 参数解析失败时直接返回错误，无需注入 WorkingMemory
             if tool_call.arguments.get("__reflexion_parse_error"):
                 error_msg = tool_call.arguments["__reflexion_parse_error"]
                 raw = tool_call.arguments.get("__reflexion_raw_arguments", "")
@@ -126,11 +130,20 @@ class ToolCallExecutor:
                 )
                 return step
 
+            # 注入 WorkingMemory 实例到 WorkingMemoryTool（仅在真正执行前注入）
+            if isinstance(tool, WorkingMemoryTool):
+                tool.set_working_memory(context.working_memory)
+
             missing = self._validate_required_args(tool, tool_call.arguments)
             if missing:
                 raise ValueError(f"缺少必需参数: {', '.join(missing)}")
 
-            result = await tool.execute(tool_call.arguments)
+            # 设置当前 tool_call_id 到上下文变量，供需要感知 call_id 的工具读取
+            _call_id_token = _current_tool_call_id.set(tool_call.id)
+            try:
+                result = await tool.execute(tool_call.arguments)
+            finally:
+                _current_tool_call_id.reset(_call_id_token)
 
             if result.approval_required:
                 approval = result.approval
@@ -164,6 +177,9 @@ class ToolCallExecutor:
                         "approval_id": approval.approval_id,
                         "step_number": step_number,
                         "approval": approval.model_dump(),
+                        # run_id 供子 agent 场景下前端关联审批到具体的 delegate 调用
+                        # （DelegateToolCall.tsx / SubAgentDetailPanel.tsx 需要 run_id 才能提交审批结果）
+                        "run_id": context.run_id,
                     },
                 )
 
@@ -222,6 +238,19 @@ class ToolCallExecutor:
                 tool_call_id=tool_call.id,
             )
 
+            # Working Memory 自动提取：从 tool 结果中提取关键信息
+            # 同时记录文件访问和工具调用到 SessionTracker
+            # 不影响主流程，提取失败仅 debug 日志
+            try:
+                context.memory_extractor.extract(
+                    tool_name=tool_call.name,
+                    tool_args=tool_call.arguments,
+                    tool_result=tool_output,
+                    step=step_number,
+                )
+            except Exception as me:
+                logger.debug("Memory extraction failed for %s: %s", tool_call.name, me)
+
             await self.emit(
                 "tool:result",
                 {
@@ -262,11 +291,6 @@ class ToolCallExecutor:
                     )
                 await self.emit("plan:updated", context.plan.to_dict())
 
-            # P0 fix: Refresh memory-related system_sections after MemoryTool writes.
-            # Without this, the LLM won't see its own memory changes until the next run.
-            if isinstance(tool, MemoryTool) and result.success:
-                await self._refresh_memory_sections(context)
-
             logger.info(
                 "工具 %s 执行%s",
                 tool_call.name,
@@ -299,27 +323,3 @@ class ToolCallExecutor:
             if key not in arguments or arguments[key] is None:
                 missing.append(key)
         return missing
-
-    @staticmethod
-    async def _refresh_memory_sections(context: LoopContext) -> None:
-        """Re-read curated memory from disk and rebuild memory-related system_sections.
-
-        Called after MemoryTool writes so the LLM sees its own memory changes
-        in the very next turn, without waiting for a new run.
-        """
-        if not context.project_path:
-            return
-
-        store = CuratedMemoryStore(context.project_path)
-        refreshed_sections: list[dict[str, str]] = []
-        for target in ("user", "memory"):
-            md = store.render_markdown(target)
-            if md:
-                refreshed_sections.append({"title": target.upper(), "content": md})
-
-        # Replace only memory-related sections, preserve all others
-        memory_titles = {"USER", "MEMORY"}
-        other_sections = [
-            s for s in context.system_sections if s.get("title", "") not in memory_titles
-        ]
-        context.system_sections = other_sections + refreshed_sections

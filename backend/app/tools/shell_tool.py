@@ -8,10 +8,12 @@ from app.config.settings import config_manager
 from app.security.command_effect_registry import CommandEffectRegistry
 from app.security.command_policy import CommandAction, CommandDecision, CommandPolicy
 from app.security.effect_category import EffectCategory
-from app.security.path_security import PathSecurity
+from app.security.path_security import ExternalPathError, PathSecurity
+from app.security.permission_mode import PermissionMode
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.error_detector import SandboxErrorDetector, SandboxErrorInfo, SandboxErrorType
 from app.security.sandbox.factory import NullSandbox
+from app.security.sandbox.windows_cmd import is_cmd_internal_command
 from app.security.session_trust_store import SessionTrustStore
 from app.security.shell_security import ShellSecurity
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
@@ -74,6 +76,7 @@ class ShellTool(BaseTool):
         sandbox: SandboxProvider | None = None,
         session_id: str | None = None,
         trust_store: SessionTrustStore | None = None,
+        permission_mode: PermissionMode = PermissionMode.AUTO,
     ):
         self.security = security
         self.path_security = path_security
@@ -81,7 +84,14 @@ class ShellTool(BaseTool):
         self.sandbox = sandbox or NullSandbox()
         self._session_id = session_id
         self.trust_store = trust_store
-        self.policy = CommandPolicy(security, path_security, self.registry, trust_store=trust_store, session_id=session_id)
+        self.permission_mode = permission_mode
+        self.sandbox_available = self.sandbox.is_available()
+        self.policy = CommandPolicy(
+            security, path_security, self.registry,
+            trust_store=trust_store, session_id=session_id,
+            permission_mode=permission_mode,
+            sandbox_available=self.sandbox_available,
+        )
         self.sandbox_error_detector = SandboxErrorDetector()
 
     def _build_env(self) -> dict[str, str]:
@@ -256,6 +266,7 @@ class ShellTool(BaseTool):
 
         try:
             if decision.execution_mode == "shell":
+                logger.info("开始执行 shell 模式: command=%s, cwd=%s", decision.command, cwd)
                 return await self._execute_shell(
                     decision.command, cwd, timeout, decision.effect_category,
                     sandbox_allow_network=sandbox_allow_network,
@@ -265,11 +276,24 @@ class ShellTool(BaseTool):
                 argv = decision.argv
                 if argv is None:
                     return ToolResult(success=False, error="argv 模式决策缺少 argv")
-                return await self._execute_argv(
+                # Windows: cmd 内部命令（if/mkdir/copy/dir 等）无独立 .exe，
+                # CreateProcess 找不到可执行文件必败，降级走 shell 模式（cmd.exe /c）。
+                # 复用 decision.command 原始字符串，不用 list2cmdline 重建（实测会破坏带引号的路径）。
+                if sys.platform == "win32" and is_cmd_internal_command(argv[0] if argv else None):
+                    logger.info("argv 首命令为 cmd 内部命令，降级 shell 执行: %s", argv[0])
+                    return await self._execute_shell(
+                        decision.command, cwd, timeout, decision.effect_category,
+                        sandbox_allow_network=sandbox_allow_network,
+                        sandbox_extra_paths=sandbox_extra_paths,
+                    )
+                logger.info("开始执行 argv 模式: argv=%s, cwd=%s", argv, cwd)
+                result = await self._execute_argv(
                     argv, cwd, timeout, decision.effect_category,
                     sandbox_allow_network=sandbox_allow_network,
                     sandbox_extra_paths=sandbox_extra_paths,
                 )
+                logger.info("argv 模式执行完成: success=%s, output_len=%d", result.success, len(result.output or ''))
+                return result
         except FileNotFoundError:
             cmd_name = decision.command.split()[0] if decision.command else "command"
             logger.error("命令不存在: %s", decision.command)
@@ -282,7 +306,7 @@ class ShellTool(BaseTool):
             logger.error("Shell 执行系统错误: %s", e)
             return ToolResult(success=False, error=f"执行错误: {e} (errno={e.errno})", data={"return_code": -1})
         except Exception as e:
-            logger.error("Shell 执行异常: %s", e)
+            logger.error("Shell 执行异常: %s (type=%s)", e, type(e).__name__, exc_info=True)
             return ToolResult(success=False, error=str(e))
 
     async def _execute_argv(
@@ -296,14 +320,39 @@ class ShellTool(BaseTool):
             allowed_paths = list(self.path_security.allowed_base_paths)
             if sandbox_extra_paths:
                 allowed_paths.extend(sandbox_extra_paths)
+
+            # Windows: 优先走 sandbox.run_command（CreateProcessAsUser + Restricted Token）
+            if sys.platform == "win32":
+                result = self.sandbox.run_command(
+                    argv, cwd=cwd, timeout=timeout,
+                    allowed_paths=allowed_paths,
+                    allow_network=allow_network,
+                )
+                if result is not None:
+                    return ToolResult(
+                        success=result.success, output=result.output,
+                        error=result.error, data={"return_code": result.return_code},
+                    )
+
             argv = self.sandbox.wrap_command(
                 argv, cwd=cwd, allowed_paths=allowed_paths, allow_network=allow_network,
             )
 
-        process = await asyncio.create_subprocess_exec(
-            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
-            env=self._build_env(),
-        )
+        # Windows: 用线程池执行同步 subprocess，不依赖事件循环的子进程支持
+        if sys.platform == "win32":
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,  # 使用默认线程池
+                self._sync_subprocess_run,
+                argv,
+                cwd,
+                timeout,
+            )
+        else:
+            process = await asyncio.create_subprocess_exec(
+                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
+                env=self._build_env(),
+            )
 
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
@@ -312,8 +361,26 @@ class ShellTool(BaseTool):
             logger.error("命令执行超时: %s", " ".join(argv))
             return ToolResult(success=False, error=f"命令执行超时 ({timeout}秒)")
 
-        output = stdout.decode("utf-8", errors="ignore")
-        error = stderr.decode("utf-8", errors="ignore")
+        # Windows 上需要处理 GBK 编码
+        if sys.platform == "win32":
+            try:
+                output = stdout.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    output = stdout.decode("gbk")
+                except UnicodeDecodeError:
+                    output = stdout.decode("utf-8", errors="replace")
+
+            try:
+                error = stderr.decode("utf-8")
+            except UnicodeDecodeError:
+                try:
+                    error = stderr.decode("gbk")
+                except UnicodeDecodeError:
+                    error = stderr.decode("utf-8", errors="replace")
+        else:
+            output = stdout.decode("utf-8", errors="ignore")
+            error = stderr.decode("utf-8", errors="ignore")
 
         if process.returncode == 0:
             logger.info("argv 命令执行成功: %s", " ".join(argv))
@@ -340,6 +407,130 @@ class ShellTool(BaseTool):
             friendly_error = self._friendly_error(process.returncode, error, output, argv[0] if argv else "")
             return ToolResult(success=False, output=output, error=friendly_error, data={"return_code": process.returncode})
 
+    def _sync_subprocess_run(
+        self,
+        argv: list[str],
+        cwd: str,
+        timeout: int,
+    ) -> ToolResult:
+        """
+        同步执行 subprocess（argv 模式），在线程池中调用。
+        仅用于 Windows 平台，绕过事件循环的子进程支持限制。
+
+        Args:
+            argv: 命令参数列表
+            cwd: 工作目录
+            timeout: 超时秒数
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                argv,
+                cwd=cwd,
+                env=self._build_env(),
+                capture_output=True,
+                timeout=timeout,
+                check=False,  # 不抛异常，通过返回码判断
+            )
+
+            # GBK/UTF-8 编码降级（复用现有逻辑）
+            output = self._decode_windows_output(result.stdout)
+            error = self._decode_windows_output(result.stderr)
+
+            return ToolResult(
+                success=(result.returncode == 0),
+                output=output.strip(),
+                error=error.strip() if error else None,
+                data={"return_code": result.returncode},
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("同步 subprocess 执行超时: %s", " ".join(argv))
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"命令执行超时（{timeout}秒）",
+            )
+        except Exception as e:
+            logger.error("同步 subprocess 执行异常: %s", e, exc_info=True)
+            return ToolResult(success=False, output=None, error=str(e))
+
+    def _decode_windows_output(self, data: bytes) -> str:
+        """
+        解码 Windows 子进程输出，GBK/UTF-8 降级处理。
+
+        Args:
+            data: 子进程输出的原始字节
+
+        Returns:
+            str: 解码后的字符串
+        """
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                return data.decode("gbk")
+            except UnicodeDecodeError:
+                return data.decode("utf-8", errors="replace")
+
+    def _sync_subprocess_run_shell(
+        self,
+        command: str,
+        cwd: str,
+        timeout: int,
+    ) -> ToolResult:
+        """
+        同步执行 subprocess（shell 模式），在线程池中调用。
+        仅用于 Windows 平台，绕过事件循环的子进程支持限制。
+
+        注意：接收原始命令，内部包装 cmd.exe /c
+
+        Args:
+            command: 原始 shell 命令（不含 cmd.exe /c）
+            cwd: 工作目录
+            timeout: 超时秒数
+
+        Returns:
+            ToolResult: 执行结果
+        """
+        import subprocess
+
+        shell_command = f'cmd.exe /c "{command}"'
+
+        try:
+            result = subprocess.run(
+                shell_command,
+                cwd=cwd,
+                env=self._build_env(),
+                capture_output=True,
+                timeout=timeout,
+                shell=True,  # shell 模式
+                check=False,
+            )
+
+            output = self._decode_windows_output(result.stdout)
+            error = self._decode_windows_output(result.stderr)
+
+            return ToolResult(
+                success=(result.returncode == 0),
+                output=output.strip(),
+                error=error.strip() if error else None,
+                data={"return_code": result.returncode},
+            )
+        except subprocess.TimeoutExpired:
+            logger.error("同步 shell subprocess 执行超时: %s", command)
+            return ToolResult(
+                success=False,
+                output=None,
+                error=f"Shell 命令执行超时（{timeout}秒）",
+            )
+        except Exception as e:
+            logger.error("同步 shell subprocess 执行异常: %s", e, exc_info=True)
+            return ToolResult(success=False, output=None, error=str(e))
+
     async def _execute_shell(
         self, command: str, cwd: str, timeout: int,
         effect_category: EffectCategory | None = None,
@@ -347,7 +538,69 @@ class ShellTool(BaseTool):
         sandbox_extra_paths: list[str] | None = None,
     ) -> ToolResult:
         if sys.platform == "win32":
-            return ToolResult(success=False, error="Windows shell 模式尚未支持")
+            # ========== Windows 执行分支（第一阶段 / 第二阶段沙盒）==========
+
+            # 1. 路径限制（与 Unix 对齐）
+            try:
+                validated_cwd = self.path_security.validate_path(cwd)
+            except ExternalPathError as e:
+                return ToolResult(success=False, error=f"工作目录不在允许范围: {e}")
+
+            if sandbox_extra_paths:
+                for extra_path in sandbox_extra_paths:
+                    try:
+                        self.path_security.validate_path(extra_path)
+                    except ExternalPathError as e:
+                        return ToolResult(success=False, error=f"额外路径 {extra_path} 不在允许范围: {e}")
+
+            # 2. 网络权限检查 + 允许路径（与 Unix _execute_argv 对齐）
+            allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)
+            allowed_paths = list(self.path_security.allowed_base_paths)
+            if sandbox_extra_paths:
+                allowed_paths.extend(sandbox_extra_paths)
+
+            # 3. 沙盒可用时优先走 run_shell_command（CreateProcessAsUser + Restricted Token）
+            if self.sandbox.is_available():
+                result = self.sandbox.run_shell_command(
+                    command, cwd=validated_cwd, timeout=timeout,
+                    allowed_paths=allowed_paths,
+                    allow_network=allow_network,
+                )
+                if result is not None:
+                    return ToolResult(
+                        success=result.success, output=result.output,
+                        error=result.error, data={"return_code": result.return_code},
+                    )
+
+            # 4. 沙盒不可用时，继续拒绝网络型命令（无沙箱强制）
+            if effect_category == EffectCategory.NETWORK_OUT:
+                return ToolResult(
+                    success=False,
+                    error="Windows 第一阶段不支持网络型 shell 命令（无沙箱强制），请在 macOS/Linux 上执行"
+                )
+
+            # 5. 本地命令：记录网络权限标志（供审计，但无技术强制）
+            if not allow_network:
+                logger.warning(
+                    "Windows shell 命令未授权网络访问（无沙箱强制）: %s, cwd=%s",
+                    command, validated_cwd
+                )
+
+            # 6. 审计日志（与 Unix 一致）
+            logger.info(
+                "执行 Windows shell 命令: %s, cwd=%s, network=%s, effect=%s",
+                command, validated_cwd, allow_network, effect_category
+            )
+
+            # 7. 回退到同步线程池执行（第一阶段 / 无沙盒）
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(
+                None,
+                self._sync_subprocess_run_shell,
+                command,
+                validated_cwd,
+                timeout,
+            )
 
         if self.sandbox.is_available():
             allow_network = sandbox_allow_network or (effect_category == EffectCategory.NETWORK_OUT)

@@ -13,7 +13,7 @@ class LoopMessageBuilder:
     - Tier 2: 截断但可见 —— 超出窗口的旧消息逐条截断，每条仍在 context 中
     - Tier 3: LLM 摘要 —— 极端压力时旧消息压缩为摘要，细节可 session_recall 回溯
 
-    最终消息顺序：system prompt → context sections → Tier 3 compacted summary(system)
+    最终消息顺序：system prompt（含 Skills 等静态上下文） → Tier 3 compacted summary(system)
                    → Tier 2 截断消息(system) → Tier 1 recent context messages(user/assistant/tool)
                    → Task Anchor(user)
     """
@@ -30,19 +30,12 @@ class LoopMessageBuilder:
         self.tool_output_max_chars = tool_output_max_chars
         self.task_anchor_interval = task_anchor_interval
 
-    @staticmethod
-    def _inject_context_sections(
-        context: LoopContext, messages: list[LLMMessage]
-    ) -> None:
-        """注入三层上下文中的静态层：system sections"""
-        for section in context.system_sections or []:
-            if str(section or "").strip():
-                messages.append(
-                    LLMMessage(role=MessageRole.SYSTEM, content=str(section))
-                )
-
     def build(self, context: LoopContext) -> list[LLMMessage]:
-        """构建完整的三级上下文消息列表，供 LLM 调用使用"""
+        """构建完整的三级上下文消息列表，供 LLM 调用使用
+
+        注意：system_sections（AGENTS.md、Skills 等）已合并到 PromptManager.get_system_prompt() 中，
+        不再在此处单独注入。
+        """
         if context.agent_mode == "plan":
             system_prompt = self.prompt_manager.get_plan_mode_prompt(
                 working_directory=context.project_path or os.getcwd(),
@@ -63,7 +56,10 @@ class LoopMessageBuilder:
             )
         messages = [LLMMessage(role=MessageRole.SYSTEM, content=system_prompt)]
 
-        self._inject_context_sections(context, messages)
+        # 双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）
+        # SessionTracker 在前，高注意力权重；WM 在后，提供决策/变量
+        memory_messages = self._build_memory_injection(context)
+        messages.extend(memory_messages)
 
         # Tier 3: LLM 压缩摘要（如有），包含 [session_recall can retrieve] 标记
         if context.compressor.get_compacted_summary():
@@ -111,6 +107,18 @@ class LoopMessageBuilder:
                 )
             )
 
+        # Recovered plan injection: 如果有旧计划但当前未激活，注入提示让 LLM 自己决定
+        if hasattr(context, 'recovered_plan') and context.recovered_plan and not context.plan:
+            messages.append(LLMMessage(
+                role=MessageRole.SYSTEM,
+                content=f"<system-reminder>之前存在计划：\n{context.recovered_plan.goal}\n\n"
+                f"步骤概览：\n" + "\n".join(
+                    f"  {i+1}. [{s.status}] {s.content}"
+                    for i, s in enumerate(context.recovered_plan.steps)
+                ) +
+                "\n\n你可以决定继续执行这个计划（使用 plan tool），或创建新计划，或直接开始工作。</system-reminder>"
+            ))
+
         # Plan state injection: 每轮注入当前计划状态，确保 LLM 始终知道当前步骤
         if context.plan and context.plan.current_step:
             plan_status = self._build_plan_status(context.plan)
@@ -141,56 +149,6 @@ class LoopMessageBuilder:
                 )
             )
 
-        prefill = context.metadata.get("_prefill_assistant")
-        if prefill:
-            messages.append(LLMMessage(role=MessageRole.ASSISTANT, content=prefill))
-
-        return messages
-
-    def build_initial_plan(self, context: LoopContext) -> list[LLMMessage]:
-        messages = [
-            LLMMessage(
-                role=MessageRole.SYSTEM,
-                content=self.prompt_manager.get_initial_plan_prompt(),
-            )
-        ]
-
-        # 注意：计划阶段不注入 system_sections（AGENTS.md、skills、MEMORY等），
-        # 这些上下文对判断"是否需要计划"是噪声，反而让 LLM 倾向于创建不必要的计划。
-        # 主循环 build() 中会注入完整上下文。
-
-        # 从 recent_messages 中提取用户/助手消息
-        # 注意：from_run_input 已保证 recent_messages 中包含当前任务的用户消息，
-        # 无需再追加 task_content，否则会导致重复
-        recent = context.compressor.get_recent_messages()
-        last_user_idx = None
-        for i, msg in enumerate(recent):
-            if msg["role"] not in {MessageRole.USER, MessageRole.ASSISTANT}:
-                continue
-            if not msg.get("content"):
-                continue
-            messages.append(LLMMessage(role=msg["role"], content=msg.get("content")))
-            if msg["role"] == MessageRole.USER:
-                last_user_idx = len(messages) - 1
-
-        task_content = context.task_content
-
-        # 如果 recent_messages 中没有用户消息（如单元测试或非标准入口），
-        # 回退到直接使用 task_content
-        if last_user_idx is None and task_content:
-            if isinstance(task_content, list):
-                valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
-                task_content = valid if valid else ""
-            if task_content:
-                messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
-                last_user_idx = len(messages) - 1
-        elif isinstance(task_content, list) and last_user_idx is not None:
-            # 如果 task_content 是多模态（含图片等），替换最后一条用户消息
-            # 因为 recent_messages 中可能只有纯文本版本
-            valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
-            if valid:
-                messages[last_user_idx] = LLMMessage(role=MessageRole.USER, content=valid)
-
         return messages
 
     def build_final_summary(self, context: LoopContext) -> list[LLMMessage]:
@@ -205,7 +163,9 @@ class LoopMessageBuilder:
             )
         ]
 
-        self._inject_context_sections(context, messages)
+        # 双层记忆注入：SessionTracker + WorkingMemory
+        memory_messages = self._build_memory_injection(context)
+        messages.extend(memory_messages)
 
         if context.compressor.get_compacted_summary():
             messages.append(
@@ -250,6 +210,45 @@ class LoopMessageBuilder:
             valid = [p for p in task_content if isinstance(p, dict) and p.get("type")]
             task_content = valid if valid else ""
         messages.append(LLMMessage(role=MessageRole.USER, content=task_content))
+
+        return messages
+
+    def _build_memory_injection(self, context: LoopContext) -> list[LLMMessage]:
+        """构建双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）
+
+        返回的 messages 按顺序插入到 system prompt 之后。
+        SessionTracker 在前，提供极简的文件/工具跟踪列表（高注意力）。
+        WorkingMemory 在后，提供决策、变量、错误等语义内容。
+        """
+        messages: list[LLMMessage] = []
+
+        # 第一层：SessionTracker — 极简跟踪，始终可见
+        tracker_section = context.session_tracker.to_prompt_section()
+        if tracker_section:
+            # 追加行为指令，告诉模型不要重复读取已知文件
+            instruction = (
+                "\n\nIMPORTANT: Files listed above have been read this session. "
+                "DO NOT re-read them unless you need specific line ranges not "
+                "captured in Working Memory below. Use session_recall to retrieve "
+                "full content of previously read files."
+            )
+            messages.append(
+                LLMMessage(
+                    role=MessageRole.SYSTEM,
+                    content=tracker_section + instruction,
+                )
+            )
+
+        # 第二层：Working Memory — 语义化内容
+        if not context.working_memory.is_empty():
+            wm_section = context.working_memory.to_prompt_section()
+            if wm_section:
+                messages.append(
+                    LLMMessage(
+                        role=MessageRole.SYSTEM,
+                        content=wm_section,
+                    )
+                )
 
         return messages
 

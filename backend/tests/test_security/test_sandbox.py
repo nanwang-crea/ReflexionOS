@@ -1,4 +1,5 @@
 # backend/tests/test_security/test_sandbox.py
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -7,6 +8,7 @@ from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.factory import NullSandbox, create_sandbox
 from app.security.sandbox.landlock import LandlockSandbox
 from app.security.sandbox.landlock_profile import LandlockProfileBuilder
+from app.security.sandbox.windows import WindowsSandbox
 from app.security.sandbox.profile_builder import ProfileBuilder
 from app.security.sandbox.sandbox_policy import SandboxLevel, SandboxPolicy
 from app.security.sandbox.seatbelt import SeatbeltSandbox
@@ -364,39 +366,64 @@ class TestSandboxFactory:
 
     def test_fallback_to_null_sandbox(self):
         """When no real sandbox is available, factory returns NullSandbox."""
-        with patch.object(SeatbeltSandbox, "is_available", return_value=False), \
-             patch.object(LandlockSandbox, "is_available", return_value=False):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=False), \
+            patch.object(LandlockSandbox, "is_available", return_value=False):
             sandbox = create_sandbox()
             assert isinstance(sandbox, NullSandbox)
 
     def test_prefers_seatbelt_when_available(self):
-        with patch.object(SeatbeltSandbox, "is_available", return_value=True):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=True):
             sandbox = create_sandbox()
             assert isinstance(sandbox, SeatbeltSandbox)
 
     def test_uses_landlock_when_seatbelt_unavailable(self):
-        with patch.object(SeatbeltSandbox, "is_available", return_value=False), \
-             patch.object(LandlockSandbox, "is_available", return_value=True):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=False), \
+            patch.object(LandlockSandbox, "is_available", return_value=True):
             sandbox = create_sandbox()
             assert isinstance(sandbox, LandlockSandbox)
 
     def test_level_propagated_to_seatbelt(self):
-        with patch.object(SeatbeltSandbox, "is_available", return_value=True):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=True):
             sandbox = create_sandbox(level=SandboxLevel.STRICT)
             assert isinstance(sandbox, SeatbeltSandbox)
             assert sandbox.level == SandboxLevel.STRICT
 
     def test_level_propagated_to_landlock(self):
-        with patch.object(SeatbeltSandbox, "is_available", return_value=False), \
-             patch.object(LandlockSandbox, "is_available", return_value=True):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=False), \
+            patch.object(LandlockSandbox, "is_available", return_value=True):
             sandbox = create_sandbox(level=SandboxLevel.STRICT)
             assert isinstance(sandbox, LandlockSandbox)
             assert sandbox.level == SandboxLevel.STRICT
 
     def test_default_level_is_dev(self):
-        with patch.object(SeatbeltSandbox, "is_available", return_value=True):
+        with \
+            patch.object(WindowsSandbox, "is_available", return_value=False), \
+            patch.object(SeatbeltSandbox, "is_available", return_value=True):
             sandbox = create_sandbox()
             assert sandbox.level == SandboxLevel.DEV
+
+    def test_prefers_windows_sandbox_on_win32(self):
+        """Windows 平台优先返回 WindowsSandbox。"""
+        with patch("sys.platform", "win32"):
+            sandbox = create_sandbox()
+            assert isinstance(sandbox, WindowsSandbox)
+
+    def test_windows_sandbox_level_propagated(self):
+        """WindowsSandbox 的 level 参数正确传递。"""
+        with patch("sys.platform", "win32"):
+            sandbox = create_sandbox(level=SandboxLevel.STRICT)
+            assert isinstance(sandbox, WindowsSandbox)
+            assert sandbox.level == SandboxLevel.STRICT
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +462,10 @@ class TestSeatbeltSandbox:
         assert "(allow default)" in profile
         assert "(deny default)" not in profile
 
+    @pytest.mark.skipif(
+        sys.platform != "darwin",
+        reason="断言 /bin/zsh 为 seatbelt 默认 shell，仅 macOS 成立（其他平台走 /bin/bash）",
+    )
     def test_wrap_shell_command_includes_sandbox_exec(self):
         sandbox = self._make_sandbox()
         result = sandbox.wrap_shell_command(

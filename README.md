@@ -183,6 +183,50 @@ notarization, and Windows distribution should use a code-signing certificate bef
 4. Ask the agent to inspect or change code
 5. Watch tool receipts stream back into the chat
 
+## Troubleshooting
+
+### `pnpm dev` crashes with `spawn … ENOENT` (macOS 15+ / 26)
+
+On macOS 15 (Sequoia) and later — especially macOS 26 — Gatekeeper may
+silently remove the unsigned Electron.app bundle from `node_modules` after it
+is downloaded by the `electron` package's postinstall script. Only metadata
+files (`LICENSE`, `version`) remain, and `pnpm dev` fails with:
+
+```
+Error: spawn …/electron/dist/Electron.app/Contents/MacOS/Electron ENOENT
+```
+
+ReflexionOS includes an automatic fix that runs before every `pnpm dev` launch
+and after every `pnpm install`. If the issue still occurs, run the repair
+script manually:
+
+```bash
+cd frontend
+pnpm fix:electron          # check & repair
+pnpm fix:electron -- --force  # force re-download & re-sign
+```
+
+The script re-downloads the Electron binary, strips macOS security attributes
+(`com.apple.provenance`), and applies an ad-hoc code signature so Gatekeeper
+stops removing it.
+
+### Electron window doesn't open
+
+If the Vite dev server starts but no Electron window appears, check whether
+`ELECTRON_RUN_AS_NODE` is set in your shell environment:
+
+```bash
+echo $ELECTRON_RUN_AS_NODE
+```
+
+When set to `1`, Electron runs as a plain Node.js process without a GUI. The
+`pnpm dev` script automatically strips this variable, but if you launch
+Electron directly (`pnpm dev:desktop` or `pnpm start`), unset it first:
+
+```bash
+unset ELECTRON_RUN_AS_NODE
+```
+
 ## Web Development Fallback
 
 If you want to debug the frontend and backend separately, use the web fallback instead of the desktop shell.

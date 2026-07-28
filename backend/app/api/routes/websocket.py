@@ -208,6 +208,19 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     continue
 
                 try:
+                    # 从 run_id 获取实际的 session_id，支持 SubAgent 审批
+                    # SubAgent 的 run_id 未存储到数据库，使用前端传递的 parent_session_id 路由
+                    run = conversation_service.get_run(run_id)
+                    if run is not None:
+                        target_session_id = run.session_id
+                    else:
+                        parent_session_id = msg_data.get("parent_session_id")
+                        if isinstance(parent_session_id, str) and parent_session_id:
+                            target_session_id = parent_session_id
+                        else:
+                            # 回退到当前 WebSocket 连接的 session_id
+                            target_session_id = session_id
+
                     if msg_type == "conversation:approve_tool":
                         decision_str = msg_data.get("decision", "allow_once")
                         if decision_str not in ("allow_once", "trust_and_allow"):
@@ -219,14 +232,14 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                             continue
 
                         await agent_service.approve_tool_call(
-                            session_id=session_id,
+                            session_id=target_session_id,
                             run_id=run_id,
                             approval_id=approval_id,
                             decision=decision_str,
                         )
                     else:
                         await agent_service.deny_tool_call(
-                            session_id=session_id,
+                            session_id=target_session_id,
                             run_id=run_id,
                             approval_id=approval_id,
                         )
@@ -251,6 +264,29 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     )
                     await send_ws_json(websocket, {
                         "type": "session:mode_changed",
+                        "data": {"session_id": session_id, "mode": mode},
+                    })
+                except ValueError as exc:
+                    await _send_error(websocket, code="not_found", message=str(exc))
+                continue
+
+            if msg_type == "session:set_permission_mode":
+                mode = msg_data.get("mode", "auto")
+                if mode not in ("ask", "auto", "yolo"):
+                    await _send_error(
+                        websocket,
+                        code="invalid_request",
+                        message="permission_mode must be 'ask', 'auto', or 'yolo'",
+                    )
+                    continue
+
+                try:
+                    session_service.update_session(
+                        session_id,
+                        SessionUpdate(permission_mode=mode),
+                    )
+                    await send_ws_json(websocket, {
+                        "type": "session:permission_mode_changed",
                         "data": {"session_id": session_id, "mode": mode},
                     })
                 except ValueError as exc:

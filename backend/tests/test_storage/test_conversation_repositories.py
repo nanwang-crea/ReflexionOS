@@ -465,6 +465,62 @@ def test_session_repo_delete_cascades_conversation_rows(tmp_path):
     assert event_repo.list_after_seq("session-1", after_seq=0) == []
 
 
+def test_database_adds_missing_session_mode_columns_without_resetting_data(tmp_path):
+    db_path = tmp_path / "legacy-session-mode-columns.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE alembic_version (version_num VARCHAR NOT NULL);
+            INSERT INTO alembic_version (version_num) VALUES ('e5f6g7h8i9j0');
+
+            CREATE TABLE projects (
+                id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                path VARCHAR NOT NULL UNIQUE,
+                language VARCHAR,
+                config JSON,
+                created_at DATETIME,
+                updated_at DATETIME
+            );
+
+            CREATE TABLE sessions (
+                id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL,
+                title VARCHAR NOT NULL,
+                preferred_provider_id VARCHAR,
+                preferred_model_id VARCHAR,
+                last_event_seq INTEGER NOT NULL,
+                active_turn_id VARCHAR,
+                created_at DATETIME,
+                updated_at DATETIME
+            );
+
+            INSERT INTO projects (id, name, path, created_at, updated_at)
+            VALUES ('project-1', 'ReflexionOS', '/tmp/reflexion', '2026-07-12', '2026-07-12');
+            INSERT INTO sessions (
+                id, project_id, title, last_event_seq, created_at, updated_at
+            ) VALUES (
+                'session-1', 'project-1', '会话', 0, '2026-07-12', '2026-07-12'
+            );
+            """
+        )
+
+    db = Database(str(db_path))
+    session_repo = SessionRepository(db)
+
+    with sqlite3.connect(db_path) as connection:
+        session_columns = {
+            row[1] for row in connection.execute('PRAGMA table_info("sessions")').fetchall()
+        }
+
+    assert "agent_mode" in session_columns
+    assert "permission_mode" in session_columns
+    session = session_repo.get("session-1")
+    assert session is not None
+    assert session.agent_mode == "build"
+    assert session.permission_mode == "auto"
+
+
 def test_database_resets_incompatible_conversation_schema(tmp_path):
     db_path = tmp_path / "legacy-conversation-schema.db"
     _create_legacy_conversation_schema(db_path)

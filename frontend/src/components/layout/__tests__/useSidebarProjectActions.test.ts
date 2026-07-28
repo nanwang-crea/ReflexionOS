@@ -17,7 +17,7 @@ function createProject(id: string): Project {
 function createDialogService(overrides: Partial<DialogService> = {}): DialogService {
   return {
     notifyError: vi.fn(),
-    confirmAction: vi.fn(() => true),
+    confirmAction: vi.fn(async () => true),
     promptText: vi.fn(() => null),
     ...overrides,
   }
@@ -71,7 +71,10 @@ describe('useSidebarProjectActions', () => {
 
     await actions.handleDeleteProject(createProject('project-a'))
 
-    expect(dialogService.confirmAction).toHaveBeenCalledWith('确定删除项目“project-a”吗？项目下的聊天也会一并移除。')
+    expect(dialogService.confirmAction).toHaveBeenCalledWith(
+      '确定删除项目”project-a”吗？项目下的聊天也会一并移除。',
+      { variant: 'danger' },
+    )
     expect(deleteProjectApiMock).toHaveBeenCalledWith('project-a')
     expect(removeProject).toHaveBeenCalledWith('project-a')
     expect(setCurrentProject).toHaveBeenCalledWith(null)

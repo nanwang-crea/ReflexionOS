@@ -211,12 +211,12 @@ export function MonitoringPanel() {
                     }))
                   }}
                   className={`mt-4 inline-flex rounded-full border px-3 py-2 text-sm ${
-                    Boolean(settings[field.key])
+                    settings[field.key]
                       ? 'border-status-success-border bg-status-success-soft text-status-success'
                       : 'border-edge bg-surface-primary text-content-secondary'
                   }`}
                 >
-                  {Boolean(settings[field.key]) ? '已开启' : '已关闭'}
+                  {settings[field.key] ? '已开启' : '已关闭'}
                 </button>
               ) : (
                 <input

@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "observability_events",
     "observability_projection_checkpoints",
 }
+EXPECTED_MIGRATION_HEAD = "f6a7b8c9d0e1"
 
 
 def test_observability_migration_reaches_head(tmp_path):
@@ -23,7 +24,7 @@ def test_observability_migration_reaches_head(tmp_path):
     assert EXPECTED_TABLES.issubset(set(inspect(db.engine).get_table_names()))
     with db.engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "e5f6a7b8c9d0"
+    assert version == EXPECTED_MIGRATION_HEAD
 
 
 def test_observability_event_entity_versions_are_unique(tmp_path):

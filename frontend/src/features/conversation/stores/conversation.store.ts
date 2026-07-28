@@ -22,12 +22,14 @@ interface ConversationStoreState {
   conversationsBySessionId: Record<string, ConversationState>
   planBySessionId: Record<string, Plan>
   agentModeBySessionId: Record<string, import('@/types/conversation').AgentMode>
+  permissionModeBySessionId: Record<string, import('@/types/conversation').PermissionMode>
   setSnapshot: (sessionId: string, snapshot: ConversationSnapshot) => void
   applyEvent: (sessionId: string, event: ConversationEvent) => void
   applyLiveEvent: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setLiveState: (sessionId: string, liveMessage: ConversationLiveMessage) => void
   setPlan: (sessionId: string, plan: Plan | null) => void
   setAgentMode: (sessionId: string, mode: import('@/types/conversation').AgentMode) => void
+  setPermissionMode: (sessionId: string, mode: import('@/types/conversation').PermissionMode) => void
   prependMessages: (sessionId: string, messages: ConversationMessage[], turns: ConversationTurn[], runs: ConversationRun[]) => void
   setPagination: (sessionId: string, pagination: Pick<ConversationSnapshot, 'hasMore' | 'nextBeforeTurnId'>) => void
   clearConversation: (sessionId: string) => void
@@ -37,6 +39,7 @@ export const createConversationStore = () => create<ConversationStoreState>((set
   conversationsBySessionId: {},
   planBySessionId: {},
   agentModeBySessionId: {},
+  permissionModeBySessionId: {},
   setSnapshot: (sessionId, snapshot) => set((state) => ({
     conversationsBySessionId: {
       ...state.conversationsBySessionId,
@@ -45,6 +48,10 @@ export const createConversationStore = () => create<ConversationStoreState>((set
     agentModeBySessionId: {
       ...state.agentModeBySessionId,
       [sessionId]: snapshot.session.agentMode ?? 'build',
+    },
+    permissionModeBySessionId: {
+      ...state.permissionModeBySessionId,
+      [sessionId]: snapshot.session.permissionMode ?? 'auto',
     },
   })),
   applyEvent: (sessionId, event) => set((state) => ({
@@ -92,6 +99,12 @@ export const createConversationStore = () => create<ConversationStoreState>((set
       [sessionId]: mode,
     },
   })),
+  setPermissionMode: (sessionId, mode) => set((state) => ({
+    permissionModeBySessionId: {
+      ...state.permissionModeBySessionId,
+      [sessionId]: mode,
+    },
+  })),
   prependMessages: (sessionId, messages, turns, runs) => set((state) => {
     const conversation = state.conversationsBySessionId[sessionId]
     if (!conversation) return state
@@ -127,7 +140,24 @@ export const createConversationStore = () => create<ConversationStoreState>((set
     agentModeBySessionId: Object.fromEntries(
       Object.entries(state.agentModeBySessionId).filter(([id]) => id !== sessionId)
     ),
+    permissionModeBySessionId: Object.fromEntries(
+      Object.entries(state.permissionModeBySessionId).filter(([id]) => id !== sessionId)
+    ),
   })),
 }))
 
 export const useConversationStore = createConversationStore()
+
+// 按 runId 现查所属 sessionId：run 自带 sessionId，直接遍历各会话的 runsById，
+// 不额外维护对照表，确保与会话真值始终一致。
+export function findSessionIdByRunId(
+  conversationsBySessionId: Record<string, ConversationState>,
+  runId: string,
+): string | null {
+  for (const [sessionId, conversation] of Object.entries(conversationsBySessionId)) {
+    if (conversation.runsById[runId]) {
+      return sessionId
+    }
+  }
+  return null
+}
