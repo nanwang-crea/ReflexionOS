@@ -1,3 +1,5 @@
+import asyncio
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -5,11 +7,38 @@ import pytest
 from openai import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
 
 from app.llm.base import LLMMessage, LLMToolCall
+from app.llm.observability import LLMCallObservabilityContext, llm_observability_scope
 from app.llm.openai_adapter import OpenAIAdapter
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
+from app.observability.collector import ObservabilityCollector
+from app.storage.database import Database
+from app.storage.models import (
+    LLMLogicalCallModel,
+    LLMProviderRequestModel,
+    ModelPricingModel,
+)
 
 
 class TestOpenAIAdapter:
+    @staticmethod
+    def _seed_price(db: Database):
+        with db.get_session() as db_session:
+            db_session.add(
+                ModelPricingModel(
+                    id="price-1",
+                    provider_id="provider-openai",
+                    model_pattern="model-gpt4",
+                    match_type="exact",
+                    priority=0,
+                    input_price_nano_usd_per_million=1_000_000,
+                    output_price_nano_usd_per_million=2_000_000,
+                    cached_input_price_nano_usd_per_million=500_000,
+                    currency="USD",
+                    effective_from=datetime(2026, 1, 1, tzinfo=UTC),
+                    effective_to=None,
+                )
+            )
+
     @pytest.fixture
     def llm_config(self):
         return ResolvedLLMConfig(
@@ -228,6 +257,205 @@ class TestOpenAIAdapter:
             response = await openai_adapter.complete(messages)
             assert response.content == "ok"
             assert call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_complete_records_observability_attempts(self, llm_config, tmp_path):
+        db = Database(str(tmp_path / "openai-observability.db"))
+        self._seed_price(db)
+        collector = ObservabilityCollector(db, journal_dir=tmp_path / "journal")
+        adapter = OpenAIAdapter(
+            llm_config,
+            observability_collector=collector,
+            observability_base_context=LLMCallObservabilityContext(
+                project_id="project-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                run_id="run-1",
+            ),
+        )
+        messages = [LLMMessage(role="user", content="Hello")]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "ok"
+        mock_response.choices[0].message.tool_calls = []
+        mock_response.choices[0].message.role = "assistant"
+        mock_response.choices[0].finish_reason = "stop"
+        mock_response.model = "gpt-4-turbo-preview"
+        mock_response.usage = MagicMock()
+        mock_response.usage.total_tokens = 10
+        mock_response.usage.prompt_tokens = 6
+        mock_response.usage.completion_tokens = 4
+        mock_response.usage.prompt_tokens_details = MagicMock(cached_tokens=2)
+        mock_response._request_id = "req-success"
+
+        call_count = 0
+
+        async def create_side_effect(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RateLimitError(
+                    message="rate limited",
+                    response=MagicMock(status_code=429),
+                    body=None,
+                )
+            return mock_response
+
+        with (
+            patch.object(
+                adapter.client.chat.completions,
+                "create",
+                new_callable=AsyncMock,
+                side_effect=create_side_effect,
+            ),
+            patch("app.llm.retry.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            with llm_observability_scope(LLMCallObservabilityContext(call_kind="main")):
+                response = await adapter.complete(messages)
+
+        assert response.content == "ok"
+        with db.get_session() as db_session:
+            logical_calls = db_session.query(LLMLogicalCallModel).all()
+            provider_requests = (
+                db_session.query(LLMProviderRequestModel)
+                .order_by(LLMProviderRequestModel.request_attempt_index.asc())
+                .all()
+            )
+
+            assert len(logical_calls) == 1
+            assert logical_calls[0].status == "completed"
+            assert logical_calls[0].call_kind == "main"
+            assert logical_calls[0].request_count == 2
+
+            assert [request.request_attempt_index for request in provider_requests] == [0, 1]
+            assert provider_requests[0].status == "failed"
+            assert provider_requests[1].status == "completed"
+            assert provider_requests[1].provider_request_id == "req-success"
+            assert provider_requests[1].input_tokens == 6
+            assert provider_requests[1].output_tokens == 4
+            assert provider_requests[1].cached_input_tokens == 2
+            assert provider_requests[1].pricing_id == "price-1"
+            assert provider_requests[1].cost_status == "exact"
+            assert provider_requests[1].input_cost_nano_usd == 4
+            assert provider_requests[1].output_cost_nano_usd == 8
+            assert provider_requests[1].cached_input_cost_nano_usd == 1
+            assert provider_requests[1].total_cost_nano_usd == 13
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_records_early_disconnect_retry(self, llm_config, tmp_path):
+        db = Database(str(tmp_path / "openai-stream-observability.db"))
+        self._seed_price(db)
+        collector = ObservabilityCollector(db, journal_dir=tmp_path / "journal")
+        adapter = OpenAIAdapter(
+            llm_config,
+            observability_collector=collector,
+            observability_base_context=LLMCallObservabilityContext(
+                project_id="project-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                run_id="run-1",
+            ),
+        )
+        messages = [LLMMessage(role="user", content="Hello")]
+
+        async def broken_stream():
+            raise RuntimeError("stream lost before first chunk")
+            yield  # pragma: no cover
+
+        async def good_stream():
+            yield SimpleNamespace(
+                usage=None,
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="ok", tool_calls=None),
+                        finish_reason="stop",
+                    )
+                ],
+            )
+            yield SimpleNamespace(
+                usage=SimpleNamespace(
+                    prompt_tokens=8,
+                    completion_tokens=3,
+                    prompt_tokens_details=SimpleNamespace(cached_tokens=1),
+                ),
+                choices=[],
+            )
+
+        with patch.object(
+            adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            side_effect=[broken_stream(), good_stream()],
+        ):
+            chunks = []
+            with llm_observability_scope(LLMCallObservabilityContext(call_kind="main")):
+                async for chunk in adapter.stream_complete(messages, tools=[]):
+                    chunks.append(chunk)
+
+        assert any(chunk.type == "content" for chunk in chunks)
+        assert any(chunk.type == "done" for chunk in chunks)
+
+        with db.get_session() as db_session:
+            logical_calls = db_session.query(LLMLogicalCallModel).all()
+            provider_requests = (
+                db_session.query(LLMProviderRequestModel)
+                .order_by(LLMProviderRequestModel.request_attempt_index.asc())
+                .all()
+            )
+
+            assert len(logical_calls) == 1
+            assert logical_calls[0].status == "completed"
+            assert logical_calls[0].request_count == 2
+            assert [request.status for request in provider_requests] == ["failed", "completed"]
+            assert provider_requests[1].input_tokens == 8
+            assert provider_requests[1].output_tokens == 3
+            assert provider_requests[1].cached_input_tokens == 1
+            assert provider_requests[1].pricing_id == "price-1"
+            assert provider_requests[1].cost_status == "exact"
+            assert provider_requests[1].input_cost_nano_usd == 7
+            assert provider_requests[1].output_cost_nano_usd == 6
+            assert provider_requests[1].cached_input_cost_nano_usd == 1
+            assert provider_requests[1].total_cost_nano_usd == 14
+
+    @pytest.mark.asyncio
+    async def test_stream_complete_records_interrupted_on_cancel(self, llm_config, tmp_path):
+        db = Database(str(tmp_path / "openai-stream-cancel.db"))
+        collector = ObservabilityCollector(db, journal_dir=tmp_path / "journal")
+        adapter = OpenAIAdapter(
+            llm_config,
+            observability_collector=collector,
+            observability_base_context=LLMCallObservabilityContext(
+                project_id="project-1",
+                session_id="session-1",
+                turn_id="turn-1",
+                run_id="run-1",
+            ),
+        )
+
+        async def cancelled_stream():
+            raise asyncio.CancelledError()
+            yield  # pragma: no cover
+
+        with patch.object(
+            adapter.client.chat.completions,
+            "create",
+            new_callable=AsyncMock,
+            return_value=cancelled_stream(),
+        ):
+            with pytest.raises(asyncio.CancelledError):
+                with llm_observability_scope(LLMCallObservabilityContext(call_kind="main")):
+                    async for _chunk in adapter.stream_complete(
+                        [LLMMessage(role="user", content="Hello")],
+                        tools=[],
+                    ):
+                        pass
+
+        with db.get_session() as db_session:
+            logical_call = db_session.query(LLMLogicalCallModel).one()
+            provider_request = db_session.query(LLMProviderRequestModel).one()
+            assert logical_call.status == "interrupted"
+            assert provider_request.status == "interrupted"
 
     @pytest.mark.asyncio
     async def test_complete_does_not_retry_auth_error(self, openai_adapter):

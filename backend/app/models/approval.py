@@ -17,6 +17,9 @@ class PendingToolApproval(BaseModel):
     run_id: str
     step_number: int
     tool_call_id: str
+    tool_call_metric_id: str | None = None
+    invocation_id: str | None = None
+    tool_started_at: datetime | None = None
     tool_name: str
     tool_arguments: dict
     approval_payload: dict

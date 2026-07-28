@@ -9,6 +9,8 @@ import asyncio
 
 _agent_service = None
 _conversation_broadcaster = None
+_observability_collector = None
+_monitoring_alert_dispatcher = None
 _init_lock = asyncio.Lock()
 
 
@@ -20,6 +22,27 @@ def _get_conversation_broadcaster():
         from app.services.conversation_broadcaster import WebSocketConversationBroadcaster
         _conversation_broadcaster = WebSocketConversationBroadcaster(ws_manager)
     return _conversation_broadcaster
+
+
+def _get_observability_collector():
+    global _observability_collector
+
+    if _observability_collector is None:
+        from app.observability.collector import ObservabilityCollector
+        from app.storage.database import db
+
+        _observability_collector = ObservabilityCollector(db)
+    return _observability_collector
+
+
+def _get_monitoring_alert_dispatcher():
+    global _monitoring_alert_dispatcher
+
+    if _monitoring_alert_dispatcher is None:
+        from app.observability.alert_dispatcher import MonitoringAlertDispatcher
+
+        _monitoring_alert_dispatcher = MonitoringAlertDispatcher()
+    return _monitoring_alert_dispatcher
 
 
 async def _get_agent_service_async():
@@ -38,10 +61,16 @@ async def _get_agent_service_async():
 def __getattr__(name):
     """仅限模块级导入使用（如 `from app.app_services import agent_service`），
     运行时动态访问请走 _get_agent_service_async()，以避免异步竞态。"""
-    global _agent_service, _conversation_broadcaster
+    global _agent_service, _conversation_broadcaster, _observability_collector, _monitoring_alert_dispatcher
 
     if name == "conversation_broadcaster":
         return _get_conversation_broadcaster()
+
+    if name == "observability_collector":
+        return _get_observability_collector()
+
+    if name == "monitoring_alert_dispatcher":
+        return _get_monitoring_alert_dispatcher()
 
     if name == "agent_service":
         if _agent_service is None:

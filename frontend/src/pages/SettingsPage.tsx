@@ -1,17 +1,19 @@
 import { useState } from 'react'
-import { Cpu, Eye, Globe, Info, Server } from 'lucide-react'
+import { Bell, Cpu, Eye, Globe, Info, Server } from 'lucide-react'
 import { ProviderPanel } from './settings/ProviderPanel'
 import { DefaultModelPanel } from './settings/DefaultModelPanel'
 import { DisplayOptionsPanel } from './settings/DisplayOptionsPanel'
 import { AboutPanel } from './settings/AboutPanel'
 import { BrowserPanel } from './settings/BrowserPanel'
+import { MonitoringPanel } from './settings/MonitoringPanel'
 
-type SettingsTab = 'providers' | 'default-model' | 'display' | 'browser' | 'about'
+type SettingsTab = 'providers' | 'default-model' | 'display' | 'monitoring' | 'browser' | 'about'
 
 const tabs: Array<{ key: SettingsTab; label: string; icon: typeof Server }> = [
   { key: 'providers', label: '模型供应商', icon: Server },
   { key: 'default-model', label: '默认模型', icon: Cpu },
   { key: 'display', label: '显示选项', icon: Eye },
+  { key: 'monitoring', label: '监控告警', icon: Bell },
   { key: 'browser', label: '浏览器', icon: Globe },
   { key: 'about', label: '关于', icon: Info },
 ]
@@ -52,6 +54,7 @@ export default function SettingsPage() {
           {activeTab === 'providers' && <ProviderPanel />}
           {activeTab === 'default-model' && <DefaultModelPanel />}
           {activeTab === 'display' && <DisplayOptionsPanel />}
+          {activeTab === 'monitoring' && <MonitoringPanel />}
           {activeTab === 'browser' && <BrowserPanel />}
           {activeTab === 'about' && <AboutPanel />}
         </div>

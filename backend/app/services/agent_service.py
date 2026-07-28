@@ -15,8 +15,8 @@ from app.execution.rapid_loop import RapidExecutionLoop
 from app.ids import new_event_id
 from app.llm import LLMAdapterFactory
 from app.llm.base import LLMMessage, MessageRole, UniversalLLMInterface
+from app.llm.observability import LLMCallObservabilityContext, llm_observability_scope
 from app.memory.context_assembly import ContextAssembler
-
 from app.models.approval import AllowApprovalDecision, PendingToolApproval
 from app.models.conversation import (
     ConversationEvent,
@@ -28,6 +28,7 @@ from app.models.conversation import (
 )
 from app.models.conversation_snapshot import ConversationSnapshot, StartTurnResult
 from app.models.session import DEFAULT_SESSION_TITLE, SessionUpdate
+from app.observability.runtime import RuntimeObservabilityRecorder, ToolObservabilityContext
 from app.orchestration.package_resolver import PackageResolver
 from app.orchestration.skill_registry import skill_registry as global_skill_registry
 from app.security.command_effect_registry import CommandEffectRegistry
@@ -96,6 +97,7 @@ class AgentService:
         conversation_broadcaster: ConversationBroadcaster | None = None,
         pending_approval_store: PendingApprovalStore | None = None,
         session_service=None,
+        observability_collector=None,
     ):
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
@@ -113,6 +115,7 @@ class AgentService:
         self.conversation_broadcaster = conversation_broadcaster or NoopConversationBroadcaster()
         self.pending_approval_store = pending_approval_store or PendingApprovalStore()
         self.session_service = session_service
+        self.observability_collector = observability_collector
         self.prompt_manager = PromptManager()
         self.context_assembler = ContextAssembler(
             conversation_service=self.conversation_service,
@@ -405,6 +408,8 @@ class AgentService:
         agent_mode: str = "build",
     ) -> None:
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
+        project = self.project_repo.get(project_id)
+        session = self.session_repo.get(session_id)
         cancel_event = asyncio.Event()
         self._cancel_events[run_id] = cancel_event
 
@@ -429,7 +434,20 @@ class AgentService:
                 },
             )
 
-        llm = LLMAdapterFactory.create(resolved_llm, on_retry=on_llm_retry, cancel_event=cancel_event)
+        llm = LLMAdapterFactory.create(
+            resolved_llm,
+            on_retry=on_llm_retry,
+            cancel_event=cancel_event,
+            observability_collector=self._resolve_observability_collector(),
+            observability_base_context=LLMCallObservabilityContext(
+                project_id=project_id,
+                session_id=session_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                project_name_snapshot=project.name if project else None,
+                session_title_snapshot=session.title if session else None,
+            ),
+        )
         runtime_adapter = ConversationRuntimeAdapter(
             conversation_service=self.conversation_service,
             session_id=session_id,
@@ -437,6 +455,15 @@ class AgentService:
             run_id=run_id,
         )
         self._runtime_adapters[run_id] = runtime_adapter
+        runtime_observability = self._build_runtime_observability_recorder()
+        runtime_observability_context = ToolObservabilityContext(
+            project_id=project_id,
+            session_id=session_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            project_name_snapshot=project.name if project else None,
+            session_title_snapshot=session.title if session else None,
+        )
 
         async def persist_and_broadcast(event_type: str, data: dict) -> None:
             if event_type == "approval:required":
@@ -444,6 +471,12 @@ class AgentService:
                     session_id=session_id,
                     turn_id=turn_id,
                     run_id=run_id,
+                    data=data,
+                )
+            if runtime_observability is not None:
+                runtime_observability.record_runtime_event(
+                    context=runtime_observability_context,
+                    event_type=event_type,
                     data=data,
                 )
             persisted_events = runtime_adapter.handle_event(event_type, data)
@@ -477,7 +510,6 @@ class AgentService:
         self._execution_loops[run_id] = execution_loop
 
         try:
-            session = self.session_repo.get(session_id)
             if session and session.title == DEFAULT_SESSION_TITLE:
                 title_task = asyncio.create_task(
                     self._generate_session_title(
@@ -557,6 +589,17 @@ class AgentService:
             run_id=run_id,
             step_number=int(data.get("step_number") or 0),
             tool_call_id=str(data.get("tool_call_id") or ""),
+            tool_call_metric_id=(
+                str(data.get("tool_call_metric_id"))
+                if data.get("tool_call_metric_id") is not None
+                else None
+            ),
+            invocation_id=(
+                str(data.get("invocation_id"))
+                if data.get("invocation_id") is not None
+                else None
+            ),
+            tool_started_at=self._parse_datetime(data.get("tool_started_at")),
             tool_name=str(data.get("tool_name") or ""),
             tool_arguments=arguments if isinstance(arguments, dict) else {},
             approval_payload=approval_payload if isinstance(approval_payload, dict) else {},
@@ -579,12 +622,15 @@ class AgentService:
                 "直接输出标题文本，不要加引号或其他格式。"
                 f"用户消息：{task}"
             )
-            response = await llm.complete(
-                [
-                    LLMMessage(role=MessageRole.USER, content=prompt),
-                ],
-                tools=None,
-            )
+            with llm_observability_scope(
+                LLMCallObservabilityContext(call_kind="title_generation")
+            ):
+                response = await llm.complete(
+                    [
+                        LLMMessage(role=MessageRole.USER, content=prompt),
+                    ],
+                    tools=None,
+                )
             title = (getattr(response, "content", None) or "").strip()[:20]
             if not title:
                 title = task[:20]
@@ -606,6 +652,39 @@ class AgentService:
             )
         except Exception:
             logger.exception("会话标题更新失败: session_id=%s", session_id)
+
+    def _build_runtime_observability_recorder(self) -> RuntimeObservabilityRecorder | None:
+        collector = self._resolve_observability_collector()
+        if collector is None:
+            return None
+        return RuntimeObservabilityRecorder(collector)
+
+    @staticmethod
+    def _parse_datetime(value):
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _duration_from_datetimes(started_at, finished_at) -> int:
+        if started_at is None or finished_at is None:
+            return 0
+        return max(0, int((finished_at - started_at).total_seconds() * 1000))
+
+    def _resolve_observability_collector(self):
+        if self.observability_collector is not None:
+            return self.observability_collector
+        try:
+            from app.app_services import observability_collector
+
+            return observability_collector
+        except Exception:
+            return None
 
     async def cancel_run(self, run_id: str) -> Run:
         cancel_event = self._cancel_events.get(run_id)
@@ -746,6 +825,7 @@ class AgentService:
             run = self.conversation_service.get_run(run_id)
             if run is None:
                 raise NotFoundValueError("运行不存在")
+            session = self.session_repo.get(session_id)
             if run.session_id != session_id:
                 raise ValueError("运行不属于当前会话")
             if run.status != RunStatus.WAITING_FOR_APPROVAL:
@@ -760,15 +840,61 @@ class AgentService:
             if pending.status != "pending":
                 raise ValueError("审批已处理")
 
+            project = (
+                self.project_repo.get(session.project_id)
+                if session is not None
+                else None
+            )
+            observability_recorder = self._build_runtime_observability_recorder()
+            observability_context = ToolObservabilityContext(
+                project_id=session.project_id if session is not None else None,
+                session_id=session_id,
+                turn_id=run.turn_id,
+                run_id=run_id,
+                project_name_snapshot=project.name if project else None,
+                session_title_snapshot=session.title if session else None,
+            )
+
             if approval_event_type == EventType.APPROVAL_APPROVED:
                 self.pending_approval_store.approve(approval_id, decision=decision)
                 trace_status = "approved"
+                if observability_recorder is not None:
+                    observability_recorder.record_approval_decision(
+                        context=observability_context,
+                        data={
+                            "approval_id": approval_id,
+                            "tool_call_metric_id": pending.tool_call_metric_id,
+                            "tool_call_id": pending.tool_call_id,
+                            "tool_name": pending.tool_name,
+                        },
+                        approval_status="approved",
+                        actor_type="user",
+                        reason=decision,
+                    )
 
                 if decision == "trust_and_allow":
                     self._add_trust_rules_from_approval(pending, session_id)
                     await self._cascade_auto_approve(session_id)
 
+                execution_started_at = datetime.now(
+                    pending.tool_started_at.tzinfo if pending.tool_started_at else None
+                )
                 execution_result = await self._execute_approved_tool(pending, run_id=run_id)
+                execution_finished_at = datetime.now(
+                    pending.tool_started_at.tzinfo if pending.tool_started_at else None
+                )
+                approval_wait_ms = self._duration_from_datetimes(
+                    pending.tool_started_at,
+                    execution_started_at,
+                )
+                execution_duration_ms = self._duration_from_datetimes(
+                    execution_started_at,
+                    execution_finished_at,
+                )
+                total_duration_ms = self._duration_from_datetimes(
+                    pending.tool_started_at,
+                    execution_finished_at,
+                )
 
                 loop = self._execution_loops.get(run_id)
                 if loop is not None:
@@ -776,8 +902,42 @@ class AgentService:
                         "success": execution_result.success,
                         "output": execution_result.output,
                         "error": execution_result.error,
+                        "observability": {
+                            "approval_wait_ms": approval_wait_ms,
+                            "execution_duration_ms": execution_duration_ms,
+                            "total_duration_ms": total_duration_ms,
+                            "execution_started_at": execution_started_at.isoformat(),
+                        },
                     })
                 else:
+                    if observability_recorder is not None:
+                        observability_recorder.record_tool_terminal(
+                            context=observability_context,
+                            data={
+                                "tool_name": pending.tool_name,
+                                "tool_call_id": pending.tool_call_id,
+                                "tool_call_metric_id": pending.tool_call_metric_id,
+                                "invocation_id": pending.invocation_id,
+                                "output": execution_result.output,
+                                "error": execution_result.error,
+                                "success": execution_result.success,
+                                "approval_wait_ms": approval_wait_ms,
+                                "execution_duration_ms": execution_duration_ms,
+                                "total_duration_ms": total_duration_ms,
+                                "execution_started_at": execution_started_at.isoformat(),
+                                "tool_started_at": (
+                                    pending.tool_started_at.isoformat()
+                                    if pending.tool_started_at is not None
+                                    else None
+                                ),
+                                "terminal_reason": (
+                                    "completed"
+                                    if execution_result.success
+                                    else "failed"
+                                ),
+                            },
+                            status="completed" if execution_result.success else "failed",
+                        )
                     terminal_event_type = EventType.RUN_COMPLETED
                     terminal_payload = {
                         "finished_at": datetime.now().isoformat(),
@@ -789,11 +949,52 @@ class AgentService:
             else:
                 self.pending_approval_store.deny(approval_id)
                 trace_status = "denied"
+                if observability_recorder is not None:
+                    observability_recorder.record_approval_decision(
+                        context=observability_context,
+                        data={
+                            "approval_id": approval_id,
+                            "tool_call_metric_id": pending.tool_call_metric_id,
+                            "tool_call_id": pending.tool_call_id,
+                            "tool_name": pending.tool_name,
+                        },
+                        approval_status="denied",
+                        actor_type="user",
+                        reason="deny",
+                    )
 
                 loop = self._execution_loops.get(run_id)
                 if loop is not None:
                     loop.set_approval_result(None)
                 else:
+                    approval_wait_ms = self._duration_from_datetimes(
+                        pending.tool_started_at,
+                        datetime.now(
+                            pending.tool_started_at.tzinfo
+                            if pending.tool_started_at
+                            else None
+                        ),
+                    )
+                    if observability_recorder is not None:
+                        observability_recorder.record_tool_terminal(
+                            context=observability_context,
+                            data={
+                                "tool_name": pending.tool_name,
+                                "tool_call_id": pending.tool_call_id,
+                                "tool_call_metric_id": pending.tool_call_metric_id,
+                                "invocation_id": pending.invocation_id,
+                                "error": "审批被拒绝",
+                                "approval_wait_ms": approval_wait_ms,
+                                "total_duration_ms": approval_wait_ms,
+                                "tool_started_at": (
+                                    pending.tool_started_at.isoformat()
+                                    if pending.tool_started_at is not None
+                                    else None
+                                ),
+                                "terminal_reason": "denied",
+                            },
+                            status="failed",
+                        )
                     terminal_event_type = EventType.RUN_CANCELLED
                     terminal_payload = {
                         "finished_at": datetime.now().isoformat(),

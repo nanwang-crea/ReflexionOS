@@ -79,6 +79,26 @@ class BrowserSettings(BaseModel):
     allowed_schemes: list[str] = Field(default=["http", "https"])
 
 
+class MonitoringAlertSettings(BaseModel):
+    """监控告警阈值配置"""
+
+    enable_in_app_notifications: bool = True
+    poll_interval_seconds: int = Field(default=60, ge=15, le=3600)
+    enable_webhook_notifications: bool = False
+    webhook_url: str | None = None
+    webhook_min_severity: str = Field(default="critical")
+    webhook_cooldown_seconds: int = Field(default=300, ge=0, le=86_400)
+    retry_request_count_warn: int = Field(default=3, ge=0)
+    failed_request_count_warn: int = Field(default=2, ge=0)
+    incomplete_cost_request_count_warn: int = Field(default=1, ge=0)
+    tool_failed_call_count_warn: int = Field(default=2, ge=0)
+    approval_denied_count_warn: int = Field(default=1, ge=0)
+    approval_wait_p95_ms_warn: int = Field(default=30_000, ge=0)
+    projection_lag_count_warn: int = Field(default=1, ge=0)
+    fallback_backlog_count_warn: int = Field(default=1, ge=0)
+    memory_queue_depth_critical: int = Field(default=1, ge=0)
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
 
@@ -89,6 +109,9 @@ class AppSettings(BaseModel):
     skill: SkillSettings = SkillSettings()
     plugin: PluginSettings = PluginSettings()
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    monitoring_alerts: MonitoringAlertSettings = Field(
+        default_factory=MonitoringAlertSettings
+    )
 
 
 class ConfigManager:
@@ -137,6 +160,13 @@ class ConfigManager:
     def update_browser(self, browser_settings: BrowserSettings):
         """更新浏览器配置"""
         self.settings.browser = browser_settings
+        self.save()
+
+    def update_monitoring_alerts(
+        self, monitoring_alert_settings: MonitoringAlertSettings
+    ):
+        """更新监控告警阈值配置"""
+        self.settings.monitoring_alerts = monitoring_alert_settings
         self.save()
 
 

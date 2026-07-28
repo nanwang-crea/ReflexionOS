@@ -20,6 +20,7 @@ import {
   Workflow
 } from 'lucide-react'
 import { ensureProjectsLoaded } from '@/features/projects/project.loader'
+import { useMonitoringAlertStore } from '@/features/monitoring/stores/monitoringAlert.store'
 import { isElectronRuntime } from '@/services/desktopClient'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { useConversationStore } from '@/features/conversation/stores/conversation.store'
@@ -222,6 +223,7 @@ export function WorkspaceSidebar() {
   const currentConversation = useConversationStore((state) => (
     currentSessionId ? state.conversationsBySessionId[currentSessionId] : undefined
   ))
+  const activeAlerts = useMonitoringAlertStore((state) => state.activeAlerts)
   const sessionsByProjectId = useSessionStore((state) => state.sessionsByProjectId)
 
   const [showProjectModal, setShowProjectModal] = useState(false)
@@ -229,6 +231,8 @@ export function WorkspaceSidebar() {
   const canSelectDirectory = isElectronRuntime()
 
   const busy = isConversationBusy(currentConversation)
+  const criticalAlertCount = activeAlerts.filter((alert) => alert.severity === 'critical').length
+  const activeAlertCount = activeAlerts.length
   const projectSessionsById = sessionsByProjectId
   const sessions = useMemo(
     () => Object.values(projectSessionsById).flat(),
@@ -346,6 +350,14 @@ export function WorkspaceSidebar() {
       path: null
     },
     {
+      key: 'monitoring',
+      label: '监控',
+      icon: Monitor,
+      onClick: () => navigate('/monitoring'),
+      disabled: false,
+      path: '/monitoring'
+    },
+    {
       key: 'skills',
       label: '技能',
       icon: Sparkles,
@@ -394,6 +406,17 @@ export function WorkspaceSidebar() {
               >
                 <Icon className="h-5 w-5" />
                 <span className="font-medium">{entry.label}</span>
+                {entry.key === 'monitoring' && activeAlertCount > 0 ? (
+                  <span
+                    className={`ml-auto inline-flex min-w-6 items-center justify-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      criticalAlertCount > 0
+                        ? 'bg-status-error text-white'
+                        : 'bg-status-warning text-white'
+                    }`}
+                  >
+                    {activeAlertCount}
+                  </span>
+                ) : null}
               </button>
             )
           })}

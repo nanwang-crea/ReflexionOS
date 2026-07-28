@@ -1363,16 +1363,18 @@ class TestRapidExecutionLoop:
         assert result.steps[-1].status == StepStatus.FAILED
         tool_error_events = [event for event in events if event["type"] == "tool:error"]
         assert len(tool_error_events) == 1
-        assert tool_error_events[0]["data"] == {
-            "tool_name": "explode",
-            "step_number": 1,
-            "tool_call_id": tool_call.id,
-            "success": False,
-            "output": None,
-            "error": "boom",
-            "duration": result.steps[-1].duration,
-            "arguments": {"path": "README.md"},
-        }
+        payload = tool_error_events[0]["data"]
+        assert payload["tool_name"] == "explode"
+        assert payload["step_number"] == 1
+        assert payload["tool_call_id"] == tool_call.id
+        assert payload["success"] is False
+        assert payload["output"] is None
+        assert payload["error"] == "boom"
+        assert payload["duration"] == result.steps[-1].duration
+        assert payload["arguments"] == {"path": "README.md"}
+        assert payload["tool_call_metric_id"].startswith("tool-metric-")
+        assert payload["invocation_id"].startswith("tool-invocation-")
+        assert payload["terminal_reason"] == "failed"
 
     @pytest.mark.asyncio
     async def test_shell_destructive_command_triggers_approval_through_loop(

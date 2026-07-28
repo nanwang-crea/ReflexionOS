@@ -1,5 +1,6 @@
 import asyncio
 import threading
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -26,9 +27,11 @@ from app.models.llm_config import (
 )
 from app.models.project import Project
 from app.models.session import Session
+from app.observability.collector import ObservabilityCollector
 from app.services.conversation_service import ConversationService
 from app.services.llm_provider_service import LLMProviderService
 from app.storage.database import Database
+from app.storage.models import ToolApprovalEventModel, ToolCallMetricModel
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 
@@ -81,6 +84,7 @@ def build_service_with_db(
     project: Project | None = None,
     session: Session | None = None,
     settings: LLMSettings | None = None,
+    observability_collector=None,
 ):
     db = Database(str(tmp_path / "agent-service.db"))
     dummy_config = DummyConfigManager(settings)
@@ -99,6 +103,7 @@ def build_service_with_db(
         session_repo=session_repo,
         conversation_service=conversation_service,
         llm_provider_service=provider_service,
+        observability_collector=observability_collector,
     )
     return service, conversation_service, dummy_config
 
@@ -1242,6 +1247,79 @@ async def test_deny_tool_call_does_not_execute_command(monkeypatch, tmp_path):
 
     run = conversation_service.get_run(started.run.id)
     assert run.status == RunStatus.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_deny_tool_call_records_observability_metrics(monkeypatch, tmp_path):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    db = Database(str(tmp_path / "agent-service-observability.db"))
+    collector = ObservabilityCollector(db, journal_dir=tmp_path / "journal")
+    project_repo = ProjectRepository(db)
+    session_repo = SessionRepository(db)
+    project_repo.save(project)
+    session_repo.create(session)
+    conversation_service = ConversationService(db=db)
+    provider_service = LLMProviderService(config_manager=DummyConfigManager(settings))
+    service = agent_service_module.AgentService(
+        project_repo=project_repo,
+        session_repo=session_repo,
+        conversation_service=conversation_service,
+        llm_provider_service=provider_service,
+        observability_collector=collector,
+    )
+
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="运行测试",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-deny",
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        step_number=1,
+        tool_call_id="call-deny",
+        tool_call_metric_id="tool-metric-deny",
+        invocation_id="tool-invocation-deny",
+        tool_started_at=datetime.now(),
+        tool_name="shell",
+        tool_arguments={"command": "rm -rf .pytest_cache"},
+        approval_payload={"summary": "删除缓存"},
+    )
+    append_waiting_for_approval(
+        conversation_service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+        approval_id="approval-deny",
+    )
+
+    await service.deny_tool_call(
+        session_id="session-1",
+        run_id=started.run.id,
+        approval_id="approval-deny",
+    )
+
+    with db.get_session() as db_session:
+        tool_metric = db_session.get(ToolCallMetricModel, "tool-metric-deny")
+        approval_rows = db_session.query(ToolApprovalEventModel).all()
+
+        assert tool_metric is not None
+        assert tool_metric.status == "failed"
+        assert tool_metric.terminal_reason == "denied"
+        assert tool_metric.error_category == "approval_denied"
+        assert approval_rows[0].approval_id == "approval-deny"
+        assert approval_rows[0].event_type == "denied"
 
 
 @pytest.mark.asyncio

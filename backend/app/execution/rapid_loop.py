@@ -29,6 +29,7 @@ from app.llm.base import (
     MessageRole,
     UniversalLLMInterface,
 )
+from app.llm.observability import LLMCallObservabilityContext, llm_observability_scope
 from app.llm.retry import LLMRetryExhaustedError
 from app.llm.token_counter import count_messages_tokens
 from app.tools.registry import ToolRegistry
@@ -97,6 +98,10 @@ class RapidExecutionLoop:
                 logger.error("事件回调失败: %s", e)
                 raise
 
+    @staticmethod
+    def _llm_observability_scope(call_kind: str):
+        return llm_observability_scope(LLMCallObservabilityContext(call_kind=call_kind))
+
     def get_approval_resume_event(self) -> asyncio.Event:
         return self.approval_flow._resume_event
 
@@ -113,13 +118,14 @@ class RapidExecutionLoop:
                 transcript=transcript,
                 existing_summary=self.context.compressor.get_compacted_summary(),
             )
-            response = await self.llm.complete(
-                [
-                    LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
-                    LLMMessage(role=MessageRole.USER, content=user_prompt),
-                ],
-                tools=None,
-            )
+            with self._llm_observability_scope("context_compaction"):
+                response = await self.llm.complete(
+                    [
+                        LLMMessage(role=MessageRole.SYSTEM, content=system_prompt),
+                        LLMMessage(role=MessageRole.USER, content=user_prompt),
+                    ],
+                    tools=None,
+                )
             return (response.content or "").strip()
 
         return summarizer
@@ -325,10 +331,25 @@ class RapidExecutionLoop:
                             "tool_name": step.tool,
                             "step_number": step.step_number,
                             "tool_call_id": step.tool_call_id,
+                            "tool_call_metric_id": step.tool_call_metric_id,
+                            "invocation_id": step.invocation_id,
                             "success": False,
                             "output": step.output,
                             "error": step.error,
                             "duration": step.duration,
+                            "execution_duration_ms": int((step.duration or 0) * 1000),
+                            "total_duration_ms": int((step.duration or 0) * 1000),
+                            "execution_started_at": (
+                                step.execution_started_at.isoformat()
+                                if step.execution_started_at is not None
+                                else None
+                            ),
+                            "tool_started_at": (
+                                step.tool_started_at.isoformat()
+                                if step.tool_started_at is not None
+                                else None
+                            ),
+                            "terminal_reason": "failed",
                             "arguments": step.args,
                         },
                     )
@@ -419,10 +440,25 @@ class RapidExecutionLoop:
                         "tool_name": tool_call.name,
                         "step_number": step.step_number,
                         "tool_call_id": step.tool_call_id,
+                        "tool_call_metric_id": step.tool_call_metric_id,
+                        "invocation_id": step.invocation_id,
                         "success": False,
                         "output": step.output,
                         "error": step.error,
                         "duration": step.duration,
+                        "execution_duration_ms": int((step.duration or 0) * 1000),
+                        "total_duration_ms": int((step.duration or 0) * 1000),
+                        "execution_started_at": (
+                            step.execution_started_at.isoformat()
+                            if step.execution_started_at is not None
+                            else None
+                        ),
+                        "tool_started_at": (
+                            step.tool_started_at.isoformat()
+                            if step.tool_started_at is not None
+                            else None
+                        ),
+                        "terminal_reason": "failed",
                         "arguments": step.args,
                     },
                 )
@@ -504,7 +540,9 @@ class RapidExecutionLoop:
             step.status = StepStatus.SUCCESS if approval.success else StepStatus.FAILED
             step.output = approval.output
             step.error = approval.error
-            step.duration = 0.0
+            observability = approval.observability or {}
+            total_duration_ms = observability.get("total_duration_ms", 0)
+            step.duration = total_duration_ms / 1000 if total_duration_ms else 0.0
 
             # Emit tool:result so the runtime adapter closes the
             # waiting-for-approval tool_trace (updates payload and
@@ -514,11 +552,26 @@ class RapidExecutionLoop:
                 {
                     "tool_name": step.tool,
                     "tool_call_id": step.tool_call_id,
+                    "tool_call_metric_id": step.tool_call_metric_id,
+                    "invocation_id": step.invocation_id,
                     "step_number": step.step_number,
                     "success": approval.success,
                     "output": approval.output,
                     "error": approval.error,
-                    "duration": 0.0,
+                    "duration": step.duration,
+                    "execution_duration_ms": observability.get("execution_duration_ms"),
+                    "approval_wait_ms": observability.get("approval_wait_ms"),
+                    "total_duration_ms": observability.get("total_duration_ms"),
+                    "execution_started_at": observability.get("execution_started_at"),
+                    "tool_started_at": (
+                        step.tool_started_at.isoformat()
+                        if step.tool_started_at is not None
+                        else None
+                    ),
+                    "approval_id": step.approval_id,
+                    "terminal_reason": (
+                        "completed" if approval.success else "failed"
+                    ),
                 },
             )
 
@@ -536,6 +589,19 @@ class RapidExecutionLoop:
         else:
             step.status = StepStatus.FAILED
             step.error = "审批被拒绝"
+            approval_wait_ms = 0
+            if step.tool_started_at is not None:
+                approval_wait_ms = max(
+                    0,
+                    int(
+                        (
+                            datetime.now(step.tool_started_at.tzinfo or None)
+                            - step.tool_started_at
+                        ).total_seconds()
+                        * 1000
+                    ),
+                )
+            step.duration = approval_wait_ms / 1000 if approval_wait_ms else 0.0
 
             # Emit tool:error so the runtime adapter closes the
             # waiting-for-approval tool_trace (streamState → failed).
@@ -544,9 +610,20 @@ class RapidExecutionLoop:
                 {
                     "tool_name": step.tool,
                     "tool_call_id": step.tool_call_id,
+                    "tool_call_metric_id": step.tool_call_metric_id,
+                    "invocation_id": step.invocation_id,
                     "step_number": step.step_number,
                     "error": "审批被拒绝",
-                    "duration": 0.0,
+                    "duration": step.duration,
+                    "approval_wait_ms": approval_wait_ms,
+                    "total_duration_ms": approval_wait_ms,
+                    "tool_started_at": (
+                        step.tool_started_at.isoformat()
+                        if step.tool_started_at is not None
+                        else None
+                    ),
+                    "approval_id": step.approval_id,
+                    "terminal_reason": "denied",
                     "arguments": step.args,
                 },
             )
@@ -840,13 +917,14 @@ class RapidExecutionLoop:
         messages = self.message_builder.build_initial_plan(context)
 
         # 使用流式调用，让前端在计划阶段也能看到实时输出
-        response, _ = await self.llm.stream_collect(
-            messages,
-            tools,
-            on_content=lambda c: self._emit("llm:content", {"content": c}),
-            on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
-            max_empty_retries=0,
-        )
+        with self._llm_observability_scope("initial_plan"):
+            response, _ = await self.llm.stream_collect(
+                messages,
+                tools,
+                on_content=lambda c: self._emit("llm:content", {"content": c}),
+                on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
+                max_empty_retries=0,
+            )
 
         # Check for NO_PLAN response (task doesn't need a plan)
         response_text = response.content or ""
@@ -908,7 +986,8 @@ Answer ONLY "yes" or "no".\
 """
         messages = [LLMMessage(role=MessageRole.USER, content=prompt)]
         try:
-            response = await self.llm.complete(messages, tools=[])
+            with self._llm_observability_scope("plan_relevance"):
+                response = await self.llm.complete(messages, tools=[])
             answer = (response.content or "").strip().lower()
             if answer.startswith("yes"):
                 return True
@@ -957,14 +1036,15 @@ Answer ONLY "yes" or "no".\
         call_started_at = time.perf_counter()
 
         # 2. 调用 adapter 流式收集（不处理空响应重试，由我们自己处理）
-        response, first_chunk_latency = await self.llm.stream_collect(
-            messages,
-            tools,
-            on_content=lambda c: self._emit("llm:content", {"content": c}),
-            on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
-            max_empty_retries=0,
-            track_first_chunk_latency=True,
-        )
+        with self._llm_observability_scope("main"):
+            response, first_chunk_latency = await self.llm.stream_collect(
+                messages,
+                tools,
+                on_content=lambda c: self._emit("llm:content", {"content": c}),
+                on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
+                max_empty_retries=0,
+                track_first_chunk_latency=True,
+            )
 
         # 3. 发射指标
         await self._emit_llm_metrics(
@@ -1039,13 +1119,14 @@ Answer ONLY "yes" or "no".\
             )
             # 重新构建消息（包含新注入的任务提醒）
             messages = self.message_builder.build(context)
-            response, _ = await self.llm.stream_collect(
-                messages,
-                tools,
-                on_content=lambda c: self._emit("llm:content", {"content": c}),
-                on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
-                max_empty_retries=0,
-            )
+            with self._llm_observability_scope("main"):
+                response, _ = await self.llm.stream_collect(
+                    messages,
+                    tools,
+                    on_content=lambda c: self._emit("llm:content", {"content": c}),
+                    on_reasoning=lambda r: self._emit("llm:reasoning", {"reasoning_content": r}),
+                    max_empty_retries=0,
+                )
             # 重试后有内容，添加到上下文并返回
             if response.has_content or response.has_tool_calls:
                 context.add_message(
@@ -1139,12 +1220,13 @@ Answer ONLY "yes" or "no".\
 
         try:
             summary_parts = []
-            async for chunk in self.llm.stream_complete(messages, tools=None):
-                if chunk.type == "content" and chunk.content:
-                    summary_parts.append(chunk.content)
-                    await self._emit("summary:token", {"token": chunk.content})
-                elif chunk.type == "done":
-                    break
+            with self._llm_observability_scope("final_summary"):
+                async for chunk in self.llm.stream_complete(messages, tools=None):
+                    if chunk.type == "content" and chunk.content:
+                        summary_parts.append(chunk.content)
+                        await self._emit("summary:token", {"token": chunk.content})
+                    elif chunk.type == "done":
+                        break
 
             summary = "".join(summary_parts)
 

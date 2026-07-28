@@ -11,6 +11,7 @@ from app.api.routes import (
     files,
     git,
     llm,
+    monitoring,
     plugins,
     projects,
     sessions,
@@ -57,6 +58,10 @@ class RequestLoggingMiddleware:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     agent_service.start_background_tasks()
+    from app.app_services import monitoring_alert_dispatcher, observability_collector
+
+    observability_collector.start_background_tasks()
+    monitoring_alert_dispatcher.start_background_tasks()
 
     try:
         from app.config.settings import config_manager
@@ -83,6 +88,8 @@ async def lifespan(_app: FastAPI):
 
         yield
     finally:
+        await monitoring_alert_dispatcher.stop_background_tasks()
+        await observability_collector.stop_background_tasks()
         await agent_service.shutdown()
         await agent_service.stop_background_tasks()
 
@@ -122,6 +129,7 @@ app.include_router(skills.router)
 app.include_router(plugins.router)
 app.include_router(ui_settings.router)
 app.include_router(websocket.router)
+app.include_router(monitoring.router)
 app.include_router(files.router)
 app.include_router(git.router)
 app.include_router(browser_screenshot.router)

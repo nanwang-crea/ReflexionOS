@@ -1,7 +1,9 @@
 from app.errors import NotFoundValueError
 from app.ids import new_session_id
 from app.models.session import DEFAULT_SESSION_TITLE, Session, SessionCreate, SessionUpdate
+from app.observability.privacy import ObservabilityPrivacyService
 from app.storage.database import db as default_db
+from app.storage.repositories.observability_event_repo import ObservabilityEventRepository
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 
@@ -12,6 +14,7 @@ class SessionService:
         db=None,
         session_repo: SessionRepository | None = None,
         project_repo: ProjectRepository | None = None,
+        observability_collector=None,
     ):
         resolved_db = db
         if resolved_db is None:
@@ -22,6 +25,7 @@ class SessionService:
         self.db = resolved_db
         self.session_repo = session_repo or SessionRepository(self.db)
         self.project_repo = project_repo or ProjectRepository(self.db)
+        self.observability_collector = observability_collector
 
     def create_session(self, project_id: str, payload: SessionCreate) -> Session:
         self._get_project_or_raise(project_id)
@@ -58,8 +62,26 @@ class SessionService:
         return self.session_repo.update(updated_session)
 
     def delete_session(self, session_id: str) -> bool:
-        if not self.session_repo.delete(session_id):
-            raise NotFoundValueError("会话不存在")
+        if self.db is None:
+            if not self.session_repo.delete(session_id):
+                raise NotFoundValueError("会话不存在")
+            return True
+
+        with (
+            ObservabilityEventRepository.subject_lock(self.db, "session", session_id),
+            self.db.get_session() as db_session,
+        ):
+            session = self.session_repo.get(session_id, db_session=db_session)
+            if session is None:
+                raise NotFoundValueError("会话不存在")
+            collector = self._resolve_observability_collector()
+            if collector is not None:
+                collector.redact_subject("session", session_id)
+            ObservabilityPrivacyService(self.db).redact_session(
+                session_id,
+                db_session=db_session,
+            )
+            self.session_repo.delete(session_id, db_session=db_session)
         return True
 
     def _get_project_or_raise(self, project_id: str):
@@ -67,6 +89,19 @@ class SessionService:
         if not project:
             raise NotFoundValueError("项目不存在")
         return project
+
+    def _resolve_observability_collector(self):
+        if self.observability_collector is not None:
+            return self.observability_collector
+
+        if self.db is default_db:
+            try:
+                from app.app_services import observability_collector
+
+                return observability_collector
+            except Exception:
+                return None
+        return None
 
 
 session_service = SessionService()

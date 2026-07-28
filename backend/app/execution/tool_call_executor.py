@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 
 from app.execution.context_manager import LoopContext
@@ -83,11 +84,16 @@ class ToolCallExecutor:
             step_number=step_number,
             tool=tool_call.name,
             tool_call_id=tool_call.id,
+            tool_call_metric_id=f"tool-metric-{uuid.uuid4().hex[:12]}",
+            invocation_id=f"tool-invocation-{uuid.uuid4().hex[:12]}",
             args=tool_call.arguments,
             status=StepStatus.RUNNING,
         )
 
         start_time = time.time()
+        started_at = datetime.now(UTC)
+        step.tool_started_at = started_at
+        step.execution_started_at = started_at
 
         await self.emit(
             "tool:start",
@@ -95,6 +101,8 @@ class ToolCallExecutor:
                 "tool_name": tool_call.name,
                 "arguments": tool_call.arguments,
                 "tool_call_id": tool_call.id,
+                "tool_call_metric_id": step.tool_call_metric_id,
+                "invocation_id": step.invocation_id,
                 "step_number": step_number,
             },
         )
@@ -142,6 +150,7 @@ class ToolCallExecutor:
                 step.approval_id = approval.approval_id
                 step.output = approval.summary
                 step.duration = time.time() - start_time
+                step.execution_started_at = None
 
                 await self.emit(
                     "approval:required",
@@ -149,6 +158,9 @@ class ToolCallExecutor:
                         "tool_name": tool_call.name,
                         "arguments": tool_call.arguments,
                         "tool_call_id": tool_call.id,
+                        "tool_call_metric_id": step.tool_call_metric_id,
+                        "invocation_id": step.invocation_id,
+                        "tool_started_at": started_at.isoformat(),
                         "approval_id": approval.approval_id,
                         "step_number": step_number,
                         "approval": approval.model_dump(),
@@ -215,10 +227,17 @@ class ToolCallExecutor:
                 {
                     "tool_name": tool_call.name,
                     "tool_call_id": tool_call.id,
+                    "tool_call_metric_id": step.tool_call_metric_id,
+                    "invocation_id": step.invocation_id,
                     "success": result.success,
                     "output": result.output,
                     "error": result.error,
                     "duration": step.duration,
+                    "execution_duration_ms": int(step.duration * 1000),
+                    "total_duration_ms": int(step.duration * 1000),
+                    "execution_started_at": started_at.isoformat(),
+                    "tool_started_at": started_at.isoformat(),
+                    "terminal_reason": "completed" if result.success else "failed",
                     **(result.data or {}),
                 },
             )

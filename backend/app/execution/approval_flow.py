@@ -15,6 +15,7 @@ class ApprovalResult:
     output: str | None = None
     error: str | None = None
     success: bool = False
+    observability: dict | None = None
 
 
 class ApprovalFlow:
@@ -53,6 +54,7 @@ class ApprovalFlow:
                 output=result.get("output"),
                 error=result.get("error"),
                 success=result.get("success", False),
+                observability=result.get("observability"),
             )
         else:
             return ApprovalResult(approved=False)

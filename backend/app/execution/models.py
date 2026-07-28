@@ -30,6 +30,10 @@ class LoopStep(BaseModel):
     tool: str
     tool_call_id: str | None = None
     approval_id: str | None = None
+    tool_call_metric_id: str | None = None
+    invocation_id: str | None = None
+    tool_started_at: datetime | None = None
+    execution_started_at: datetime | None = None
     args: dict
     status: StepStatus = StepStatus.PENDING
     output: str | None = None
