@@ -50,7 +50,8 @@ function waitForServer(url, timeoutMs = 30000) {
 }
 
 function parseViteUrl(output) {
-  const stripped = output.replace(/\x1b\[[0-9;]*m/g, '')
+  const ansiEscapePattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g')
+  const stripped = output.replace(ansiEscapePattern, '')
   const match = stripped.match(/Local:\s+(https?:\/\/[^\s]+)/)
   return match ? match[1] : null
 }
@@ -135,7 +136,8 @@ async function main() {
 
   // ELECTRON_RUN_AS_NODE causes Electron to run as a plain Node.js process
   // without any GUI. Strip it from the environment so the window opens normally.
-  const { ELECTRON_RUN_AS_NODE, ...childEnv } = process.env
+  const childEnv = { ...process.env }
+  delete childEnv.ELECTRON_RUN_AS_NODE
 
   electronProcess = spawn(electronBinary, ['./electron/main.cjs'], {
     cwd: frontendDir,

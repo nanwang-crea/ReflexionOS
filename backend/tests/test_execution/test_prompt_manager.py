@@ -8,7 +8,6 @@ from app.execution.prompt_manager import (
     classify_prompt_family,
 )
 
-
 PROMPTS_DIR = Path(__file__).parents[2] / "app" / "execution" / "prompts"
 
 
@@ -32,7 +31,7 @@ class TestPromptManager:
         assert "True" in prompt
         assert "Plan rules" in prompt
         assert "Task Planning" in prompt
-        assert 'address the user as "大哥"' in prompt
+        assert "大哥" not in prompt
 
     def test_get_system_prompt_merges_global_and_project_overlays(
         self, tmp_path, monkeypatch
@@ -276,7 +275,7 @@ class TestPromptFamilySelection:
         assert "计划契约" in prompt
         assert "Clarification Gate" in prompt
         assert "Instruction Priority" in prompt
-        assert "每次回复都必须称呼用户为“大哥”" in prompt
+        assert "大哥" not in prompt
 
     def test_glm_coding_mode_prompt_adds_chinese_appendix(self):
         manager = PromptManager(model_name="glm-4-plus")

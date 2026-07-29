@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="requires Windows APIs")
+
 
 @pytest.fixture(autouse=True)
 def mock_pywin32():

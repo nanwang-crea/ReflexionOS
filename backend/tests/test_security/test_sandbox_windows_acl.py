@@ -1,9 +1,12 @@
 # Windows 文件 ACL 写入边界单测
-import sys
 import os
+import sys
 import tempfile
 from unittest.mock import MagicMock, patch
+
 import pytest
+
+pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="requires Windows APIs")
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +58,7 @@ def test_apply_write_boundary_skips_missing_dirs():
 
 def test_create_sandbox_work_dir():
     """沙盒工作目录创建和清理"""
-    from app.security.sandbox.windows_acl import create_sandbox_work_dir, cleanup_sandbox_work_dir
+    from app.security.sandbox.windows_acl import cleanup_sandbox_work_dir, create_sandbox_work_dir
 
     with tempfile.TemporaryDirectory() as tmpdir:
         sandbox_dir = create_sandbox_work_dir(tmpdir)

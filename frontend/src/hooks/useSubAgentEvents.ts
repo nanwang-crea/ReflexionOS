@@ -38,10 +38,6 @@ export const useSubAgentEventsStore = create<SubAgentEventsState>((set) => ({
     const callId = event.delegate_call_id
     if (!callId) return
 
-    if (event.event_type === 'tool:result' || event.event_type === 'approval:required') {
-      console.log('[SubAgentStore] addEvent:', event.event_type, 'callId:', callId, 'tool_call_id:', event.payload.tool_call_id, 'approval_id:', event.payload.approval_id)
-    }
-
     set((state) => {
       const existing = state.steps.get(callId) ?? []
       const step: SubAgentStep = {
@@ -68,11 +64,14 @@ export const useSubAgentEventsStore = create<SubAgentEventsState>((set) => ({
   },
 }))
 
+const EMPTY_SUB_AGENT_STEPS: SubAgentStep[] = []
+
 /**
  * 获取指定 delegate_call_id 的子 agent 步骤。
  * 供组件在 render 中调用，自动订阅 store 变化。
  */
 export function useSubAgentSteps(callId: string | undefined): SubAgentStep[] {
-  if (!callId) return []
-  return useSubAgentEventsStore((state) => state.steps.get(callId) ?? [])
+  return useSubAgentEventsStore((state) =>
+    callId ? (state.steps.get(callId) ?? EMPTY_SUB_AGENT_STEPS) : EMPTY_SUB_AGENT_STEPS
+  )
 }
