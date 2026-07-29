@@ -79,6 +79,21 @@ def test_database_failure_falls_back_to_journal_and_replay_recovers(tmp_path, mo
         assert [event.id for event in events] == ["event-1", "event-2"]
 
 
+def test_replay_projects_database_events_without_journal_backlog(tmp_path):
+    db = Database(str(tmp_path / "collector-database-backlog.db"))
+    collector = ObservabilityCollector(db, journal_dir=tmp_path / "journal")
+    collector.event_repo.append(_event("event-1"))
+
+    assert collector.get_health().projection_lag_count == 1
+
+    replayed = collector.replay_pending()
+
+    assert replayed == 0
+    assert collector.get_health().projection_lag_count == 0
+    with db.get_session() as db_session:
+        assert db_session.get(LLMLogicalCallModel, "event-1") is not None
+
+
 def test_memory_queue_fallback_and_drop_count(tmp_path, monkeypatch):
     db = Database(str(tmp_path / "collector-memory.db"))
     collector = ObservabilityCollector(

@@ -7,6 +7,7 @@ import app.services.agent_service as agent_service_module
 from app.errors import NotFoundValueError
 from app.models.llm_config import LLMSettings
 from app.models.session import Session
+from app.observability.collector import ObservabilityCollector
 from app.services.conversation_service import ConversationService
 from app.services.llm_provider_service import LLMProviderService
 from app.storage.database import Database
@@ -21,10 +22,15 @@ class _DummyConfigManager:
 def _build_service(tmp_path):
     db = Database(str(tmp_path / "agent-reset.db"))
     provider_service = LLMProviderService(config_manager=_DummyConfigManager())
+    collector = ObservabilityCollector(
+        db,
+        journal_dir=tmp_path / "observability-journal",
+    )
     return agent_service_module.AgentService(
         session_repo=SessionRepository(db),
         conversation_service=ConversationService(db=db),
         llm_provider_service=provider_service,
+        observability_collector=collector,
     )
 
 

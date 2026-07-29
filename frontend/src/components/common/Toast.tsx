@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
-import { useToastStore, type ToastItem } from '@/shared/stores/toast.store'
+import { forwardRef } from 'react'
+import { useToastStore, type ToastItem as ToastData } from '@/shared/stores/toast.store'
 
 const levelConfig: Record<string, { icon: typeof AlertCircle; bg: string; border: string; text: string }> = {
   error: { icon: AlertCircle, bg: 'bg-status-error-soft', border: 'border-status-error-border', text: 'text-status-error' },
@@ -8,13 +9,17 @@ const levelConfig: Record<string, { icon: typeof AlertCircle; bg: string; border
   info: { icon: Info, bg: 'bg-accent-soft', border: 'border-edge', text: 'text-accent' },
 }
 
-function ToastItem({ item }: { item: ToastItem }) {
+const ToastItem = forwardRef<HTMLDivElement, { item: ToastData }>(function ToastItem(
+  { item },
+  ref,
+) {
   const removeToast = useToastStore((s) => s.removeToast)
   const config = levelConfig[item.level] ?? levelConfig.info
   const Icon = config.icon
 
   return (
     <motion.div
+      ref={ref}
       layout
       initial={{ opacity: 0, y: -12, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -26,6 +31,7 @@ function ToastItem({ item }: { item: ToastItem }) {
       <span className="flex-1 text-sm leading-5">{item.message}</span>
       <button
         type="button"
+        aria-label="关闭通知"
         onClick={() => removeToast(item.id)}
         className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
       >
@@ -33,7 +39,7 @@ function ToastItem({ item }: { item: ToastItem }) {
       </button>
     </motion.div>
   )
-}
+})
 
 export function ToastContainer() {
   const toasts = useToastStore((s) => s.toasts)

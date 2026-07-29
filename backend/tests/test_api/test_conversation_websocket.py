@@ -9,6 +9,7 @@ from app.models.conversation import ConversationEvent, EventType, MessageType
 from app.models.llm_config import ProviderType, ResolvedLLMConfig
 from app.models.project import Project
 from app.models.session import Session
+from app.observability.collector import ObservabilityCollector
 from app.services.agent_service import AgentService
 from app.services.conversation_broadcaster import WebSocketConversationBroadcaster
 from app.services.conversation_service import ConversationService
@@ -106,6 +107,10 @@ def client_with_services(tmp_path, monkeypatch):
     session_repo.create(Session(id="session-1", project_id="project-1", title="需求讨论"))
 
     conversation_service = ConversationService(db=db)
+    collector = ObservabilityCollector(
+        db,
+        journal_dir=tmp_path / "observability-journal",
+    )
     seeded = conversation_service.start_turn(
         session_id="session-1",
         content="先做一轮初始化",
@@ -123,6 +128,7 @@ def client_with_services(tmp_path, monkeypatch):
         session_repo=session_repo,
         conversation_service=conversation_service,
         conversation_broadcaster=WebSocketConversationBroadcaster(websocket_module.ws_manager),
+        observability_collector=collector,
     )
     monkeypatch.setattr(
         agent_service.llm_provider_service,
@@ -178,6 +184,10 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
     monkeypatch.setattr(config_manager.settings.memory, "base_dir", str(tmp_path / "memories"))
 
     conversation_service = ConversationService(db=db)
+    collector = ObservabilityCollector(
+        db,
+        journal_dir=tmp_path / "observability-journal",
+    )
 
     import app.api.websocket_manager as websocket_module
 
@@ -187,6 +197,7 @@ def client_with_memory_pipeline(tmp_path, monkeypatch):
         session_repo=session_repo,
         conversation_service=conversation_service,
         conversation_broadcaster=WebSocketConversationBroadcaster(websocket_module.ws_manager),
+        observability_collector=collector,
     )
     monkeypatch.setattr(
         agent_service.llm_provider_service,

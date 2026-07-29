@@ -8,9 +8,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 import app.services.agent_service as agent_service_module
-from app.execution.models import LoopResult, LoopStatus
 from app.execution.conversation_history_loader import ConversationHistoryLoader
-
+from app.execution.models import LoopResult, LoopStatus
 from app.models.conversation import (
     ConversationEvent,
     EventType,
@@ -87,6 +86,11 @@ def build_service_with_db(
     observability_collector=None,
 ):
     db = Database(str(tmp_path / "agent-service.db"))
+    if observability_collector is None:
+        observability_collector = ObservabilityCollector(
+            db,
+            journal_dir=tmp_path / "observability-journal",
+        )
     dummy_config = DummyConfigManager(settings)
 
     project_repo = ProjectRepository(db)
@@ -223,6 +227,10 @@ async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(
     project_repo.save(project)
     session_repo.create(session)
     conversation_service = ConversationService(db=db)
+    collector = ObservabilityCollector(
+        db,
+        journal_dir=tmp_path / "observability-journal",
+    )
     provider_service = LLMProviderService(config_manager=DummyConfigManager(settings))
     sent_events = []
 
@@ -236,6 +244,7 @@ async def test_start_turn_broadcasts_seed_events_through_injected_broadcaster(
         conversation_service=conversation_service,
         llm_provider_service=provider_service,
         conversation_broadcaster=RecordingBroadcaster(),
+        observability_collector=collector,
     )
     monkeypatch.setattr(service, "schedule_turn", lambda **kwargs: None)
 

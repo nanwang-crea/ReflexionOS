@@ -10,6 +10,7 @@ from app.main import app
 from app.models.conversation import Run, RunStatus, Turn, TurnStatus
 from app.models.llm_config import LLMSettings
 from app.models.project import Project
+from app.observability.collector import ObservabilityCollector
 from app.services.conversation_service import ConversationService
 from app.services.llm_provider_service import LLMProviderService
 from app.services.session_service import SessionService
@@ -34,10 +35,15 @@ def ctx(tmp_path, monkeypatch):
     session_service = SessionService(session_repo=session_repo, project_repo=project_repo)
     conversation_service = ConversationService(db=db)
     provider_service = LLMProviderService(config_manager=_DummyConfigManager())
+    collector = ObservabilityCollector(
+        db,
+        journal_dir=tmp_path / "observability-journal",
+    )
     agent_service = agent_service_module.AgentService(
         session_repo=session_repo,
         conversation_service=conversation_service,
         llm_provider_service=provider_service,
+        observability_collector=collector,
     )
 
     monkeypatch.setattr(sessions_route_module, "session_service", session_service)

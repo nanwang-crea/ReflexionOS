@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
 
-from app.config.settings import MonitoringAlertSettings
-from app.services.monitoring_service import MonitoringService, monitoring_service
+from app.services.monitoring_service import (
+    MonitoringService,
+)
+from app.services.monitoring_service import (
+    monitoring_service as default_monitoring_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +27,7 @@ class MonitoringAlertDispatcher:
         monitoring_service: MonitoringService | None = None,
         sender=None,
     ) -> None:
-        self.monitoring_service = monitoring_service or monitoring_service
+        self.monitoring_service = monitoring_service or default_monitoring_service
         self.sender = sender or self._send_webhook
         self._task: asyncio.Task | None = None
         self._last_sent_keys: set[str] = set()
@@ -39,10 +44,8 @@ class MonitoringAlertDispatcher:
             return
         self._task = None
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     async def dispatch_once(self) -> int:
         settings = self.monitoring_service.get_alert_settings()

@@ -317,12 +317,18 @@ class ToolCallMetricModel(Base):
 class ToolApprovalEventModel(Base):
     __tablename__ = "tool_approval_events"
     __table_args__ = (
-        UniqueConstraint("approval_id", "event_type", name="uq_tool_approval_events_type"),
+        UniqueConstraint(
+            "tool_call_metric_id",
+            "approval_id",
+            "event_type",
+            name="uq_tool_approval_events_type",
+        ),
         CheckConstraint(
             f"event_type IN ({APPROVAL_EVENT_TYPES})", name="ck_tool_approval_events_type"
         ),
         Index(
             "uq_tool_approval_events_terminal",
+            "tool_call_metric_id",
             "approval_id",
             unique=True,
             sqlite_where=text("event_type IN ('approved','denied','expired','stale')"),

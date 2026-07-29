@@ -64,6 +64,7 @@ class ObservabilityCollector:
         self._dropped_metrics_count = 0
         self._last_error_code = None
         self._last_error_at = None
+        self._projection_failure_logged = False
 
     def record(self, event: ObservabilityEventCreate) -> ObservabilityCollectionResult:
         with self._lock:
@@ -116,7 +117,6 @@ class ObservabilityCollector:
                     self._last_event_recorded_at = stored.recorded_at
             if last_sequence is not None:
                 self.journal.acknowledge_through(last_sequence)
-                self._project_pending()
 
         while not self.journal.has_backlog():
             with self._lock:
@@ -133,9 +133,7 @@ class ObservabilityCollector:
                     self._memory_queue.popleft()
             replayed += 1
 
-        with self._lock:
-            if not self._memory_queue and not self.journal.has_backlog():
-                self._last_error_code = None
+        self._project_pending()
         self._persist_health_state_best_effort()
         return replayed
 
@@ -273,9 +271,14 @@ class ObservabilityCollector:
                 with self._lock:
                     self._last_projection_at = utc_now()
         except Exception:
-            logger.warning("observability projection failed", exc_info=True)
             with self._lock:
                 self._set_error_locked("projection_failed")
+                should_log_failure = not self._projection_failure_logged
+                self._projection_failure_logged = True
+            if should_log_failure:
+                logger.warning("observability projection failed", exc_info=True)
+            else:
+                logger.debug("observability projection remains blocked", exc_info=True)
             self._persist_health_state_best_effort()
             return
 
@@ -285,6 +288,7 @@ class ObservabilityCollector:
             self._last_projection_lag_count = lag_count
             if lag_count == 0 and not self._memory_queue and not self.journal.has_backlog():
                 self._last_error_code = None
+                self._projection_failure_logged = False
         self._persist_health_state_best_effort()
 
     def _load_projection_lag_count(self) -> int:
@@ -441,7 +445,9 @@ class ObservabilityCollector:
         for tool in tool_payloads:
             approval_wait_ms = tool["approval_wait_ms"]
             execution_duration_ms = tool["execution_duration_ms"]
-            total_duration_ms = tool["total_duration_ms"] or self._duration_ms(tool["started_at"], now)
+            total_duration_ms = tool["total_duration_ms"] or self._duration_ms(
+                tool["started_at"], now
+            )
             if tool["status"] == "waiting_for_approval":
                 approval_wait_ms = self._duration_ms(tool["started_at"], now)
                 execution_duration_ms = None

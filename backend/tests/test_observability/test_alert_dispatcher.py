@@ -3,6 +3,7 @@ import pytest
 from app.config.settings import MonitoringAlertSettings
 from app.models.monitoring import MonitoringAlertState, MonitoringAlertStatusResponse
 from app.observability.alert_dispatcher import MonitoringAlertDispatcher
+from app.services.monitoring_service import monitoring_service
 
 
 class StubMonitoringService:
@@ -32,6 +33,12 @@ class StubMonitoringService:
 
     def get_alert_status(self, *, project_id=None, window_hours=24):
         return self.alert_status
+
+
+def test_alert_dispatcher_uses_default_monitoring_service():
+    dispatcher = MonitoringAlertDispatcher()
+
+    assert dispatcher.monitoring_service is monitoring_service
 
 
 @pytest.mark.asyncio
