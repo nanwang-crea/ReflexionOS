@@ -56,6 +56,8 @@ HARD_DENY_PATTERNS: list[tuple[list[str], str]] = [
     (["rm", "-rf", ".git"], "递归删除 .git 目录"),
 ]
 
+# Download-and-execute shells are denied separately because the risky part
+# is the composition (curl|bash / wget|sh), not just the first command token.
 HARD_DENY_SHELL_PATTERNS: set[str] = {"curl", "wget"}
 
 # Shell interpreters whose -c flag means CODE_GEN
@@ -118,7 +120,13 @@ def _capture_environment_snapshot(cwd: str) -> EnvironmentSnapshot:
 
 
 class CommandPolicy:
-    """Evaluates shell commands and returns structured decisions based on effect classification."""
+    """Classify a shell command and return the execution decision.
+
+    The policy pipeline is: parse -> classify -> validate paths -> map the
+    effect into allow / approval / deny. Splitting those responsibilities keeps
+    the command registry reusable while still letting the shell path enforce
+    platform-specific safety rules.
+    """
 
     def __init__(self, shell_security: ShellSecurity, path_security: PathSecurity,
                  registry: CommandEffectRegistry | None = None,
@@ -279,6 +287,8 @@ class CommandPolicy:
             # 通过白名单检查：继续走 shell 执行流程
             # 注意：macOS/Linux 的逻辑不修改
 
+        # Commands with shell metacharacters are evaluated as full shell
+        # expressions; plain argv commands can use tighter per-argument checks.
         if result.has_meta:
             return self._evaluate_shell_command(
                 command_normalized, resolved_cwd, timeout, snapshot

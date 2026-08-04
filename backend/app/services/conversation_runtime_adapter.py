@@ -14,7 +14,12 @@ from .conversation_service import ConversationService
 
 
 class ConversationRuntimeAdapter:
-    """将 runtime raw 事件翻译为 conversation 事件并写入 ConversationService。"""
+    """Translate low-level runtime events into persisted conversation events.
+
+    The execution loop should not know anything about UI message shapes. This
+    adapter is the seam that turns raw runtime lifecycle events into durable
+    conversation projections that can be replayed over WebSocket.
+    """
 
     def __init__(
         self,
@@ -40,7 +45,7 @@ class ConversationRuntimeAdapter:
         self._terminal_live_emitted = False
 
     def handle_event(self, event_type: str, data: dict) -> list[ConversationEvent]:
-        """消费一条 runtime 事件并追加 conversation 事件。"""
+        """Consume one runtime event and append the projected conversation events."""
         if event_type == "run:start":
             return self._append_events(
                 [
@@ -52,6 +57,8 @@ class ConversationRuntimeAdapter:
                 ]
             )
 
+        # Assistant tokens are buffered first and only projected into
+        # messages when a tool/run boundary requires a visible segment.
         if event_type in {"llm:content", "summary:token"}:
             delta = data.get("content") if event_type == "llm:content" else data.get("token")
             if not delta:
@@ -302,6 +309,9 @@ class ConversationRuntimeAdapter:
             events.extend(start_events)
             message_id = start_events[0].message_id
 
+        # approval:required carries tool-scoped context, while the loop also
+        # emits run:waiting_for_approval for run-level status. We project both so
+        # the UI can show an approval dialog and a paused-run badge at once.
         approval_id = data.get("approval_id")
         approval_payload = data.get("approval")
         # 提取 parent_session_id（SubAgent 审批场景下由 DelegateTool 注入）
@@ -358,20 +368,11 @@ class ConversationRuntimeAdapter:
         return events
 
     def _run_waiting_for_approval_events(self, data: dict) -> list[ConversationEvent]:
-        """
-        处理执行循环层的运行暂停事件 (run:waiting_for_approval)
-        
-        职责：
-        - 标记整个运行进入"等待审批"状态
-        - 用于前端更新运行状态显示（状态栏、进度指示器等）
-        
-        事件来源：rapid_loop.py 在检测到工具步骤需要审批后，在执行循环层面发送此状态通知
-        
-        注意：
-        - 此事件与 approval:required 协同工作但职责不同
-        - approval:required 关注具体工具的审批细节（由工具执行器发送）
-        - run:waiting_for_approval 关注整体运行状态（由执行循环发送）
-        - 前端应同时监听两个事件：approval:required 显示审批对话框，run:waiting_for_approval 更新状态栏
+        """Project the run-level paused state after a tool requests approval.
+
+        approval:required is message-centric and contains the tool arguments the
+        user needs to inspect. run:waiting_for_approval is run-centric and lets
+        the rest of the UI reflect that the execution loop is now paused.
         """
         return [
             self._new_event(

@@ -21,13 +21,21 @@ _current_tool_call_id: ContextVar[str] = ContextVar(
     "_current_tool_call_id", default=""
 )
 
+# Read-only tools are the only ones we batch in a single planning pass. We
+# cap the batch size so the agent cannot get stuck issuing an unbounded number
+# of exploratory calls before it reflects on the results.
 READ_ONLY_TOOL_NAMES = frozenset({"grep", "glob", "session_recall"})
 READ_ONLY_FILE_ACTIONS = frozenset({"read", "search", "list"})
 MAX_READ_ONLY_CALLS_PER_BATCH = 4
 
 
 class ToolCallExecutor:
-    """Execute model tool calls and project the result back into loop context."""
+    """Execute model tool calls and feed the result back into loop context.
+
+    This layer emits lifecycle events, delegates to the concrete tool, and
+    normalizes success / approval / failure into a LoopStep that the main loop
+    can reason about.
+    """
 
     def __init__(
         self,
@@ -49,6 +57,8 @@ class ToolCallExecutor:
     def prepare_read_only_batch(
         self, tool_calls: list[LLMToolCall]
     ) -> list[LLMToolCall]:
+        # Deduplicate read-only calls by normalized signature so repeated model
+        # probes like glob/grep do not waste a full loop iteration.
         deduped: list[LLMToolCall] = []
         seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
 
@@ -92,6 +102,8 @@ class ToolCallExecutor:
 
         start_time = time.time()
 
+        # Every tool invocation emits a start/result pair so the runtime
+        # adapter can build a stable tool_trace lifecycle for the UI.
         await self.emit(
             "tool:start",
             {
@@ -151,6 +163,9 @@ class ToolCallExecutor:
                     )
                     return step
 
+                # Approval is modeled as a paused step instead of an error:
+                # the run remains resumable and the frontend gets an approval_id
+                # that maps back to this exact tool call.
                 step.status = StepStatus.WAITING_FOR_APPROVAL
                 step.approval_id = approval.approval_id
                 step.output = approval.summary

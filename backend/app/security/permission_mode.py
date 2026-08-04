@@ -5,10 +5,12 @@ from app.security.effect_category import CommandAction, EffectCategory
 
 
 class PermissionMode(str, enum.Enum):
-    """三档权限模式（会话级）。
-    - ASK:  每步操作都弹审批（READ_ONLY 除外）
-    - AUTO: 默认模式，按 EFFECT_ACTION_MAP 自动决策
-    - YOLO: 本地操作全部放行，网络审批不受 PermissionMode 影响
+    """Session-level execution modes.
+
+    ASK keeps a human in the loop for anything non-read-only, AUTO follows the
+    default effect map, and YOLO skips most local approvals but still respects
+    hard safety boundaries such as sandbox availability and outbound network
+    controls.
     """
     ASK = "ask"
     AUTO = "auto"
@@ -21,10 +23,11 @@ def resolve_action(
     *,
     sandbox_available: bool = True,
 ) -> CommandAction:
-    """根据权限模式和效果分类决定最终动作。
+    """Resolve the final action for an effect under the active mode.
 
-    NETWORK_OUT 不受 PermissionMode 影响（无论 ASK/AUTO/YOLO 都返回 REQUIRE_APPROVAL），
-    因为网络命令的审批完全由 EFFECT_ACTION_MAP 定义。
+    NETWORK_OUT intentionally stays approval-gated across ASK/AUTO/YOLO because
+    exfiltration risk is orthogonal to local convenience. YOLO also requires a
+    sandbox; otherwise it would silently turn into unrestricted host execution.
     """
     if category == EffectCategory.ESCALATE:
         return CommandAction.DENY

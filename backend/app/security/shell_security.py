@@ -20,15 +20,16 @@ class ValidateResult:
 
 
 class ShellSecurity:
-    """Shell 命令执行安全控制 — 解析命令并校验路径参数
+    """Parse shell commands and validate path-shaped arguments.
 
-    NOTE: Effect classification (dangerous commands, inline code, etc.) has moved
-    to CommandEffectRegistry + CommandPolicy. This class now only handles:
-    - Shell metacharacter detection (for execution mode decision)
-    - Command parsing (shlex.split)
-    - Path argument validation
+    Effect classification moved into CommandEffectRegistry + CommandPolicy. This
+    class now stays deliberately narrow: detect shell metacharacters, split the
+    command into argv form and validate any obvious path arguments before the
+    policy layer decides whether execution is allowed.
     """
 
+    # Detect operators that force us down the shell-expression path instead
+    # of the stricter argv-only path. Quotes are handled later during parsing.
     SHELL_META_PATTERN = re.compile(r"[;&|<>`]|[$][(]")
 
     NON_PATH_ARGUMENT_COMMANDS = {"echo"}
@@ -103,6 +104,8 @@ class ShellSecurity:
         command_name = self._command_name(argv[0])
 
         if path_security and command_name not in self.NON_PATH_ARGUMENT_COMMANDS:
+            # Path validation here is intentionally lexical/best-effort. The
+            # policy layer still performs its own boundary checks before exec.
             self._validate_path_arguments(argv[1:], path_security)
 
         logger.info("命令解析完成: %s (has_meta=%s)", command, has_meta)

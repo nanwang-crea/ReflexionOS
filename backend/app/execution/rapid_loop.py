@@ -41,16 +41,16 @@ logger = logging.getLogger(__name__)
 
 
 class RapidExecutionLoop:
-    """
-    快速执行循环 - Agent 核心执行引擎
+    """Main agent execution loop.
 
-    状态机设计：
-    PLANNING → TOOL_EXECUTION → PLANNING → ... → FINAL_SUMMARY → DONE
-                    ↓
-              ERROR_RECOVERY → PLANNING
+    The runtime alternates between planning, tool execution and recovery until
+    it can emit a final summary or reaches a terminal state. Keeping the phase
+    machine explicit makes approval pauses, retries and error recovery easier to
+    reason about than a single monolithic coroutine.
     """
 
     # 重试配置
+    # Retry guards keep the loop responsive even when the model stalls.
     MAX_TURN_RETRIES = 5  # 每轮最大重试
     MAX_SUMMARY_RETRIES = 5  # 总结最大重试
     MAX_ERROR_RETRIES = 5  # 错误恢复最大重试
@@ -86,6 +86,9 @@ class RapidExecutionLoop:
             tool_output_max_chars=config_manager.settings.execution.tool_output_max_chars,
             task_anchor_interval=8,
         )
+        # Tool execution stays in a separate component so the loop can focus
+        # on phase transitions while the executor focuses on validation + event
+        # emission.
         self.tool_executor = ToolCallExecutor(
             tool_registry=self._tool_registry,
             emit=self._emit,
@@ -530,7 +533,7 @@ class RapidExecutionLoop:
         result: LoopResult,
         rt: RuntimeState,
     ) -> LoopPhase:
-        """审批子处理器：等待审批结果，决定后续状态。"""
+        """Pause the run until the user approves or rejects the current step."""
         logger.info("[_handle_approval] Entering: tool=%s, step_number=%s", step.tool, step.step_number)
         result.status = LoopStatus.WAITING_FOR_APPROVAL
         result.result = step.output
@@ -761,6 +764,8 @@ class RapidExecutionLoop:
                 LoopPhase.FINAL_SUMMARY: self._handle_final_summary,
             }
 
+            # Each handler returns the next phase, which keeps retries and
+            # approval resumes explicit instead of hiding them inside recursion.
             while rt.phase != LoopPhase.DONE and rt.step_num < self.max_steps:
                 handler = handlers[rt.phase]
                 rt.phase = await handler(context, loop_result, rt)
