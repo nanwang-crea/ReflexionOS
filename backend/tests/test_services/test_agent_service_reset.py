@@ -11,6 +11,7 @@ from app.services.conversation_service import ConversationService
 from app.services.llm_provider_service import LLMProviderService
 from app.storage.database import Database
 from app.storage.repositories.session_repo import SessionRepository
+from app.security.session_trust_store import TrustRule
 
 
 class _DummyConfigManager:
@@ -78,6 +79,79 @@ async def test_reset_no_active_run_skips_cancel(monkeypatch, tmp_path):
 
     cancel_mock.assert_not_called()
     reset_mock.assert_called_once_with("s1")
+
+
+@pytest.mark.asyncio
+async def test_reset_clears_trust_rules_and_pending_approvals(monkeypatch, tmp_path):
+    service = _build_service(tmp_path)
+    service.session_repo.create(Session(id="s1", project_id="p1", title="会话"))
+    service.trust_store.add_rule("s1", TrustRule(permission="shell", pattern="git *"))
+    service.pending_approval_store.create(
+        session_id="s1",
+        turn_id="t1",
+        run_id="r1",
+        step_number=1,
+        tool_call_id="c1",
+        tool_name="shell",
+        tool_arguments={"command": "git push"},
+        approval_payload={},
+    )
+
+    cancel_mock = AsyncMock()
+    reset_mock = MagicMock(return_value=Session(id="s1", project_id="p1", title="会话"))
+
+    monkeypatch.setattr(service, "cancel_run", cancel_mock)
+    monkeypatch.setattr(service.conversation_service, "reset_session", reset_mock)
+    monkeypatch.setattr(service.conversation_service, "get_snapshot", lambda sid: object())
+    monkeypatch.setattr(
+        agent_service_module,
+        "resolve_active_run_id_from_conversation",
+        lambda snapshot: None,
+    )
+
+    await service.reset_session("s1")
+
+    cancel_mock.assert_not_called()
+    reset_mock.assert_called_once_with("s1")
+    assert service.trust_store.get_rules("s1") == []
+    assert service.pending_approval_store.list_pending_approval_ids_for_session("s1") == []
+
+
+@pytest.mark.asyncio
+async def test_reset_failure_preserves_trust_rules_and_pending_approvals(monkeypatch, tmp_path):
+    service = _build_service(tmp_path)
+    service.session_repo.create(Session(id="s1", project_id="p1", title="会话"))
+    service.trust_store.add_rule("s1", TrustRule(permission="shell", pattern="git *"))
+    pending = service.pending_approval_store.create(
+        session_id="s1",
+        turn_id="t1",
+        run_id="r1",
+        step_number=1,
+        tool_call_id="c1",
+        tool_name="shell",
+        tool_arguments={"command": "git push"},
+        approval_payload={},
+    )
+
+    cancel_mock = AsyncMock()
+
+    def failing_reset_session(session_id):
+        raise ValueError("会话仍有运行中的任务，无法重置")
+
+    monkeypatch.setattr(service, "cancel_run", cancel_mock)
+    monkeypatch.setattr(service.conversation_service, "reset_session", failing_reset_session)
+    monkeypatch.setattr(service.conversation_service, "get_snapshot", lambda sid: object())
+    monkeypatch.setattr(
+        agent_service_module,
+        "resolve_active_run_id_from_conversation",
+        lambda snapshot: None,
+    )
+
+    with pytest.raises(ValueError, match="运行中的任务"):
+        await service.reset_session("s1")
+
+    assert service.trust_store.matches("s1", "shell", "git status")
+    assert service.pending_approval_store.get(pending.id).status == "pending"
 
 
 @pytest.mark.asyncio

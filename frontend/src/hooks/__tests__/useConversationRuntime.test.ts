@@ -22,12 +22,14 @@ const {
   conversationStoreState,
   resetSessionActionMock,
   resetSessionSeenMock,
+  subAgentClearSessionMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (data: unknown) => void>()
 
   return {
     resetSessionActionMock: vi.fn(),
     resetSessionSeenMock: vi.fn(),
+    subAgentClearSessionMock: vi.fn(),
     getConversationMock: vi.fn(),
     setSnapshotMock: vi.fn(),
     applyEventMock: vi.fn(),
@@ -137,6 +139,16 @@ vi.mock('@/features/workspace/stores/workspace.store', () => ({
   },
 }))
 
+vi.mock('@/hooks/useSubAgentEvents', () => ({
+  useSubAgentEventsStore: {
+    getState: () => ({
+      addEvent: vi.fn(),
+      clearSession: subAgentClearSessionMock,
+      clearAll: vi.fn(),
+    }),
+  },
+}))
+
 vi.mock('@/services/sessionConversationWebSocket', () => ({
   SessionConversationWebSocket: vi.fn(() => ({
     connect: wsConnectMock,
@@ -226,6 +238,7 @@ describe('useConversationRuntime', () => {
     wsOnMock.mockClear()
     resetSessionActionMock.mockReset()
     resetSessionSeenMock.mockReset()
+    subAgentClearSessionMock.mockReset()
     wsHandlers.clear()
 
     conversationStoreState.conversationsBySessionId = {}
@@ -617,6 +630,7 @@ describe('useConversationRuntime', () => {
 
     expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
     expect(clearConversationMock).toHaveBeenCalledWith('session-1')
+    expect(subAgentClearSessionMock).toHaveBeenCalledWith('session-1')
     expect(resetSessionSeenMock).toHaveBeenCalledWith('session-1')
   })
 

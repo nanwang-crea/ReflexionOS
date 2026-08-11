@@ -233,3 +233,45 @@ def test_pending_approval_store_expires_pending_approvals_for_run_only():
     assert store.get(run_1_pending.id).status == "expired"
     assert store.get(run_1_approved.id).status == "approved"
     assert store.get(run_2_pending.id).status == "pending"
+
+
+def test_pending_approval_store_expires_pending_approvals_for_session_only():
+    store = PendingApprovalStore()
+    session_1_pending = store.create(
+        session_id="session-1",
+        turn_id="turn-1",
+        run_id="run-1",
+        step_number=1,
+        tool_call_id="call-1",
+        tool_name="shell",
+        tool_arguments={},
+        approval_payload={},
+    )
+    session_1_approved = store.create(
+        session_id="session-1",
+        turn_id="turn-1",
+        run_id="sub-run-1",
+        step_number=2,
+        tool_call_id="call-2",
+        tool_name="shell",
+        tool_arguments={},
+        approval_payload={},
+    )
+    session_2_pending = store.create(
+        session_id="session-2",
+        turn_id="turn-2",
+        run_id="run-2",
+        step_number=1,
+        tool_call_id="call-3",
+        tool_name="shell",
+        tool_arguments={},
+        approval_payload={},
+    )
+    store.approve(session_1_approved.id)
+
+    expired = store.expire_for_session("session-1")
+
+    assert {approval.id for approval in expired} == {session_1_pending.id}
+    assert store.get(session_1_pending.id).status == "expired"
+    assert store.get(session_1_approved.id).status == "approved"
+    assert store.get(session_2_pending.id).status == "pending"

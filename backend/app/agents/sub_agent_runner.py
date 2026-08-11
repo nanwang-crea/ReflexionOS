@@ -28,15 +28,27 @@ from app.execution.runtime_tool_definitions import ToolSetConfig
 from app.llm import LLMAdapterFactory
 from app.llm.base import UniversalLLMInterface
 from app.models.llm_config import ResolvedLLMConfig
+from app.tools.base import BaseTool
+from app.tools.edit_tool import EditTool
+from app.tools.explore_tool import ExploreTool
+from app.tools.file_tool import FileTool
+from app.tools.glob_tool import GlobTool
+from app.tools.grep_tool import GrepTool
+from app.tools.patch_tool import PatchTool
+from app.tools.shell_tool import ShellTool
+from app.tools.skill_tool import SkillTool
 from app.tools.registry import ToolRegistry
+from app.tools.working_memory_tool import WorkingMemoryTool
+
+LoopLifecycleCallback = Callable[[str, RapidExecutionLoop], None]
 
 if TYPE_CHECKING:
     from app.execution.approval_flow import ApprovalFlow
 
 logger = logging.getLogger(__name__)
 
-# Sub-agent 工具集中排除的工具（防递归调用）
-_SUB_AGENT_EXCLUDED_TOOLS: frozenset[str] = frozenset({"delegate"})
+# Sub-agent 工具集中排除的工具（防递归调用和复用主会话态工具）
+_SUB_AGENT_EXCLUDED_TOOLS: frozenset[str] = frozenset({"delegate", "plan", "browser"})
 
 
 @dataclass
@@ -55,14 +67,46 @@ async def _noop_event_callback(event: str, data: dict[str, Any]) -> None:
     pass
 
 
-def _build_filtered_registry(parent_registry: ToolRegistry) -> ToolRegistry:
+def _clone_tool_for_sub_agent(tool: BaseTool) -> BaseTool:
+    """Return an isolated tool instance when the tool stores per-run state."""
+    if isinstance(tool, WorkingMemoryTool):
+        return WorkingMemoryTool()
+    if isinstance(tool, FileTool):
+        return FileTool(tool.security)
+    if isinstance(tool, GrepTool):
+        return GrepTool(tool.security)
+    if isinstance(tool, GlobTool):
+        return GlobTool(tool.security)
+    if isinstance(tool, EditTool):
+        return EditTool(tool.security)
+    if isinstance(tool, PatchTool):
+        return PatchTool(tool.security)
+    if isinstance(tool, ExploreTool):
+        return ExploreTool(tool._path_security)
+    if isinstance(tool, SkillTool):
+        return SkillTool(tool._registry, resolver=tool._resolver)
+    return tool
+
+
+def _build_filtered_registry(parent_registry: ToolRegistry, *, session_id: str | None = None) -> ToolRegistry:
     """从父级 ToolRegistry 构建子 agent 的过滤版本（排除 delegate 等工具）"""
     filtered = ToolRegistry()
     for name in parent_registry.list_tools():
         if name not in _SUB_AGENT_EXCLUDED_TOOLS:
             tool = parent_registry.get(name)
             if tool is not None:
-                filtered.register(tool)
+                cloned = _clone_tool_for_sub_agent(tool)
+                if isinstance(cloned, ShellTool) and session_id:
+                    cloned = ShellTool(
+                        cloned.security,
+                        cloned.path_security,
+                        cloned.registry,
+                        cloned.sandbox,
+                        session_id=session_id,
+                        trust_store=cloned.trust_store,
+                        permission_mode=cloned.permission_mode,
+                    )
+                filtered.register(cloned)
     return filtered
 
 
@@ -89,6 +133,8 @@ class SubAgentRunner:
         session_id: str | None = None,
         event_callback: EventCallback | None = None,
         parent_approval_flow: ApprovalFlow | None = None,  # 主 Agent 的审批流（用于共享审批逻辑）
+        loop_started: LoopLifecycleCallback | None = None,
+        loop_finished: LoopLifecycleCallback | None = None,
     ):
         self._task = task
         self._llm_config = llm_config
@@ -102,9 +148,14 @@ class SubAgentRunner:
         self._event_callback: EventCallback | None = event_callback
         # 主 Agent 的审批流（SubAgent 通过共享此实例，将审批请求路由到主 Agent）
         self._parent_approval_flow = parent_approval_flow
+        self._loop_started = loop_started
+        self._loop_finished = loop_finished
 
         # 从父级 registry 构建过滤版本（排除 delegate）
-        self._tool_registry = _build_filtered_registry(parent_tool_registry)
+        self._tool_registry = _build_filtered_registry(
+            parent_tool_registry,
+            session_id=self._session_id,
+        )
 
         logger.info(
             "SubAgentRunner 初始化: task=%.80s, max_steps=%d, tools=%s",
@@ -147,6 +198,8 @@ class SubAgentRunner:
             # 那套"首轮只给探索工具"的门禁，否则第一轮看不到 shell 会误报"没有该工具"
             tool_set_config=ToolSetConfig(skip_exploration_gate=True),
         )
+        if self._loop_started is not None:
+            self._loop_started(run_id, loop)
 
         # 3. 构建 task_content（包含 input_data 和 expected_output）
         task_content = self._build_task_content()
@@ -168,6 +221,9 @@ class SubAgentRunner:
                 tool_calls=[],
                 status="failed",
             )
+        finally:
+            if self._loop_finished is not None:
+                self._loop_finished(run_id, loop)
 
         # 5. 提取结果
         return self._extract_result(loop_result)

@@ -13,7 +13,7 @@ import type { SubAgentStep } from '@/hooks/useSubAgentEvents'
 import type { ActionReceiptDetail } from '@/components/execution/receiptUtils'
 import { useSubAgentSteps } from '@/hooks/useSubAgentEvents'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import { buildReceiptDetail } from '@/components/execution/receiptUtils'
+import { buildApprovalDetailFromPayload, buildReceiptDetail } from '@/components/execution/receiptUtils'
 
 /**
  * 从子 Agent 事件流中提取真实的工具执行步数
@@ -58,11 +58,11 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
   const hasOutput = !!detail.output
   const hasError = !!detail.error
 
-  // 从全局 zustand store 订阅该 delegate 调用的子 agent 实时步骤
-  // 使用 tool_call_id 关联 sub_agent 事件（存于 detail.data 中）
-  // detail.id 是 message.id，而 store 以 tool_call_id 为 key
+  // 按 session_id + tool_call_id 订阅该 delegate 调用的子 agent 实时步骤。
+  // detail.id 是 message.id，而 store 以 tool_call_id 为 key。
   const callId = (detail.data?.tool_call_id as string) || detail.id
-  const subAgentSteps = useSubAgentSteps(callId)
+  const sessionId = typeof detail.data?.session_id === 'string' ? detail.data.session_id : undefined
+  const subAgentSteps = useSubAgentSteps(sessionId, callId)
   const hasSteps = subAgentSteps.length > 0
   // 使用后端发送的真实 step_number 而非事件总数，避免流式 chunk 虚增步数
   const toolStepCount = getSubAgentToolStepCount(subAgentSteps)
@@ -99,29 +99,10 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
         if (tool) {
           tool.status = 'waiting_for_approval'
           
-          // 从后端事件中提取审批信息
-          const approvalData = payload.approval as Record<string, unknown> | undefined
-          const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
-          const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
-          const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
-          
-          if (approvalId && runId) {
-            // 构造审批对象，与 SubAgentDetailPanel 的逻辑一致
-            tool.approval = {
-              runId,
-              approvalId,
-              parentSessionId,
-              shell: approvalData && typeof approvalData.shell === 'object'
-                ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
-                : undefined,
-              sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'
-                ? approvalData as { approval_kind: 'sandbox_network_elevation'; command: string; execution_mode: string; reasons: string[]; risks: string[] }
-                : undefined,
-              sandboxPath: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_path_elevation'
-                ? approvalData as { approval_kind: 'sandbox_path_elevation'; command: string; execution_mode: string; denied_paths: string[]; reasons: string[]; risks: string[] }
-                : undefined,
-            }
-            
+          const approvalDetail = buildApprovalDetailFromPayload(payload)
+          if (approvalDetail?.approval) {
+            tool.approval = approvalDetail.approval
+            tool.data = approvalDetail.data
             approvalTools.push(tool)
           }
         }
@@ -133,7 +114,6 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
         const tool = resultCallId ? toolMap.get(resultCallId) : undefined
         
         if (tool && tool.status === 'waiting_for_approval') {
-          console.log('[DelegateToolCall] tool:result received for waiting_for_approval tool:', resultCallId, 'new status:', eventType === 'tool:error' ? 'failed' : 'success')
           tool.status = eventType === 'tool:error' ? 'failed' : 'success'
           // 从审批列表中移除
           const idx = approvalTools.indexOf(tool)
@@ -141,8 +121,7 @@ export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, o
         }
       }
     }
-    
-    console.log('[DelegateToolCall] pendingApprovalTools computed:', approvalTools.length, 'tools')
+
     return approvalTools
   }, [subAgentSteps])
 

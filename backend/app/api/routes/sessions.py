@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter
 
 from app.app_services import agent_service
@@ -8,6 +10,7 @@ from app.services.conversation_service import conversation_service
 from app.services.session_service import session_service
 
 router = APIRouter(prefix="/api", tags=["sessions"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/projects/{project_id}/sessions", response_model=Session)
@@ -66,7 +69,19 @@ async def delete_session(session_id: str):
         try:
             await agent_service.cleanup_browser_for_session(session_id)
         except Exception:
-            pass
+            logger.warning(
+                "删除会话时清理浏览器资源失败: session_id=%s",
+                session_id,
+                exc_info=True,
+            )
+        try:
+            agent_service.cleanup_session_security_state(session_id)
+        except Exception:
+            logger.warning(
+                "删除会话时清理安全状态失败: session_id=%s",
+                session_id,
+                exc_info=True,
+            )
 
         # 清理附件文件
         try:
@@ -74,7 +89,11 @@ async def delete_session(session_id: str):
             attachment_service = get_attachment_service()
             attachment_service.cleanup_session_attachments(session_id)
         except Exception:
-            pass
+            logger.warning(
+                "删除会话时清理附件失败: session_id=%s",
+                session_id,
+                exc_info=True,
+            )
 
         # 删除会话数据
         session_service.delete_session(session_id)

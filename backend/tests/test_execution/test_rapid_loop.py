@@ -141,18 +141,39 @@ class FailingTool(BaseTool):
         return ToolResult(success=False, error="Operation failed")
 
 
+class _ChunkStream:
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+        self._index = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._index >= len(self._chunks):
+            raise StopAsyncIteration
+        chunk = self._chunks[self._index]
+        self._index += 1
+        return chunk
+
+    async def aclose(self):
+        return None
+
+
 class TestRapidExecutionLoop:
     @staticmethod
-    async def _stream_response(content="", tool_calls=None, finish_reason="stop"):
+    def _stream_response(content="", tool_calls=None, finish_reason="stop"):
+        chunks = []
         if content:
-            yield StreamChunk(type="content", content=content)
+            chunks.append(StreamChunk(type="content", content=content))
 
         if tool_calls:
-            yield StreamChunk(
-                type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason
+            chunks.append(
+                StreamChunk(type="tool_calls", tool_calls=tool_calls, finish_reason=finish_reason)
             )
         else:
-            yield StreamChunk(type="done", finish_reason=finish_reason)
+            chunks.append(StreamChunk(type="done", finish_reason=finish_reason))
+        return _ChunkStream(chunks)
 
     @pytest.fixture
     def mock_llm(self):
@@ -1644,32 +1665,37 @@ class TestHardenedLoopIntegration:
                 tool_calls = []
                 finish_reason = "stop"
 
-                async for chunk in llm.stream_complete(messages, tools):
-                    if chunk.type == "content" and chunk.content:
-                        content_parts.append(chunk.content)
-                        if on_content:
-                            await on_content(chunk.content)
-                        if track_first_chunk_latency and not first_chunk_received:
-                            first_chunk_latency = 0.01
-                            first_chunk_received = True
-                    elif chunk.type == "reasoning" and chunk.reasoning_content:
-                        reasoning_parts.append(chunk.reasoning_content)
-                        if on_reasoning:
-                            await on_reasoning(chunk.reasoning_content)
-                        if track_first_chunk_latency and not first_chunk_received:
-                            first_chunk_latency = 0.01
-                            first_chunk_received = True
-                    elif chunk.type == "tool_calls":
-                        tool_calls = chunk.tool_calls
-                        finish_reason = chunk.finish_reason or "tool_calls"
-                        break
-                    elif chunk.type == "done":
-                        finish_reason = chunk.finish_reason or "stop"
-                        break
-                    elif chunk.type == "error":
-                        if attempt < max_empty_retries:
+                stream = llm.stream_complete(messages, tools)
+                try:
+                    async for chunk in stream:
+                        if chunk.type == "content" and chunk.content:
+                            content_parts.append(chunk.content)
+                            if on_content:
+                                await on_content(chunk.content)
+                            if track_first_chunk_latency and not first_chunk_received:
+                                first_chunk_latency = 0.01
+                                first_chunk_received = True
+                        elif chunk.type == "reasoning" and chunk.reasoning_content:
+                            reasoning_parts.append(chunk.reasoning_content)
+                            if on_reasoning:
+                                await on_reasoning(chunk.reasoning_content)
+                            if track_first_chunk_latency and not first_chunk_received:
+                                first_chunk_latency = 0.01
+                                first_chunk_received = True
+                        elif chunk.type == "tool_calls":
+                            tool_calls = chunk.tool_calls
+                            finish_reason = chunk.finish_reason or "tool_calls"
                             break
-                        raise RuntimeError(chunk.error or "LLM 流式调用失败")
+                        elif chunk.type == "done":
+                            finish_reason = chunk.finish_reason or "stop"
+                            break
+                        elif chunk.type == "error":
+                            if attempt < max_empty_retries:
+                                break
+                            raise RuntimeError(chunk.error or "LLM 流式调用失败")
+                finally:
+                    if hasattr(stream, "aclose"):
+                        await stream.aclose()
 
                 response = LLMResponse(
                     content="".join(content_parts),
@@ -1933,18 +1959,23 @@ def _make_stream_collect_llm() -> AsyncMock:
         tool_calls = []
         finish_reason = "stop"
 
-        async for chunk in llm.stream_complete(messages, tools):
-            if chunk.type == "content" and chunk.content:
-                content_parts.append(chunk.content)
-                if on_content:
-                    await on_content(chunk.content)
-            elif chunk.type == "tool_calls":
-                tool_calls = chunk.tool_calls
-                finish_reason = chunk.finish_reason or "tool_calls"
-                break
-            elif chunk.type == "done":
-                finish_reason = chunk.finish_reason or "stop"
-                break
+        stream = llm.stream_complete(messages, tools)
+        try:
+            async for chunk in stream:
+                if chunk.type == "content" and chunk.content:
+                    content_parts.append(chunk.content)
+                    if on_content:
+                        await on_content(chunk.content)
+                elif chunk.type == "tool_calls":
+                    tool_calls = chunk.tool_calls
+                    finish_reason = chunk.finish_reason or "tool_calls"
+                    break
+                elif chunk.type == "done":
+                    finish_reason = chunk.finish_reason or "stop"
+                    break
+        finally:
+            if hasattr(stream, "aclose"):
+                await stream.aclose()
 
         response = LLMResponse(
             content="".join(content_parts),
@@ -2143,5 +2174,3 @@ class TestDelegateConcurrency:
         start_c_index = calls.index(("start", "c"))
 
         assert start_c_index > max(end_ab_indices)
-
-

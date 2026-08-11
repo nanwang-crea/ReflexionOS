@@ -108,4 +108,47 @@ describe('SessionConversationWebSocket', () => {
     expect(durableEvents).toEqual([{ id: 'evt-1', event_type: 'message.created' }])
     expect(plans).toEqual([{ goal: 'inspect', steps: [] }])
   })
+
+  it('maps sub-agent server messages to runtime-checked sub_agent:event payloads', async () => {
+    const ws = new SessionConversationWebSocket()
+    const subAgentEvents: unknown[] = []
+
+    ws.on('sub_agent:event', (event) => subAgentEvents.push(event))
+
+    const connected = ws.connect('session-1')
+    webSocketInstances[0].onopen?.()
+    await connected
+
+    webSocketInstances[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'sub_agent:tool:start',
+        data: {
+          delegate_call_id: 'delegate-call-1',
+          tool_name: 'shell',
+        },
+      }),
+    })
+    webSocketInstances[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'sub_agent:tool:result',
+        data: {
+          delegate_call_id: 123,
+          tool_name: 'shell',
+        },
+      }),
+    })
+
+    expect(subAgentEvents).toEqual([
+      {
+        event_type: 'tool:start',
+        delegate_call_id: 'delegate-call-1',
+        payload: { tool_name: 'shell' },
+      },
+      {
+        event_type: 'tool:result',
+        delegate_call_id: undefined,
+        payload: { tool_name: 'shell' },
+      },
+    ])
+  })
 })

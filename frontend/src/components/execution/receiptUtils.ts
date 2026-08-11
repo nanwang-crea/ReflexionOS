@@ -49,6 +49,95 @@ export interface ActionReceiptDetail {
   data?: Record<string, unknown>
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function buildSuggestedTrust(value: unknown): ActionReceiptDetail['approval'] extends infer Approval
+  ? Approval extends { suggestedTrust?: infer Suggested }
+    ? Suggested | undefined
+    : never
+  : never {
+  if (!isRecord(value)) return undefined
+  const suggested: { prefix?: string[]; permission?: string; pattern?: string } = {}
+  if (Array.isArray(value.prefix)) {
+    suggested.prefix = value.prefix.filter((item): item is string => typeof item === 'string')
+  }
+  if (typeof value.permission === 'string') {
+    suggested.permission = value.permission
+  }
+  if (typeof value.pattern === 'string') {
+    suggested.pattern = value.pattern
+  }
+  return Object.keys(suggested).length > 0 ? suggested : undefined
+}
+
+export function buildApprovalDetailFromPayload(
+  payload: Record<string, unknown>,
+): Pick<ActionReceiptDetail, 'approval' | 'data'> | undefined {
+  const approvalObj = isRecord(payload.approval) ? payload.approval : undefined
+  const approvalPayload = isRecord(approvalObj?.payload) ? approvalObj.payload : undefined
+  const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
+  const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
+  if (!approvalId || !runId) return undefined
+
+  const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
+  const command = typeof approvalPayload?.command === 'string' ? approvalPayload.command : undefined
+  const executionMode = typeof approvalPayload?.execution_mode === 'string' ? approvalPayload.execution_mode : undefined
+  const approvalKind = typeof approvalPayload?.approval_kind === 'string' ? approvalPayload.approval_kind : undefined
+  const reasons = stringArray(approvalObj?.reasons)
+  const risks = stringArray(approvalObj?.risks)
+
+  const approval: NonNullable<ActionReceiptDetail['approval']> = {
+    runId,
+    approvalId,
+    parentSessionId,
+    suggestedTrust: buildSuggestedTrust(approvalObj?.suggested_trust),
+  }
+
+  if (command) {
+    approval.shell = {
+      command,
+      ...(executionMode ? { execution_mode: executionMode } : {}),
+      ...(reasons.length > 0 ? { reasons } : {}),
+      ...(risks.length > 0 ? { risks } : {}),
+    }
+  }
+
+  if (approvalKind === 'sandbox_network_elevation' && command) {
+    approval.sandboxNetwork = {
+      approval_kind: 'sandbox_network_elevation',
+      command,
+      execution_mode: executionMode ?? '',
+      reasons,
+      risks,
+    }
+  }
+
+  if (approvalKind === 'sandbox_path_elevation' && command) {
+    const elevationRequest = isRecord(approvalPayload?.elevation_request)
+      ? approvalPayload.elevation_request
+      : undefined
+    approval.sandboxPath = {
+      approval_kind: 'sandbox_path_elevation',
+      command,
+      execution_mode: executionMode ?? '',
+      denied_paths: stringArray(elevationRequest?.denied_paths),
+      reasons,
+      risks,
+    }
+  }
+
+  return {
+    approval,
+    data: approvalPayload,
+  }
+}
+
 function truncate(value: string, length: number) {
   return value.length > length ? `${value.slice(0, length)}...` : value
 }

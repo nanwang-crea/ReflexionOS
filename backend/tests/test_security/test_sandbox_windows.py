@@ -3,6 +3,11 @@ import sys
 from unittest.mock import MagicMock, patch, call
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows sandbox tests require Windows APIs",
+)
+
 
 @pytest.fixture(autouse=True)
 def mock_windows_only():

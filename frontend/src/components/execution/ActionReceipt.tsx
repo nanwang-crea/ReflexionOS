@@ -2,7 +2,7 @@ import { memo, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, AlertTriangle, Check, ChevronDown, ChevronRight, Clock3, FolderLock, Globe, Loader2, ShieldAlert, ShieldCheck, Terminal, X } from 'lucide-react'
 import { type ApprovalActionHandler, type ApprovalActionPayload, type ApprovalActionType, sendApprovalAction } from './approvalActions'
-import { type ActionReceiptDetail, type ActionReceiptStatus, type SandboxNetworkPayload, type SandboxPathPayload, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
+import { buildApprovalDetailFromPayload, type ActionReceiptDetail, type ActionReceiptStatus, type SandboxNetworkPayload, type SandboxPathPayload, type ShellApprovalPayload, summarizeReceipt } from './receiptUtils'
 
 interface ActionReceiptProps {
   status: ActionReceiptStatus
@@ -225,54 +225,33 @@ const ApprovalCard = memo(function ApprovalCard({
   onApprovalAction: (action: ApprovalActionType, payload: ApprovalActionPayload) => void
   isSubAgent?: boolean
 }) {
-  const approvalDetails = useMemo(() =>
-    details
-      .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
-        detail.status === 'waiting_for_approval' && hasApproval(detail)
-      ))
-      .map((detail) => {
-        const payload = detail.data
-        const isRecord = payload && typeof payload === 'object'
-        const approvalKind = isRecord && 'approval_kind' in payload && typeof payload.approval_kind === 'string'
-          ? payload.approval_kind
-          : detail.approval?.shell ? 'shell_command' : undefined
-        let sandboxNetwork: SandboxNetworkPayload | undefined
-        let sandboxPath: SandboxPathPayload | undefined
-
-        if (approvalKind === 'sandbox_network_elevation' && isRecord) {
-          sandboxNetwork = {
-            approval_kind: 'sandbox_network_elevation',
-            command: typeof payload.command === 'string' ? payload.command : '',
-            execution_mode: typeof payload.execution_mode === 'string' ? payload.execution_mode : '',
-            reasons: Array.isArray(payload.reasons) ? payload.reasons.filter((r): r is string => typeof r === 'string') : [],
-            risks: Array.isArray(payload.risks) ? payload.risks.filter((r): r is string => typeof r === 'string') : [],
-          }
-        } else if (approvalKind === 'sandbox_path_elevation' && isRecord) {
-          const elevReq = 'elevation_request' in payload && typeof payload.elevation_request === 'object' && payload.elevation_request
-            ? payload.elevation_request
+  const approvalDetails = useMemo(
+    () =>
+      details
+        .filter((detail): detail is ActionReceiptDetail & { approval: ApprovalActionPayload } => (
+          detail.status === 'waiting_for_approval' && hasApproval(detail)
+        ))
+        .map((detail) => {
+          const payload = detail.data && typeof detail.data === 'object'
+            ? detail.data
             : undefined
-          const deniedPaths = elevReq && 'denied_paths' in elevReq && Array.isArray(elevReq.denied_paths)
-            ? elevReq.denied_paths.filter((p): p is string => typeof p === 'string')
-            : []
-          sandboxPath = {
-            approval_kind: 'sandbox_path_elevation',
-            command: typeof payload.command === 'string' ? payload.command : '',
-            execution_mode: typeof payload.execution_mode === 'string' ? payload.execution_mode : '',
-            denied_paths: deniedPaths,
-            reasons: Array.isArray(payload.reasons) ? payload.reasons.filter((r): r is string => typeof r === 'string') : [],
-            risks: Array.isArray(payload.risks) ? payload.risks.filter((r): r is string => typeof r === 'string') : [],
-          }
-        }
+          const built = payload ? buildApprovalDetailFromPayload(payload) : undefined
+          const approval = built?.approval ?? detail.approval
+          const approvalKind = approval?.sandboxNetwork
+            ? 'sandbox_network_elevation'
+            : approval?.sandboxPath
+              ? 'sandbox_path_elevation'
+              : 'shell_command'
 
-        return {
-          id: detail.id,
-          approval: detail.approval,
-          shell: detail.approval.shell,
-          sandboxNetwork,
-          sandboxPath,
-          approvalKind,
-        }
-      }),
+          return {
+            id: detail.id,
+            approval,
+            shell: approval?.shell,
+            sandboxNetwork: approval?.sandboxNetwork,
+            sandboxPath: approval?.sandboxPath,
+            approvalKind,
+          }
+        }),
     [details]
   )
 

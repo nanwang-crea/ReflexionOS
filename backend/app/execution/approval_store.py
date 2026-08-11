@@ -85,6 +85,19 @@ class PendingApprovalStore:
                 expired.append(updated.model_copy(deep=True))
         return expired
 
+    def expire_for_session(self, session_id: str) -> list[PendingToolApproval]:
+        expired: list[PendingToolApproval] = []
+        with self._lock:
+            for approval_id, pending in list(self._approvals.items()):
+                if pending.session_id != session_id or pending.status != "pending":
+                    continue
+                updated = pending.model_copy(
+                    update={"status": "expired", "decided_at": datetime.now()}
+                )
+                self._approvals[approval_id] = updated
+                expired.append(updated.model_copy(deep=True))
+        return expired
+
     def _decide(
         self,
         approval_id: str,

@@ -16,7 +16,7 @@ import { getSubAgentToolStepCount } from './DelegateToolCall'
 import { ThinkingBlock } from './ThinkingBlock'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 import { ActionReceipt } from '@/components/execution/ActionReceipt'
-import { buildReceiptDetail } from '@/components/execution/receiptUtils'
+import { buildApprovalDetailFromPayload, buildReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
 import type { ToolApprovalActionHandler } from './ToolTraceCard'
 
@@ -59,7 +59,7 @@ type SubAgentRenderItem =
  * 4. delegate:start/result/error 为委托项
  * 5. 遇到不同类型的事件时，先刷新当前缓冲区
  */
-function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
+export function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
   const items: SubAgentRenderItem[] = []
 
   // 当前缓冲区：用于合并连续的同类事件
@@ -152,7 +152,8 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
       }
 
       case 'tool:start': {
-        flushAll()
+        flushThinking(false)
+        flushContent()
         // 使用 buildReceiptDetail 构造标准的 receipt detail
         const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : 'unknown'
         const toolCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : `tc_${i}`
@@ -175,13 +176,15 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
           : toolGroup.find(d => d.status === 'running' || d.status === 'waiting_for_approval')
         if (matched) {
           matched.status = payload.success !== false ? 'success' : 'failed'
-          matched.output = typeof payload.result === 'string' ? payload.result : undefined
+          matched.output = typeof payload.output === 'string'
+            ? payload.output
+            : typeof payload.result === 'string'
+              ? payload.result
+              : undefined
           if (typeof payload.duration === 'number') {
             matched.duration = payload.duration
           }
         }
-        // 刷新工具组，将 waiting_for_approval → success/failed 的状态变更反映到 UI
-        flushToolGroup()
         break
       }
 
@@ -196,8 +199,6 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
           matchedErr.status = 'failed'
           matchedErr.error = typeof payload.error === 'string' ? payload.error : undefined
         }
-        // 刷新工具组，将 waiting_for_approval → failed 的状态变更反映到 UI
-        flushToolGroup()
         break
       }
 
@@ -213,33 +214,21 @@ function buildSubAgentRenderItems(steps: SubAgentStep[]): SubAgentRenderItem[] {
         if (matchedApproval) {
           matchedApproval.status = 'waiting_for_approval'
           
-          // 从后端事件中提取审批信息
-          const approvalData = payload.approval as Record<string, unknown> | undefined
-          const approvalId = typeof payload.approval_id === 'string' ? payload.approval_id : undefined
-          const runId = typeof payload.run_id === 'string' ? payload.run_id : undefined
-          const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
-
-          if (approvalId && runId) {
-            // 构造审批对象，与前端 ActionReceiptDetail.approval 结构一致
-            matchedApproval.approval = {
-              runId,
-              approvalId,
-              parentSessionId,  // SubAgent 的父 session ID，用于路由审批响应
-              shell: approvalData && typeof approvalData.shell === 'object'
-                ? approvalData.shell as { command?: string; execution_mode?: string; reasons?: string[]; risks?: string[] }
-                : undefined,
-              sandboxNetwork: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_network_elevation'
-                ? approvalData as { approval_kind: 'sandbox_network_elevation'; command: string; execution_mode: string; reasons: string[]; risks: string[] }
-                : undefined,
-              sandboxPath: approvalData && 'approval_kind' in approvalData && approvalData.approval_kind === 'sandbox_path_elevation'
-                ? approvalData as { approval_kind: 'sandbox_path_elevation'; command: string; execution_mode: string; denied_paths: string[]; reasons: string[]; risks: string[] }
-                : undefined,
-            }
-            
-            // 保存完整的审批数据（用于构造审批 UI）
-            matchedApproval.data = payload
+          const approvalDetail = buildApprovalDetailFromPayload(payload)
+          if (approvalDetail?.approval) {
+            matchedApproval.approval = approvalDetail.approval
+            matchedApproval.data = approvalDetail.data
           }
         }
+        break
+      }
+
+      case 'run:waiting_for_approval':
+      case 'run:resuming': {
+        // 运行状态元事件不应打断当前工具批次，否则审批后的 tool:result
+        // 可能无法配回原来的 tool:start / approval:required。
+        flushThinking(false)
+        flushContent()
         break
       }
 

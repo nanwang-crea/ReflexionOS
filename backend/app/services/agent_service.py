@@ -105,6 +105,7 @@ class AgentService:
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
         self._execution_loops: dict[str, RapidExecutionLoop] = {}
+        self._sub_agent_execution_loops: dict[str, RapidExecutionLoop] = {}
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._title_tasks: dict[str, asyncio.Task] = {}
         self._cleanup_task: asyncio.Task | None = None
@@ -367,6 +368,11 @@ class AgentService:
             logger.info("清理 session=%s 的 BrowserTool", session_id)
             await browser_tool.cleanup()
 
+    def cleanup_session_security_state(self, session_id: str) -> None:
+        """清理与 session 绑定的审批记忆和 trust rules。"""
+        self.pending_approval_store.expire_for_session(session_id)
+        self.trust_store.clear_session(session_id)
+
     async def shutdown(self) -> None:
         """服务关闭时清理所有资源，包括所有 session 的浏览器实例。"""
         with self._browser_tools_lock:
@@ -508,10 +514,11 @@ class AgentService:
             event_callback=event_callback,
             context_window=resolved_llm.context_window,
         )
+        approval_flow = getattr(execution_loop, "approval_flow", None)
         self._execution_loops[run_id] = execution_loop
         # 存储 session → approval_flow 映射，供 SubAgent 审批结果路由使用
-        if hasattr(execution_loop, "approval_flow"):
-            self._session_approval_flows[session_id] = execution_loop.approval_flow
+        if approval_flow is not None:
+            self._session_approval_flows[session_id] = approval_flow
 
         # 注入 DelegateTool — 主 agent 可通过 delegate 工具委托子任务
         # runner_factory 闭包捕获当前执行上下文（llm_config, registry, project_path, approval_flow, event_callback）
@@ -530,6 +537,8 @@ class AgentService:
                 session_id=f"{session_id}-sub-{uuid4().hex[:8]}",
                 event_callback=event_callback,  # 传递事件回调，使 SubAgent 事件能发送到前端
                 parent_approval_flow=execution_loop.approval_flow,  # 共享主 Agent 的审批流
+                loop_started=self._register_sub_agent_loop,
+                loop_finished=self._unregister_sub_agent_loop,
             )
         run_tool_registry.register(DelegateTool(
             runner_factory=_delegate_runner_factory,
@@ -594,6 +603,8 @@ class AgentService:
             self._runtime_adapters.pop(run_id, None)
             self._execution_loops.pop(run_id, None)
             self._cancel_events.pop(run_id, None)
+            if approval_flow is not None and self._session_approval_flows.get(session_id) is approval_flow:
+                self._session_approval_flows.pop(session_id, None)
 
     def _register_pending_approval(
         self,
@@ -690,6 +701,7 @@ class AgentService:
             raise NotFoundValueError("运行不存在")
         if run.status == RunStatus.CANCELLED:
             self.pending_approval_store.expire_for_run(run_id)
+            self.pending_approval_store.expire_for_session(run.session_id)
             return run
         if run.status in {RunStatus.COMPLETED, RunStatus.FAILED}:
             return run
@@ -708,6 +720,7 @@ class AgentService:
             raise NotFoundValueError("运行不存在")
         if cancelled.status == RunStatus.CANCELLED:
             self.pending_approval_store.expire_for_run(run_id)
+            self.pending_approval_store.expire_for_session(run.session_id)
         await self._broadcast_conversation_events(
             session_id=run.session_id,
             events=persisted_events,
@@ -733,7 +746,9 @@ class AgentService:
             except Exception:
                 logger.warning("重置前取消活跃运行失败: run_id=%s", active_run_id)
 
-        return self.conversation_service.reset_session(session_id)
+        reset_session = self.conversation_service.reset_session(session_id)
+        self.cleanup_session_security_state(session_id)
+        return reset_session
 
     async def edit_and_rerun(
         self,
@@ -794,6 +809,13 @@ class AgentService:
         )
         return started
 
+    def _register_sub_agent_loop(self, run_id: str, loop: RapidExecutionLoop) -> None:
+        self._sub_agent_execution_loops[run_id] = loop
+
+    def _unregister_sub_agent_loop(self, run_id: str, loop: RapidExecutionLoop) -> None:
+        if self._sub_agent_execution_loops.get(run_id) is loop:
+            self._sub_agent_execution_loops.pop(run_id, None)
+
     async def approve_tool_call(
         self, *, session_id: str, run_id: str, approval_id: str,
         decision: AllowApprovalDecision = "allow_once",
@@ -832,6 +854,10 @@ class AgentService:
                 pending = self.pending_approval_store.get(approval_id)
                 if pending is None:
                     raise NotFoundValueError("审批不存在")
+                if pending.session_id != session_id:
+                    raise ValueError("审批不属于当前会话")
+                if pending.run_id != run_id:
+                    raise ValueError("审批不属于当前运行")
                 if pending.status != "pending":
                     raise ValueError("审批已处理")
 
@@ -844,6 +870,8 @@ class AgentService:
 
                 if approval_event_type == EventType.APPROVAL_APPROVED:
                     self.pending_approval_store.approve(approval_id, decision=decision)
+                    if decision == "trust_and_allow":
+                        self._add_trust_rules_from_approval(pending, session_id)
                     # 执行已审批的工具，将执行结果通过 approval_flow 返回给 SubAgent
                     execution_result = await self._execute_approved_tool(pending, run_id=run_id)
                     logger.info("[SubAgent Approval] Tool executed: success=%s, calling set_approval_result", execution_result.success)
@@ -993,7 +1021,7 @@ class AgentService:
             approved_decision_data["elevation_request"] = elevation_request
 
         project_path = approved_decision_data.get("cwd") if isinstance(approved_decision_data, dict) else None
-        loop = self._execution_loops.get(run_id)
+        loop = self._execution_loops.get(run_id) or self._sub_agent_execution_loops.get(run_id)
         tool_registry = getattr(loop, "tool_registry", None) or self._build_run_tool_registry(project_path)
 
         tool = tool_registry.get(pending.tool_name)
@@ -1061,14 +1089,6 @@ class AgentService:
         if isinstance(suggested_trust, dict):
             trust_prefixes = suggested_trust.get("prefix")
             if trust_prefixes and isinstance(trust_prefixes, list):
-                for prefix in trust_prefixes:
-                    if isinstance(prefix, str) and prefix:
-                        self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
-
-        suggested_trust = pending.approval_payload.get("suggested_trust")
-        if isinstance(suggested_trust, dict):
-            trust_prefixes = suggested_trust.get("prefix")
-            if isinstance(trust_prefixes, list):
                 for prefix in trust_prefixes:
                     if isinstance(prefix, str) and prefix:
                         self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))

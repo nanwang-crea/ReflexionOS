@@ -16,22 +16,13 @@ export function sendApprovalAction(
   action: ApprovalActionType,
   payload: ApprovalActionPayload
 ) {
-  console.log('[SubAgent Approval] 点击审批按钮:', {
-    action,
-    payload,
-    hasHandler: !!onApprovalAction
-  })
-  
   if (!onApprovalAction) {
-    console.warn('[SubAgent Approval] 警告: onApprovalAction 回调未定义')
     return
   }
-  
+
   onApprovalAction(action, {
     runId: payload.runId,
     approvalId: payload.approvalId,
     parentSessionId: payload.parentSessionId,
   })
-  
-  console.log('[SubAgent Approval] 审批请求已发送')
 }

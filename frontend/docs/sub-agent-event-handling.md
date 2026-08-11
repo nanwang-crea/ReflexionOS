@@ -1,153 +1,95 @@
 # 子 Agent 事件处理机制
 
-## 背景
+## 当前架构
 
-当后端使用 `delegate` 工具创建子 agent 时，子 agent 产生的所有事件都会被添加 `sub_agent:` 前缀，以区分主 agent 和子 agent 的事件。
+子 agent 事件不进入普通 conversation reducer 的主路径。后端会把子 agent 运行时事件加上 `sub_agent:` 前缀，通过父会话的 WebSocket 直接广播；前端 WebSocket 层会把这些事件转换成 `sub_agent:event`，再写入按 `sessionId + delegate_call_id` 分组的实时 store。
 
-## 后端事件格式
+这条链路避免把子 agent 的临时工具步骤持久化成父会话消息，同时仍然能在父 agent 的 `delegate` 工具卡片里实时展示子任务进度和审批卡片。
 
-后端在 `delegate_tool.py` 中发送子 agent 事件时会添加前缀：
+## 后端事件
+
+`backend/app/tools/delegate_tool.py` 会包装子 agent 事件：
 
 ```python
-# 第 130 行
 await parent_cb(f"sub_agent:{event_type}", enriched)
 ```
 
-因此：
-- `approval:required` → `sub_agent:approval:required`
-- `message.created` → `sub_agent:message.created`
-- `run.waiting_for_approval` → `sub_agent:run.waiting_for_approval`
+`enriched` 至少包含：
 
-同时，后端会在事件的 payload 中注入 `delegate_call_id` 字段，用于将子 agent 事件关联到父 agent 的 delegate tool call。
+- `delegate_call_id`：父 agent 的 delegate tool call id
+- `parent_session_id`：父会话 id，用于审批响应路由
+- `run_id`：子 agent 的 `sub-run-*` 运行 id
+- 原始工具 / LLM / approval 事件 payload
 
-## 前端处理机制
+`backend/app/services/agent_service.py` 对 `sub_agent:approval:required` 会额外注册 pending approval，使用父 session id 保存，这样用户点击审批时后端能找到对应审批记录。
 
-### 类型定义
+## 前端事件流
 
-在 `types/conversation.ts` 中，`ConversationEvent` 接口添加了 `delegate_call_id` 字段：
+`frontend/src/services/sessionConversationWebSocket.ts` 收到 `sub_agent:*` 后会映射为：
 
-```typescript
-export interface ConversationEvent {
-  // ... 其他字段
-  delegate_call_id?: string  // 关联到父 agent 的 delegate tool call
-}
-```
-
-### Reducer 处理逻辑
-
-在 `conversation.reducer.ts` 的 `applyConversationEvent` 函数中：
-
-```typescript
-// 识别并处理 sub_agent: 前缀
-let actualEvent = event
-if (event.eventType.startsWith('sub_agent:')) {
-  const actualEventType = event.eventType.replace('sub_agent:', '')
-  actualEvent = {
-    ...event,
-    eventType: actualEventType,
-    // delegate_call_id 保留在事件中
-  }
-}
-
-// 后续使用 actualEvent 进行正常的事件处理
-```
-
-### 处理流程
-
-1. **识别子 agent 事件**：检查 `eventType` 是否以 `sub_agent:` 开头
-2. **提取实际事件类型**：移除前缀，得到原始事件类型（如 `message.created`）
-3. **保留关联信息**：`delegate_call_id` 字段保留在事件中，供 UI 层使用
-4. **统一处理**：使用提取后的事件类型，按照正常事件流程处理
-
-## 示例：完整的子 agent 审批流程
-
-### 1. 父 agent 创建 delegate 调用
-
-```json
+```ts
 {
-  "eventType": "message.created",
-  "payloadJson": {
-    "message_type": "tool_trace",
-    "payload_json": {
-      "tool_name": "delegate",
-      "tool_call_id": "delegate-call-123",
-      "arguments": {
-        "task": "Fix the bug in utils.ts"
-      }
-    }
-  }
+  event_type: 'tool:start' | 'tool:result' | 'approval:required' | string,
+  delegate_call_id: string | undefined,
+  payload: Record<string, unknown>
 }
 ```
 
-### 2. 子 agent 需要审批的工具调用
+`frontend/src/hooks/useConversationRuntime.ts` 使用当前 WebSocket 连接的 `sessionId` 写入：
 
-```json
-{
-  "eventType": "sub_agent:message.created",
-  "delegate_call_id": "delegate-call-123",
-  "payloadJson": {
-    "message_type": "tool_trace",
-    "payload_json": {
-      "tool_name": "shell",
-      "tool_call_id": "shell-call-456",
-      "arguments": {
-        "command": "rm -rf /tmp/cache"
-      }
-    }
-  }
-}
+```ts
+useSubAgentEventsStore.getState().addEvent(sessionId, data)
 ```
 
-### 3. 子 agent run 进入等待审批状态
+`frontend/src/hooks/useSubAgentEvents.ts` 按双键存储：
 
-```json
-{
-  "eventType": "sub_agent:run.waiting_for_approval",
-  "delegate_call_id": "delegate-call-123",
-  "payloadJson": {}
-}
+```ts
+Map<sessionId, Map<delegate_call_id, SubAgentStep[]>>
 ```
 
-## UI 展示建议
+这样多会话并行时，即便不同会话里出现相同的 `delegate_call_id`，也不会互相串台。会话重置时会调用 `clearSession(sessionId)` 清理该会话的子 agent 历史步骤。
 
-前端可以根据 `delegate_call_id` 字段来判断消息是否来自子 agent：
+## UI 展示
 
-```typescript
-const isSubAgentMessage = (message: ConversationMessage, event: ConversationEvent) => {
-  return event.delegate_call_id !== undefined
-}
+`DelegateToolCall` 从 tool trace detail 中读取：
+
+- `data.tool_call_id`
+- `data.session_id`
+
+然后调用：
+
+```ts
+useSubAgentSteps(sessionId, callId)
 ```
 
-可选的 UI 展示方式：
-- **嵌套展示**：将子 agent 的消息缩进显示在父 agent 的 delegate tool call 下方
-- **标记展示**：为子 agent 的消息添加特殊标记（如图标、颜色）
-- **独立展示**：保持平铺展示，但添加视觉提示表明其来源
+子 agent 的实时步骤会展示在：
 
-## 测试
+- delegate 卡片的运行状态与步数
+- `SubAgentDetailPanel` 的全屏详情面板
+- 子 agent 工具审批卡片
 
-在 `conversation.reducer.test.ts` 中包含了完整的子 agent 事件处理测试：
+`SubAgentDetailPanel` 会把并发工具调用保留在同一个工具批次里，直到对应 `tool:result` / `tool:error` 到达后再显示终态。
 
-- ✅ 基本的 `sub_agent:` 前缀移除
-- ✅ 子 agent 的 `run.waiting_for_approval` 处理
-- ✅ 完整的子 agent 审批工作流
+## 审批语义
 
-运行测试：
+子 agent 审批沿用父会话 WebSocket：
 
-```bash
-npm test -- conversation.reducer.test.ts
-```
+- 前端审批 payload 带 `parentSessionId`
+- WebSocket route 用 `parent_session_id` 找回父会话
+- `AgentService` 通过父会话的 approval flow 恢复子 agent loop
+- `trust_and_allow` 会写入父 session 的 trust rules
+- 父 run 取消时，会过期同 session 下尚未处理的子 agent pending approvals
 
-## 架构优势
+## Reducer 兼容路径
 
-### 职责清晰
-- **WebSocket 层**：只负责接收和分发原始事件
-- **Reducer 层**：负责识别和处理事件类型，包括子 agent 事件
+`conversation.reducer.ts` 仍保留 `sub_agent:` 前缀处理，用于兼容历史或持久化事件输入。但当前实时 UI 的主路径是 WebSocket `sub_agent:event` + `useSubAgentEventsStore`，不是把子 agent 步骤写成普通 conversation messages。
 
-### 扩展性强
-- 保留了后端的语义标识（`sub_agent:` 前缀）
-- `delegate_call_id` 提供了明确的关联关系
-- 便于未来添加子 agent 特有的处理逻辑
+## 主要测试
 
-### 向后兼容
-- 不破坏现有事件处理流程
-- 非子 agent 事件保持原有处理方式
+- `frontend/src/hooks/__tests__/useSubAgentEvents.test.ts`
+- `frontend/src/hooks/__tests__/useConversationRuntime.multi-session.test.ts`
+- `frontend/src/components/workspace/__tests__/SubAgentDetailPanel.test.ts`
+- `frontend/src/components/execution/__tests__/receiptUtils.test.ts`
+- `backend/tests/test_services/test_agent_service.py`
+- `backend/tests/test_execution/test_approval_store.py`
+- `backend/tests/test_execution/test_sub_agent_runner.py`

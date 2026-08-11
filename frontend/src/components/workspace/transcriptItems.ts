@@ -1,4 +1,4 @@
-import { buildReceiptDetail } from '@/components/execution/receiptUtils'
+import { buildApprovalDetailFromPayload, buildReceiptDetail } from '@/components/execution/receiptUtils'
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
 import type { ConversationMessage } from '@/types/conversation'
 import { getAssistantReasoningText } from './runtimeStatus'
@@ -56,25 +56,13 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
   detail.status = getToolTraceStatus(message)
 
   if (detail.status === 'waiting_for_approval' && typeof message.runId === 'string' && typeof payload.approval_id === 'string') {
-    const approvalObj = isRecord(payload.approval) ? payload.approval : undefined
-    const approvalPayload = isRecord(approvalObj?.payload) ? approvalObj.payload : undefined
-    const hasShellPayload = approvalPayload && typeof approvalPayload.command === 'string'
-    const suggestedTrust = isRecord(approvalObj?.suggested_trust) ? approvalObj.suggested_trust : undefined
-    // 提取 parent_session_id，用于 SubAgent 审批路由
-    const parentSessionId = typeof payload.parent_session_id === 'string' ? payload.parent_session_id : undefined
-    detail.approval = {
-      runId: message.runId,
-      approvalId: payload.approval_id,
-      parentSessionId: parentSessionId,  // SubAgent 的父 session ID
-      suggestedTrust: suggestedTrust ?? undefined,
-      ...(hasShellPayload ? {
-        shell: {
-          command: String(approvalPayload.command),
-          ...(typeof approvalPayload.execution_mode === 'string' ? { execution_mode: approvalPayload.execution_mode } : {}),
-          ...(Array.isArray(approvalObj?.reasons) ? { reasons: approvalObj.reasons.filter((r): r is string => typeof r === 'string') } : {}),
-          ...(Array.isArray(approvalObj?.risks) ? { risks: approvalObj.risks.filter((r): r is string => typeof r === 'string') } : {}),
-        },
-      } : {}),
+    const approvalDetail = buildApprovalDetailFromPayload({
+      ...payload,
+      run_id: message.runId,
+    })
+    if (approvalDetail?.approval) {
+      detail.approval = approvalDetail.approval
+      detail.data = { ...detail.data, ...approvalDetail.data }
     }
   }
 
@@ -91,6 +79,7 @@ export function buildToolTraceDetail(message: ConversationMessage): ActionReceip
   if (typeof payload.tool_call_id === 'string') {
     detail.data = { ...detail.data, tool_call_id: payload.tool_call_id }
   }
+  detail.data = { ...detail.data, session_id: message.sessionId }
 
   return detail
 }

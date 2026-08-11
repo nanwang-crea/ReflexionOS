@@ -4,6 +4,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+pytestmark = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows token tests require Windows APIs",
+)
+
 
 @pytest.fixture(autouse=True)
 def mock_pywin32():

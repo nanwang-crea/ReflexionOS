@@ -192,6 +192,31 @@ describe('buildTranscriptItems', () => {
     })
   })
 
+  it('preserves delegate correlation keys on tool trace details', () => {
+    const items = buildTranscriptItems([
+      buildMessage({
+        id: 'msg-delegate',
+        sessionId: 'session-chat',
+        payloadJson: {
+          tool_name: 'delegate',
+          tool_call_id: 'delegate-call-123',
+          arguments: { task: '检查后端审批路径' },
+        },
+      }),
+    ])
+
+    const pg = getProcessGroup(items, 0)!
+    const tg = getToolGroupFromProcess(pg, 0)!
+    expect(tg.details[0]).toMatchObject({
+      id: 'msg-delegate',
+      toolName: 'delegate',
+      data: {
+        tool_call_id: 'delegate-call-123',
+        session_id: 'session-chat',
+      },
+    })
+  })
+
   it.each([
     ['approved', 'completed', 'success'],
     ['denied', 'cancelled', 'cancelled'],

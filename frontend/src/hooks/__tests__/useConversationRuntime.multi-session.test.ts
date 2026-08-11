@@ -292,6 +292,34 @@ describe('useConversationRuntime（多会话并行）', () => {
     expect(evtBCall?.[0]).toBe('session-2')
   })
 
+  it('两个会话的子 agent 事件按 session 隔离存储', async () => {
+    conversationStoreState.conversationsBySessionId = {
+      'session-2': activeConversation('session-2', 'run-2'),
+    }
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const { useSubAgentEventsStore } = await import('../useSubAgentEvents')
+    useSubAgentEventsStore.getState().clearAll()
+    useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    fireWsEvent('session-1', 'sub_agent:event', {
+      event_type: 'tool:start',
+      delegate_call_id: 'delegate-call-1',
+      payload: { tool_name: 'file' },
+    })
+    fireWsEvent('session-2', 'sub_agent:event', {
+      event_type: 'tool:start',
+      delegate_call_id: 'delegate-call-1',
+      payload: { tool_name: 'shell' },
+    })
+
+    const state = useSubAgentEventsStore.getState()
+    expect(state.stepsBySessionId.get('session-1')?.get('delegate-call-1')?.[0].payload.tool_name).toBe('file')
+    expect(state.stepsBySessionId.get('session-2')?.get('delegate-call-1')?.[0].payload.tool_name).toBe('shell')
+  })
+
   it('活跃会话数超过上限（5）时，多出来的会话不建立连接（降级补拉）', async () => {
     // 6 个后台活跃会话；加上当前会话本应 7 条，但上限 5。
     const conversations: Record<string, unknown> = {}

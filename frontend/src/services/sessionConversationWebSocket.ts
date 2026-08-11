@@ -320,9 +320,9 @@ class SessionConversationWebSocket {
       const { delegate_call_id, ...rest } = rawData
       this.emit('sub_agent:event', {
         event_type: eventType,
-        delegate_call_id: delegate_call_id as string | undefined,
+        delegate_call_id: typeof delegate_call_id === 'string' ? delegate_call_id : undefined,
         payload: rest,
-      } as SubAgentEventDto)
+      })
       return
     }
   }

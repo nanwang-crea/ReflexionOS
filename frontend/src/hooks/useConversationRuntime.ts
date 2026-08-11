@@ -430,7 +430,7 @@ export function useConversationRuntime(
       }
     })
     ws.on('sub_agent:event', (data: SubAgentEventDto) => {
-      useSubAgentEventsStore.getState().addEvent(data)
+      useSubAgentEventsStore.getState().addEvent(sessionId, data)
     })
 
     await ws.connect(sessionId)
@@ -661,6 +661,7 @@ export function useConversationRuntime(
     // resetSession 已用返回的 Session 回写 session.store（列表真值）。
     // 此处补齐：清聊天区快照、回退未读基线、关连接与取消标志。
     useConversationStore.getState().clearConversation(currentSessionId)
+    useSubAgentEventsStore.getState().clearSession(currentSessionId)
     useWorkspaceStore.getState().resetSessionSeen(currentSessionId)
     closeSessionConnection(currentSessionId)
     setSessionCancelling(currentSessionId, false)
