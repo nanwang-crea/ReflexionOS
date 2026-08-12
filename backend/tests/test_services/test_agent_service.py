@@ -2,13 +2,11 @@ import asyncio
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 import app.services.agent_service as agent_service_module
 from app.execution.models import LoopResult, LoopStatus
-from app.execution.conversation_history_loader import ConversationHistoryLoader
 
 from app.models.conversation import (
     ConversationEvent,
@@ -1565,7 +1563,7 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
 
     await asyncio.sleep(0.1)
     assert len(captured_loops) == 1
-    stub_loop = captured_loops[0]
+    captured_loops[0]
 
     pending = service.pending_approval_store.get(approval_id)
     assert pending is not None

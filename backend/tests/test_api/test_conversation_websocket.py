@@ -684,7 +684,6 @@ async def test_resumed_session_rehydrates_recent_messages_and_curated_memory(
 
     from app.execution.conversation_history_loader import ConversationHistoryLoader
     from app.memory.recall_service import RecallService
-    from app.models.conversation import ConversationEvent, EventType
     from app.services.conversation_runtime_adapter import ConversationRuntimeAdapter
     from app.services.conversation_service import ConversationService
 

@@ -251,7 +251,7 @@ async def test_max_tabs_limit(manager):
     """标签页数量达到 MAX_TABS 后，new_tab 应返回错误。"""
     first_page = _mock_page()
     extra_pages = [_mock_page() for _ in range(MAX_TABS - 1)]
-    all_pages = [first_page] + extra_pages
+    [first_page] + extra_pages
 
     ctx = _mock_context(first_page)
     ctx.new_page = AsyncMock(side_effect=extra_pages)
@@ -347,7 +347,6 @@ async def test_action_read_default_selector():
 def _build_tool_output(result):
     """模拟 tool_call_executor 构建 tool_output 的逻辑。"""
     import json as _json
-    from app.tools.base import ToolResult
 
     _VISIBLE_DATA_KEYS = {"content", "result", "path", "url", "title", "tab_id", "tabs", "active_tab_id", "width", "height"}
     _MAX_CONTENT_LEN = 8000

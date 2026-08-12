@@ -1829,12 +1829,12 @@ class TestHardenedLoopIntegration:
             event_callback=callback,
         )
 
-        result = await loop.run(task="fix the auth bug")
+        await loop.run(task="fix the auth bug")
 
         # Should not be COMPLETED after just 1 step — the nudge should have triggered
         # The loop either completed with nudged content or kept going
         # Check that a nudge was injected (user message about plan not complete)
-        user_msgs = [
+        [
             e
             for e in events
             if e["type"] == "tool:result"

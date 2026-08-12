@@ -6,8 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.orchestration.package_resolver import PackageResolver, PackageSpecifier
-from app.orchestration.skill_parser import parse_skill_md
-from app.orchestration.skill_registry import SkillMetadata, SkillSource, skill_registry
+from app.orchestration.skill_registry import SkillSource, skill_registry
 from app.orchestration.skill_sorting import sort_skills
 
 logger = logging.getLogger(__name__)

@@ -9,7 +9,7 @@ import sys
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.security.sandbox.windows_cmd import is_cmd_internal_command, CMD_INTERNAL_COMMANDS
+from app.security.sandbox.windows_cmd import is_cmd_internal_command
 
 
 # ==================== is_cmd_internal_command 清单覆盖 ====================

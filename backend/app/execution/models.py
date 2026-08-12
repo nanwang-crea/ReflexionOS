@@ -6,7 +6,6 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.execution.context_compressor import MessageGroup
 from app.llm.base import LLMResponse
 from app.models.conversation import RunStatus as LoopStatus
 

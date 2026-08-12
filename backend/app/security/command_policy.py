@@ -191,8 +191,9 @@ class CommandPolicy:
             # 条件：sandbox_available=True 时旁路第一阶段，改由第二阶段沙盒执行流处理
             # 策略：(1) 只放行纯读的 git 子命令；(2) 复用 shell_security._validate_path_arguments 校验路径参数
 
-            # 检查元字符：第一阶段只支持 && 和 ||（命令链）
-            supported_on_windows = {'&&', '||'}
+            # 检查元字符：第一阶段只支持 && 和 ||（命令链），其余元字符一律拒绝。
+            # 采用黑名单判定：命中 unsupported_on_windows 即拒绝，
+            # 支持集 {'&&', '||'} 仅作说明，不参与判断，故不再定义为局部变量。
             unsupported_on_windows = {'|', '<', '>', '>>', '2>', '&', ';'}
 
             used_meta = self._extract_meta_chars(command_normalized)

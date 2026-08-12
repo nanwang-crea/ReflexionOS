@@ -129,7 +129,6 @@ def test_plan_completed_findings():
     assert plan.completed_findings() == ["Found X"]
 
 
-import pytest
 
 
 def test_plan_replace_from_auto_recovers_dropped_completed_steps():

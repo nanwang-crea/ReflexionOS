@@ -1,7 +1,6 @@
 """WorkingMemory 和 MemoryExtractor 单元测试"""
 
-import pytest
-from app.memory.working_memory import WorkingMemory, MemoryEntry, MemoryEntryType
+from app.memory.working_memory import WorkingMemory
 from app.memory.memory_extractor import MemoryExtractor
 from app.memory.session_tracker import SessionTracker
 

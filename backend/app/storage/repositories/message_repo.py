@@ -1,6 +1,5 @@
 import json
 import logging
-from datetime import datetime
 
 from sqlalchemy import and_, case, func, or_
 

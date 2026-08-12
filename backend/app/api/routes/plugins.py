@@ -23,7 +23,6 @@ _module_loader: PluginLoader | None = None
 
 def _get_resolver_and_loader():
     global _module_loader
-    from app.config.settings import config_manager
     plugin_settings = config_manager.settings.plugin
     resolver = PackageResolver(Path(plugin_settings.package_cache_dir))
     if _module_loader is None:
@@ -63,7 +62,6 @@ async def list_plugins():
 
 @router.post("/install")
 async def install_plugin(req: InstallPluginRequest):
-    from app.config.settings import config_manager
 
     try:
         spec = PackageSpecifier.parse(req.specifier)
@@ -117,7 +115,6 @@ async def install_plugin(req: InstallPluginRequest):
 
 @router.delete("/{plugin_name}")
 async def uninstall_plugin(plugin_name: str):
-    from app.config.settings import config_manager
 
     resolver, loader = _get_resolver_and_loader()
     registration = loader.get_registration(plugin_name)
@@ -149,7 +146,6 @@ async def uninstall_plugin(plugin_name: str):
 
 @router.post("/update/{plugin_name}")
 async def update_plugin(plugin_name: str):
-    from app.config.settings import config_manager
     plugin_settings = config_manager.settings.plugin
 
     matching = [s for s in plugin_settings.plugins if s.startswith(f"{plugin_name}@") or s == plugin_name]
@@ -181,7 +177,6 @@ async def update_plugin(plugin_name: str):
 
 @router.post("/update")
 async def update_all_plugins():
-    from app.config.settings import config_manager
     plugin_settings = config_manager.settings.plugin
 
     if not plugin_settings.plugins:

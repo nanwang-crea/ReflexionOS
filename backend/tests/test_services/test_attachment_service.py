@@ -2,7 +2,6 @@
 import base64
 from pathlib import Path
 import tempfile
-import pytest
 
 from app.services.attachment_service import convert_attachments_to_content_parts
 from app.models.conversation import MessageAttachment

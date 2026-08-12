@@ -1,6 +1,6 @@
 # WindowsSandbox 主类（Task 6: CreateProcessAsUser + Restricted Token）单测
 import sys
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pytest
 
 pytestmark = pytest.mark.skipif(

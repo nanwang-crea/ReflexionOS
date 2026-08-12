@@ -1,8 +1,6 @@
-import sys
 import pytest
 from app.security.sandbox.error_detector import (
     SandboxErrorDetector,
-    SandboxErrorInfo,
     SandboxErrorType,
 )
 
