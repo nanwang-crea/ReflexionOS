@@ -17,7 +17,14 @@ from __future__ import annotations
 
 import re
 import logging
+from typing import TYPE_CHECKING
+
 from app.memory.working_memory import WorkingMemory
+
+if TYPE_CHECKING:
+    # 仅用于类型注解，运行时不导入；补上后类型检查器/IDE 能正确
+    # 解析 __init__ 中 "SessionTracker | None" 这个前向引用注解
+    from app.memory.session_tracker import SessionTracker
 
 logger = logging.getLogger(__name__)
 

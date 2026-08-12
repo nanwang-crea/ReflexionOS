@@ -1,7 +1,13 @@
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from app.errors import SecurityError
+
+if TYPE_CHECKING:
+    # 仅用于类型注解，运行时不导入；补上后类型检查器/IDE 能正确
+    # 解析 PathSecurity.__init__ 中 "SessionTrustStore | None" 前向引用注解
+    from app.security.session_trust_store import SessionTrustStore
 
 logger = logging.getLogger(__name__)
 
