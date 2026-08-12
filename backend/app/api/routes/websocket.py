@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 
@@ -320,12 +321,12 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
         logger.info("WebSocket 断开连接: %s", session_id)
     except Exception as exc:  # pragma: no cover
         logger.error("WebSocket 错误: %s", exc)
-        try:
+        # 尝试通知客户端内部错误；若 websocket 已断开等导致发送失败，
+        # 无需关心，后续仍要 disconnect 清理，故用 suppress 吞掉发送异常
+        with contextlib.suppress(Exception):
             await _send_error(
                 websocket,
                 code="internal_error",
                 message=f"内部错误: {exc}",
             )
-        except Exception:
-            pass
         ws_manager.disconnect(websocket, session_id)

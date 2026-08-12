@@ -36,6 +36,17 @@ def _detect_line_ending_from_bytes(raw: bytes) -> str:
     return "\n"
 
 
+def _read_file_bytes_sync(path: str) -> bytes:
+    """以二进制读取文件全部字节（同步，供 asyncio.to_thread 调度）。
+
+    输入：path 文件路径
+    作用：用 with 语句打开文件并读取，保证 read 抛异常时文件句柄被关闭
+    返回：文件原始字节
+    """
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def _normalize_to_lf(text: str) -> str:
     return text.replace("\r\n", "\n")
 
@@ -106,7 +117,7 @@ class EditTool(BaseTool):
             if os.path.isdir(path):
                 return ToolResult(success=False, error=f"路径是目录: {path}")
 
-            raw_bytes = await asyncio.to_thread(lambda: open(path, "rb").read())
+            raw_bytes = await asyncio.to_thread(_read_file_bytes_sync, path)
             line_ending = _detect_line_ending_from_bytes(raw_bytes)
 
             async with aiofiles.open(path, encoding="utf-8") as f:
@@ -142,7 +153,7 @@ class EditTool(BaseTool):
             os.makedirs(dir_path, exist_ok=True)
 
         if os.path.exists(path):
-            raw_bytes = await asyncio.to_thread(lambda: open(path, "rb").read())
+            raw_bytes = await asyncio.to_thread(_read_file_bytes_sync, path)
             line_ending = _detect_line_ending_from_bytes(raw_bytes)
             async with aiofiles.open(path, encoding="utf-8") as f:
                 content = await f.read()

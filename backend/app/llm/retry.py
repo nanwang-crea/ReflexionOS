@@ -80,7 +80,9 @@ async def retry_async(
                 for task in pending:
                     task.cancel()
                 if cancel_event.is_set():
-                    raise asyncio.CancelledError()
+                    # 主动取消属于独立控制流，与当前 except 捕获的重试异常无关，
+                    # 用 from None 断开异常链，避免把无关的重试错误挂到取消信号上
+                    raise asyncio.CancelledError() from None
             else:
                 await asyncio.sleep(delay)
 

@@ -116,10 +116,11 @@ class FileContentService:
 
         try:
             content = abs_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            raise ValidationError("文件编码不支持，仅支持 UTF-8 文本文件")
+        except UnicodeDecodeError as exc:
+            # 保留原始异常链（from exc），便于排查具体是哪一步解码失败
+            raise ValidationError("文件编码不支持，仅支持 UTF-8 文本文件") from exc
         except OSError as exc:
-            raise ValidationError(f"读取文件失败: {exc}")
+            raise ValidationError(f"读取文件失败: {exc}") from exc
 
         return {
             "content": content,
@@ -152,18 +153,18 @@ class FileContentService:
                 err_msg = stderr.decode("utf-8", errors="replace").strip()
                 logger.debug("git show HEAD:%s failed: %s", relative_path, err_msg)
                 original = ""
-        except FileNotFoundError:
-            raise ValidationError("git 命令不可用，无法获取 diff")
-        except (TimeoutError, subprocess.TimeoutExpired):
-            raise ValidationError("获取 diff 超时")
+        except FileNotFoundError as exc:
+            raise ValidationError("git 命令不可用，无法获取 diff") from exc
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise ValidationError("获取 diff 超时") from exc
 
         if abs_path.exists() and abs_path.is_file():
             try:
                 modified = abs_path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                raise ValidationError("文件编码不支持，仅支持 UTF-8 文本文件")
+            except UnicodeDecodeError as exc:
+                raise ValidationError("文件编码不支持，仅支持 UTF-8 文本文件") from exc
             except OSError as exc:
-                raise ValidationError(f"读取文件失败: {exc}")
+                raise ValidationError(f"读取文件失败: {exc}") from exc
 
         return {
             "original": original,

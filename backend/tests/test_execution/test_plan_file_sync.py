@@ -16,7 +16,8 @@ def test_write_creates_file():
         )
         path = sync.write(plan, session_id="sess-123")
         assert os.path.exists(path)
-        content = open(path).read()
+        with open(path) as f:
+            content = f.read()
         assert "goal: Test goal" in content
 
 

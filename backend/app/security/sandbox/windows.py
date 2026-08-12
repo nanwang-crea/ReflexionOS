@@ -7,6 +7,7 @@
 # macOS/Linux 平台 is_available() 返回 False。
 
 from __future__ import annotations
+import contextlib
 import logging
 import sys
 
@@ -259,10 +260,9 @@ class WindowsSandbox(SandboxProvider):
         except Exception as e:
             logger.error("CreateProcessAsUser 失败: %s", e, exc_info=True)
             for h in ['out_read', 'out_write', 'err_read', 'err_write', 'proc_handle', 'thread_handle']:
-                try:
+                # 逐个关闭句柄，单个关闭失败不应阻断后续句柄清理
+                with contextlib.suppress(Exception):
                     win32api.CloseHandle(locals().get(h))
-                except Exception:
-                    pass
             return SandboxRunResult(
                 success=False, output="", error=str(e), return_code=-1,
             )

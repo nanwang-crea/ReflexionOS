@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import os
 import tempfile
@@ -48,10 +49,9 @@ class PlanFileSync:
                 f.write(content)
             os.replace(tmp_path, path)
         except BaseException:
-            try:
+            # 清理临时文件，删除失败可忽略（如文件已被 os.replace 取走）
+            with contextlib.suppress(OSError):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
             raise
 
     def read(self, path: str) -> Plan | None:
