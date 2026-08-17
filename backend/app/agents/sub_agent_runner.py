@@ -62,12 +62,25 @@ class SubAgentResult:
 
 
 async def _noop_event_callback(event: str, data: dict[str, Any]) -> None:
-    """No-op event callback — sub-agent 不广播 SSE 事件"""
+    """
+    空事件回调（默认值）
+
+    参数：event 事件类型名，data 事件数据；不做任何处理，直接丢弃
+    用途：未注入 event_callback 时，sub-agent 不广播 SSE 事件
+    """
     pass
 
 
 def _clone_tool_for_sub_agent(tool: BaseTool) -> BaseTool:
-    """Return an isolated tool instance when the tool stores per-run state."""
+    """
+    为 sub-agent 克隆一份工具实例，避免与父级共享带运行态的工具对象
+
+    参数：tool 父级 ToolRegistry 中的原始工具实例
+    逻辑：对持有单次运行状态的工具类型（WorkingMemoryTool、FileTool、GrepTool、
+    GlobTool、EditTool、PatchTool、ExploreTool、SkillTool）逐一构造新实例，
+    复用其内部的安全策略/依赖对象；其余无状态工具直接原样返回
+    返回：可安全用于 sub-agent 的工具实例（新建或原对象）
+    """
     if isinstance(tool, WorkingMemoryTool):
         return WorkingMemoryTool()
     if isinstance(tool, FileTool):
@@ -88,7 +101,17 @@ def _clone_tool_for_sub_agent(tool: BaseTool) -> BaseTool:
 
 
 def _build_filtered_registry(parent_registry: ToolRegistry, *, session_id: str | None = None) -> ToolRegistry:
-    """从父级 ToolRegistry 构建子 agent 的过滤版本（排除 delegate 等工具）"""
+    """
+    从父级 ToolRegistry 构建子 agent 专用的过滤版本
+
+    参数：
+        parent_registry: 父级（主 Agent）的完整工具注册表
+        session_id: 子 agent 会话 ID，用于给 ShellTool 绑定独立会话
+    逻辑：遍历父级已注册工具，剔除 _SUB_AGENT_EXCLUDED_TOOLS 中的工具（防递归），
+    其余工具调用 _clone_tool_for_sub_agent 克隆隔离实例；若克隆结果是 ShellTool
+    且提供了 session_id，则额外重建一个绑定该 session_id 的 ShellTool
+    返回：仅包含子 agent 可用工具的新 ToolRegistry
+    """
     filtered = ToolRegistry()
     for name in parent_registry.list_tools():
         if name not in _SUB_AGENT_EXCLUDED_TOOLS:
@@ -135,6 +158,24 @@ class SubAgentRunner:
         loop_started: LoopLifecycleCallback | None = None,
         loop_finished: LoopLifecycleCallback | None = None,
     ):
+        """
+        初始化 SubAgentRunner
+
+        参数：
+            task: 子任务描述文本
+            llm_config: 已解析的 LLM 配置（模型、密钥等）
+            parent_tool_registry: 父级（主 Agent）的工具注册表，用于派生子 agent 工具集
+            input_data: 传给子任务的输入数据，可为 None
+            expected_output: 子任务预期输出说明，可为 None
+            max_steps: 子 agent 最大执行步数，为 None 时读取 ConfigManager 的默认配置
+            project_path: 子任务所在项目路径
+            session_id: 子 agent 会话 ID，为 None 时自动生成 "sub-xxxxxxxx"
+            event_callback: 外部注入的事件回调，用于实时推送子 agent 执行事件到前端
+            parent_approval_flow: 主 Agent 的审批流实例，子 agent 复用以共享审批逻辑
+            loop_started: RapidExecutionLoop 启动时的生命周期回调
+            loop_finished: RapidExecutionLoop 结束时的生命周期回调
+        逻辑：保存各配置项，从父级 ToolRegistry 过滤出子 agent 可用的工具集（排除 delegate 等）
+        """
         self._task = task
         self._llm_config = llm_config
         self._input_data = input_data
@@ -164,7 +205,14 @@ class SubAgentRunner:
         )
 
     async def run(self) -> SubAgentResult:
-        """执行 sub-agent loop，返回结果"""
+        """
+        执行 sub-agent 的完整 Agent Loop
+
+        逻辑：创建 LLM 适配器 -> 构建 RapidExecutionLoop（复用父 Agent 的审批流、
+        包装事件回调注入 run_id）-> 拼装 task_content（任务+输入数据+预期输出）
+        -> 运行 loop 并捕获异常 -> 从 LoopResult 提取结果
+        返回：SubAgentResult，异常时 status="failed" 且 output 为异常信息
+        """
         # 1. 创建 LLM 适配器
         llm: UniversalLLMInterface = LLMAdapterFactory.create(self._llm_config)
 
@@ -228,7 +276,13 @@ class SubAgentRunner:
         return self._extract_result(loop_result)
 
     def _build_task_content(self) -> str:
-        """构建传递给 LLM 的 task content"""
+        """
+        拼装传递给 LLM 的完整任务内容
+
+        逻辑：以 self._task 为基础，若存在 input_data / expected_output 则分别
+        追加对应小节
+        返回：拼接后的任务描述字符串
+        """
         parts = [self._task]
 
         if self._input_data:
@@ -240,7 +294,14 @@ class SubAgentRunner:
         return "\n".join(parts)
 
     def _extract_result(self, loop_result: LoopResult) -> SubAgentResult:
-        """从 LoopResult 提取 SubAgentResult"""
+        """
+        将 RapidExecutionLoop 的原始结果转换为对外的 SubAgentResult
+
+        参数：loop_result 循环执行完成后的 LoopResult 对象
+        逻辑：取 loop_result.result 作为最终输出文本；遍历 steps 汇总每步的
+        工具调用信息（截断过长的 output）；将 LoopStatus 映射为字符串状态
+        返回：包含 output/steps_taken/tool_calls/status/loop_result 的 SubAgentResult
+        """
         # 提取最后一条 assistant 消息作为 output
         output = loop_result.result or ""
 

@@ -1,3 +1,16 @@
+"""
+文件功能：Prompt 模板的加载、组装与渲染管理
+文件描述：从 prompts/ 目录读取 .txt 模板文件（system/plan_mode/error/final_response/
+         midrun_compress 等），支持按模型族（默认 / GLM）加载不同版本的模板；同时负责
+         组装最终 system prompt——拼接基础模板、全局与项目级的人格/行为/记忆 overlay
+         （soul.md / agent.md / memory.md）、编码模式附录、以及可用 Skills 元数据。
+核心逻辑：模板清单（TEMPLATES_MANIFEST）声明式描述每个模板文件名和所需变量，加载时
+         若模板标记为 family_specific 且当前模型族非默认，优先尝试加载模型族子目录下的
+         同名文件，找不到再回退默认版本。system prompt 的最终文本由多个 section 按固定
+         顺序拼接而成：基础模板 → overlay（全局在前、项目级在后，同层内 soul→agent→memory）
+         → 编码模式附录 → Skills 元数据；overlay 文件不存在时静默跳过，不影响主流程。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -28,11 +41,22 @@ PROMPTS_DIR = (
 
 
 class PromptFamily(str, Enum):
+    """Prompt 模板所属的模型族：DEFAULT 为通用模板，GLM 为智谱 GLM 系列专用模板"""
+
     DEFAULT = "default"
     GLM = "glm"
 
 
 def classify_prompt_family(model_name: str) -> PromptFamily:
+    """
+    函数名：classify_prompt_family
+    入参：
+      - model_name (str)：当前使用的模型名称
+    功能：根据模型名称判断应使用哪个 Prompt 模型族的模板
+    运行逻辑：将模型名转小写后匹配关键字（"glm-"、"chatglm"），命中则归为 GLM 族，
+             否则归为默认族
+    出参：PromptFamily - 识别出的模型族枚举值
+    """
     lower = (model_name or "").lower()
     if any(kw in lower for kw in ["glm-", "chatglm"]):
         return PromptFamily.GLM
@@ -43,12 +67,29 @@ class PromptTemplate:
     """Prompt 模板"""
 
     def __init__(self, name: str, template: str, variables: list[str]):
+        """
+        函数名：__init__
+        入参：
+          - name (str)：模板名称，用于在 PromptManager 中索引
+          - template (str)：模板原始文本，使用 $变量名 占位
+          - variables (list[str])：模板声明所需的变量名列表（仅作元数据记录）
+        功能：初始化一个 Prompt 模板对象
+        运行逻辑：将 template 文本包装为 string.Template 对象，供 render() 渲染使用
+        出参：无
+        """
         self.name = name
         self.template = Template(template)
         self.variables = variables
 
     def render(self, **kwargs) -> str:
-        """渲染模板"""
+        """
+        函数名：render
+        入参：
+          - **kwargs：渲染模板所需的变量键值对
+        功能：将模板中的 $变量名 占位符替换为实际值，生成最终文本
+        运行逻辑：调用 Template.safe_substitute，缺失的变量保持原占位符不报错
+        出参：str - 渲染后的文本
+        """
         return self.template.safe_substitute(**kwargs)
 
 
@@ -104,6 +145,14 @@ TEMPLATES_MANIFEST: list[dict] = [
 
 
 def _read_prompt_file(filename: str) -> str:
+    """
+    函数名：_read_prompt_file
+    入参：
+      - filename (str)：相对于 PROMPTS_DIR 的模板文件名（可含子目录，如 "glm/system.txt"）
+    功能：读取指定的 Prompt 模板文件内容
+    运行逻辑：拼出完整路径，文件不存在则抛出 FileNotFoundError；存在则读取全文并去除首尾空白
+    出参：str - 模板文件的文本内容
+    """
     path = PROMPTS_DIR / filename
     if not path.exists():
         raise FileNotFoundError(f"Prompt file not found: {path}")
@@ -114,12 +163,34 @@ class PromptManager:
     """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件，支持模型族子目录"""
 
     def __init__(self, model_name: str = "", skill_registry: SkillRegistry | None = None):
+        """
+        函数名：__init__
+        入参：
+          - model_name (str)：当前使用的模型名称，用于判定 Prompt 模型族
+          - skill_registry (SkillRegistry | None)：技能注册表，用于生成 Skills 元数据 section
+        功能：初始化 PromptManager，并立即加载全部模板清单中的模板
+        运行逻辑：识别模型族 → 记录 skill_registry → 调用 _load_templates 完成模板加载
+        出参：无
+        """
         self.templates: dict[str, PromptTemplate] = {}
         self.prompt_family = classify_prompt_family(model_name)
         self.skill_registry = skill_registry
         self._load_templates()
 
     def _resolve_file(self, entry: dict) -> str:
+        """
+        函数名：_resolve_file
+        入参：
+          - entry (dict)：TEMPLATES_MANIFEST 中的一条模板清单条目
+        功能：解析某个模板条目实际应该读取的文件路径（决定是否走模型族子目录）
+        运行逻辑：
+          1. 若条目标记为 family_specific 且当前模型族不是 DEFAULT，先尝试拼出
+             "{模型族目录}/{文件名}" 并试读
+          2. 试读成功则直接返回该模型族专属路径
+          3. 试读失败（文件不存在）记录警告并回退到默认文件名
+          4. 非 family_specific 或模型族为 DEFAULT，直接返回默认文件名
+        出参：str - 最终应读取的模板文件相对路径
+        """
         filename = entry["file"]
         if entry.get("family_specific") and self.prompt_family != PromptFamily.DEFAULT:
             family_dir = self.prompt_family.value
@@ -135,6 +206,14 @@ class PromptManager:
         return filename
 
     def _load_templates(self) -> None:
+        """
+        函数名：_load_templates
+        入参：无
+        功能：按 TEMPLATES_MANIFEST 清单批量加载全部模板到 self.templates
+        运行逻辑：遍历清单每一条，先经 _resolve_file 确定实际文件路径，读取内容后
+                 通过 register_template 注册为可用模板
+        出参：无
+        """
         for entry in TEMPLATES_MANIFEST:
             resolved = self._resolve_file(entry)
             content = _read_prompt_file(resolved)
@@ -225,6 +304,15 @@ class PromptManager:
     )
 
     def _read_optional_text(self, path: Path) -> str:
+        """
+        函数名：_read_optional_text
+        入参：
+          - path (Path)：可选存在的文本文件路径（如某个 overlay 文件）
+        功能：安全读取一个可能不存在的文本文件，读取失败不抛异常
+        运行逻辑：文件存在且是普通文件才读取并去除首尾空白；不存在则返回空字符串；
+                 读取过程中出现 OSError（如权限问题）记录警告日志后同样返回空字符串
+        出参：str - 文件内容（去除首尾空白），不存在或读取失败时为空字符串
+        """
         try:
             if path.exists() and path.is_file():
                 return path.read_text(encoding="utf-8").strip()
@@ -318,17 +406,41 @@ class PromptManager:
 
     @staticmethod
     def _join_sections(sections: list[str]) -> str:
+        """
+        函数名：_join_sections
+        入参：
+          - sections (list[str])：待拼接的文本片段列表（可能包含空字符串）
+        功能：将多个文本片段拼接为最终 prompt 文本
+        运行逻辑：先过滤掉空白/None 片段并去除各片段首尾空白，再用两个换行符连接
+        出参：str - 拼接后的完整文本
+        """
         normalized = [
             section.strip() for section in sections if str(section or "").strip()
         ]
         return "\n\n".join(normalized)
 
     def register_template(self, name: str, template: str, variables: list[str]):
-        """注册模板"""
+        """
+        函数名：register_template
+        入参：
+          - name (str)：模板名称，作为索引键
+          - template (str)：模板原始文本
+          - variables (list[str])：模板声明所需变量名列表
+        功能：注册一个新模板到 self.templates
+        运行逻辑：直接构造 PromptTemplate 并存入字典，若同名已存在则覆盖
+        出参：无
+        """
         self.templates[name] = PromptTemplate(name, template, variables)
 
     def get_template(self, name: str) -> PromptTemplate:
-        """获取模板"""
+        """
+        函数名：get_template
+        入参：
+          - name (str)：模板名称
+        功能：按名称获取已注册的模板
+        运行逻辑：直接从 self.templates 字典查找，找不到抛出 ValueError
+        出参：PromptTemplate - 对应的模板对象
+        """
         if name not in self.templates:
             raise ValueError(f"Template not found: {name}")
         return self.templates[name]
@@ -342,6 +454,23 @@ class PromptManager:
         project_root: str | None = None,
         coding_mode: bool = False,
     ) -> str:
+        """
+        函数名：get_system_prompt
+        入参：
+          - working_directory (str)：当前工作目录，注入基础模板变量
+          - platform (str)：运行平台标识（如 Windows/macOS），注入基础模板变量
+          - is_git_repo (bool)：当前目录是否为 Git 仓库
+          - project_root (str | None)：项目根目录，用于定位项目级 overlay 文件
+          - coding_mode (bool)：是否处于编码模式，为 True 时追加编码模式附录模板
+        功能：组装完整的 system prompt 文本，是整个 Agent 系统提示词的最终入口
+        运行逻辑：
+          1. 渲染基础 system 模板（含工作目录、平台、日期、是否 git 仓库）
+          2. 依次读取全局与项目级的 soul/agent/memory overlay 文件内容（不存在则跳过）
+          3. coding_mode 为真时追加编码模式附录
+          4. 追加 Skills 元数据 section（若有已启用的技能）
+          5. 用 _join_sections 将所有非空片段用空行拼接为最终文本
+        出参：str - 完整的 system prompt 文本
+        """
         base_prompt = self.get_template("system").render(
             working_directory=working_directory,
             platform=platform,
@@ -372,6 +501,15 @@ class PromptManager:
         原 ContextAssembler 中的 Skills 注入逻辑迁移至此，
         由 PromptManager 统一管理所有静态上下文。
         AGENTS.md 已废弃，统一使用 agent.md overlay 机制。
+
+        函数名：_build_skill_section
+        入参：无（使用 self.skill_registry）
+        功能：生成描述当前可用 Skills 的说明文本段落
+        运行逻辑：
+          1. 若未配置 skill_registry 或没有已启用的技能，返回空字符串（不注入该 section）
+          2. 否则拼出固定的 Skills 使用指引文本
+          3. 逐个列出已启用技能的名称、描述及依赖的其他技能（如有）
+        出参：str - Skills 元数据文本，无可用技能时为空字符串
         """
         if not self.skill_registry:
             return ""
@@ -406,6 +544,16 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         platform: str = "",
         is_git_repo: bool = False,
     ) -> str:
+        """
+        函数名：get_plan_mode_prompt
+        入参：
+          - working_directory (str)：当前工作目录
+          - platform (str)：运行平台标识
+          - is_git_repo (bool)：当前目录是否为 Git 仓库
+        功能：生成 PLAN 模式（只规划不落地改动）下使用的提示词
+        运行逻辑：直接渲染 plan_mode 模板，注入工作目录/平台/日期/是否 git 仓库四个变量
+        出参：str - PLAN 模式提示词文本
+        """
         return self.get_template("plan_mode").render(
             working_directory=working_directory,
             platform=platform,
@@ -420,6 +568,21 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         original_args: dict | None = None,
         available_actions: list[str] | None = None,
     ) -> str:
+        """
+        函数名：get_error_prompt
+        入参：
+          - error (str)：工具调用失败时的错误信息
+          - tool (str)：出错的工具名称
+          - original_args (dict | None)：本次调用使用的原始参数，用于回显给 LLM 参考
+          - available_actions (list[str] | None)：该工具支持的可用 action 列表，用于提示可选修复方向
+        功能：生成工具调用失败后反馈给 LLM 的错误提示词，引导其纠正后重试
+        运行逻辑：
+          1. 若提供了 original_args，过滤掉值为 None 的参数后逐行格式化为"参数: 值"列表文本
+          2. 若提供了 available_actions，格式化为"该工具可用的 action 列表"提示行
+          3. 两者均为可选 section，缺失则渲染为空字符串
+          4. 渲染 error 模板，注入 tool/error/两个可选 section
+        出参：str - 错误提示词文本
+        """
         if original_args:
             args_lines = [
                 f"  - {k}: {v!r}" for k, v in original_args.items() if v is not None
@@ -445,9 +608,24 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         )
 
     def get_final_response_prompt(self, task: str) -> str:
+        """
+        函数名：get_final_response_prompt
+        入参：
+          - task (str)：本轮执行的任务描述
+        功能：生成引导 LLM 输出最终总结回复的提示词
+        运行逻辑：直接渲染 final_response 模板，注入 task 变量
+        出参：str - 最终回复引导提示词
+        """
         return self.get_template("final_response").render(task=task)
 
     def get_midrun_compression_system_prompt(self) -> str:
+        """
+        函数名：get_midrun_compression_system_prompt
+        入参：无
+        功能：获取"运行中途压缩上下文"所用的 system 提示词
+        运行逻辑：直接渲染 midrun_compress_system 模板（无变量）
+        出参：str - 压缩任务的 system 提示词
+        """
         return self.get_template("midrun_compress_system").render()
 
     def get_midrun_compression_prompt(
@@ -457,6 +635,20 @@ When a skill clearly matches your current task, load it first using the 'skill' 
         transcript: str,
         existing_summary: str | None = None,
     ) -> str:
+        """
+        函数名：get_midrun_compression_prompt
+        入参：
+          - task (str)：当前执行的任务描述
+          - transcript (str)：待压缩的对话/工具调用记录原文
+          - existing_summary (str | None)：此前已生成的压缩摘要（若存在，用于增量压缩）
+        功能：生成中途压缩上下文时使用的用户侧输入提示词
+        运行逻辑：
+          1. 若存在 existing_summary，构造"[已有摘要] ... [新对话]"的引导片段，
+             提示 LLM 在已有摘要基础上做增量总结
+          2. 否则该片段为空（首次压缩）
+          3. 渲染 midrun_compress_input 模板，注入 task/transcript/existing_summary_block
+        出参：str - 压缩任务的用户侧提示词
+        """
         if existing_summary:
             existing_summary_block = (
                 f"[Existing summary]\n{existing_summary}\n\n[New conversation]"

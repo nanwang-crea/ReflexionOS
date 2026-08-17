@@ -27,19 +27,56 @@ class WindowsSandbox(SandboxProvider):
     """
 
     def __init__(self, level: SandboxLevel = SandboxLevel.DEV) -> None:
+        """初始化 Windows 沙盒提供者。
+
+        Args:
+            level: 沙盒隔离档位（DEV/Unelevated/Elevated 等），默认 DEV。
+
+        当前仅记录档位与是否已提权（_elevated），实际隔离逻辑在 run_command/run_shell_command 中执行。
+        """
         self.level = level
         self._elevated = False
 
     def is_available(self) -> bool:
-        """仅 Windows 平台可用。"""
+        """判断当前平台是否支持本沙盒实现。
+
+        运行逻辑：仅当运行平台为 win32 时才可用；macOS/Linux 一律不可用。
+
+        Returns:
+            bool: True 表示可在当前进程使用 Windows 沙盒。
+        """
         return sys.platform == "win32"
 
     def wrap_command(self, argv, *, cwd, **kw):
-        """回退到直接执行（WindowsSandbox 主要使用 run_command）。"""
+        """按 SandboxProvider 接口要求包装 argv 命令。
+
+        Args:
+            argv: 原始命令参数列表。
+            cwd: 工作目录（本实现未使用，仅为接口兼容保留）。
+            **kw: 其余隔离参数（本实现未使用）。
+
+        运行逻辑：WindowsSandbox 的实际隔离在 run_command 中通过 Restricted Token 完成，
+        本方法只是接口占位，直接原样返回参数列表，不做任何包装。
+
+        Returns:
+            list: 与 argv 内容相同的命令参数列表。
+        """
         return list(argv)
 
     def wrap_shell_command(self, command, *, cwd, **kw):
-        """回退到直接执行（WindowsSandbox 主要使用 run_shell_command）。"""
+        """按 SandboxProvider 接口要求包装 shell 命令字符串。
+
+        Args:
+            command: 原始 shell 命令字符串。
+            cwd: 工作目录（本实现未使用，仅为接口兼容保留）。
+            **kw: 其余隔离参数（本实现未使用）。
+
+        运行逻辑：实际隔离在 run_shell_command 中通过 Restricted Token 完成，
+        本方法只是接口占位，原样返回命令字符串，不做任何包装。
+
+        Returns:
+            str: 与 command 内容相同的命令字符串。
+        """
         return command
 
     def run_command(
@@ -101,7 +138,24 @@ class WindowsSandbox(SandboxProvider):
     ) -> SandboxRunResult | None:
         """使用 Restricted Token + ACL 执行 shell 命令（cmd.exe /c）。
 
-        与 run_command 的区别：命令包装为 cmd.exe /c "{command}" 后执行。
+        与 run_command 的区别：命令不是直接以 argv 执行，而是包装为
+        ["cmd.exe", "/c", command] 交给 cmd.exe 解析后再执行，用于支持管道、
+        重定向等 shell 语法。安全隔离手段（Restricted Token + ACL 写边界）与
+        run_command 完全一致。
+
+        Args:
+            command: 待执行的 shell 命令字符串（如 "dir & echo done"）。
+            cwd: 工作目录。
+            timeout: 超时秒数（传给 proc.communicate）。
+            allowed_paths: 允许写入的路径，会通过 ACL 设置写入边界。
+            read_only_paths: 只读路径（当前实现未使用，仅为接口兼容保留）。
+            allow_network: 是否允许网络（Unelevated 暂不支持）。
+            allow_ipc: 是否允许 IPC（当前实现未使用，仅为接口兼容保留）。
+
+        Returns:
+            SandboxRunResult | None: 非 Windows 平台返回 None；
+            Restricted Token 创建失败或 ACL 设置失败时返回 success=False 的结果；
+            正常执行后返回命令的输出/错误/返回码。
         """
         if sys.platform != "win32":
             return None
@@ -141,6 +195,28 @@ class WindowsSandbox(SandboxProvider):
         注意：CreateRestrictedToken 返回的已经是 Primary Token，无需 DuplicateTokenEx。
         pipe 句柄必须设置 bInheritHandle=True 才能被子进程继承。
         超时后 TerminateProcess + CloseHandle 清理全部句柄。
+
+        Args:
+            argv: 命令参数列表，会通过 subprocess.list2cmdline 拼接为命令行。
+            cwd: 子进程的工作目录。
+            token: 已创建好的 Restricted Token（Primary Token）句柄，子进程将以此
+                令牌的降权身份运行，实现权限隔离。
+            timeout: 等待子进程结束的超时秒数，超时后强制终止进程。
+
+        运行逻辑：
+            1. 创建 stdout/stderr 匿名管道（可继承），构造 STARTUPINFO 重定向标准输出/错误；
+            2. 调用 CreateProcessAsUser 以 token 身份创建子进程；
+            3. 关闭管道写端，避免读端永久阻塞；
+            4. 用两个后台线程分别循环读取 stdout/stderr，防止单管道写满导致双方死锁；
+            5. WaitForSingleObject 等待进程结束或超时；无论是否超时都先关闭读端 fd
+               让读线程能够退出，再 join 等待线程收尾；
+            6. 超时则 TerminateProcess 并清理句柄，返回失败结果；
+            7. 正常结束则读取退出码，解码输出后打包返回。
+
+        Returns:
+            SandboxRunResult: 包含 success（退出码是否为 0）、output（解码后的
+            stdout）、error（解码后的 stderr，若有）、return_code（子进程退出码）。
+            发生异常时返回 success=False 的结果，并尽力清理已分配的句柄。
         """
         try:
             import win32process  # type: ignore[import-untyped]
@@ -269,7 +345,18 @@ class WindowsSandbox(SandboxProvider):
 
     @staticmethod
     def _decode_output(data: bytes) -> str:
-        """解码 Windows 输出（GBK 降级到 UTF-8）。"""
+        """解码 Windows 子进程输出字节流。
+
+        Args:
+            data: 从 stdout/stderr 管道读取到的原始字节。
+
+        运行逻辑：优先按 UTF-8 解码；失败则降级尝试 GBK（Windows 中文环境下
+        cmd.exe 等程序常用该编码输出）；两者都失败则用 UTF-8 + errors="replace"
+        兜底，避免因编码问题抛异常导致整体执行失败。
+
+        Returns:
+            str: 解码后的文本，可能包含替换字符（当兜底分支被触发时）。
+        """
         try:
             return data.decode("utf-8")
         except UnicodeDecodeError:

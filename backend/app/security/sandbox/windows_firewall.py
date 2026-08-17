@@ -26,6 +26,15 @@ def block_outbound_for_user(username: str) -> bool:
     Args:
         username: 用户名（如 ReflexionSandboxOffline）
 
+    运行逻辑：
+        1. 非 Windows 平台直接返回 False；
+        2. 构造规则名 BlockOutbound_{username}，调用 netsh advfirewall firewall
+           add rule 添加一条 dir=out action=block remoteip=any 的规则，即对该
+           用户账号的所有出站连接（任意远程 IP）一律阻断，实现"完全离线"隔离；
+        3. 检查子进程 returncode，非零表示 netsh 规则创建失败（如权限不足），
+           记录 error 日志并返回 False，不会静默吞掉错误；
+        4. 命令超时或抛异常同样按失败处理并记录日志。
+
     Returns:
         bool: 规则添加成功返回 True，失败返回 False
     """
@@ -69,6 +78,17 @@ def allow_outbound_for_user(username: str, ports: list[int] | None = None) -> bo
         username: 用户名（如 ReflexionSandboxOnline）
         ports: 允许的远端端口列表（默认仅 443）
 
+    运行逻辑：
+        1. 非 Windows 平台直接返回 False；
+        2. 确定允许的端口列表（默认仅 443，即仅放行 HTTPS）；
+        3. 构造规则名 AllowOutbound_{username}，调用 netsh advfirewall firewall
+           add rule 添加一条 dir=out action=allow protocol=tcp 的规则，
+           remoteport 限定为传入的端口集合（用 remoteport 而非 localport，
+           匹配"连接到该远程端口"的出站语义），即该用户账号只能对外发起到
+           这些端口的 TCP 连接，其余出站流量仍受系统默认策略约束；
+        4. 检查子进程 returncode，非零表示规则创建失败，记录 error 并返回 False；
+        5. 命令超时或抛异常同样按失败处理并记录日志。
+
     Returns:
         bool: 规则添加成功返回 True，失败返回 False
     """
@@ -106,7 +126,23 @@ def allow_outbound_for_user(username: str, ports: list[int] | None = None) -> bo
 
 
 def remove_rules_for_user(username: str) -> bool:
-    """删除指定用户的所有沙盒防火墙规则。"""
+    """删除指定用户的所有沙盒防火墙规则。
+
+    Args:
+        username: 用户名（如 ReflexionSandboxOffline / ReflexionSandboxOnline）。
+
+    运行逻辑：
+        1. 非 Windows 平台直接返回 False；
+        2. 依次删除该用户可能存在的两条规则：BlockOutbound_{username}（离线阻断规则）
+           和 AllowOutbound_{username}（在线放行规则），无论用户实际属于哪一档，
+           两个规则名都尝试删除一次，不存在的规则删除失败也不影响流程继续；
+        3. 调用 netsh advfirewall firewall delete rule 逐条删除，任一条返回非零
+           退出码或抛异常都记为失败（记录 warning），但会继续处理下一条规则名，
+           确保尽量清理干净。
+
+    Returns:
+        bool: 两条规则均删除成功返回 True，任一失败返回 False
+    """
     if sys.platform != "win32":
         return False
 

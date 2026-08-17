@@ -25,6 +25,18 @@ def ensure_sandbox_users() -> bool:
     - ReflexionSandboxOffline: 离线条目，防火墙禁止出站
     - ReflexionSandboxOnline: 网络条目，防火墙允许指定端口
 
+    Args:
+        无入参，固定创建 OFFLINE_USER / ONLINE_USER 两个内置账号名。
+
+    运行逻辑：
+        1. 非 Windows 平台直接返回 False；
+        2. 遍历 OFFLINE_USER、ONLINE_USER 两个账号名，逐个执行
+           `net user <username> /add /active:no` 创建账号且禁用登录能力
+           （/active:no 表示账号本身不能用于交互登录，仅供后续 LogonUser 取 token）；
+        3. 命令返回非零退出码、超时或抛异常均记为失败（记录 warning 日志），
+           但不中断循环，继续尝试创建下一个账号；
+        4. 无管理员权限时 net user 会失败，此处按失败处理但不抛异常，不阻塞主流程。
+
     Returns:
         bool: 全部创建成功返回 True，任一失败返回 False
     """
@@ -67,6 +79,15 @@ def get_user_token(username: str) -> int | None:
     Args:
         username: 用户名（OFFLINE_USER 或 ONLINE_USER）
 
+    运行逻辑：
+        1. 非 Windows 平台直接返回 None；
+        2. 调用 win32security.LogonUser 以 LOGON32_LOGON_BATCH（批处理登录）类型
+           登录本地计算机（"."）上的指定用户，密码传空字符串（账号本身已被
+           /active:no 禁用交互登录，此处仅用于取 token，不代表真实认证空密码）；
+        3. LOGON32_LOGON_BATCH 登录类型返回的直接是 primary token，无需再调用
+           DuplicateTokenEx 转换，可直接用于 CreateProcessAsUser；
+        4. 登录失败（权限不足、账号不存在等）时捕获异常记录 error 并返回 None。
+
     Returns:
         int | None: 用户令牌句柄(HANDLE)，失败返回 None
     """
@@ -96,6 +117,15 @@ def remove_sandbox_users() -> bool:
     """删除 Elevated 档沙盒用户。
 
     仅在测试环境或卸载时调用。
+
+    Args:
+        无入参，固定删除 OFFLINE_USER / ONLINE_USER 两个内置账号。
+
+    运行逻辑：
+        1. 非 Windows 平台直接返回 False；
+        2. 遍历 OFFLINE_USER、ONLINE_USER，逐个执行 `net user <username> /delete`；
+        3. 返回非零退出码或抛异常均记为失败（记录 warning 日志），但不中断循环，
+           继续处理下一个账号，确保尽量清理完所有账号。
 
     Returns:
         bool: 全部删除成功返回 True，任一失败返回 False

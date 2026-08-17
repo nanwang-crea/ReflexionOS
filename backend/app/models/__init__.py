@@ -1,3 +1,5 @@
+# 数据模型包：统一从各子模块导出对话、快照、LLM 配置、项目、会话相关的 Pydantic 模型，
+# 供上层（API 层、服务层）通过 `app.models` 直接导入使用。
 from app.models.conversation import (
     ConversationEvent,
     EventType,

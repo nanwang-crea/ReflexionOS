@@ -31,6 +31,15 @@ class ApprovalFlow:
     """
 
     def __init__(self, emit: Callable[[str, dict], Awaitable[None]]):
+        """
+        初始化审批流。
+
+        参数：
+            emit：异步事件发送回调，签名为 (事件类型, 数据字典) -> None，
+                用于对外发送审批相关事件（当前保留供未来扩展，本类内部逻辑不主动调用）。
+        无返回值；仅初始化 `_pending` 挂起槽位表（approval_id -> (等待事件, 审批结果)，
+        结果在 set 之前为 None）。
+        """
         self._emit = emit
         # approval_id -> (等待事件, 审批结果)。结果在 set 之前为 None。
         self._pending: dict[str, tuple[asyncio.Event, dict | None]] = {}
@@ -41,8 +50,14 @@ class ApprovalFlow:
         """
         外部调用：审批结果写入。
 
-        approval_id 缺省时（兼容旧调用方/单审批场景）：若当前只有一个挂起的
-        审批槽位则自动定位到它；若有多个挂起槽位则无法确定目标，记录错误并丢弃。
+        参数：
+            result：审批结果字典，包含 output/error/success 等键；传 None 表示审批被拒绝。
+            approval_id：目标审批槽位的 ID。缺省时（兼容旧调用方/单审批场景）：
+                若当前只有一个挂起的审批槽位则自动定位到它；若有多个挂起槽位则
+                无法确定目标，记录错误并丢弃；若无挂起槽位则记录警告并丢弃。
+        工作流程：定位到目标槽位后，将 result 写入槽位并触发对应的 asyncio.Event，
+        唤醒 `wait_for_approval` 中的等待方。
+        无返回值（结果通过被唤醒的 `wait_for_approval` 调用方读取）。
         """
         target_id = approval_id
         if target_id is None:
@@ -73,6 +88,19 @@ class ApprovalFlow:
     async def wait_for_approval(self, step: LoopStep, run_id: str) -> ApprovalResult:
         """
         等待审批并返回结构化结果。
+
+        参数：
+            step：当前待审批的 LoopStep，需携带 approval_id（缺失时直接返回未批准）
+                及 tool（仅用于日志标识）。
+            run_id：所属执行流的运行 ID，仅用于日志追踪。
+        工作流程：
+        1. 校验 step.approval_id 是否存在，不存在则记录错误并返回 approved=False。
+        2. 创建 asyncio.Event 并注册到 `_pending[approval_id]`，随后阻塞等待
+           `set_approval_result` 触发该事件。
+        3. 事件触发后取出并清除该槽位，根据写入的 result 是否为 None
+           判断审批是否通过。
+        返回值：ApprovalResult。若审批通过，approved=True 并带上 output/error/success；
+        若被拒绝或 approval_id 缺失，approved=False（其余字段为默认值）。
 
         调用方（ToolExecution handler）负责：
         1. 发送 run:waiting_for_approval 事件

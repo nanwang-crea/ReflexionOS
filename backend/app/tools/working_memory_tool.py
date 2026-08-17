@@ -36,6 +36,7 @@ class WorkingMemoryTool(BaseTool):
     """
 
     def __init__(self):
+        """初始化 WorkingMemoryTool，工作记忆实例初始为空，需在执行前通过 set_working_memory 注入。"""
         self._working_memory: WorkingMemory | None = None
 
     @property
@@ -94,6 +95,12 @@ class WorkingMemoryTool(BaseTool):
         }
 
     def get_schema(self) -> dict[str, Any]:
+        """返回本工具的 JSON Schema 定义（供 LLM 函数调用使用）。
+
+        入参：无
+        功能：拼装 name/description/parameters 为标准 tool schema 结构。
+        出参：dict - OpenAI/Anthropic 兼容的 tool schema 字典。
+        """
         return {
             "name": self.name,
             "description": self.description,
@@ -101,15 +108,36 @@ class WorkingMemoryTool(BaseTool):
         }
 
     def set_working_memory(self, working_memory: WorkingMemory | None):
-        """注入 WorkingMemory 实例，在 execute 前由 executor 调用。"""
+        """注入 WorkingMemory 实例，在 execute 前由 executor 调用。
+
+        入参：working_memory (WorkingMemory | None) - 当前 LoopContext 关联的工作记忆实例，
+        传 None 表示暂无可用的工作记忆（此时 execute 会返回失败）。
+        出参：无。
+        """
         self._working_memory = working_memory
 
     def get_working_memory(self) -> WorkingMemory | None:
-        """获取当前 WorkingMemory 实例。"""
+        """获取当前 WorkingMemory 实例。
+
+        入参：无。
+        出参：WorkingMemory | None - 当前注入的工作记忆实例，未注入时为 None。
+        """
         return self._working_memory
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
-        """执行工作记忆更新操作。"""
+        """执行工作记忆更新操作。
+
+        入参：args (dict) - 包含 action（必填，add/update/remove/clear）、
+        slot（必填，decisions/variables/errors）、content（写入内容，remove/clear 可省略）、
+        key（dict 类slot的键名）、rationale（decisions 专用，决策理由）、
+        source（来源标识，默认 model）。
+        功能：
+          1. 校验工作记忆实例已注入、action/slot 合法；
+          2. 按 action 分发到对应 handler：clear 清空整个 slot；add/update（等价，upsert 语义）
+             写入/更新一项；remove 按 key 精确匹配并移除一项；
+          3. 捕获 handler 抛出的异常，转换为失败结果。
+        出参：ToolResult - success + 操作结果说明文本（成功放 output，失败放 error）。
+        """
         if self._working_memory is None:
             return ToolResult(
                 error="工作记忆不可用",
@@ -163,7 +191,11 @@ class WorkingMemoryTool(BaseTool):
     # -- slot 操作方法 -------------------------------------------------------
 
     def _handle_clear(self, slot: str) -> tuple[bool, str]:
-        """清空指定 slot"""
+        """清空指定 slot。
+
+        入参：slot (str) - 目标 slot 名称（decisions/variables/errors）。
+        出参：tuple[bool, str] - (是否成功, 结果说明文本)。
+        """
         wm = self._working_memory
         if slot == "decisions":
             wm.decisions.clear()
@@ -176,7 +208,16 @@ class WorkingMemoryTool(BaseTool):
         return True, f"已清空 {slot}"
 
     def _handle_add(self, slot: str, args: dict[str, Any], source: str) -> tuple[bool, str]:
-        """向 slot 添加内容（upsert 语义）"""
+        """向 slot 添加内容（upsert 语义）。
+
+        入参：
+          - slot (str): 目标 slot 名称
+          - args (dict): execute 透传的原始参数，用于取 content/key/rationale
+          - source (str): 来源标识（"model" 或 "auto"），写入记录时一并保存
+        功能：按 slot 类型分别校验必填字段并调用 WorkingMemory 对应的写入方法——
+        decisions 需要 content；variables 需要 key；errors 需要 key。
+        出参：tuple[bool, str] - (是否成功, 结果说明文本，含内容截断预览)。
+        """
         wm = self._working_memory
 
         if slot == "decisions":
@@ -207,7 +248,15 @@ class WorkingMemoryTool(BaseTool):
         return False, f"未知的 slot: {slot}"
 
     def _handle_remove(self, slot: str, args: dict[str, Any]) -> tuple[bool, str]:
-        """从 slot 移除内容（精确 key 匹配）"""
+        """从 slot 移除内容（精确 key 匹配）。
+
+        入参：
+          - slot (str): 目标 slot 名称
+          - args (dict): execute 透传的原始参数，用于取 key/content 作为匹配目标
+        功能：decisions/errors 是列表结构，按 entry.key 精确匹配后 pop；
+        variables 是 dict 结构，按 key 直接 del。未提供 key 时退化用 content 作匹配目标。
+        出参：tuple[bool, str] - (是否成功, 结果说明文本；未命中或 slot 为空时返回失败)。
+        """
         wm = self._working_memory
         key = args.get("key", "")
         content = args.get("content", "")

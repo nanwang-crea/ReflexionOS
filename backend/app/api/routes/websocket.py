@@ -1,3 +1,12 @@
+# 文件功能：会话对话的 WebSocket 长连接路由
+# 文件描述：客户端通过 /ws/sessions/{session_id}/conversation 建立长连接后，
+#   以 JSON 消息进行双向通信：客户端发送 {"type": "...", "data": {...}} 格式的消息，
+#   服务端处理后通过 send_ws_json 推送对应的响应/事件消息（如 conversation:event、
+#   conversation:synced、conversation:error 等），实现会话消息同步、发起对话轮次、
+#   取消运行、编辑重跑、工具调用审批、切换模式等能力
+# 核心逻辑：连接建立后进入 while True 事件循环，每次 receive_text 读取一条消息，
+#   按 msg_type 分支处理，每个分支处理完毕后 continue 回到循环顶部等待下一条消息；
+#   出现 WebSocketDisconnect 或未捕获异常时退出循环并做连接清理
 import contextlib
 import json
 import logging
@@ -16,6 +25,7 @@ router = APIRouter(tags=["websocket"])
 
 
 async def _send_error(websocket: WebSocket, *, code: str, message: str):
+    """向客户端推送 conversation:error 类型的错误消息（携带错误码与描述）"""
     await send_ws_json(websocket, {
         "type": "conversation:error",
         "data": {"code": code, "message": message},
@@ -23,6 +33,11 @@ async def _send_error(websocket: WebSocket, *, code: str, message: str):
 
 
 async def _send_synced(websocket: WebSocket, *, session_id: str):
+    """
+    向客户端推送 conversation:synced 消息，告知同步已完成及当前最新事件序号。
+    入参：session_id —— 会话 ID
+    逻辑：读取该会话当前快照，取出 last_event_seq 一并下发
+    """
     snapshot = conversation_service.get_snapshot(session_id)
     await send_ws_json(websocket, {
         "type": "conversation:synced",
@@ -34,6 +49,11 @@ async def _send_synced(websocket: WebSocket, *, session_id: str):
 
 
 async def _send_resync_required(websocket: WebSocket, *, session_id: str, after_seq: int):
+    """
+    向客户端推送 conversation:resync_required 消息，告知客户端本地 after_seq 已过期，
+    需要重新做全量同步（reason 固定为 stale_after_seq）。
+    入参：session_id —— 会话 ID；after_seq —— 客户端请求同步时携带的起始序号
+    """
     await send_ws_json(websocket, {
         "type": "conversation:resync_required",
         "data": {
@@ -45,6 +65,11 @@ async def _send_resync_required(websocket: WebSocket, *, session_id: str, after_
 
 
 async def _send_live_state(websocket: WebSocket, *, session_id: str):
+    """
+    向客户端推送 conversation:live_state 消息，同步当前会话的实时运行状态。
+    入参：session_id —— 会话 ID
+    逻辑：从 agent_service 取该会话的实时状态快照，若不存在（如当前无运行中的任务）则跳过不发送
+    """
     live_state = agent_service.get_live_state(session_id)
     if live_state is None:
         return
@@ -56,6 +81,25 @@ async def _send_live_state(websocket: WebSocket, *, session_id: str):
 
 @router.websocket("/ws/sessions/{session_id}/conversation")
 async def websocket_conversation(websocket: WebSocket, session_id: str):
+    """
+    WebSocket /ws/sessions/{session_id}/conversation：会话对话长连接入口。
+    入参：session_id —— 路径参数，目标会话 ID
+    消息协议：客户端发送 JSON {"type": <消息类型>, "data": {...}}，服务端按 type 分支处理，
+      支持的 type 包括：
+        - conversation:sync           增量/全量同步事件（携带 after_seq）
+        - conversation:start_turn     发起一轮对话（携带 content/provider_id/model_id/attachment_ids）
+        - conversation:cancel_run     取消一次运行（携带 run_id）
+        - conversation:edit_and_rerun 编辑历史消息并重跑（携带 message_id/new_content/...）
+        - conversation:approve_tool / conversation:deny_tool  审批/拒绝工具调用（携带 approval_id/run_id）
+        - session:set_mode            切换会话模式 build/plan
+        - session:set_permission_mode 切换权限模式 ask/auto/yolo
+        - plan:clear                  清除计划文件
+      未知 type 会回复 invalid_request 错误。
+    工作流程：连接建立后注册进 ws_manager -> 进入 while True 循环，逐条读取并解析消息 ->
+      按 msg_type 分支处理并通过 send_ws_json 推送响应/事件 -> 每个分支处理完 continue；
+      客户端主动断开时捕获 WebSocketDisconnect 做清理；其余未预期异常尽量通知客户端后同样清理连接
+    出参：无返回值（通过 WebSocket 持续推送消息，直到连接关闭）
+    """
     await ws_manager.connect(websocket, session_id)
     try:
         while True:
@@ -70,6 +114,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
             msg_type = message.get("type")
             msg_data = message.get("data", {})
 
+            # 分支：同步事件——按 after_seq 增量拉取事件，过期则要求客户端全量重同步
             if msg_type == "conversation:sync":
                 try:
                     after_seq = int(msg_data.get("after_seq", 0))
@@ -107,6 +152,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
+            # 分支：发起一轮新对话——校验 content 非空后交给 agent_service 启动运行
             if msg_type == "conversation:start_turn":
                 content = msg_data.get("content")
                 if not isinstance(content, str) or not content.strip():
@@ -137,6 +183,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 continue
 
+            # 分支：取消运行——校验 run_id 后交给 agent_service 取消
             if msg_type == "conversation:cancel_run":
                 run_id = msg_data.get("run_id")
                 if not isinstance(run_id, str) or not run_id:
@@ -153,6 +200,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue
 
+            # 分支：编辑历史消息并重跑——校验 message_id/new_content 后交给 agent_service 重跑
             if msg_type == "conversation:edit_and_rerun":
                 message_id = msg_data.get("message_id")
                 if not isinstance(message_id, str) or not message_id:
@@ -189,6 +237,8 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue
 
+            # 分支：审批/拒绝工具调用——先按 run_id 定位真实 session_id（兼容 SubAgent 场景），
+            # 再根据 msg_type 分别调用 approve_tool_call 或 deny_tool_call
             if msg_type in {"conversation:approve_tool", "conversation:deny_tool"}:
                 approval_id = msg_data.get("approval_id")
                 if not isinstance(approval_id, str) or not approval_id:
@@ -248,6 +298,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue
 
+            # 分支：切换会话的 Agent 模式（build/plan）
             if msg_type == "session:set_mode":
                 mode = msg_data.get("mode", "build")
                 if mode not in ("build", "plan"):
@@ -271,6 +322,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
 
+            # 分支：切换会话的权限模式（ask/auto/yolo，即工具调用审批策略）
             if msg_type == "session:set_permission_mode":
                 mode = msg_data.get("mode", "auto")
                 if mode not in ("ask", "auto", "yolo"):
@@ -295,6 +347,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                 continue
 
 
+            # 分支：清除计划文件——按 path 删除对应 plan 文件
             if msg_type == "plan:clear":
                 try:
                     plan_path = msg_data.get("path")
@@ -317,6 +370,7 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                 message=f"未知消息类型: {msg_type}",
             )
     except WebSocketDisconnect:
+        # 客户端正常断开：从 ws_manager 中移除该连接
         ws_manager.disconnect(websocket, session_id)
         logger.info("WebSocket 断开连接: %s", session_id)
     except Exception as exc:  # pragma: no cover

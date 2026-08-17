@@ -1,3 +1,7 @@
+"""Agent 执行服务：整个对话/Agent 运行时的顶层编排者。负责发起新轮次、调度后台执行任务
+（_run_turn 驱动 RapidExecutionLoop）、构建每次运行所需的工具注册中心（含路径安全、Shell 沙箱、
+SubAgent 委托等）、处理工具调用审批（含信任规则/级联自动批准）、取消运行、会话重置/编辑重跑、
+会话标题自动生成，以及浏览器工具实例和后台清理任务（事件清理、上传文件清理）的生命周期管理。"""
 import asyncio
 import contextlib
 import logging
@@ -78,6 +82,12 @@ _EVENT_CLEANUP_INTERVAL_SECONDS = 300
 
 
 def resolve_active_run_id_from_conversation(snapshot: ConversationSnapshot) -> str | None:
+    """从会话快照中解析出当前"活跃且未终结"的 Run ID（若存在）。
+    输入：snapshot（ConversationSnapshot，含 session/turns/runs）
+    逻辑：session.active_turn_id -> 对应 turn.active_run_id -> 对应 run，
+          且该 run 状态不处于终态（COMPLETED/FAILED/CANCELLED）才视为真正活跃
+    输出：活跃 run 的 id，或 None（无活跃轮次/运行，或已是终态）
+    """
     if not snapshot.session.active_turn_id:
         return None
     active_turn = next((t for t in snapshot.turns if t.id == snapshot.session.active_turn_id), None)
@@ -102,6 +112,19 @@ class AgentService:
         pending_approval_store: PendingApprovalStore | None = None,
         session_service=None,
     ):
+        """初始化服务，注册各类依赖并准备运行时状态容器。
+        输入：project_repo/session_repo（仓储依赖，可选）、conversation_service/llm_provider_service（核心服务依赖，可选）、
+              conversation_broadcaster（事件广播器，缺省用 Noop 实现）、pending_approval_store（待审批存储）、
+              session_service（会话服务，用于标题更新，延迟注入避免循环导入）
+        内部状态说明：
+          - running_tasks：{run_id: asyncio.Task}，正在执行的主 Agent 运行任务；
+          - _runtime_adapters：{run_id: ConversationRuntimeAdapter}，每次运行对应的事件适配器；
+          - _execution_loops / _sub_agent_execution_loops：主/子 Agent 的执行循环实例，供审批恢复时定位；
+          - _cancel_events：{run_id: asyncio.Event}，用于向执行循环传递取消信号；
+          - _title_tasks：{run_id: asyncio.Task}，异步生成会话标题的任务；
+          - _browser_tools：{session_id: BrowserTool}，按会话复用的浏览器工具实例；
+          - _session_approval_flows：{session_id: ApprovalFlow}，用于将 SubAgent 审批结果路由回正确的审批流。
+        """
         self.running_tasks: dict[str, asyncio.Task] = {}
         self._runtime_adapters: dict[str, ConversationRuntimeAdapter] = {}
         self._execution_loops: dict[str, RapidExecutionLoop] = {}
@@ -136,6 +159,17 @@ class AgentService:
         trust_store: SessionTrustStore | None = None,
         permission_mode: str = "auto",
     ) -> ToolRegistry:
+        """为一次运行构建工具注册中心：确定路径安全边界，注册文件/Shell/浏览器等所有可用工具。
+        输入：project_path（项目根目录，用于圈定可访问路径边界）、session_id（用于会话级信任规则和浏览器实例复用）、
+              trust_store（会话信任规则存储，用于 Shell/路径访问的自动放行判断）、
+              permission_mode（权限模式："ask"需人工确认/"auto"默认策略/"yolo"免确认）
+        逻辑：
+          1. 计算允许访问的路径集合：当前工作目录 + 项目路径 + skill 安装目录 + 插件缓存目录；
+          2. 基于此构建 PathSecurity，注册 File/Glob/Grep/Shell/Edit/Plan/Explore/Skill 等基础工具；
+          3. 若 playwright 可用：按 session_id 复用或新建 BrowserTool 实例（无 session_id 时每次新建，
+             用于测试等场景）。
+        输出：已注册好全部工具的 ToolRegistry 实例
+        """
         resolved_project_path = (
             str(Path(project_path).resolve())
             if project_path and Path(project_path).exists()
@@ -206,6 +240,18 @@ class AgentService:
         model_id: str | None = None,
         attachment_ids: list[str] | None = None,
     ) -> StartTurnResult:
+        """发起一轮新对话：校验项目/会话归属，落地用户消息+Run 记录，并调度后台执行任务。
+        输入：project_id、session_id、content（用户消息文本）、provider_id/model_id（可选，指定 LLM）、
+              attachment_ids（可选，附件 ID 列表）
+        逻辑：
+          1. 校验项目、会话存在，且会话确实属于该项目；
+          2. 解析出会话的 agent_mode（build 等）和 permission_mode（auto 等），解析最终使用的 LLM 配置；
+          3. 调用 conversation_service.start_turn 落库（写入 TURN_CREATED/MESSAGE_CREATED/RUN_CREATED 事件）；
+          4. 把刚产生的事件广播给前端（保证前端立刻看到新轮次和用户消息）；
+          5. 调用 schedule_turn 异步调度真正的 Agent 执行。
+        输出：StartTurnResult（turn/run/user_message）
+        异常：NotFoundValueError（项目或会话不存在）、ValueError（会话不属于该项目）
+        """
         project = self.project_repo.get(project_id)
         if not project:
             raise NotFoundValueError("项目不存在")
@@ -264,6 +310,13 @@ class AgentService:
         agent_mode: str = "build",
         permission_mode: str = "auto",
     ) -> asyncio.Task:
+        """将一次 Agent 运行调度为后台 asyncio 任务（若该 run_id 已在运行则直接复用，防止重复调度）。
+        输入：run_id/session_id/turn_id（本次运行的标识）、task（任务文本）、project_id/project_path、
+              provider_id/model_id（LLM 配置）、agent_mode（build 等执行模式）、permission_mode（权限模式）
+        逻辑：创建 _run_turn 协程任务并记录到 running_tasks；任务结束后自动清理
+              running_tasks/_runtime_adapters/_execution_loops 中对应的条目，避免内存泄漏。
+        输出：对应的 asyncio.Task
+        """
         running = self.running_tasks.get(run_id)
         if running is not None:
             return running
@@ -298,6 +351,10 @@ class AgentService:
         session_id: str,
         events: list[ConversationEvent],
     ) -> None:
+        """将一批已持久化的会话事件逐条广播给前端（WebSocket "conversation:event" 消息）。
+        输入：session_id、events（待广播的事件列表）
+        输出：无
+        """
         for event in events:
             await self.conversation_broadcaster.send_event(
                 session_id,
@@ -311,6 +368,10 @@ class AgentService:
         session_id: str,
         data: dict,
     ) -> None:
+        """广播一条不落库的实时增量事件（WebSocket "conversation:live_event" 消息，用于流式打字机效果）。
+        输入：session_id、data（实时事件负载）
+        输出：无
+        """
         await self.conversation_broadcaster.send_event(
             session_id,
             "conversation:live_event",
@@ -318,6 +379,11 @@ class AgentService:
         )
 
     def get_live_state(self, session_id: str) -> dict | None:
+        """获取指定会话当前正在流式生成的助手消息状态（供新建立的 WebSocket 连接补拉进度）。
+        输入：session_id
+        逻辑：遍历所有正在运行的 runtime_adapter，找到属于该会话的那个，取其 live_state
+        输出：live_state 字典，或 None（该会话当前没有进行中的流式输出）
+        """
         for runtime_adapter in self._runtime_adapters.values():
             if runtime_adapter.session_id != session_id:
                 continue
@@ -329,6 +395,10 @@ class AgentService:
     def start_background_tasks(
         self, cleanup_interval_seconds: int = _EVENT_CLEANUP_INTERVAL_SECONDS
     ) -> None:
+        """启动后台常驻任务：会话事件清理循环 + 上传文件清理循环（幂等，重复调用不会重复启动）。
+        输入：cleanup_interval_seconds（事件清理循环的执行间隔，默认 300 秒）
+        输出：无
+        """
         if self._cleanup_task is not None and not self._cleanup_task.done():
             return
         self._cleanup_task = asyncio.create_task(
@@ -341,6 +411,9 @@ class AgentService:
         )
 
     async def stop_background_tasks(self) -> None:
+        """停止并等待后台常驻任务（事件清理、上传清理）优雅退出，供服务关闭时调用。
+        输出：无
+        """
         cleanup_task = self._cleanup_task
         if cleanup_task is None:
             return
@@ -387,6 +460,10 @@ class AgentService:
                 logger.warning("关闭 session=%s 的浏览器实例失败", session_id, exc_info=True)
 
     async def _event_cleanup_loop(self, cleanup_interval_seconds: int) -> None:
+        """会话事件清理循环：定期调用 conversation_service.cleanup_events 清理过期事件日志，异常不中断循环。
+        输入：cleanup_interval_seconds（每轮间隔秒数）
+        输出：无（永久循环，直到任务被取消）
+        """
         while True:
             try:
                 cleaned = self.conversation_service.cleanup_events()
@@ -397,7 +474,9 @@ class AgentService:
             await asyncio.sleep(cleanup_interval_seconds)
 
     async def _upload_cleanup_loop(self) -> None:
-        """图片清理循环"""
+        """上传图片清理循环：每小时调用一次 CleanupService 清理超过 1 天的临时上传文件，异常不中断循环。
+        输出：无（永久循环，直到任务被取消）
+        """
         cleanup_service = CleanupService()
         while True:
             try:
@@ -420,11 +499,32 @@ class AgentService:
         agent_mode: str = "build",
         permission_mode: str = "auto",
     ) -> None:
+        """驱动一次完整的 Agent 执行运行（作为后台 asyncio 任务被 schedule_turn 调度）。
+        输入：run_id/session_id/turn_id（运行标识）、task（任务文本）、project_id/project_path、
+              provider_id/model_id（LLM 配置）、agent_mode/permission_mode（执行/权限模式）
+        逻辑（主干流程）：
+          1. 解析 LLM 配置，创建带取消令牌和重试回调的 LLM 适配器；
+          2. 创建 ConversationRuntimeAdapter，定义 persist_and_broadcast（落库+推送）和
+             event_callback（区分 plan/metrics/sub_agent 等特殊事件类型，走不同处理路径）；
+          3. 构建工具注册中心，注册 SessionRecallTool/WorkingMemoryTool；
+          4. 创建主 RapidExecutionLoop，取出其 approval_flow 并记录到 _session_approval_flows
+             （供后续 SubAgent 审批结果路由）；
+          5. 注册 DelegateTool：闭包捕获当前上下文构造 _delegate_runner_factory，使主 Agent
+             可以委托子任务给 SubAgentRunner（子 agent 共享父级审批流和事件回调，独立 session_id）；
+          6. 若是会话首轮（标题仍为默认值），异步启动标题生成任务（不阻塞主流程）；
+          7. 加载对话历史（不含静态上下文，静态上下文由 PromptManager 管理）；
+          8. 若用户消息带图片附件，构建多模态 task_content（文本 + image_url 片段）；
+          9. 调用 execution_loop.run 实际执行 Agent 循环；
+          10. 无论成功/失败/取消，finally 中清理本次运行相关的所有内存态映射，防止泄漏。
+        异常处理：CancelledError 直接重新抛出（不吞掉取消语义）；其余异常记录日志并广播 run:error 事件。
+        输出：无（结果通过事件广播反映到前端和持久层）
+        """
         resolved_llm = self.llm_provider_service.resolve_llm_config(provider_id, model_id)
         cancel_event = asyncio.Event()
         self._cancel_events[run_id] = cancel_event
 
         async def on_llm_retry(exc: Exception, attempt: int, delay: float) -> None:
+            # LLM 请求失败时的重试回调：记录日志并向前端推送 "llm:retry" 提示，让用户感知到正在重试
             logger.warning(
                 "LLM 请求失败 (%s)，第 %d/%d 次重试，%.1fs 后重试: %s",
                 type(exc).__name__,
@@ -455,6 +555,8 @@ class AgentService:
         self._runtime_adapters[run_id] = runtime_adapter
 
         async def persist_and_broadcast(event_type: str, data: dict) -> None:
+            # 主 Agent 事件的标准处理路径：需要审批的先登记到 pending_approval_store，
+            # 再交给 runtime_adapter 翻译为持久化事件，并分别推送实时增量事件和持久化事件
             if event_type == "approval:required":
                 self._register_pending_approval(
                     session_id=session_id,
@@ -475,6 +577,9 @@ class AgentService:
             )
 
         async def event_callback(event_type: str, data: dict):
+            # 执行循环所有事件的总入口回调，按事件类型分流：
+            # plan:updated / metrics:* 直接透传给前端；sub_agent:* 需要单独登记审批并透传（不走持久化）；
+            # 其余事件才走标准的 persist_and_broadcast（落库 + 推送）路径
             if event_type == "plan:updated":
                 await self.conversation_broadcaster.send_event(session_id, "plan:updated", data)
             elif event_type.startswith("metrics:"):
@@ -525,6 +630,8 @@ class AgentService:
         # event_callback 使子 agent 执行事件通过父级 SSE 链路实时推送到前端
         # parent_approval_flow 使子 agent 的审批请求路由到主 agent（用户在同一界面处理）
         def _delegate_runner_factory(task, input_data=None, expected_output=None):
+            # 构造 SubAgentRunner：捕获当前主 Agent 的 LLM 配置、工具注册中心、项目路径、
+            # 审批流和事件回调，使子 agent 与主 agent 共享执行上下文但拥有独立 session_id
             return SubAgentRunner(
                 task=task,
                 llm_config=resolved_llm,
@@ -614,6 +721,11 @@ class AgentService:
         run_id: str,
         data: dict,
     ) -> None:
+        """将一次工具审批请求登记到 pending_approval_store，供后续用户批准/拒绝时查找。
+        输入：session_id/turn_id/run_id（审批归属）、data（含 approval_id/arguments/approval 等原始数据）
+        输出：无
+        异常：ValueError（approval_id 缺失或为空）
+        """
         approval_id = data.get("approval_id")
         if not isinstance(approval_id, str) or not approval_id:
             raise ValueError("approval_id 不能为空")
@@ -639,6 +751,14 @@ class AgentService:
         session_id: str,
         task: str,
     ) -> None:
+        """基于用户第一条消息，调用 LLM 异步生成简短会话标题并更新落库（作为独立后台任务运行，不阻塞主流程）。
+        输入：llm（LLM 接口实例）、session_id、task（用户首条消息文本，用作生成标题的依据）
+        逻辑：
+          1. 若会话已不是默认标题（可能已被生成过或用户手动改过），直接跳过；
+          2. 调用 LLM 生成不超过 20 字的标题，失败则截断 task 前 20 字兜底；
+          3. 更新会话标题并广播 "session:title_updated" 事件通知前端刷新。
+        输出：无；异常均被捕获记录日志，不向上抛出（不影响主执行流程）
+        """
         try:
             session = self.session_repo.get(session_id)
             if not session or session.title != DEFAULT_SESSION_TITLE:
@@ -678,6 +798,19 @@ class AgentService:
             logger.exception("会话标题更新失败: session_id=%s", session_id)
 
     async def cancel_run(self, run_id: str) -> Run:
+        """取消一个正在执行（或等待审批）的 Run，等待其真正停止后写入取消事件。
+        输入：run_id
+        逻辑：
+          1. 设置取消事件通知执行循环内部尽快退出；取消标题生成任务（若有）；
+          2. 若主任务仍在运行，主动 cancel 并轮询等待其结束（最多 _CANCEL_WAIT_ATTEMPTS 次，
+             每次间隔 _CANCEL_WAIT_INTERVAL_SECONDS），再 await 消化 CancelledError；
+          3. 若 Run 已是终态（CANCELLED/COMPLETED/FAILED），直接返回当前状态（幂等）；
+             其中若已是 CANCELLED，顺带清理该 run/session 的待审批记录；
+          4. 否则通过 runtime_adapter（复用已有的或新建一个）落库 "run:cancelled" 事件，
+             并在确认取消成功后清理待审批记录，最后广播新产生的事件。
+        输出：取消后的 Run 对象
+        异常：NotFoundValueError（Run 不存在）
+        """
         cancel_event = self._cancel_events.get(run_id)
         if cancel_event is not None:
             cancel_event.set()
@@ -760,6 +893,17 @@ class AgentService:
         provider_id: str | None = None,
         model_id: str | None = None,
     ) -> StartTurnResult:
+        """编辑历史消息（或重新生成 AI 回复）并重新调度执行（对 conversation_service.edit_and_rerun 的编排封装）。
+        输入：project_id、session_id、message_id（目标消息）、new_content（新内容，可选）、
+              provider_id/model_id（可选，指定本次使用的 LLM）
+        逻辑：
+          1. 校验项目、会话存在；
+          2. 若会话当前有活跃运行，先尝试取消（失败仅记录警告，不阻断后续流程——旧运行的收尾是尽力而为）；
+          3. 解析 LLM 配置，调用 conversation_service.edit_and_rerun 完成截断和新轮次创建；
+          4. 广播新产生的事件，并调度新一轮 Agent 执行。
+        输出：StartTurnResult（新轮次的 turn/run/user_message）
+        异常：NotFoundValueError（项目或会话不存在）
+        """
         project = self.project_repo.get(project_id)
         if not project:
             raise NotFoundValueError("项目不存在")
@@ -810,9 +954,15 @@ class AgentService:
         return started
 
     def _register_sub_agent_loop(self, run_id: str, loop: RapidExecutionLoop) -> None:
+        """记录一个正在运行的 SubAgent 执行循环，供审批恢复时定位（作为 SubAgentRunner 的 loop_started 回调）。
+        输入：run_id（子 agent 的运行 ID，格式形如 "sub-run-*"）、loop（对应的执行循环实例）
+        """
         self._sub_agent_execution_loops[run_id] = loop
 
     def _unregister_sub_agent_loop(self, run_id: str, loop: RapidExecutionLoop) -> None:
+        """移除已结束的 SubAgent 执行循环记录（作为 SubAgentRunner 的 loop_finished 回调）。
+        输入：run_id、loop（仅当当前记录确实是这个 loop 实例时才移除，防止竞态覆盖）
+        """
         if self._sub_agent_execution_loops.get(run_id) is loop:
             self._sub_agent_execution_loops.pop(run_id, None)
 
@@ -820,6 +970,11 @@ class AgentService:
         self, *, session_id: str, run_id: str, approval_id: str,
         decision: AllowApprovalDecision = "allow_once",
     ) -> None:
+        """批准一次工具调用审批（用户点击"允许"/"始终允许"等操作的入口）。
+        输入：session_id、run_id、approval_id（待批准的审批 ID）、
+              decision（批准粒度："allow_once" 仅本次 / "trust_and_allow" 同时记为信任规则等）
+        输出：无（内部委托 _decide_tool_call_approval 处理）
+        """
         await self._decide_tool_call_approval(
             session_id=session_id,
             run_id=run_id,
@@ -829,6 +984,10 @@ class AgentService:
         )
 
     async def deny_tool_call(self, *, session_id: str, run_id: str, approval_id: str) -> None:
+        """拒绝一次工具调用审批（用户点击"拒绝"）。
+        输入：session_id、run_id、approval_id
+        输出：无
+        """
         await self._decide_tool_call_approval(
             session_id=session_id,
             run_id=run_id,
@@ -845,6 +1004,24 @@ class AgentService:
         approval_event_type: EventType,
         decision: AllowApprovalDecision = "allow_once",
     ) -> None:
+        """处理审批决策的核心方法：批准则实际执行该工具调用并把结果喂回执行循环，拒绝则中止该调用。
+        输入：session_id、run_id、approval_id、approval_event_type（APPROVAL_APPROVED/APPROVAL_DENIED）、
+              decision（批准粒度，仅审批场景使用）
+        逻辑（在会话写锁内执行，保证与其他事件写入互斥）：
+          分两条路径处理，因为 SubAgent 的 Run 不落库（run_id 以 "sub-run-" 开头）：
+          - SubAgent 审批路径：直接操作 pending_approval_store + approval_flow.set_approval_result
+            恢复子 agent 执行，不涉及 conversation_service 的事件写入；
+          - 主 Agent 审批路径：
+            1. 校验 Run 存在、属于该会话、且正处于 WAITING_FOR_APPROVAL；校验待审批记录匹配且未处理；
+            2. 批准时：若 decision 为 trust_and_allow，写入信任规则并级联自动批准其他匹配的待审批项；
+               实际执行工具，将结果通过 execution_loop.set_approval_result 唤醒执行循环继续；
+               若执行循环已不存在（如进程重启后恢复的孤儿审批），退化为直接把 Run 标记为终态完成；
+            3. 拒绝时：唤醒执行循环并传入 None（表示拒绝），或同样退化为标记 Run 为 CANCELLED；
+            4. 找到对应的工具追踪消息，追加状态更新事件（approved/denied）+ 审批决策事件 +
+               （若走了退化路径）Run 终态事件，一次性写入并广播。
+        输出：无
+        异常：NotFoundValueError（Run/待审批记录/审批流不存在）、ValueError（归属不匹配/状态不合法）
+        """
         is_sub_agent_run = run_id.startswith("sub-run-")
 
         with self.conversation_service.acquire_session_write_lock(session_id):
@@ -1000,11 +1177,16 @@ class AgentService:
     async def _execute_approved_tool(
         self, pending: PendingToolApproval, *, run_id: str
     ) -> "ToolResult":
-        """Execute a previously approved tool call using the stored decision.
-
-        Generic: uses pending.tool_name to find the right tool.
-        Any tool that returns approval_required must accept _approved_decision
-        in its args dict and execute the stored decision instead of re-evaluating.
+        """使用审批时存储的决策数据，实际执行一个已获批准的工具调用。
+        输入：pending（待审批记录，含 tool_name/tool_arguments/approval_payload）、run_id（用于定位工具注册中心）
+        逻辑：
+          1. 从 approval_payload 中取出之前存储的 approved_decision（工具自身在请求审批时存入的决策数据），
+             缺失则直接返回失败（说明审批数据不完整，无法安全执行）；
+          2. 若存在权限提升请求（elevation_request，如沙箱网络/路径提权），一并塞入决策数据；
+          3. 优先复用当前运行（主或子 agent）关联的工具注册中心，取不到则按决策中的 cwd 现建一个；
+          4. 定位对应工具，调用其 execute，把 _approved_decision 传入使工具跳过重新评估、直接按存储决策执行
+             （通用机制：任何返回 approval_required 的工具都需支持接收 _approved_decision 参数）。
+        输出：ToolResult（执行结果；工具不存在或执行异常均包装为失败结果，不向上抛出）
         """
         approved_decision_data = (
             pending.approval_payload.get("payload", {}).get("approved_decision")
@@ -1044,6 +1226,10 @@ class AgentService:
     def _find_pending_approval_trace_message(
         self, *, run_id: str, approval_id: str
     ) -> Message | None:
+        """在指定运行所属轮次的消息列表中，查找记录该审批请求的工具追踪消息。
+        输入：run_id、approval_id
+        输出：匹配的 Message（message_type=TOOL_TRACE 且 payload_json.approval_id 匹配），找不到或 Run 不存在返回 None
+        """
         run = self.conversation_service.get_run(run_id)
         if run is None:
             return None
@@ -1056,6 +1242,16 @@ class AgentService:
         return None
 
     def _add_trust_rules_from_approval(self, pending: PendingToolApproval, session_id: str) -> None:
+        """根据一次审批的"始终允许"决策，为会话写入对应的信任规则（后续匹配的操作可自动放行）。
+        输入：pending（待审批记录，含 approval_payload 中建议的信任规则）、session_id
+        逻辑：
+          - access_type 为 external_path_read（外部路径读取）：从 suggested_prefix_rule 或
+            suggested_trust.prefix 中取路径前缀列表，逐个写入 "external_path" 类型信任规则；
+          - 否则优先使用 approval_payload.suggested_trust（permission+pattern）写入单条规则；
+            若无该结构，回退兼容旧格式：从 suggested_prefix_rule / suggested_trust.prefix
+            取前缀列表，写入 "shell" 类型信任规则（可能同时命中两处从而写入多条规则，是历史兼容逻辑）。
+        输出：无（直接写入 self.trust_store）
+        """
         inner_payload = pending.approval_payload.get("payload", {})
         access_type = inner_payload.get("access_type")
 
@@ -1094,6 +1290,18 @@ class AgentService:
                         self.trust_store.add_rule(session_id, TrustRule(permission="shell", pattern=prefix))
 
     async def _cascade_auto_approve(self, session_id: str) -> None:
+        """在写入一条"始终允许"的信任规则后，级联检查该会话下其余待审批项，凡是能匹配新规则的
+        一并自动批准（避免用户对同一批相似操作反复确认）。
+        输入：session_id
+        逻辑：遍历会话下所有 pending 状态的待审批记录，按 approval_kind/access_type 分类匹配：
+          - external_path_read：路径是否匹配 "external_path" 信任规则；
+          - sandbox_network_elevation：是否已有 "sandbox_network" 全局放行规则；
+          - sandbox_path_elevation：请求的所有 denied_paths 是否都匹配 "sandbox_path" 规则；
+          - 其余（默认按 shell 命令处理）：命令是否匹配 "shell" 信任规则。
+          命中则调用 approve_tool_call 自动批准（decision="allow_once"，因为信任规则已经生效，
+          不需要再重复写入）。
+        输出：无
+        """
         for approval_id in self.pending_approval_store.list_pending_approval_ids_for_session(session_id):
             pending = self.pending_approval_store.get(approval_id)
             if pending is None or pending.status != "pending":

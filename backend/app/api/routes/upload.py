@@ -1,3 +1,9 @@
+# 文件功能：会话附件（图片）上传与获取相关的 API 路由
+# 文件描述：处理会话内图片附件的上传（校验类型/大小、落盘保存）和读取
+#           （按 attachment_id 查找文件并以正确 MIME 类型返回）。
+# 核心逻辑：上传时校验会话存在性、文件类型、大小限制后保存到
+#           storage/uploads/{session_id}/ 目录；获取时通过 AttachmentService
+#           定位文件并推断 MIME 类型返回。
 import time
 import uuid
 from pathlib import Path
@@ -20,7 +26,16 @@ async def upload_image(
     session_id: str,
     file: UploadFile = File(...),
 ) -> dict:
-    """上传图片附件"""
+    """
+    POST /api/sessions/{session_id}/upload：为指定会话上传图片附件。
+    入参：session_id（路径参数，会话 ID）；file（表单文件，图片文件，
+          仅支持 image/* 类型，大小不超过 MAX_FILE_SIZE）。
+    逻辑：校验会话存在 -> 校验文件类型为图片 -> 读取内容并校验大小 ->
+          按时间戳+随机 ID 生成文件名保存到 storage/uploads/{session_id}/ 目录。
+    出参：dict，包含 attachment_id（附件 ID）、file_path（保存路径）、
+          file_size（文件大小）、mime_type（MIME 类型）；
+          会话不存在或校验失败时抛出 HTTPException（404/400）。
+    """
     # 1. 验证 session 存在
     session = session_repo.get(session_id)
     if not session:
@@ -58,7 +73,14 @@ async def upload_image(
 
 @router.get("/sessions/{session_id}/attachments/{attachment_id}")
 async def get_attachment(session_id: str, attachment_id: str):
-    """获取附件图片"""
+    """
+    GET /api/sessions/{session_id}/attachments/{attachment_id}：获取会话中的附件图片文件。
+    入参：session_id（路径参数，会话 ID）；attachment_id（路径参数，附件 ID）。
+    逻辑：校验会话存在 -> 通过 AttachmentService 按 session_id/attachment_id
+          查找实际文件路径 -> 推断文件 MIME 类型。
+    出参：FileResponse（图片文件流及对应 MIME 类型）；
+          会话或附件不存在时抛出 HTTPException(404)。
+    """
     # 验证 session 存在
     session = session_repo.get(session_id)
     if not session:

@@ -1,3 +1,12 @@
+"""
+Diff / Patch 解析模块。
+
+供 EditTool 的 patch 编辑模式使用，支持两种补丁格式的解析：
+- DiffParser：解析标准 Unified Diff（多文件、多 hunk），产出 Hunk 列表；
+- CodexPatchParser：解析 Codex apply_patch 风格的单文件补丁
+  （*** Begin Patch / *** Add File / *** Update File / *** Delete File / *** End Patch），
+  产出 CodexPatch 对象，供 EditTool 应用到目标文件。
+"""
 import re
 from dataclasses import dataclass
 
@@ -73,7 +82,13 @@ class DiffParser:
         return hunks
 
     def extract_file_paths(self, diff_text: str) -> list[str]:
-        """从 Diff 中提取所有新文件路径"""
+        """
+        从 Diff 中提取所有目标（新）文件路径。
+
+        入参：diff_text - Unified Diff 文本，可能包含多个文件段
+        逻辑：扫描所有 "+++ " 开头的行，规范化路径（去掉 a/ b/ 前缀），忽略 /dev/null
+        返回：文件路径列表（按出现顺序，可能重复）
+        """
         paths = []
         for line in diff_text.split("\n"):
             if line.startswith("+++ "):
@@ -103,7 +118,7 @@ class DiffParser:
         return None
 
     def _normalize_file_path(self, path: str) -> str:
-        """规范化 diff 文件路径"""
+        """规范化 diff 文件路径：去掉 Git diff 常见的 a/、b/ 前缀，其余原样返回"""
         if path.startswith("b/") or path.startswith("a/"):
             return path[2:]
         return path
@@ -120,9 +135,21 @@ class CodexPatchParser:
 
     @staticmethod
     def is_codex_style(patch_text: str) -> bool:
+        """判断补丁文本是否为 Codex 风格（包含 "*** Begin Patch" 标记）"""
         return "*** Begin Patch" in patch_text
 
     def parse(self, patch_text: str) -> CodexPatch:
+        """
+        解析 Codex 风格补丁文本为 CodexPatch。
+
+        入参：patch_text - 完整补丁文本，须以 "*** Begin Patch" 开头、
+            "*** End Patch" 结尾，且只能包含一个文件操作头
+            （*** Add File: / *** Update File: / *** Delete File:）
+        逻辑：裁剪首尾空行 -> 校验起止标记 -> 定位唯一操作头 -> 按操作类型
+            分发到 _parse_add_file / _parse_update_file / _parse_delete_file
+        返回：CodexPatch（含 action、file_path、hunks/lines）
+        异常：格式不符时抛出 ValidationError
+        """
         lines = self._trim_blank_edges(patch_text.splitlines())
 
         if not lines or lines[0] != "*** Begin Patch":
@@ -156,6 +183,7 @@ class CodexPatchParser:
         raise ValidationError(message="Codex-style patch 文件操作不受支持")
 
     def _parse_add_file(self, file_path: str, body: list[str]) -> CodexPatch:
+        """解析 Add File 操作体：所有行必须以 + 开头，组装为 action=add 的 CodexPatch"""
         if not file_path:
             raise ValidationError(message="Codex-style Add File 缺少文件路径")
 
@@ -170,6 +198,7 @@ class CodexPatchParser:
         return CodexPatch(action="add", file_path=file_path, hunks=[], lines=added_lines)
 
     def _parse_update_file(self, file_path: str, body: list[str]) -> CodexPatch:
+        """解析 Update File 操作体：按 @@ 分割出多个 hunk，Move/Rename 暂不支持直接报错"""
         if not file_path:
             raise ValidationError(message="Codex-style Update File 缺少文件路径")
 
@@ -200,6 +229,7 @@ class CodexPatchParser:
         return CodexPatch(action="update", file_path=file_path, hunks=hunks, lines=[])
 
     def _parse_delete_file(self, file_path: str, body: list[str]) -> CodexPatch:
+        """解析 Delete File 操作体：操作体不应包含任何 hunk 内容，否则报错"""
         if not file_path:
             raise ValidationError(message="Codex-style Delete File 缺少文件路径")
 
@@ -211,6 +241,7 @@ class CodexPatchParser:
         return CodexPatch(action="delete", file_path=file_path, hunks=[], lines=[])
 
     def _trim_blank_edges(self, lines: list[str]) -> list[str]:
+        """裁剪列表首尾的空字符串行，用于去除补丁文本首尾多余空行后再校验起止标记"""
         start = 0
         end = len(lines)
         while start < end and lines[start] == "":

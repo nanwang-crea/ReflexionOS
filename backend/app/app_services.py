@@ -13,6 +13,10 @@ _init_lock = asyncio.Lock()
 
 
 def _get_conversation_broadcaster():
+    """懒加载获取会话广播器单例（WebSocketConversationBroadcaster）。
+    首次调用时基于 ws_manager 创建实例并缓存到模块级变量，后续直接复用。
+    返回：WebSocketConversationBroadcaster 实例。
+    """
     global _conversation_broadcaster
 
     if _conversation_broadcaster is None:
@@ -23,6 +27,10 @@ def _get_conversation_broadcaster():
 
 
 async def _get_agent_service_async():
+    """异步方式懒加载获取 AgentService 单例，使用 _init_lock 避免并发初始化的竞态问题。
+    工作流程：若已初始化直接返回；否则加锁后二次检查（double-checked locking）再创建实例。
+    返回：AgentService 实例。
+    """
     global _agent_service
 
     if _agent_service is not None:
@@ -36,8 +44,11 @@ async def _get_agent_service_async():
 
 
 def __getattr__(name):
-    """仅限模块级导入使用（如 `from app.app_services import agent_service`），
-    运行时动态访问请走 _get_agent_service_async()，以避免异步竞态。"""
+    """模块级属性访问钩子（PEP 562），支持 `from app.app_services import agent_service` 写法。
+    仅限模块级导入使用；运行时动态访问请走 _get_agent_service_async()，以避免异步竞态。
+    参数：name 被访问的属性名（"agent_service" 或 "conversation_broadcaster"）。
+    返回：对应的单例对象；若属性名不识别则抛出 AttributeError。
+    """
     global _agent_service, _conversation_broadcaster
 
     if name == "conversation_broadcaster":
