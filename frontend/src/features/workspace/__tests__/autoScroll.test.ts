@@ -1,3 +1,9 @@
+/**
+ * 文件功能：autoScroll.ts 单元测试
+ * 文件描述：验证 shouldFollowTranscript 在不同滚动位置下是否正确判断应否自动跟随滚动到底部，
+ *           以及阈值常量 AUTO_SCROLL_FOLLOW_THRESHOLD_PX 的边界行为。
+ * 核心逻辑：分别构造“已在底部附近”“已远离底部”以及刚好卡在阈值边界两侧的滚动位置进行断言。
+ */
 import { describe, expect, it } from 'vitest'
 import { AUTO_SCROLL_FOLLOW_THRESHOLD_PX, shouldFollowTranscript } from '../autoScroll'
 

@@ -1,9 +1,11 @@
+// SessionConversationWebSocket 的单测：验证客户端发出的“冒号风格”指令消息格式，以及收到服务端消息后能否正确路由为内部事件（会话事件、计划更新、子agent事件）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SessionConversationWebSocket } from '../sessionConversationWebSocket'
 
 const sentMessages: string[] = []
 const webSocketInstances: MockWebSocket[] = []
 
+// 用于替换全局 WebSocket 的测试替身：不发起真实网络连接，仅记录发送内容并允许测试手动触发 onopen/onmessage 回调。
 class MockWebSocket {
   static OPEN = 1
 
@@ -46,6 +48,8 @@ afterEach(() => {
 })
 
 describe('SessionConversationWebSocket', () => {
+  // 参数：无。
+  // 验证：sendSync/startTurn/cancelRun/approveTool/denyTool 等方法发出的消息 type 均为“冒号风格”命名，且审批/拒绝消息的 data 字段按下划线命名转换正确。
   it('sends colon-style conversation command types', async () => {
     const ws = new SessionConversationWebSocket()
     const connected = ws.connect('session-1')
@@ -80,6 +84,8 @@ describe('SessionConversationWebSocket', () => {
     })
   })
 
+  // 参数：无。
+  // 验证：服务端推送的 conversation:event / plan:updated 冒号风格消息类型，能被正确路由到对应的内部事件监听器（durableEvents、plans）。
   it('routes colon-style server message types to internal events', async () => {
     const ws = new SessionConversationWebSocket()
     const durableEvents: unknown[] = []
@@ -109,6 +115,9 @@ describe('SessionConversationWebSocket', () => {
     expect(plans).toEqual([{ goal: 'inspect', steps: [] }])
   })
 
+  // 参数：无。
+  // 验证：子agent相关的服务端消息（sub_agent:tool:start / sub_agent:tool:result）会被归一化为统一的 sub_agent:event 事件，
+  // 且 delegate_call_id 经过运行时类型检查——非字符串（如数字 123）会被转为 undefined，而不是直接透传错误类型。
   it('maps sub-agent server messages to runtime-checked sub_agent:event payloads', async () => {
     const ws = new SessionConversationWebSocket()
     const subAgentEvents: unknown[] = []

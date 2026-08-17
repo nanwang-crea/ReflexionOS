@@ -1,7 +1,20 @@
+/**
+ * 文件功能：过程说明（工作笔记）展示块
+ * 文件描述：以可折叠区块展示模型在执行过程中输出的说明性文本（working note），支持 Markdown 渲染
+ * 核心逻辑：内部维护展开/收起状态，展开时以 MarkdownRenderer 的 plain 变体渲染文本内容
+ */
 import { useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/chat/MarkdownRenderer'
 
+/**
+ * 组件名：WorkingNoteBlock
+ * 入参（props）：
+ *   - text (string): 过程说明的文本内容（Markdown 格式）
+ *   - defaultExpanded (boolean，默认 false): 初始是否展开
+ * 作用/渲染逻辑：点击标题栏切换展开/收起状态，展开时使用 MarkdownRenderer 渲染文本内容
+ * 返回值：JSX.Element - 可折叠的过程说明展示块
+ */
 export function WorkingNoteBlock({
   text,
   defaultExpanded = false,

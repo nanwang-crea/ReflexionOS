@@ -1,3 +1,5 @@
+// 聊天输入框组件：支持文本输入（自适应高度、Enter 发送/Shift+Enter 换行）、图片附件（粘贴/拖拽/
+// 点击上传）、供应商与模型选择、build/plan 模式切换、发送中取消等能力，是对话页面的核心输入控件。
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Image as ImageIcon, Loader2, Send, Square } from 'lucide-react'
@@ -33,7 +35,17 @@ interface ChatInputProps {
   onRemoveAttachment?: (id: string) => void
 }
 
-export function ChatInput({ 
+// 参数：onSend - 发送消息回调；onCancel - 取消当前运行回调；disabled - 是否禁用整个输入区；
+// placeholder - 输入框占位文字；isLoading - 是否发送中（禁用输入与发送按钮）；
+// canCancel/isCancelling - 是否可取消/取消中，用于切换发送按钮为取消按钮；
+// providerOptions/modelOptions - 供应商/模型下拉选项；selectedProviderId/selectedModelId - 当前选中项；
+// onProviderChange/onModelChange - 切换供应商/模型回调；selectionDisabled - 是否禁用供应商/模型选择；
+// runtimeStatusLabel - 运行状态提示文案（显示在输入框顶部）；agentMode/onModeChange - build/plan 模式及切换；
+// onImageAdd - 新增图片附件回调；attachments - 当前待发送的图片附件列表；onRemoveAttachment - 移除附件回调。
+// 作用：渲染完整的聊天输入区域，包含文本域、图片预览、模式切换、供应商/模型选择、图片上传（点击/粘贴/
+// 拖拽）、发送/取消按钮，并处理这些交互对应的事件逻辑。
+// 返回：聊天输入框整体 JSX。
+export function ChatInput({
   onSend, 
   onCancel,
   disabled = false, 
@@ -70,13 +82,15 @@ export function ChatInput({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`
   }, [value])
   
+  // 提交发送：有文本或有附件、且未禁用/未在加载中时才触发 onSend，并清空输入框。
   const handleSend = () => {
     if ((value.trim() || attachments.length > 0) && !disabled && !isLoading) {
       onSend(value.trim())
       setValue('')
     }
   }
-  
+
+  // 键盘事件处理：中文输入法拼字过程中忽略 Enter；Enter（非 Shift）触发发送，Shift+Enter 走默认换行。
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.nativeEvent.isComposing || isComposing) {
       return
@@ -88,6 +102,7 @@ export function ChatInput({
     }
   }
 
+  // 粘贴事件处理：从剪贴板条目中筛出图片文件，若存在则阻止默认粘贴行为并交给 onImageAdd 处理。
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     if (!onImageAdd) return
     const items = e.clipboardData?.items
@@ -107,18 +122,21 @@ export function ChatInput({
     }
   }
 
+  // 拖拽悬停：阻止默认行为并（在支持图片上传时）展示拖拽中的高亮态。
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     if (onImageAdd) setIsDragOver(true)
   }
 
+  // 拖拽离开：取消拖拽中的高亮态。
   const handleDragLeave = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
     setIsDragOver(false)
   }
 
+  // 拖拽释放：从拖入的文件中筛出图片文件并交给 onImageAdd 处理，同时取消高亮态。
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     e.stopPropagation()
@@ -134,6 +152,7 @@ export function ChatInput({
     }
   }
 
+  // 文件选择框 change 事件：筛出图片文件交给 onImageAdd 处理，并重置 input 的值以支持重复选择同一文件。
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!onImageAdd) return
     const files = Array.from(e.target.files || []).filter((f) =>

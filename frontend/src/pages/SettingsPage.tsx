@@ -1,3 +1,9 @@
+/**
+ * 文件功能：设置页容器组件
+ * 文件描述：提供设置页整体布局（左侧 Tab 导航 + 右侧内容区），根据当前选中的 Tab 渲染对应子面板
+ *          （模型供应商/默认模型/显示选项/浏览器/关于）
+ * 核心逻辑：使用本地 state 维护当前激活的 Tab，点击导航项切换 activeTab，并据此条件渲染对应的子面板组件
+ */
 import { useState } from 'react'
 import { Cpu, Eye, Globe, Info, Server } from 'lucide-react'
 import { ProviderPanel } from './settings/ProviderPanel'
@@ -6,8 +12,10 @@ import { DisplayOptionsPanel } from './settings/DisplayOptionsPanel'
 import { AboutPanel } from './settings/AboutPanel'
 import { BrowserPanel } from './settings/BrowserPanel'
 
+/** 设置页 Tab 的联合类型，对应左侧导航中的各个选项 */
 type SettingsTab = 'providers' | 'default-model' | 'display' | 'browser' | 'about'
 
+/** 设置页 Tab 导航配置列表：每项包含唯一 key、显示文案和对应图标组件 */
 const tabs: Array<{ key: SettingsTab; label: string; icon: typeof Server }> = [
   { key: 'providers', label: '模型供应商', icon: Server },
   { key: 'default-model', label: '默认模型', icon: Cpu },
@@ -16,6 +24,17 @@ const tabs: Array<{ key: SettingsTab; label: string; icon: typeof Server }> = [
   { key: 'about', label: '关于', icon: Info },
 ]
 
+/**
+ * 函数名：SettingsPage
+ * 入参：无
+ * 功能：渲染设置页整体框架，包括左侧 Tab 导航栏和右侧对应的设置子面板
+ * 运行逻辑：
+ *   1. 使用 useState 维护当前激活的 Tab（默认 'providers'）
+ *   2. 遍历 tabs 配置渲染导航按钮，点击时更新 activeTab
+ *   3. 根据 activeTab 的值条件渲染 ProviderPanel / DefaultModelPanel / DisplayOptionsPanel /
+ *      BrowserPanel / AboutPanel 中的一个
+ * 出参：JSX.Element - 设置页整体的 DOM 结构
+ */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>('providers')
 

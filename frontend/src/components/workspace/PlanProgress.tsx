@@ -1,3 +1,10 @@
+/**
+ * 文件功能：任务计划进度展示组件
+ * 文件描述：展示当前会话计划（Plan）的执行进度，包括完整展开的步骤列表（PlanProgress）
+ *          和最小化后的一行摘要条（PlanMinimizedBar）
+ * 核心逻辑：按步骤状态（completed/in_progress/pending/blocked）渲染对应图标与文案样式，
+ *          并统计已完成/阻塞数量用于摘要展示
+ */
 import { memo, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import type { Plan } from '@/types/conversation'
@@ -9,6 +16,18 @@ interface PlanProgressProps {
   onToggleMinimize: () => void
 }
 
+/**
+ * 组件名：PlanProgress
+ * 入参（props）：
+ *   - plan (Plan): 当前计划数据，包含步骤列表
+ *   - isMinimized (boolean): 是否处于最小化状态，为 true 时不渲染（由 PlanMinimizedBar 代替展示）
+ *   - onToggleMinimize (() => void): 点击“缩小计划面板”按钮时的回调
+ * 作用/渲染逻辑：
+ *   1. 统计已完成、阻塞、总步骤数量，用于顶部摘要文案
+ *   2. 顶部展示摘要与缩小按钮，下方以有序列表展示每个步骤（图标 + 文案），
+ *      已完成步骤加删除线并展示 findings（若有），不同状态使用不同图标与文字颜色
+ * 返回值：JSX.Element | null - 计划进度面板；isMinimized 为 true 时返回 null
+ */
 export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onToggleMinimize }: PlanProgressProps) {
   const completedCount = plan.steps.filter((s) => s.status === 'completed').length
   const blockedCount = plan.steps.filter((s) => s.status === 'blocked').length
@@ -89,8 +108,13 @@ export const PlanProgress = memo(function PlanProgress({ plan, isMinimized, onTo
 })
 
 /**
- * A compact bar shown above the chat input when the plan is minimized.
- * Displays a one-line summary and the current step, with a button to expand.
+ * 组件名：PlanMinimizedBar
+ * 入参（props）：
+ *   - plan (Plan): 当前计划数据，包含步骤列表
+ *   - onExpand (() => void): 点击展开时的回调
+ * 作用/渲染逻辑：
+ *   在聊天输入框上方展示一行紧凑摘要条（总数/已完成数/当前进行中步骤），点击可展开完整计划面板
+ * 返回值：JSX.Element - 最小化状态下的计划摘要条
  */
 export const PlanMinimizedBar = memo(function PlanMinimizedBar({
   plan,

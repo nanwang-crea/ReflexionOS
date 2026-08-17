@@ -1,3 +1,14 @@
+/**
+ * 文件功能：工作区对话记录虚拟列表
+ * 文件描述：基于 react-virtuoso 实现的对话记录虚拟滚动列表，渲染用户消息、助手消息、系统提示、
+ *          过程分组（思考/工具调用）等条目，并处理自动跟随滚动、分页加载更多、重连倒计时、
+ *          计划进度展示等交互逻辑
+ * 核心逻辑：
+ *   1. 通过 buildTranscriptItems 将原始消息数组转换为虚拟列表可渲染的条目（TranscriptItem）
+ *   2. 用户主动向上滚动后标记 userScrolledAway，暂停自动跟底；新用户消息发出或用户重新回到底部时恢复跟随
+ *   3. Virtuoso 的 Header/Footer/Scroller 通过 Context 注入公共状态，避免为每个条目单独传递大量 props
+ *   4. firstItemIndex 采用一个较大的固定偏移量（VIRTUOSO_INDEX_OFFSET）以配合 Virtuoso 的双向无限加载
+ */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Virtuoso, type ScrollerProps } from 'react-virtuoso'
@@ -73,6 +84,15 @@ const TranscriptScrollerContext = React.createContext<TranscriptScrollerContextV
   onTogglePlanMinimize: noop,
 })
 
+/**
+ * 组件名：TranscriptScroller
+ * 入参（props，ScrollerProps，由 Virtuoso 内部传入）：
+ *   - style、children、...props: Virtuoso 要求的滚动容器标准 props
+ * 作用/渲染逻辑：Virtuoso 自定义 Scroller 组件，包裹一层固定最大宽度的内容容器实现居中排版；
+ *          转发 onScroll 事件用于更新滚动位置状态，转发 onWheel/onTouchMove/onPointerDown
+ *          用于标记“用户主动滚动意图”（区分程序自动滚动与用户手动滚动）
+ * 返回值：JSX.Element - 滚动容器（forwardRef 转发 DOM ref 给 Virtuoso）
+ */
 const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(function TranscriptScroller(
   { style, children, ...props },
   ref
@@ -133,6 +153,12 @@ const TranscriptScroller = React.forwardRef<HTMLDivElement, ScrollerProps>(funct
   )
 })
 
+/**
+ * 组件名：TranscriptHeader
+ * 入参：无（通过 TranscriptScrollerContext 读取 loaded/configured/currentProject/currentSession/messagesLength/isLoadingMore）
+ * 作用/渲染逻辑：Virtuoso 列表头部，依次展示：未配置供应商提示、未选择项目提示、空会话提示、加载更多指示器
+ * 返回值：JSX.Element - 列表头部提示区
+ */
 function TranscriptHeader() {
   const {
     loaded,
@@ -170,6 +196,13 @@ function TranscriptHeader() {
   )
 }
 
+/**
+ * 组件名：TranscriptFooter
+ * 入参：无（通过 TranscriptScrollerContext 读取重连状态、运行状态、计划进度等）
+ * 作用/渲染逻辑：Virtuoso 列表尾部，依次展示：重连倒计时提示、等待模型响应指示器、
+ *          运行中通用指示器（无计划/无思考文本时）、计划进度条（PlanProgress）、底部占位间距
+ * 返回值：JSX.Element - 列表尾部状态区
+ */
 function TranscriptFooter() {
   const {
     bottomPadding,
@@ -242,6 +275,18 @@ interface VirtualListIndexSnapshot {
   firstItemIndex: number
 }
 
+/**
+ * 函数名：getNextFirstItemIndex
+ * 入参：
+ *   - previous (VirtualListIndexSnapshot | null): 上一次渲染时记录的虚拟列表索引快照
+ *   - next (Omit<VirtualListIndexSnapshot, 'firstItemIndex'>): 本次渲染的会话/条目信息（不含索引）
+ * 功能：计算 Virtuoso 所需的 firstItemIndex，支撑“向上加载更多历史消息”时列表不跳动
+ * 运行逻辑：
+ *   1. 无历史快照，或切换了会话，或条目数为 0：重置为固定偏移量减去条目数（保证末尾对齐）
+ *   2. 若尾部条目不变但头部条目变化且条目数增加：判定为“向上追加了历史消息”，索引相应前移
+ *   3. 其余情况维持上一次的 firstItemIndex 不变
+ * 出参：number - 供 Virtuoso 使用的 firstItemIndex
+ */
 export function getNextFirstItemIndex(
   previous: VirtualListIndexSnapshot | null,
   next: Omit<VirtualListIndexSnapshot, 'firstItemIndex'>
@@ -264,16 +309,41 @@ export function getNextFirstItemIndex(
   return previous.firstItemIndex
 }
 
+/**
+ * 函数名：getRetryCountdownSeconds
+ * 入参：
+ *   - delay (number): 本次重试的延迟时间（秒）
+ *   - elapsedMs (number，默认 0): 自重试开始已经过的时间（毫秒）
+ * 功能：计算重连倒计时剩余秒数，用于展示“N 秒后重试”
+ * 运行逻辑：对 delay 取整并下限为 0，减去已经过的整秒数，结果不小于 0
+ * 出参：number - 剩余倒计时秒数
+ */
 export function getRetryCountdownSeconds(delay: number, elapsedMs = 0) {
   const delaySeconds = Number.isFinite(delay) ? Math.max(0, Math.ceil(delay)) : 0
   const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000))
   return Math.max(0, delaySeconds - elapsedSeconds)
 }
 
+/**
+ * 函数名：getTranscriptBottomPadding
+ * 入参：
+ *   - bottomInset (number): 外部传入的底部安全区高度（如输入框高度）
+ * 功能：计算列表底部占位间距，保证内容不被底部固定元素遮挡
+ * 运行逻辑：取 bottomInset 与最小底部安全区的较大值，再加上固定的底部间隙
+ * 出参：number - 底部占位高度（像素）
+ */
 export function getTranscriptBottomPadding(bottomInset: number) {
   return Math.max(MIN_TRANSCRIPT_BOTTOM_INSET_PX, bottomInset) + TRANSCRIPT_BOTTOM_GAP_PX
 }
 
+/**
+ * 函数名：shouldMarkUserScrolledAway
+ * 入参：
+ *   - position ({ userScrollIntent, distanceFromBottom }): 用户是否有主动滚动意图、距底部的距离
+ * 功能：判断是否应将当前状态标记为“用户已主动滚离底部”（从而暂停自动跟随滚动）
+ * 运行逻辑：若距离底部小于等于自动跟随阈值，视为仍在底部，不标记；否则按是否存在主动滚动意图决定
+ * 出参：boolean - 是否应标记为用户已滚离底部
+ */
 export function shouldMarkUserScrolledAway(position: {
   userScrollIntent: boolean
   distanceFromBottom: number
@@ -284,10 +354,27 @@ export function shouldMarkUserScrolledAway(position: {
   return position.userScrollIntent
 }
 
+/**
+ * 函数名：shouldForceBottomOnNewUserMessage
+ * 入参：
+ *   - wasUserScrolledAway (boolean): 发送新消息前用户是否已滚离底部
+ * 功能：判断用户发出新消息时是否应强制滚动回底部
+ * 运行逻辑：直接返回入参值（滚离状态即代表需要强制回底）
+ * 出参：boolean - 是否强制滚动到底部
+ */
 export function shouldForceBottomOnNewUserMessage(wasUserScrolledAway: boolean) {
   return wasUserScrolledAway
 }
 
+/**
+ * 函数名：shouldForceBottomAfterUserAppend
+ * 入参：
+ *   - position ({ previousLastUserMessageId, nextLastUserMessageId, wasUserScrolledAway }):
+ *     追加前/后最后一条用户消息 ID，以及追加前用户是否已滚离底部
+ * 功能：判断在消息列表末尾追加了新的用户消息后，是否应强制滚动到底部
+ * 运行逻辑：仅当此前用户已滚离底部，且确实出现了新的、与之前不同的最后一条用户消息 ID 时才强制回底
+ * 出参：boolean - 是否强制滚动到底部
+ */
 export function shouldForceBottomAfterUserAppend(position: {
   previousLastUserMessageId: string | null
   nextLastUserMessageId: string | null
@@ -324,6 +411,31 @@ interface WorkspaceTranscriptProps {
   bottomInset?: number
 }
 
+/**
+ * 组件名：WorkspaceTranscript
+ * 入参（props，WorkspaceTranscriptProps，节选关键项）：
+ *   - loaded/configured (boolean): 设置是否已加载/是否已配置供应商模型
+ *   - currentProject/currentSession: 当前项目与会话信息
+ *   - messages (ConversationMessage[]): 完整会话消息数组
+ *   - isRunning (boolean，默认 false): 当前 run 是否在执行中
+ *   - retryInfo (LlmRetryDto | null): WebSocket 重连/重试信息
+ *   - plan (Plan | null): 当前计划进度信息
+ *   - runtimeStatus (RuntimeStatusDescriptor): 运行状态描述（用于底部指示器文案）
+ *   - isPlanMinimized/onTogglePlanMinimize: 计划面板最小化状态与切换回调
+ *   - onApprovalAction/onDetailClick: 审批操作与详情点击回调，转发给过程分组/工具卡片
+ *   - runsById: run 信息映射表，转发给助手消息用于错误回退展示
+ *   - onEditMessage/onRegenerateMessage: 编辑/重新生成消息回调
+ *   - hasMore/isLoadingMore/oldestLoadedTurnId/onLoadMore: 历史消息分页加载相关状态与回调
+ *   - bottomInset (number): 底部安全区高度（用于计算底部占位）
+ * 作用/渲染逻辑：
+ *   1. 用 buildTranscriptItems 将消息数组转换为虚拟列表条目，并按条目 kind（process_group/answer_message/message）
+ *      分别渲染 ProcessGroupBlock、AssistantMessageItem、UserMessageItem、SystemNoticeItem
+ *   2. 维护滚动跟随逻辑：记录用户是否主动滚离底部、是否有滚动意图，决定新消息到达时是否自动滚到底部
+ *   3. 维护 Virtuoso 所需的 firstItemIndex/initialTopMostItemIndex，支持向上分页加载历史消息且不跳动
+ *   4. 通过 Context 向 Header/Footer/Scroller 注入公共状态，避免逐条目传递大量 props
+ *   5. 未处于底部时展示悬浮的“滚动到底部”按钮
+ * 返回值：JSX.Element - 对话记录虚拟列表（含头部/尾部/滚动到底部按钮）
+ */
 export function WorkspaceTranscript({
   loaded,
   configured,

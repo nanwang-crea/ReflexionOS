@@ -1,3 +1,6 @@
+// 文件功能：hasUnreadActivity 函数的单元测试
+// 文件描述：验证 sessionActivity.ts 中未读活动判定逻辑在各类事件序号组合下的正确性
+// 核心逻辑：分别覆盖“有未读”“无未读”“乱序不误判”“缺省值按 0 处理”等场景
 import { describe, expect, it } from 'vitest'
 import { hasUnreadActivity } from '../sessionActivity'
 

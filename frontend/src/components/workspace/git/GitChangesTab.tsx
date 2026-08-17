@@ -1,3 +1,8 @@
+/**
+ * 文件功能：工作区 Git 变更总面板
+ * 文件描述：组合分支栏、已暂存/已修改/未跟踪文件分组、提交输入框、操作工具栏和提交历史面板，构成 Git 侧栏"变更"标签页的完整视图
+ * 核心逻辑：挂载时拉取一次 Git 状态；根据 store 中的加载态/是否为 Git 仓库分别渲染加载中提示、非 Git 仓库提示或完整的变更管理界面；提交历史面板通过本地状态控制展开/收起
+ */
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, History, GitBranch } from 'lucide-react'
 import { useGitStore } from '@/features/git/stores/git.store'
@@ -7,6 +12,13 @@ import { GitCommitInput } from './GitCommitInput'
 import { GitActionBar } from './GitActionBar'
 import { GitLogPanel } from './GitLogPanel'
 
+/**
+ * 函数名：NotGitRepo
+ * 入参：无
+ * 功能：渲染"当前项目目录未初始化为 Git 仓库"的提示视图
+ * 运行逻辑：纯展示型组件，无交互逻辑，仅显示图标和引导文案
+ * 出参：JSX.Element - 提示信息的 DOM 结构
+ */
 function NotGitRepo() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-8">
@@ -19,6 +31,19 @@ function NotGitRepo() {
   )
 }
 
+/**
+ * 函数名：GitChangesTab
+ * 入参：无（不接收 props）
+ * 功能：渲染 Git 变更管理标签页的整体布局，包括分支栏、文件分组、提交输入、操作栏与提交历史
+ * 运行逻辑：
+ *   1. 从 useGitStore 读取分支信息、三类文件列表（已暂存/已修改/未跟踪）、分组展开状态、加载态和是否为 Git 仓库标志
+ *   2. 使用本地状态 showLog 控制提交历史面板的展开/收起
+ *   3. 组件挂载时调用 fetchStatus 拉取一次最新 Git 状态
+ *   4. 若处于加载中且尚无分支信息、且已知为 Git 仓库，展示"加载中..."提示
+ *   5. 若当前目录不是 Git 仓库，渲染 NotGitRepo 提示视图
+ *   6. 否则渲染完整界面：分支栏 -> 已暂存/已修改/未跟踪三个文件分组 -> 提交输入框 -> 操作工具栏 -> 可展开的提交历史面板
+ * 出参：JSX.Element - 变更管理标签页的 DOM 结构
+ */
 export function GitChangesTab() {
   const branchInfo = useGitStore((s) => s.branchInfo)
   const stagedFiles = useGitStore((s) => s.stagedFiles)
@@ -34,6 +59,7 @@ export function GitChangesTab() {
 
   const [showLog, setShowLog] = useState(false)
 
+  // 组件挂载时拉取一次 Git 状态（分支信息、变更文件列表等）
   useEffect(() => {
     fetchStatus()
   }, [fetchStatus])

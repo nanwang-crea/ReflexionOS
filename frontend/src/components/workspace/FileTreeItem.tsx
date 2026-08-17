@@ -1,3 +1,9 @@
+/**
+ * 文件功能：文件树节点展示组件
+ * 文件描述：递归渲染文件树的单个节点，目录节点支持展开/收起，文件节点支持点击打开并展示 Git 状态角标
+ * 核心逻辑：目录节点根据 expandedDirs 展开状态决定是否递归渲染子节点；文件节点点击后以 edit 模式打开文件；
+ *          缩进通过 depth * 12px 计算实现层级视觉效果
+ */
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen } from 'lucide-react'
 import type { FileTreeNode, GitStatusCode } from '@/types/fileTree'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
@@ -10,6 +16,13 @@ const GIT_STATUS_STYLES: Record<GitStatusCode, string> = {
   R: 'text-accent',
 }
 
+/**
+ * 组件名：GitStatusBadge
+ * 入参（props）：
+ *   - status (GitStatusCode): Git 状态码（M/A/D/U/R）
+ * 作用/渲染逻辑：按状态码对应颜色展示单字符角标
+ * 返回值：JSX.Element - Git 状态角标
+ */
 function GitStatusBadge({ status }: { status: GitStatusCode }) {
   return (
     <span className={`ml-auto text-xs font-mono ${GIT_STATUS_STYLES[status]}`}>
@@ -18,6 +31,16 @@ function GitStatusBadge({ status }: { status: GitStatusCode }) {
   )
 }
 
+/**
+ * 组件名：FileTreeItem
+ * 入参（props）：
+ *   - node (FileTreeNode): 当前文件树节点（目录或文件）
+ *   - depth (number): 节点层级深度，用于计算缩进
+ * 作用/渲染逻辑：
+ *   1. 目录节点：点击切换展开状态，展开时递归渲染 children 为子级 FileTreeItem
+ *   2. 文件节点：点击以 'edit' 模式打开文件，激活文件高亮显示，若有 git_status 则展示状态角标
+ * 返回值：JSX.Element - 目录或文件节点
+ */
 export function FileTreeItem({ node, depth }: { node: FileTreeNode; depth: number }) {
   const expandedDirs = useCodeTabStore((s) => s.expandedDirs)
   const toggleDir = useCodeTabStore((s) => s.toggleDir)

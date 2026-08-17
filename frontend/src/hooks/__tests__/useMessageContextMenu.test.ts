@@ -1,3 +1,8 @@
+// 文件功能：useMessageContextMenu 的单元测试
+// 文件描述：验证右键菜单 hook 的复制语义——阻止默认菜单、弹出仅含“复制”的自定义菜单、
+// 有选区时复制可见文本、无选区时复制 getFullText() 结果、复制成功/失败分别弹出对应级别的提示
+// 核心逻辑：用真实的 contextMenu.store/toast.store（仅 setState 重置初始状态），
+// 通过 vi.stubGlobal 模拟 navigator.clipboard 和 window.getSelection 的不同返回值
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useContextMenuStore } from '@/shared/stores/contextMenu.store'
 import { useToastStore } from '@/shared/stores/toast.store'

@@ -1,3 +1,7 @@
+// 文件功能：useConversationRuntime 多会话并行场景的单元测试
+// 文件描述：覆盖多会话同时运行时的连接调度与事件路由是否正确，详见下方现有注释列出的用例范围
+// 核心逻辑：mock 一个支持多实例、按 sessionId 区分 handlers 的 WebSocket，配合 mock 掉的
+// conversation/workspace store，验证不同会话的连接、事件、动作互不串扰
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 

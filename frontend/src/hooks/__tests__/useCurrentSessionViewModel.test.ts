@@ -1,3 +1,8 @@
+// 文件功能：useCurrentSessionViewModel 的单元测试
+// 文件描述：验证“编辑消息重跑”和“重新生成回复”两个交互回调的行为——重新生成前会调用
+// dialogService 二次确认，用户取消则不执行 editAndRerun；编辑消息会带上当前选中的供应商/模型
+// 核心逻辑：mock 掉 settings.store / useSessionData / useSessionSelection / dialogService，
+// 通过 ReactDOMServer.renderToString 渲染一个测试组件来获取 hook 的返回值（无需完整 DOM 环境）
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationMessage, Plan } from '@/types/conversation'
 import type { LlmRetryDto } from '@/services/sessionConversationWebSocket'

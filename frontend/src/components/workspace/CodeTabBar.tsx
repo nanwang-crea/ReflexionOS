@@ -1,3 +1,8 @@
+/**
+ * 文件功能：代码编辑区标签栏
+ * 文件描述：展示已打开文件的标签列表（含脏标记与关闭按钮），以及编辑/Diff 视图切换按钮
+ * 核心逻辑：纯展示 + 交互转发组件，所有状态变更均通过 props 回调转发给上层 CodeTab 处理
+ */
 import { X, FileCode, GitCompare } from 'lucide-react'
 import type { OpenFile, ViewMode } from '@/features/code/stores/codeTab.store'
 
@@ -10,6 +15,21 @@ interface CodeTabBarProps {
   onToggleViewMode: () => void
 }
 
+/**
+ * 组件名：CodeTabBar
+ * 入参（props，CodeTabBarProps）：
+ *   - openFiles (OpenFile[]): 已打开的文件列表
+ *   - activeFileId (string | null): 当前激活的文件 ID
+ *   - viewMode (ViewMode): 当前视图模式（edit/diff），决定切换按钮的文案与图标
+ *   - onSelectFile ((id) => void): 点击标签切换激活文件
+ *   - onCloseFile ((id) => void): 点击标签关闭按钮关闭文件
+ *   - onToggleViewMode (() => void): 点击右侧按钮切换编辑/Diff 视图
+ * 作用/渲染逻辑：
+ *   1. 若无打开文件则不渲染任何内容
+ *   2. 遍历 openFiles 渲染可横向滚动的标签列表，脏文件显示圆点标记，标签内含独立的关闭按钮
+ *   3. 右侧渲染视图切换按钮，按 viewMode 展示不同图标/文案
+ * 返回值：JSX.Element | null - 标签栏，或无打开文件时为 null
+ */
 export function CodeTabBar({
   openFiles,
   activeFileId,

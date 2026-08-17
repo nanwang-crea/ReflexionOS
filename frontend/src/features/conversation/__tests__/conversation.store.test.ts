@@ -1,7 +1,21 @@
+/**
+ * 文件功能：conversation.store.ts（createConversationStore）的单元测试
+ * 文件描述：验证 store 在应用快照、实时事件、分页游标更新、清空会话等场景下的行为是否正确。
+ * 核心逻辑：每个测试都通过 createConversationStore() 创建独立 store 实例，避免测试间状态串扰，
+ *          再调用各 action 方法后断言 store.getState() 中的数据是否符合预期。
+ */
 import { describe, expect, it } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 import { createConversationStore } from '../stores/conversation.store'
 
+/**
+ * 函数名：buildSnapshot
+ * 入参：无
+ * 功能：构造一个包含单个 session/turn/run 及一条流式中助手消息的标准会话快照，
+ *      供多个测试用例复用作为基础数据
+ * 运行逻辑：直接返回硬编码的固定测试数据对象
+ * 出参：ConversationSnapshot - 测试用的标准快照对象
+ */
 function buildSnapshot(): ConversationSnapshot {
   return {
     session: {

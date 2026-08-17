@@ -41,10 +41,35 @@ interface DelegateToolCallProps {
   onApprovalAction?: ToolApprovalActionHandler
 }
 
+/**
+ * 函数名：truncateText
+ * 入参：
+ *   - text (string): 待截断的原始文本
+ *   - maxLen (number): 允许的最大长度
+ * 功能：将超长文本截断并追加省略号，用于任务描述/预期输出等展示区域防止内容过长
+ * 运行逻辑：若文本长度超过 maxLen，截取前 maxLen 个字符并拼接 '...'；否则原样返回
+ * 出参：string - 截断后的文本
+ */
 function truncateText(text: string, maxLen: number): string {
   return text.length > maxLen ? text.slice(0, maxLen) + '...' : text
 }
 
+/**
+ * 组件名：DelegateToolCall
+ * 入参（props，DelegateToolCallProps）：
+ *   - detail (ActionReceiptDetail): delegate 工具调用的回执详情（状态/输出/错误等）
+ *   - args (Record<string, unknown>，可选): delegate 的调用参数，包含 task/expected_output 等字段
+ *   - onApprovalAction (ToolApprovalActionHandler，可选): 审批操作回调，转发给子 agent 内部产生的 ActionReceipt
+ * 作用/渲染逻辑：
+ *   1. 头部展示状态图标（运行中/成功/失败）与任务描述、预期输出（超长截断）
+ *   2. 通过 useSubAgentSteps 按 session_id + tool_call_id 订阅子 agent 实时事件流，
+ *      并用 getSubAgentToolStepCount 统计真实已完成步数
+ *   3. 遍历子 agent 事件流识别当前处于待审批状态的工具调用（pendingApprovalTools），
+ *      在主对话区直接渲染对应的 ActionReceipt 审批卡片
+ *   4. 运行中/已完成且有历史步骤时，展示可点击入口，点击后打开 SubAgentDetailPanel 全屏查看执行详情
+ *   5. 完成/失败后可展开查看完整输出或错误信息
+ * 返回值：JSX.Element - delegate 工具调用卡片（含可选的审批卡片与二级详情面板）
+ */
 export const DelegateToolCall = memo(function DelegateToolCall({ detail, args, onApprovalAction }: DelegateToolCallProps) {
   const [expanded, setExpanded] = useState(false)
   const [showDetail, setShowDetail] = useState(false)

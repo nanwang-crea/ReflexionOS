@@ -54,6 +54,17 @@ interface SessionConnection {
   liveEventFlushTimer: ReturnType<typeof setTimeout> | null
 }
 
+// 函数名：createSnapshotRefreshQueue
+// 入参：
+//   - refreshSnapshot ((sessionId: string) => Promise<void>): 实际拉取指定会话快照的函数
+// 功能：创建一个按 sessionId 去重、串行执行的快照刷新排队器，避免同一会话的刷新请求并发重叠、
+// 也避免同一会话被重复排队
+// 运行逻辑：
+//   1. 用数组 queuedSessionIds 保序、Set queuedSessionSet 去重，维护待刷新的会话队列
+//   2. drainQueue 用 refreshInFlight 互斥标志保证只有一个刷新循环在跑；循环内依次取出会话并调用
+//      refreshSnapshot，单个会话刷新失败会弹出错误提示但不影响队列中其余会话继续处理
+//   3. 返回的函数供调用方"入队"某个 sessionId：若该会话尚未在队列中则加入，并异步触发 drainQueue
+// 出参：(sessionId: string) => void - 将指定会话加入刷新队列的入队函数
 function createSnapshotRefreshQueue(
   refreshSnapshot: (sessionId: string) => Promise<void>
 ) {
@@ -97,6 +108,12 @@ function createSnapshotRefreshQueue(
   }
 }
 
+// 函数名：toConversationEvent
+// 入参：
+//   - event (SessionConversationEventDto): 后端 WebSocket 推送的原始事件 DTO（snake_case 字段）
+// 功能：把后端事件 DTO 转换为前端内部使用的 ConversationEvent（camelCase 字段）
+// 运行逻辑：逐字段做命名转换和结构映射，不做业务判断
+// 出参：ConversationEvent - 前端内部事件模型
 function toConversationEvent(event: SessionConversationEventDto): ConversationEvent {
   return {
     id: event.id,
@@ -114,14 +131,35 @@ function toConversationEvent(event: SessionConversationEventDto): ConversationEv
 const VALID_MESSAGE_TYPES = new Set(['assistant_message', 'tool_trace'])
 const VALID_STREAM_STATES = new Set(['idle', 'streaming', 'completed', 'failed', 'cancelled'])
 
+// 函数名：isValidMessageType
+// 入参：
+//   - value (unknown): 待校验的消息类型字段（来自后端原始数据，类型不可信）
+// 功能：类型守卫，校验值是否为合法的消息类型（assistant_message / tool_trace）
+// 运行逻辑：判断是字符串且存在于 VALID_MESSAGE_TYPES 集合中
+// 出参：boolean（同时作为类型谓词收窄类型）
 function isValidMessageType(value: unknown): value is ConversationLiveMessage['messageType'] {
   return typeof value === 'string' && VALID_MESSAGE_TYPES.has(value)
 }
 
+// 函数名：isValidStreamState
+// 入参：
+//   - value (unknown): 待校验的流状态字段（来自后端原始数据，类型不可信）
+// 功能：类型守卫，校验值是否为合法的流式状态（idle/streaming/completed/failed/cancelled）
+// 运行逻辑：判断是字符串且存在于 VALID_STREAM_STATES 集合中
+// 出参：boolean（同时作为类型谓词收窄类型）
 function isValidStreamState(value: unknown): value is ConversationLiveMessage['streamState'] {
   return typeof value === 'string' && VALID_STREAM_STATES.has(value)
 }
 
+// 函数名：toConversationLiveMessage
+// 入参：
+//   - message (SessionConversationLiveMessageDto): 后端推送的实时消息 DTO（增量/状态）
+// 功能：把后端实时消息 DTO 转换为前端内部的 ConversationLiveMessage，并对不可信字段做兜底
+// 运行逻辑：
+//   1. 用 isValidMessageType 校验 message_type，非法则兜底为 'assistant_message'
+//   2. 用 isValidStreamState 校验 stream_state，非法则兜底为 'streaming'
+//   3. 其余字段做 snake_case -> camelCase 映射
+// 出参：ConversationLiveMessage - 前端内部实时消息模型
 function toConversationLiveMessage(message: SessionConversationLiveMessageDto): ConversationLiveMessage {
   const messageType = isValidMessageType(message.message_type)
     ? message.message_type
@@ -142,6 +180,28 @@ function toConversationLiveMessage(message: SessionConversationLiveMessageDto): 
   }
 }
 
+// 函数名：useConversationRuntime
+// 入参：
+//   - currentSessionId (string | null): 当前正在查看的会话 ID，为 null 表示未选中任何会话
+//   - initialConnectionStatus (ConnectionStatus, 默认 'disconnected'): 初始连接状态兜底值
+// 功能：管理多会话 WebSocket 连接的生命周期，向外暴露对当前会话的操作方法（发消息、取消运行、
+// 审批工具调用、编辑重跑、切换模式、重置对话、加载更多历史）以及当前会话的连接状态/取消中/重试信息
+// 运行逻辑：
+//   1. connectionsRef 保存所有会话的连接运行时状态；三份 useState 仅镜像“当前会话”切片供 UI 渲染
+//   2. activeSessionsSignature 订阅所有会话中处于活跃 run 状态的会话 ID 集合（收敛为稳定字符串，
+//      避免每个流式事件都触发订阅回调）
+//   3. connectSession 建立连接、拉取快照、注册 conversation:event / live_event / live_state /
+//      resync_required / llm:retry / plan:* / session:* / sub_agent:event 等事件监听器
+//   4. scheduleReconnect 在断线后按指数退避重连，超过 RECONNECT_MAX_ATTEMPTS 次后标记会话为
+//      同步异常并弹出一次性提示（当前会话提示刷新页面，后台会话提示切回时会补拉）
+//   5. 一个 useEffect 做连接调度：当前会话必连，后台活跃会话按 MAX_ACTIVE_CONNECTIONS 上限补连，
+//      多余或已空闲的连接被回收；另一个 useEffect 在切回被降级会话时强制补拉一次快照
+//   6. 组件卸载时的 useEffect 清理所有连接、定时器与节流缓冲，避免内存泄漏
+//   7. 返回的 startTurn/cancelRun/approveTool/denyTool/trustTool/editAndRerun/setMode/
+//      setPermissionMode/resetConversationRuntime/loadMore 均通过 connectionsRef 找到目标会话
+//      的 WebSocket 实例后发起对应操作
+// 出参：{ connectionStatus, isCancelling, retryInfo, startTurn, cancelRun, approveTool, denyTool,
+//   trustTool, editAndRerun, setMode, setPermissionMode, resetConversationRuntime, loadMore }
 export function useConversationRuntime(
   currentSessionId: string | null,
   initialConnectionStatus: ConnectionStatus = 'disconnected'

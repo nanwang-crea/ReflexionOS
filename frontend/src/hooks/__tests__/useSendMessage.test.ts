@@ -1,3 +1,10 @@
+// 文件功能：createSendMessage 与 useSendMessage 的单元测试
+// 文件描述：分两部分——第一部分直接测试纯函数 createSendMessage：无当前会话时应先建会话再发送，
+// 有当前会话时应复用会话并刷新偏好后发送，会话摘要字段精简时依然可正常工作；
+// 第二部分测试 useSendMessage 这个 hook 版本，验证前置校验失败时通过 dialogService 弹出提示
+// 核心逻辑：第一部分直接构造依赖对象调用 createSendMessage，无需 mock react；
+// 第二部分 mock 掉 dialogService / project.store / useSessionActions / session.actions，
+// 并将 react 的 useCallback 替换为直接返回原函数，简化 hook 调用
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@/types/workspace'
 import { createSendMessage } from '../useSendMessage'
