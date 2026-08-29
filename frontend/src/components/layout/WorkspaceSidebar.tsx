@@ -1,3 +1,5 @@
+// 工作区侧边栏组件：展示全局入口（新建聊天/搜索/技能/插件/自动化）、项目与会话列表（支持搜索过滤、
+// 展开折叠、重命名、删除），以及底部的设置入口和主题切换按钮。是应用左侧导航的核心组件。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
@@ -38,6 +40,9 @@ import { useSidebarSessionActions } from './useSidebarSessionActions'
 
 const sidebarEntryClassName = 'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-[15px] text-content-secondary transition hover:bg-surface-tertiary'
 
+// 参数：dateString - ISO 时间字符串（如会话的 updatedAt）。
+// 作用：计算该时间距当前的相对时长，按分钟/小时/天/周分级，取整数且至少为 1。
+// 返回：形如 "5 分钟" "3 小时" "2 天" "1 周" 的中文相对时间字符串。
 function formatRelativeTime(dateString: string) {
   const timestamp = new Date(dateString).getTime()
   const diff = Date.now() - timestamp
@@ -63,6 +68,9 @@ function formatRelativeTime(dateString: string) {
   return `${Math.max(1, Math.floor(diff / week))} 周`
 }
 
+// 参数：projects - 全部项目列表；currentProject - 当前已选项目；currentSessionProjectId - 当前会话所属项目 id。
+// 作用：决定侧边栏应高亮/展开哪个项目，优先级：当前会话所属项目 > 已选中项目 > 项目列表第一个。
+// 返回：匹配到的 Project 对象，找不到则返回 null。
 function deriveProjectSelection(
   projects: Project[],
   currentProject: Project | null,
@@ -79,6 +87,12 @@ function deriveProjectSelection(
   return projects[0] || null
 }
 
+// 单个会话列表项组件。
+// 参数：session - 会话数据；active - 是否为当前选中会话；busy - 当前会话是否忙碌（影响删除按钮禁用）；
+// sessionStatus - 该会话的派生展示状态（运行中/待审批等）；onSelect - 点击选中该会话；
+// onRename - 提交重命名的异步回调；onDelete - 点击删除按钮的回调。
+// 作用：支持点击切换到该会话、悬停显示重命名/删除按钮、内联编辑标题（Enter 提交/Esc 取消/失焦提交）。
+// 返回：渲染会话行的 JSX（标题、状态徽标、相对时间、重命名/删除按钮，或编辑态下的输入框）。
 function SessionRow({
   session,
   active,
@@ -199,6 +213,11 @@ function SessionRow({
   )
 }
 
+// 工作区侧边栏主组件。
+// 参数：无（内部通过多个 zustand store 订阅项目/会话/主题/设置等全局状态）。
+// 作用：聚合项目列表、会话列表、搜索、状态派生（忙碌/未读/运行中）、主题切换、新建项目弹窗等逻辑，
+// 渲染完整的侧边栏 UI；项目与会话的增删改操作委托给 useSidebarProjectActions / useSidebarSessionActions。
+// 返回：侧边栏的 JSX（aside 容器，含全局入口列表、搜索框、项目/会话树、底部设置与主题切换、新建项目弹窗）。
 export function WorkspaceSidebar() {
   const navigate = useNavigate()
   const location = useLocation()

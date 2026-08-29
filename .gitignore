@@ -30,6 +30,7 @@ htmlcov/
 # Build artifacts
 build/
 dist/
+.next/
 *.egg-info/
 .eggs/
 frontend/build-resources/
@@ -63,8 +64,11 @@ backend/.pytest-home/
 # 面试准备资料
 docs/interview/
 
-# 开发日志
-docs/devlog/
+# 开发日志（README 索引和正文汇总文件已纳入版本库维护，其余个人草稿不上库）
+# 注意：git 不支持"忽略目录再白名单子文件"，须用排除模式代替
+docs/devlog/*
+!docs/devlog/README.md
+!docs/devlog/devlog-*.md
 
 # 实现计划（草稿）
 docs/superpowers/plans/
@@ -75,3 +79,6 @@ docs/NAVIGATION.md
 # 其他个人文档
 深度代码审查报告.md
 CLAUDE.md
+
+# 模拟面试记录（个人面试准备材料，仓库为公开仓库，整个目录不上库）
+interview/

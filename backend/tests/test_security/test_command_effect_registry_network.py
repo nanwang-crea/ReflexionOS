@@ -1,6 +1,5 @@
 import pytest
 from app.security.command_effect_registry import CommandEffectRegistry
-from app.security.effect_category import EffectCategory
 
 
 @pytest.fixture

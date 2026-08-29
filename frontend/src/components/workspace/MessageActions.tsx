@@ -1,3 +1,8 @@
+/**
+ * 文件功能：消息操作按钮组
+ * 文件描述：展示消息下方的悬浮操作按钮（复制/编辑/重新生成），按消息类型区分显示编辑或重新生成按钮
+ * 核心逻辑：复制操作调用 clipboard API 并通过 toast 提示结果，2 秒后恢复按钮提示文案
+ */
 import { useState } from 'react'
 import { Copy, Pencil, RefreshCw } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
@@ -10,6 +15,19 @@ interface MessageActionsProps {
   onRegenerate: (messageId: string) => void
 }
 
+/**
+ * 组件名：MessageActions
+ * 入参（props）：
+ *   - messageId (string): 消息唯一标识
+ *   - contentText (string): 消息文本内容（用于复制/编辑/重新生成）
+ *   - messageType ('user_message' | 'assistant_message'): 消息类型，决定展示编辑按钮还是重新生成按钮
+ *   - onEdit ((messageId, contentText) => void): 点击编辑按钮时的回调（仅用户消息展示）
+ *   - onRegenerate ((messageId) => void): 点击重新生成按钮时的回调（仅助手消息展示）
+ * 作用/渲染逻辑：
+ *   1. 始终展示复制按钮：复制成功/失败均通过 toast 提示，复制成功后短暂切换提示文案为“已复制”
+ *   2. 用户消息展示编辑按钮，助手消息展示重新生成按钮
+ * 返回值：JSX.Element - 操作按钮组
+ */
 export function MessageActions({
   messageId,
   contentText,

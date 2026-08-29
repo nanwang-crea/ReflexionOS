@@ -1,3 +1,13 @@
+"""
+沙盒安全隔离模块入口。
+
+汇总并对外暴露 sandbox 子包中的核心类型：跨平台沙盒提供者基类
+（SandboxProvider）、沙盒创建工厂（create_sandbox/NullSandbox）、
+Linux Landlock 与 macOS Seatbelt 的策略构建器、沙盒策略/级别定义
+（SandboxPolicy/SandboxLevel），以及沙盒错误识别工具（SandboxErrorDetector
+等）。使用方只需从本包导入，无需关心具体子模块路径。
+"""
+
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.factory import NullSandbox, create_sandbox
 from app.security.sandbox.landlock_profile import LandlockProfileBuilder

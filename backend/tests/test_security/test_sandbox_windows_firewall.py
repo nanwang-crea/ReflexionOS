@@ -1,5 +1,4 @@
 # Elevated 档防火墙策略单测（mock subprocess，无需管理员权限 / 真实 Windows）
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest

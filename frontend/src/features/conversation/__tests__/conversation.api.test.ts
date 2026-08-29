@@ -1,3 +1,10 @@
+/**
+ * 文件功能：conversationApi 的单元测试
+ * 文件描述：验证 conversationApi.getConversation / getConversationPaginated 能否正确将
+ *          后端 snake_case 快照 DTO 转换为前端 camelCase 领域模型，并正确处理分页参数。
+ * 核心逻辑：通过 vi.mock 模拟 apiClient.get，构造符合后端格式的响应数据，
+ *          断言转换后的返回值与请求参数是否符合预期。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getMock = vi.fn()
@@ -16,6 +23,8 @@ describe('conversationApi', () => {
   })
 
   it('maps snake_case conversation snapshot to camelCase', async () => {
+    // 场景：后端返回完整的快照（session/turns/runs/messages 均有数据），
+    // 验证 conversationApi.getConversation 转换后字段全部变为 camelCase
     getMock.mockResolvedValue({
       data: {
         session: {
@@ -94,6 +103,7 @@ describe('conversationApi', () => {
         preferredProviderId: 'provider-a',
         preferredModelId: undefined,
         agentMode: 'build',
+        permissionMode: 'auto',
         lastEventSeq: 2,
         activeTurnId: 'turn-1',
         createdAt: '2026-04-24T10:00:00Z',
@@ -152,6 +162,7 @@ describe('conversationApi', () => {
   })
 
   it('falls back to build mode when session agent_mode is unknown', async () => {
+    // 场景：后端返回未知的 agent_mode 值，验证前端会兜底为 'build' 模式
     getMock.mockResolvedValue({
       data: {
         session: {
@@ -179,6 +190,8 @@ describe('conversationApi', () => {
   })
 
   it('serializes before_turn for paginated conversation requests', async () => {
+    // 场景：调用分页接口 getConversationPaginated，验证 limit/beforeTurn 会正确
+    // 序列化为查询参数 limit/before_turn，且返回的 nextBeforeTurnId 被正确转换
     getMock.mockResolvedValue({
       data: {
         session: {

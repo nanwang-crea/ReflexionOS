@@ -1,3 +1,5 @@
+# Skill 工具：供 Agent 发现、加载、搜索"技能指南"（Skill Guide），
+# 以及检查/更新已安装的技能插件。技能内容来自 SkillRegistry（本地/插件市场注册的技能库）。
 import logging
 from typing import Any
 
@@ -8,7 +10,16 @@ logger = logging.getLogger(__name__)
 
 
 class SkillTool(BaseTool):
+    """技能发现与加载工具，支持 list/load/search/update 四种子操作，一个工具复用多个动作。"""
+
     def __init__(self, registry: SkillRegistry, resolver=None):
+        """初始化 SkillTool。
+
+        入参：
+          - registry (SkillRegistry): 技能注册表，负责列出/查询/读取技能内容
+          - resolver: 插件包解析器（可选），用于 'update' 动作检查并更新插件版本，
+            不传则 'update' 动作会直接返回错误
+        """
         self._registry = registry
         self._resolver = resolver
 
@@ -18,11 +29,19 @@ class SkillTool(BaseTool):
 
     @property
     def description(self) -> str:
+        # 面向 LLM 的工具功能说明，保留英文原文
         return ("Discover and load skill guides. "
                 "Use 'list' to see skills, 'load' to read content, "
                 "'search' by keyword, 'update' to check for plugin updates.")
 
     def get_schema(self) -> dict[str, Any]:
+        """返回本工具的 JSON Schema 定义（供 LLM 函数调用使用）。
+
+        入参：无
+        功能：声明 skill 工具的参数结构——action（必填，list/load/search/update 四选一）、
+        name（load 动作必填，技能名）、query（search 动作必填，搜索关键词）。
+        出参：dict - OpenAI/Anthropic 兼容的 tool schema 字典。
+        """
         return {
             "name": self.name,
             "description": self.description,
@@ -51,6 +70,18 @@ class SkillTool(BaseTool):
         }
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
+        """执行技能相关操作，按 action 分发到四种子逻辑。
+
+        入参：args (dict) - 包含 action（list/load/search/update，默认 list）、
+        name（load 动作使用，技能名）、query（search 动作使用，搜索关键词）。
+        功能：
+          - list: 列出所有已启用技能，附带依赖的其他技能(requires)和来源标记(非 project 来源时显示)；
+          - load: 按技能名读取完整内容，找不到返回失败；成功时在正文前拼接标题/描述/安装路径头部；
+          - search: 在技能名+描述+分类的拼接文本中做子串匹配（不区分大小写）；
+          - update: 需要配置了 resolver；遍历配置中的插件列表，逐个检查/执行更新，
+            汇总每个插件的更新结果或异常信息。
+        出参：ToolResult - 各分支返回对应的文本结果；未知 action 返回失败。
+        """
         action = args.get("action", "list")
 
         if action == "list":

@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -44,6 +44,7 @@ class SessionTracker:
     """
 
     def __init__(self) -> None:
+        """初始化三个空容器：读取记录、变更记录、工具调用计数。参数：无；返回：无。"""
         # 文件读取记录: path → FileAccessRecord
         self._read_files: dict[str, FileAccessRecord] = {}
         # 文件变更记录: path → FileAccessRecord
@@ -53,17 +54,17 @@ class SessionTracker:
 
     @property
     def read_files(self) -> dict[str, FileAccessRecord]:
-        """所有读取过的文件记录"""
+        """所有读取过的文件记录。参数：无；返回：path → FileAccessRecord 的字典（内部引用，非副本）。"""
         return self._read_files
 
     @property
     def modified_files(self) -> dict[str, FileAccessRecord]:
-        """所有变更过的文件记录"""
+        """所有变更过的文件记录。参数：无；返回：path → FileAccessRecord 的字典（内部引用，非副本）。"""
         return self._modified_files
 
     @property
     def tool_call_summary(self) -> dict[str, int]:
-        """工具调用统计（只读副本）"""
+        """工具调用统计（只读副本）。参数：无；返回：tool_name → 调用次数的字典副本，修改不影响内部状态。"""
         return dict(self._tool_calls)
 
     # ---- 写入接口（系统自动调用） ----
@@ -74,7 +75,13 @@ class SessionTracker:
         """
         记录文件访问（读取或变更）
 
-        同一文件同一类型多次访问时，合并记录，更新 last_step 和 count。
+        参数：
+            path: 文件路径。
+            access_type: 访问类型，AccessType.READ 或 AccessType.WRITE，决定写入哪个字典。
+            step: 当前访问发生的步骤号。
+        逻辑：同一文件同一类型多次访问时，合并记录——已存在则更新 last_step
+              （取较大值）并将 count 加 1；不存在则新建一条 FileAccessRecord。
+        返回：无。
         """
         target = (
             self._read_files if access_type == AccessType.READ
@@ -96,6 +103,15 @@ class SessionTracker:
         """
         根据工具调用自动记录到 tracker（file→READ, edit→WRITE）
 
+        参数：
+            tool_name: 工具名称，如 "file"、"edit"。
+            tool_args: 工具调用参数字典，用于取出 action/path 等字段。
+            step: 当前所处的执行步骤号。
+        逻辑：
+            先无条件调用 record_tool_call 做调用计数；
+            再按工具类型细分：tool_name=="file" 且 action=="read" 时按 READ 记录该路径；
+            tool_name=="edit" 时按 WRITE 记录该路径；其余工具只计数不记文件。
+        返回：无。
         集成点：MemoryExtractor.extract() 中调用，将工具调用与文件跟踪解耦。
         """
         self.record_tool_call(tool_name, step)
@@ -113,13 +129,21 @@ class SessionTracker:
                 self.record_file_access(path, AccessType.WRITE, step)
 
     def record_tool_call(self, tool_name: str, step: int) -> None:
-        """记录工具调用（仅计数，不存参数）"""
+        """
+        记录工具调用（仅计数，不存参数）
+
+        参数：
+            tool_name: 工具名称，作为计数字典的 key。
+            step: 当前步骤号（本方法未使用该值参与计算，仅按调用约定接收）。
+        逻辑：对应 tool_name 的计数加 1（不存在则从 0 累加）。
+        返回：无。
+        """
         self._tool_calls[tool_name] = self._tool_calls.get(tool_name, 0) + 1
 
     # ---- 查询接口 ----
 
     def is_empty(self) -> bool:
-        """是否没有任何跟踪数据"""
+        """是否没有任何跟踪数据。参数：无；返回：读取/变更/工具调用记录均为空时 True。"""
         return (
             not self._read_files
             and not self._modified_files
@@ -129,6 +153,14 @@ class SessionTracker:
     def to_prompt_section(self) -> str:
         """
         渲染为极简的跟踪列表，注入 system prompt 最前面。
+
+        参数：无。
+        逻辑：
+            无跟踪数据时返回空字符串；否则依次拼接三段（均按需省略空段）：
+              - 读取过的文件列表，按 last_step 降序（最近访问在前）；
+              - 变更过的文件列表，同样按 last_step 降序；
+              - 工具调用统计，按调用次数降序，格式为 "name(次数x)"。
+        返回：拼接好的多行文本；无数据时返回空字符串 ""。
 
         输出格式示例:
         [Session Tracking]
@@ -174,7 +206,14 @@ class SessionTracker:
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
-        """序列化为 dict（用于调试/日志/持久化）"""
+        """
+        序列化为 dict（用于调试/日志/持久化）
+
+        参数：无。
+        逻辑：将 read_files/modified_files 各自转换为 {path: {"step":.., "count":..}}，
+              tool_calls 转换为普通 dict 副本。
+        返回：形如 {"read_files": {...}, "modified_files": {...}, "tool_calls": {...}} 的 dict。
+        """
         return {
             "read_files": {
                 p: {"step": r.last_step, "count": r.count}
@@ -188,7 +227,7 @@ class SessionTracker:
         }
 
     def clear(self) -> None:
-        """清空所有跟踪数据（Turn 结束或 Run 重置时调用）"""
+        """清空所有跟踪数据（Turn 结束或 Run 重置时调用）。参数：无；返回：无。"""
         self._read_files.clear()
         self._modified_files.clear()
         self._tool_calls.clear()

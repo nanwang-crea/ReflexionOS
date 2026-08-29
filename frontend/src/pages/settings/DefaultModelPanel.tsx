@@ -1,5 +1,22 @@
+/**
+ * 文件功能：设置页“全局默认模型”面板组件
+ * 文件描述：让用户从已配置的供应商中选择一个默认供应商及默认模型，作为全局对话的默认使用配置
+ * 核心逻辑：状态与操作逻辑集中在 useSettingsPageController 这个 hook 中，本组件只负责渲染 UI
+ *          和转发用户交互事件；面板会根据是否已有供应商决定展示选择器还是提示信息
+ */
 import { useSettingsPageController } from '@/features/llm/useSettingsPageController'
 
+/**
+ * 函数名：DefaultModelPanel
+ * 入参：无
+ * 功能：渲染“全局默认模型”设置面板，支持选择默认供应商和默认模型并保存
+ * 运行逻辑：
+ *   1. 通过 useSettingsPageController 获取供应商列表、当前默认选择、保存状态及各类回调
+ *   2. 根据 defaultSelection.provider_id 找到对应供应商，过滤出该供应商下已启用的模型列表
+ *   3. 若尚无任何供应商，展示提示文案；否则渲染供应商/模型下拉选择框和保存按钮
+ *   4. 保存后根据 defaultSelection.configured 状态展示“已就绪”或“未配置完整”的提示
+ * 出参：JSX.Element - 全局默认模型设置面板的 DOM 结构
+ */
 export function DefaultModelPanel() {
   const {
     providers,

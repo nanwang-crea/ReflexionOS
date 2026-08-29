@@ -5,6 +5,42 @@
 
 ---
 
+## [2026-08-04] [????] ?????????????????
+
+- **??**: ????
+- **??**: ???????
+- **????**: backend/app/execution/rapid_loop.py, backend/app/execution/tool_call_executor.py, backend/app/security/command_policy.py, backend/app/security/permission_mode.py, backend/app/security/shell_security.py, backend/app/services/conversation_runtime_adapter.py
+- **??**: ?? ReflexionOS ? Coding Agent ???????????????????????
+
+### ??/??
+??????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+
+### ??
+??????????????????????????? LLM ???????????????????????????????????????????????????????????????
+
+### ??/????
+1. ? `RapidExecutionLoop` ??????phase ???????/????????????????? `approval:required` ? `run:waiting_for_approval`?
+2. ? `ToolCallExecutor` ????????tool lifecycle ?????????? Working Memory ??????????
+3. ? `CommandPolicy`?`PermissionMode`?`ShellSecurity` ?? effect-based ?????Windows ???????????YOLO ?????argv/shell ?????????
+4. ? `ConversationRuntimeAdapter` ?? raw runtime event -> conversation event ??????????????????????????????
+
+### ??
+1. ????????????????????????????????????
+2. ?????????????????????????????????????
+3. ???????????????????????shell ????????????
+4. ?????????????? devlog?
+
+### ???????
+- `python -m compileall backend/app/execution/rapid_loop.py backend/app/execution/tool_call_executor.py backend/app/security/command_policy.py backend/app/security/permission_mode.py backend/app/security/shell_security.py backend/app/services/conversation_runtime_adapter.py`
+- `git diff -- backend/app/execution/rapid_loop.py backend/app/execution/tool_call_executor.py backend/app/security/command_policy.py backend/app/security/permission_mode.py backend/app/security/shell_security.py backend/app/services/conversation_runtime_adapter.py docs/devlog/README.md docs/devlog/devlog-2026-06-23_to_present.md`
+- **??**: ?????????????????????
+
+### ????/??
+- ????????????????????????????????????????????
+- ???????/???????????????? phase?policy?projection ??????????????????????
+
+---
+
 ## [2026-06-23] [新功能] 多会话并行：运行中切换、独立运行、侧边栏状态与未读基线
 
 - **类型**: 新功能
@@ -396,3 +432,177 @@ Agent 在处理复杂任务时，需要能够"分身"执行子任务（如并行
 ### 经验教训/待办
 - 经验：模型族提示词要成对更新，并用测试锁住关键行为规则。
 - 待办：如果未来新增更多 prompt family，需要同步补齐同类沟通规则断言。
+
+
+---
+
+## [2026-07-13] [新功能] Windows Phase 2 沙箱与会话级权限模式
+
+- **类型**: 新功能
+- **涉及文件**: backend/app/security/sandbox/windows.py, windows_acl.py, windows_token.py, windows_firewall.py, windows_user.py, backend/app/security/permission_mode.py, backend/app/security/command_policy.py, backend/app/security/command_effect_registry.py, backend/app/execution/prompt_manager.py, backend/app/models/session.py, backend/app/services/__init__.py, backend/app/services/agent_service.py, backend/app/api/routes/websocket.py, 及配套 alembic 迁移
+- **关联**: 提交 `77465b1f`
+
+### 问题/需求
+Windows 上此前 shell 命令执行只有第一阶段严格白名单（几个纯读 git 子命令），无法执行真实开发任务所需的命令。需要一套能安全放行任意命令、同时控制风险的执行机制，并允许用户按会话选择信任级别。
+
+### 原因
+- 严格白名单模式下大多数命令直接被拒绝，可用性太差，无法支撑日常开发场景。
+- 需要一种不依赖 Unix 权限模型（chroot/seatbelt 等）、在 Windows 上也能生效的隔离手段。
+
+### 修复/实现方法
+1. 新增 `WindowsSandbox`：通过 `CreateProcessAsUser` + Restricted Token + 目录 ACL 执行命令，把子进程的文件系统写权限限制在允许路径内。
+2. 新增 `permission_mode`（ASK/AUTO/YOLO 三档会话级权限模式），控制审批弹窗触发的严格程度。
+3. `command_policy` 在检测到沙箱可用时旁路 Windows 第一阶段严格白名单，改走沙盒执行流；不可用时保留原白名单兜底。
+4. 补齐 Windows 内建命令的效果分类（dir/copy/del/runas 等），并对 `runas` 提权命令单独拦截。
+5. `shell_tool` 的 Windows 分支优先调用 `sandbox.run_command`/`run_shell_command`。
+6. 配套修复一批 Windows 兼容性问题：`grep_tool`（SelectorEventLoop 下子进程不可用、盘符路径解析、`--include` 参数）、`edit_tool`（CRLF 二次转换）、`prompt_manager`（HOME 隔离在 Windows 下失效）、`database`（sessions 表缺 permission_mode/agent_mode 列的兼容迁移兜底）、`windows_acl`（遇到不存在的允许目录跳过而非整体失败）、`services/__init__`（懒加载避免循环导入）。
+
+### 测试验证及结果
+- 新增/覆盖测试：test_sandbox_windows.py、test_sandbox_windows_acl.py、test_sandbox_windows_token.py、test_sandbox_windows_firewall.py、test_sandbox_windows_user.py、test_sandbox_windows_integration.py、test_permission_mode.py、test_command_policy_sandbox_conditional.py、test_command_policy_windows_builtin.py 等，commit 内共新增/修改 12 个测试文件、991 行测试代码。
+- **结论**: 沙箱与权限模式在提交时测试全部通过（详见 `77465b1f` 提交说明）。
+
+### 经验教训/待办
+- 经验：Windows 下要做命令级隔离，Restricted Token + ACL 是比"信任白名单"更可持续的方案，但需要配套修一批因 SelectorEventLoop/路径格式/换行符导致的周边兼容性问题。
+
+---
+
+## [2026-07-14] [Bug修复] Windows argv 模式对 cmd 内部命令降级走 cmd.exe /c
+
+- **类型**: Bug修复
+- **涉及文件**: backend/app/security/sandbox/windows_cmd.py（新增）, backend/app/tools/shell_tool.py, backend/tests/test_tools/test_shell_tool_cmd_fallback.py（新增）
+- **关联**: 提交 `c5d96e14`
+
+### 问题/需求
+Windows Phase 2 沙箱上线后，argv 模式执行 `mkdir`/`copy`/`dir`/`echo`/`if` 等 cmd 内部命令必然失败。
+
+### 原因
+cmd 内部命令没有独立的 `.exe` 文件，`CreateProcess` 按 argv[0] 找可执行文件时必然找不到，直接报错。
+
+### 修复/实现方法
+1. 新增 `windows_cmd.py`：`CMD_INTERNAL_COMMANDS` 清单列出 cmd 内建命令，明确排除 `find`/`findstr`/`robocopy`/`where` 等本身有独立 `.exe` 的命令；配套 `is_cmd_internal_command` 判定函数。
+2. `shell_tool._execute_decision` 在 Windows 下识别到 argv[0] 是 cmd 内部命令时，降级走 `_execute_shell(decision.command, ...)`，复用原始命令字符串（`list2cmdline` 重新拼接会破坏带引号路径，实测不可用，因此不能走 argv 模式重新拼接）。
+
+### 测试验证及结果
+- 新增 `test_shell_tool_cmd_fallback.py`：清单覆盖（命中 cmd 内部命令、排除有独立 exe 的命令、大小写不敏感、空值安全）+ shell_tool 分发验证（mkdir 走 shell 降级、git 走 argv 不降级、Linux 平台不触发降级）。
+- **结论**: 提交时测试通过（详见 `c5d96e14` 提交说明）。
+
+### 经验教训/待办
+- 经验：Windows 下 argv 模式执行命令前，必须先判断目标命令是否是某个解释器（cmd/PowerShell）的内建命令而非独立可执行文件，否则会被 `CreateProcess` 直接拒绝。
+
+---
+
+## [2026-07-21] [Bug修复] 修复 PowerShell/cmd 引号残留与子agent首轮工具门禁问题
+
+- **类型**: Bug修复
+- **涉及文件**: backend/app/security/shell_security.py, backend/app/security/command_effect_registry.py, backend/app/security/command_policy.py, backend/app/execution/rapid_loop.py, backend/app/execution/approval_flow.py, backend/app/agents/sub_agent_runner.py, backend/app/config/settings.py, backend/app/execution/runtime_tool_definitions.py, backend/app/execution/prompts/system.txt, backend/app/execution/prompts/glm/system.txt, frontend/src/components/workspace/ToolGroupItem.tsx
+- **关联**: 提交 `db3f8968`
+
+### 问题/需求
+端到端验证子 agent 委托执行 PowerShell 命令时发现两个问题：命令被字面回显而不是真正执行；子 agent 委托任务首轮报"没有 shell 工具"。
+
+### 原因
+1. Windows 下 `shlex.split(posix=False)` 不会剥离引号，导致 `powershell -Command "..."` 里的引号原样传给子进程，命令被当作字面字符串回显，而非真正执行。
+2. `command_effect_registry` 中 `powershell`/`pwsh`/`cmd` 被注册为裸的 `ESCALATE` 类别，没有 `flag_overrides`，因此这些命令即使带 `-Command`/`/c` 也永远走不到降级判断分支，一律被拒绝（对比 `bash -c` 等 Unix 解释器已有 `flag_overrides={"-c": CODE_GEN}`）。
+3. 子 agent 委托任务首轮按设计只暴露探索类工具（探索门禁），导致明确要求执行 shell 命令的委托任务首轮直接报"没有该工具"。
+
+### 修复/实现方法
+1. `shell_security.py` 修复引号剥离逻辑，确保 Windows 下解析出的参数不带残留引号。
+2. `command_effect_registry.py` 给 `powershell`/`pwsh`/`cmd` 补充 `flag_overrides`（`-Command`/`-c`/`-EncodedCommand`、`/c`/`/k` 等 → `CODE_GEN`），使其与 `bash -c` 同等语义，交由 `command_policy._shell_interpreter_override` 判断降级。
+3. `command_policy.py` 把 `powershell`/`pwsh`/`cmd` 纳入解释器判断路径，扩展 `INLINE_EVAL_FLAGS` 覆盖对应的 PowerShell/cmd 标志。
+4. 新增 `skip_exploration_gate` 配置项，让子 agent 委托任务首轮跳过探索门禁，直接给全量工具集。
+5. 配套支持并行 delegate：`ApprovalFlow` 按 `approval_id` 拆分为多槍位，避免并发审批互相覆盖 set_approval_result 的结果；`agent_service.py` 中并发子 agent 会话 id 附加唯一短后缀避免碰撞；前端 `ToolGroupItem` 按 delegate 逐项切分渲染，使同组内多个并行委托各自正确展示。
+
+### 测试验证及结果
+- 新增/覆盖测试：test_approval_flow.py（新增）、test_shell_security_quoting.py（新增）、test_rapid_loop.py、test_runtime_tool_definitions.py、test_command_policy.py、test_agent_service.py、test_prompt_manager.py。
+- 已通过真实环境端到端验证：委托子 agent 执行 `powershell -NoProfile -Command "Write-Output 'hint test ok'"`，日志核实 `argv 模式执行完成: success=True, output_len=12`，命令首轮即可见 shell 工具（`tool_calls: ['delegate']` → 子 agent 内 `tool_calls: ['shell']`），审批流程正常走完。
+- **结论**: 两个问题均已修复并在真实环境验证通过。
+
+### 经验教训/待办
+- 经验：新增一类 shell 解释器时，`command_effect_registry`（效果分类+flag_overrides）和 `command_policy`（解释器判断路径+INLINE_EVAL_FLAGS）必须成对更新，只改一处会导致虽然分类对了但仍然走不到降级判断，或反之。
+
+---
+
+## [2026-07-22] [Bug修复] 修复打包安装后启动崩溃（全局Python环境污染导致误打包重型依赖）
+
+- **类型**: Bug修复
+- **涉及文件**: backend/requirements.txt, frontend/scripts/package-backend.mjs
+- **关联**: 提交 `9166da5c`
+
+### 问题/需求
+打包生成安装包并安装后，启动应用弹窗报错"Backend Startup Failed - 后端进程已退出 (code=1, signal=null)"，无法正常使用。
+
+### 原因
+1. `frontend/scripts/package-backend.mjs` 调用打包时使用的是本机全局 `pyinstaller`（全局 Python 环境），而该环境被其他项目污染，装有 torch、nltk、transformers、llama-index、modelscope 等与本项目无关的重型库。
+2. `llama-index`/`modelscope`/`transformers` 都声明了对 nltk 的依赖，nltk 又依赖 scipy/numpy，PyInstaller 的依赖分析把这条无关依赖链一并收集进了 exe。
+3. numpy 在同一进程内被 import 两次时会触发已知 bug（numpy/numpy#28271）：`RuntimeError: CPU dispatcher tracer already initlized`，这是 exe 启动即崩溃、进程 code=1 退出的直接原因。
+4. 排查过程中还发现 `backend/requirements.txt` 长期缺失 `python-multipart`——FastAPI 的 `UploadFile`/`File()` 路由声明时才检测该依赖是否安装，import 阶段不报错，此前全局环境"意外"装了它所以从未暴露；换成干净环境后暴露为新错误 `RuntimeError: Form data requires "python-multipart" to be installed.`。
+
+### 修复/实现方法
+1. 为 backend 建立专属虚拟环境 `backend/.venv`，只安装 `requirements.txt` 声明的依赖，从根本上避免全局环境污染导致的误打包。
+2. 修改 `package-backend.mjs`：优先使用 `backend/.venv` 中的 `pyinstaller`（Windows: `.venv/Scripts/pyinstaller.exe`，macOS/Linux: `.venv/bin/pyinstaller`），venv 不存在时 fallback 到全局 `pyinstaller` 保持向后兼容。
+3. 在 `requirements.txt` 补齐缺失的 `python-multipart==0.0.20`。
+4. 曾怀疑是 PyInstaller spec 里的 UPX 压缩导致 numpy dispatcher 重复初始化（改 `upx=False` 验证），复现同样报错后确认该假设错误，已还原 spec 文件，不保留无关改动。
+
+### 过程
+1. 用 systematic-debugging 流程排查：先假设 UPX 压缩是根因，修改 spec 验证后依然报同样错误，假设被推翻，回到 Phase 1 重新分析。
+2. 检查全局 Python 环境（`where python`、`VIRTUAL_ENV` 为空），确认打包用的是全局解释器；用 `importlib.metadata` 查询确认 llama-index/modelscope/transformers 都在全局 site-packages 里且依赖 nltk。
+3. 定位真正根因为环境污染，创建 `backend/.venv` 并只装 `requirements.txt` 声明的依赖，确认其中无 nltk/torch/numpy/scipy/transformers 等污染性依赖。
+4. 用干净 venv 重新打包，运行 exe 又暴露出新错误（缺 `python-multipart`），补齐依赖后再次打包验证。
+
+### 测试验证及结果
+- 手动运行 `reflexion-backend.exe`，等待约 15 秒（首次启动含 skill 目录扫描），`curl http://127.0.0.1:8000/health` 返回 `{"status":"healthy"}`，HTTP 200。✅
+- 跑完整 `pnpm dist:win` 重新生成安装包，COLLECT 阶段耗时从原先十几分钟压缩到约 5.6 秒，印证包体积大幅减小（去除了 torch 等无关大型依赖）。✅
+- **结论**: 已解决，新安装包验证通过（`frontend/release/ReflexionOS Setup 1.1.0.exe`）。
+
+### 经验教训/待办
+- 经验：PyInstaller 打包必须用项目专属虚拟环境，不能依赖全局 Python 环境——全局环境里其他项目装的无关依赖会被静默收集进 exe，且这类问题在开发机上不会暴露（因为直接跑 `python main.py` 不受影响），只有在打包后的冻结环境里才会触发。
+- 经验：隐式依赖（如 FastAPI 的 `python-multipart`）在 import 阶段不报错，只有实际触发对应代码路径时才报错，容易被全局环境"意外满足"掩盖，必须用干净环境走一遍完整功能才能发现。
+- 待办：`backend/.venv` 目前只在 Windows 机器上建过，macOS/Linux 打包前需要各自在对应系统上创建 venv 并安装依赖，该过程未自动化。
+
+## [2026-07-24] [Bug修复] Windows 下代码 tab 文件树和 diff 加载失败（SelectorEventLoop 不支持子进程）
+
+- **类型**: Bug修复
+- **涉及文件**: `backend/app/services/file_content_service.py`
+- **关联**: （无）
+
+### 问题/需求
+点击"代码"tab 后，右侧文件栏一直显示"加载中..."，文件树无法加载，文件内容也不能显示。
+同样操作在 macOS 上完全正常，仅 Windows 复现。
+
+### 原因
+`file_content_service.py` 的 `_get_git_status_map`（获取文件树 git 状态）和 `get_diff_content`（获取 diff 内容）两处函数内部直接调用 `asyncio.create_subprocess_exec` 跑 git 命令。
+
+`start-dev.sh` / `start.sh` 均以 `uvicorn --reload` 启动后端；uvicorn 在 Windows + `--reload` 组合下会强制切换为 `WindowsSelectorEventLoopPolicy`（见 `uvicorn/loops/asyncio.py`），该事件循环**不支持子进程**——任何 `asyncio.create_subprocess_exec` 调用都会立即抛出 `NotImplementedError`。
+
+`_get_git_status_map` 的异常捕获只覆盖了 `(FileNotFoundError, TimeoutError)`，`NotImplementedError` 未被拦截，导致异常冒泡到路由层，文件树接口返回 500，前端加载失败。
+
+macOS 使用 kqueue-based 默认事件循环，天然支持子进程，故不受影响。
+
+### 修复/实现方法
+新增 `_run_git` 辅助异步方法，内部对平台做分支：
+- **Windows**：用 `loop.run_in_executor(None, self._run_git_sync, ...)` 在线程池中执行同步的 `subprocess.run`，完全绕开事件循环的子进程支持限制。
+- **其他平台**：保持原有 `asyncio.create_subprocess_exec` + `asyncio.wait_for` 逻辑不变。
+
+将 `_get_git_status_map` 和 `get_diff_content` 中原有的直接子进程调用替换为统一的 `await self._run_git(...)`；同时补全异常捕获，增加 `subprocess.TimeoutExpired`。
+
+此模式与 `shell_tool.py` 中已验证的 Windows 兼容方案完全一致（`shell_tool.py` 此前已因同样问题修复过）。
+
+### 过程
+1. 读取 `WorkspaceHeader.tsx`、`AgentWorkspace.tsx`、`CodeTab.tsx` 确认前端"代码"tab 的渲染链路，定位到 `FileSidebar` 一直处于 loading 状态。
+2. 读取 `FileSidebar.tsx`，发现 `fileApi.getTree` 请求触发文件树加载，且 loading 状态依赖请求结果。
+3. 读取 `file_content_service.py`，发现 `_get_git_status_map` 直接用 `asyncio.create_subprocess_exec`，且 except 只捕获 `FileNotFoundError`/`TimeoutError`。
+4. 读取现有测试 `test_shell_tool_windows_eventloop.py`，发现同样的坑在 `shell_tool.py` 已有文档和修复，确认根因。
+5. 在 `WindowsSelectorEventLoopPolicy` 下实测复现：`create_subprocess_exec` 立即抛 `NotImplementedError`。
+6. 提取 `shell_tool.py` 的 `run_in_executor` 模式，在 `file_content_service.py` 新增 `_run_git` / `_run_git_sync`，替换两处调用。
+7. 再次实测验证：selector loop 下 `_get_git_status_map` 正常返回 git 状态，`_build_tree` 正常构建文件树，`git show` 正常返回内容。
+
+### 测试验证及结果
+- 在 `WindowsSelectorEventLoopPolicy` 下直接调用 `_get_git_status_map`：不再抛 `NotImplementedError`，返回 12 条 git 状态条目 ✅
+- `_run_git` 执行 `git show HEAD:CLAUDE.md`：正常返回，无异常 ✅
+- 运行 `tests/test_tools/test_shell_tool_windows_eventloop.py` + `tests/test_file_content_api.py`：12 项全部通过 ✅
+- **结论**: Windows 下文件树和 diff 接口已恢复正常，macOS 行为不受影响
+
+### 经验教训/待办
+- 经验：`uvicorn --reload` 在 Windows 下会切 `WindowsSelectorEventLoopPolicy`，任何在请求处理链路里调用 `asyncio.create_subprocess_exec` 的代码都会炸——必须全局改用 `run_in_executor` + 同步 `subprocess.run`。这是 Windows 平台必须统一处理的坑，不能仅修一处。
+- 经验：同类问题在 `shell_tool.py` 已踩过并留下测试文件，但 `file_content_service.py` 新增 git 子进程调用时没有参照，说明跨文件的模式一致性需要 review checklist 显式覆盖。
+- 待办：项目里其他地方是否还有直接用 `asyncio.create_subprocess_exec` 的调用值得做一次全局 grep 排查，避免留下同类隐患。

@@ -1,3 +1,9 @@
+/**
+ * 文件功能：代码编辑主面板
+ * 文件描述：管理当前打开文件的标签栏、加载内容/diff、编辑/diff 视图切换与保存逻辑
+ * 核心逻辑：根据 activeFile 的 viewMode（edit/diff）分别调用 fileApi 获取文件原始内容或 diff 内容，
+ *          编辑内容通过 ref 同步（避免闭包过期），保存时按当前视图模式取最新内容写回后端
+ */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useCodeTabStore, type ViewMode } from '@/features/code/stores/codeTab.store'
 import { fileApi } from '@/features/code/api/file.api'
@@ -6,6 +12,12 @@ import { CodeEditor } from './CodeEditor'
 import { EditableDiffViewer } from './EditableDiffViewer'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 
+/**
+ * 组件名：CodeTabEmpty
+ * 入参：无
+ * 作用/渲染逻辑：未选中任何文件时展示的空状态提示
+ * 返回值：JSX.Element - 提示文案
+ */
 function CodeTabEmpty() {
   return (
     <div className="flex h-full items-center justify-center text-content-muted">
@@ -14,6 +26,12 @@ function CodeTabEmpty() {
   )
 }
 
+/**
+ * 组件名：CodeTabLoading
+ * 入参：无
+ * 作用/渲染逻辑：文件内容/diff 加载中展示的占位提示
+ * 返回值：JSX.Element - 加载中文案
+ */
 function CodeTabLoading() {
   return (
     <div className="flex h-full items-center justify-center text-content-muted">
@@ -22,6 +40,17 @@ function CodeTabLoading() {
   )
 }
 
+/**
+ * 组件名：CodeTab
+ * 入参：无（内部通过 useCodeTabStore / useProjectStore 读取状态）
+ * 作用/渲染逻辑：
+ *   1. 从 codeTab store 读取当前打开的文件列表与激活文件，无激活文件时展示空状态
+ *   2. 激活文件变化时异步加载内容：edit 模式加载文件文本（若本地有未保存的脏内容则优先使用），
+ *      diff 模式加载原始/修改后内容对比
+ *   3. 提供编辑/diff 内容变更处理、保存（写回后端并清除脏标记）、切换文件、切换视图模式等回调
+ *   4. 渲染 CodeTabBar 标签栏 + 对应的 CodeEditor 或 EditableDiffViewer
+ * 返回值：JSX.Element - 代码编辑面板（标签栏 + 编辑器/diff 视图）
+ */
 export function CodeTab() {
   const openFiles = useCodeTabStore((s) => s.openFiles)
   const activeFileId = useCodeTabStore((s) => s.activeFileId)

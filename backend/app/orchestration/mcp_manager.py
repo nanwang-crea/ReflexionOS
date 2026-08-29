@@ -1,3 +1,11 @@
+"""
+MCP (Model Context Protocol) 服务器管理模块。
+
+管理 MCP 服务器的配置注册/注销、进程启停以及工具调用/列举。
+当前为第一阶段骨架实现：仅维护配置与接口形状，服务器启动、工具调用等
+实际功能留待第二阶段接入真实 MCP 进程通信后完善。
+"""
+
 import asyncio
 import logging
 from typing import Any
@@ -72,7 +80,13 @@ class MCPManager:
     async def start_server(self, server_id: str) -> bool:
         """启动 MCP 服务器
 
-        Note: 第二阶段实现
+        Args:
+            server_id: 服务器 ID
+
+        Returns:
+            bool: 是否启动成功
+
+        Note: 第二阶段实现，当前恒返回 False
         """
         logger.warning("MCP 服务器启动将在第二阶段实现")
         return False
@@ -80,7 +94,13 @@ class MCPManager:
     async def stop_server(self, server_id: str) -> bool:
         """停止 MCP 服务器
 
-        Note: 第二阶段实现
+        Args:
+            server_id: 服务器 ID
+
+        Returns:
+            bool: 是否停止成功
+
+        Note: 第二阶段实现，当前恒返回 False
         """
         logger.warning("MCP 服务器停止将在第二阶段实现")
         return False
@@ -111,11 +131,22 @@ class MCPManager:
         return list(self.tools.values())
 
     def list_servers(self) -> list[MCPServerConfig]:
-        """列出所有 MCP 服务器配置"""
+        """列出所有 MCP 服务器配置
+
+        Returns:
+            list[MCPServerConfig]: 已注册的服务器配置列表
+        """
         return list(self.servers.values())
 
     def get_server(self, server_id: str) -> MCPServerConfig | None:
-        """获取服务器配置"""
+        """获取服务器配置
+
+        Args:
+            server_id: 服务器 ID
+
+        Returns:
+            MCPServerConfig | None: 对应配置，不存在则返回 None
+        """
         return self.servers.get(server_id)
 
 

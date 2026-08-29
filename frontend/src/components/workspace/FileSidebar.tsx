@@ -1,3 +1,9 @@
+/**
+ * 文件功能：文件侧边栏
+ * 文件描述：展示当前项目的文件树 / Git 变更两个标签视图，支持刷新、收起、拖拽调整宽度
+ * 核心逻辑：项目或侧边栏打开状态变化时异步加载文件树；宽度调整通过监听全局 mousemove/mouseup
+ *          实现拖拽手柄逻辑；'文件'/'变更' 两个 tab 分别渲染 FileTreeItem 列表或 GitChangesTab
+ */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { GripVertical, PanelRightClose, RefreshCw } from 'lucide-react'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
@@ -8,6 +14,17 @@ import { FileTreeItem } from './FileTreeItem'
 import { GitChangesTab } from './git/GitChangesTab'
 import type { FileTreeNode } from '@/types/fileTree'
 
+/**
+ * 组件名：FileSidebar
+ * 入参：无（内部通过 useCodeTabStore / useGitStore / useProjectStore 读取状态）
+ * 作用/渲染逻辑：
+ *   1. 侧边栏关闭时不渲染任何内容
+ *   2. 当前项目或侧边栏打开状态、fileTreeVersion 变化时异步加载文件树
+ *   3. 顶部提供刷新（重新拉取文件树）与收起侧边栏按钮
+ *   4. 中部为 '文件'/'变更' 两个 tab：文件 tab 渲染文件树列表，变更 tab 渲染 GitChangesTab
+ *   5. 左边缘提供可拖拽的宽度调整手柄，拖拽时通过全局 mousemove/mouseup 监听更新宽度
+ * 返回值：JSX.Element | null - 文件侧边栏，或收起时为 null
+ */
 export function FileSidebar() {
   const sidebarOpen = useCodeTabStore((s) => s.sidebarOpen)
   const sidebarWidth = useCodeTabStore((s) => s.sidebarWidth)
@@ -47,6 +64,7 @@ export function FileSidebar() {
     return () => { cancelled = true }
   }, [currentProject, sidebarOpen, fileTreeVersion])
 
+  // 拖拽侧边栏宽度调整手柄：记录起始鼠标位置与起始宽度，移动时按位移量反向计算新宽度（手柄在左侧）
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     resizingRef.current = true

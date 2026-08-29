@@ -1,7 +1,12 @@
 # WindowsSandbox 主类（Task 6: CreateProcessAsUser + Restricted Token）单测
 import sys
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 import pytest
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows sandbox tests require Windows APIs",
+)
 
 
 @pytest.fixture(autouse=True)

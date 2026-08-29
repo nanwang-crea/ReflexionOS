@@ -2,13 +2,11 @@ import asyncio
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 import app.services.agent_service as agent_service_module
 from app.execution.models import LoopResult, LoopStatus
-from app.execution.conversation_history_loader import ConversationHistoryLoader
 
 from app.models.conversation import (
     ConversationEvent,
@@ -31,6 +29,8 @@ from app.services.llm_provider_service import LLMProviderService
 from app.storage.database import Database
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
+from app.tools.base import BaseTool, ToolResult
+from app.tools.registry import ToolRegistry
 
 
 class DummyConfigManager:
@@ -407,6 +407,52 @@ async def test_cancel_run_expires_pending_approval_for_cancelled_waiting_run(
 
     assert cancelled.status == RunStatus.CANCELLED
     pending = service.pending_approval_store.get("approval-1")
+    assert pending is not None
+    assert pending.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_cancel_run_expires_sub_agent_pending_approval_for_same_session(
+    monkeypatch, tmp_path
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, conversation_service, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+    started = conversation_service.start_turn(
+        session_id="session-1",
+        content="等待子任务审批",
+        provider_id="provider-a",
+        model_id="model-a",
+        workspace_ref=str(tmp_path),
+    )
+    service.pending_approval_store.create(
+        approval_id="approval-sub-1",
+        session_id="session-1",
+        turn_id="",
+        run_id="sub-run-1",
+        step_number=1,
+        tool_call_id="sub-call-1",
+        tool_name="shell",
+        tool_arguments={"command": "git status"},
+        approval_payload={"summary": "Sub task"},
+    )
+
+    cancelled = await service.cancel_run(started.run.id)
+
+    assert cancelled.status == RunStatus.CANCELLED
+    pending = service.pending_approval_store.get("approval-sub-1")
     assert pending is not None
     assert pending.status == "expired"
 
@@ -899,6 +945,69 @@ async def test_run_turn_builds_isolated_tool_registry_per_run(monkeypatch, tmp_p
 
 
 @pytest.mark.asyncio
+async def test_run_turn_cleans_session_approval_flow_after_finish(monkeypatch, tmp_path):
+    project_root = tmp_path / "project-root"
+    project_root.mkdir()
+
+    project = Project(id="project-1", name="ReflexionOS", path=str(project_root))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    approval_flow = object()
+
+    class StubRuntimeAdapter:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def handle_event(self, event_type, data):
+            return []
+
+        def build_live_event(self, event_type, data):
+            return None
+
+        def get_live_state(self):
+            return None
+
+    class StubRapidExecutionLoop:
+        def __init__(self, **kwargs):
+            self.approval_flow = approval_flow
+
+        async def run(self, **kwargs):
+            return LoopResult(id=kwargs["run_id"], task=kwargs["task"], status=LoopStatus.COMPLETED)
+
+    monkeypatch.setattr(agent_service_module, "ConversationRuntimeAdapter", StubRuntimeAdapter)
+    monkeypatch.setattr(agent_service_module, "RapidExecutionLoop", StubRapidExecutionLoop)
+    monkeypatch.setattr(
+        agent_service_module.LLMAdapterFactory, "create", lambda *args, **kwargs: object()
+    )
+
+    await service._run_turn(
+        run_id="run-1",
+        session_id="session-1",
+        turn_id="turn-1",
+        task="hello",
+        project_id="project-1",
+        project_path=str(project_root),
+        provider_id="provider-a",
+        model_id="model-a",
+    )
+
+    assert service._session_approval_flows.get("session-1") is None
+
+
+@pytest.mark.asyncio
 async def test_run_turn_passes_context_assembly_into_execution_loop(monkeypatch, tmp_path):
     project_root = tmp_path / "project-root"
     project_root.mkdir()
@@ -1119,6 +1228,181 @@ async def test_approve_tool_call_executes_stored_shell_command_and_resumes_run(
 
 
 @pytest.mark.asyncio
+async def test_sub_agent_trust_and_allow_adds_parent_session_trust_rule(
+    monkeypatch, tmp_path
+):
+    project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
+    session = Session(id="session-1", project_id="project-1", title="需求讨论")
+    provider = build_provider("provider-a", "Provider A", ["model-a"])
+    settings = LLMSettings(
+        providers=[provider],
+        default_provider_id="provider-a",
+        default_model_id="model-a",
+    )
+    service, _, _ = build_service_with_db(
+        monkeypatch,
+        tmp_path,
+        project=project,
+        session=session,
+        settings=settings,
+    )
+
+    class StubApprovalFlow:
+        def __init__(self):
+            self.result = None
+            self.approval_id = None
+
+        def set_approval_result(self, result, approval_id=None):
+            self.result = result
+            self.approval_id = approval_id
+
+    approval_flow = StubApprovalFlow()
+    service._session_approval_flows["session-1"] = approval_flow
+    service.pending_approval_store.create(
+        approval_id="approval-sub-trust",
+        session_id="session-1",
+        turn_id="",
+        run_id="sub-run-1",
+        step_number=1,
+        tool_call_id="call-sub-shell",
+        tool_name="shell",
+        tool_arguments={"command": "git status"},
+        approval_payload={
+            "payload": {
+                "approved_decision": {
+                    "action": "allow",
+                    "command": "git status",
+                    "execution_mode": "argv",
+                    "cwd": str(tmp_path),
+                },
+            },
+            "suggested_trust": {
+                "prefix": ["git"],
+            },
+        },
+    )
+
+    async def fake_execute_approved_tool(pending, *, run_id):
+        assert pending.run_id == "sub-run-1"
+        assert run_id == "sub-run-1"
+        return agent_service_module.ToolResult(success=True, output="ok")
+
+    monkeypatch.setattr(service, "_execute_approved_tool", fake_execute_approved_tool)
+
+    await service.approve_tool_call(
+        session_id="session-1",
+        run_id="sub-run-1",
+        approval_id="approval-sub-trust",
+        decision="trust_and_allow",
+    )
+
+    pending = service.pending_approval_store.get("approval-sub-trust")
+    assert pending.status == "approved"
+    assert pending.decision == "trust_and_allow"
+    assert service.trust_store.matches("session-1", "shell", "git")
+    assert len(service.trust_store.get_rules("session-1")) == 1
+    assert approval_flow.approval_id == "approval-sub-trust"
+    assert approval_flow.result == {
+        "success": True,
+        "output": "ok",
+        "error": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_sub_agent_approved_tool_uses_child_loop_registry(monkeypatch, tmp_path):
+    service, _, _ = build_service_with_db(monkeypatch, tmp_path)
+
+    class ApprovedOnlyTool(BaseTool):
+        def __init__(self):
+            self.received_args = None
+
+        @property
+        def name(self) -> str:
+            return "approved_only"
+
+        @property
+        def description(self) -> str:
+            return "approved_only"
+
+        def get_schema(self):
+            return {
+                "name": self.name,
+                "description": self.description,
+                "parameters": {"type": "object"},
+            }
+
+        async def execute(self, args: dict):
+            self.received_args = args
+            return ToolResult(success=True, output="child-registry-tool")
+
+    tool = ApprovedOnlyTool()
+    child_registry = ToolRegistry()
+    child_registry.register(tool)
+    child_loop = SimpleNamespace(tool_registry=child_registry)
+    service._sub_agent_execution_loops["sub-run-child"] = child_loop
+    pending = service.pending_approval_store.create(
+        approval_id="approval-child-registry",
+        session_id="session-1",
+        turn_id="",
+        run_id="sub-run-child",
+        step_number=1,
+        tool_call_id="call-approved-only",
+        tool_name="approved_only",
+        tool_arguments={"value": 42},
+        approval_payload={
+            "payload": {
+                "approved_decision": {
+                    "command": "custom",
+                    "cwd": str(tmp_path),
+                },
+            },
+        },
+    )
+
+    result = await service._execute_approved_tool(pending, run_id="sub-run-child")
+
+    assert result.success is True
+    assert result.output == "child-registry-tool"
+    assert tool.received_args == {
+        "value": 42,
+        "_approved_decision": {"command": "custom", "cwd": str(tmp_path)},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("session_id", "run_id", "expected_error"),
+    [
+        ("other-session", "sub-run-1", "审批不属于当前会话"),
+        ("session-1", "sub-run-other", "审批不属于当前运行"),
+    ],
+)
+async def test_sub_agent_approval_validates_pending_ownership(
+    monkeypatch, tmp_path, session_id, run_id, expected_error
+):
+    service, _, _ = build_service_with_db(monkeypatch, tmp_path)
+    service.pending_approval_store.create(
+        approval_id="approval-sub-owned",
+        session_id="session-1",
+        turn_id="",
+        run_id="sub-run-1",
+        step_number=1,
+        tool_call_id="call-sub-shell",
+        tool_name="shell",
+        tool_arguments={"command": "git status"},
+        approval_payload={"payload": {"approved_decision": {"command": "git status"}}},
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        await service.approve_tool_call(
+            session_id=session_id,
+            run_id=run_id,
+            approval_id="approval-sub-owned",
+        )
+
+
+@pytest.mark.asyncio
 async def test_deny_tool_call_does_not_execute_command(monkeypatch, tmp_path):
     project = Project(id="project-1", name="ReflexionOS", path=str(tmp_path))
     session = Session(id="session-1", project_id="project-1", title="需求讨论")
@@ -1279,7 +1563,7 @@ async def test_approve_tool_call_resumes_execution_loop(monkeypatch, tmp_path):
 
     await asyncio.sleep(0.1)
     assert len(captured_loops) == 1
-    stub_loop = captured_loops[0]
+    captured_loops[0]
 
     pending = service.pending_approval_store.get(approval_id)
     assert pending is not None

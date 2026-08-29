@@ -1,3 +1,9 @@
+/**
+ * 文件功能：session.store.ts 与 session.api.ts 的单元测试
+ * 文件描述：分两部分——一是验证 createSessionStore 生成的会话缓存 store（设置/合并写入/删除）行为是否正确；
+ *           二是验证 sessionApi 在请求/响应时能否正确完成 camelCase 与 snake_case 字段的双向转换。
+ * 核心逻辑：对 @/services/apiClient 做 mock 拦截网络请求，用 vi.fn 断言实际发出的请求参数与转换后的响应数据。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSessionStore } from '@/features/sessions/stores/session.store'
 
@@ -199,6 +205,7 @@ describe('sessionApi', () => {
         preferredProviderId: 'provider-a',
         preferredModelId: 'model-a',
         agentMode: 'build',
+        permissionMode: 'auto',
         lastEventSeq: 0,
         activeTurnId: null,
         createdAt: '2026-04-20T00:00:00Z',
@@ -241,6 +248,7 @@ describe('sessionApi', () => {
       preferredProviderId: undefined,
       preferredModelId: 'model-a',
       agentMode: 'build',
+      permissionMode: 'auto',
       lastEventSeq: 0,
       activeTurnId: null,
       createdAt: '2026-04-20T00:00:00Z',
@@ -281,6 +289,7 @@ describe('sessionApi', () => {
       preferredProviderId: 'provider-b',
       preferredModelId: undefined,
       agentMode: 'build',
+      permissionMode: 'auto',
       lastEventSeq: 0,
       activeTurnId: null,
       createdAt: '2026-04-20T00:00:00Z',

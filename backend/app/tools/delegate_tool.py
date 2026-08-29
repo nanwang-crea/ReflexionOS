@@ -42,6 +42,16 @@ class DelegateTool(BaseTool):
         event_callback: EventCallback | None = None,
         parent_session_id: str | None = None,  # 主 Agent 的 session_id，用于 SubAgent 审批路由
     ):
+        """
+        初始化委托工具。
+
+        入参：
+            runner_factory: 创建 SubAgentRunner 实例的工厂函数（接收 task/input_data/expected_output）
+            event_callback: 可选，用于将子 agent 执行事件实时推送到外部（如前端）的回调
+            parent_session_id: 可选，主 Agent 的 session_id，用于子 agent 审批事件路由回主会话
+
+        工作流程：保存工厂函数与回调引用，不立即创建 SubAgentRunner（惰性创建，见 execute）。
+        """
         super().__init__()
         self._runner_factory = runner_factory
         # 外部注入的事件回调，用于将子 agent 执行事件实时推送到前端
@@ -51,10 +61,12 @@ class DelegateTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """工具名称，固定为 'delegate'，用于 LLM 的 tool_calls 识别。"""
         return self.TOOL_NAME
 
     @property
     def description(self) -> str:
+        """工具描述，告诉 LLM 该工具的适用/不适用场景。"""
         return (
             "委托一个独立子 Agent 执行子任务。"
             "子 Agent 拥有独立的工具集和执行上下文。"
@@ -64,6 +76,12 @@ class DelegateTool(BaseTool):
         )
 
     def get_schema(self) -> dict[str, Any]:
+        """
+        返回工具的 JSON Schema，传递给 LLM 的 tools 参数。
+
+        出参：dict，包含 task（必填，任务描述）、input（可选，附加输入数据）、
+        expected_output（可选，预期输出描述）三个参数的定义。
+        """
         return {
             "name": self.name,
             "description": self.description,

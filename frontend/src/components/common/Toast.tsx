@@ -1,13 +1,19 @@
+// 应用内 Toast 提示容器：订阅 toast.store，在页面顶部居中弹出一组消息条（error/warning/info 三种级别），
+// 支持自动/手动关闭，使用 framer-motion 实现出入场动画。
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertCircle, Info, AlertTriangle, X } from 'lucide-react'
 import { useToastStore, type ToastItem } from '@/shared/stores/toast.store'
 
+// 各提示级别对应的图标与配色（背景/边框/文字），未知级别时在使用处兜底为 info。
 const levelConfig: Record<string, { icon: typeof AlertCircle; bg: string; border: string; text: string }> = {
   error: { icon: AlertCircle, bg: 'bg-status-error-soft', border: 'border-status-error-border', text: 'text-status-error' },
   warning: { icon: AlertTriangle, bg: 'bg-status-warning-soft', border: 'border-status-warning-border', text: 'text-status-warning' },
   info: { icon: Info, bg: 'bg-accent-soft', border: 'border-edge', text: 'text-accent' },
 }
 
+// 参数：item - 单条 toast 数据（id、级别、消息内容等）。
+// 作用：渲染单条 toast 提示，根据级别选取图标与配色，提供手动关闭按钮（点击调用 store.removeToast）。
+// 返回：单条 toast 的 JSX（带 framer-motion 进出场动画）。
 function ToastItem({ item }: { item: ToastItem }) {
   const removeToast = useToastStore((s) => s.removeToast)
   const config = levelConfig[item.level] ?? levelConfig.info
@@ -35,6 +41,9 @@ function ToastItem({ item }: { item: ToastItem }) {
   )
 }
 
+// 参数：无（内部通过 useToastStore 订阅全局 toast 列表）。
+// 作用：固定在页面顶部居中位置，展示当前所有 toast 消息，用 AnimatePresence 处理列表增删的过渡动画。
+// 返回：Toast 容器 JSX，供挂载在 App.tsx 顶层。
 export function ToastContainer() {
   const toasts = useToastStore((s) => s.toasts)
 

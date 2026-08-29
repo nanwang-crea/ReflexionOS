@@ -1,3 +1,16 @@
+/**
+ * 文件功能：会话状态的纯函数 reducer（状态转换逻辑）
+ * 文件描述：定义如何把后端会话快照（snapshot）、实时事件（event）、流式增量消息（live message）
+ *          合并/应用到本地 ConversationState 上，供 zustand store 调用。
+ * 核心逻辑：
+ *   1. 快照合并：以后端快照为准，但保留仍在流式输出、尚未落库的助手消息（避免闪断）；
+ *      同时兼容"向前加载更多历史"场景，保留本地已加载但快照未包含的历史轮次/消息。
+ *   2. 事件应用：按事件类型（turn.created / run.* / message.* / messages.truncated 等）
+ *      对状态做增量更新，并以 seq（事件序号）做幂等/乱序保护，只接受比 lastEventSeq 更新的事件。
+ *   3. 子 agent 事件：事件类型带有 "sub_agent:" 前缀时先剥离前缀再按普通事件处理，
+ *      delegate_call_id 保留在事件对象上供 UI 层判断展示方式。
+ *   4. 实时状态：流式消息通过 upsert/删除占位消息的方式维护，不影响 lastEventSeq（因为不是持久化事件）。
+ */
 import type {
   ConversationEvent,
   ConversationLiveMessage,
@@ -9,18 +22,51 @@ import type {
   ConversationTurn,
 } from '@/types/conversation'
 
+/**
+ * 函数名：isRecord
+ * 入参：
+ *   - value (unknown): 任意待判断的值
+ * 功能：类型守卫，判断某个值是否为普通对象（非 null、非数组）
+ * 运行逻辑：用 typeof 和 Array.isArray 组合判断
+ * 出参：boolean（类型谓词 value is Record<string, unknown>） - 是否为普通对象
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * 函数名：isValidRole
+ * 入参：
+ *   - value (unknown): 任意待判断的值，通常来自事件 payload 中的角色字段
+ * 功能：类型守卫，判断值是否为合法的消息角色（user 或 assistant）
+ * 运行逻辑：直接做值比较
+ * 出参：boolean（类型谓词） - 是否为合法角色
+ */
 function isValidRole(value: unknown): value is ConversationMessage['role'] {
   return value === 'user' || value === 'assistant'
 }
 
+/**
+ * 函数名：isValidMessageType
+ * 入参：
+ *   - value (unknown): 任意待判断的值，通常来自事件 payload 中的消息类型字段
+ * 功能：类型守卫，判断值是否为合法的消息类型（用户消息/工具轨迹/助手消息）
+ * 运行逻辑：直接做值比较
+ * 出参：boolean（类型谓词） - 是否为合法消息类型
+ */
 function isValidMessageType(value: unknown): value is ConversationMessage['messageType'] {
   return value === 'user_message' || value === 'tool_trace' || value === 'assistant_message'
 }
 
+/**
+ * 函数名：buildMessageOrder
+ * 入参：
+ *   - snapshot (ConversationSnapshot): 后端返回的会话快照，包含 turns 和 messages
+ * 功能：根据快照中的轮次顺序和轮内消息顺序，计算出消息 id 的展示顺序
+ * 运行逻辑：先建立 turnId -> turnIndex 的映射，再对消息按 (turnIndex, turnMessageIndex) 排序；
+ *          找不到所属轮次的消息排到最后（用 MAX_SAFE_INTEGER 兜底）
+ * 出参：string[] - 排好序的消息 id 列表
+ */
 function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
   const turnIndexById = Object.fromEntries(snapshot.turns.map((turn) => [turn.id, turn.turnIndex]))
 
@@ -34,6 +80,20 @@ function buildMessageOrder(snapshot: ConversationSnapshot): string[] {
     .map((message) => message.id)
 }
 
+/**
+ * 函数名：mergeStreamingMessages
+ * 入参：
+ *   - previous (ConversationState | undefined): 应用快照前的本地状态（首次加载时为 undefined）
+ *   - snapshot (ConversationSnapshot): 后端最新返回的会话快照
+ * 功能：合并快照消息与本地仍在流式输出、尚未写入快照的助手消息，避免快照刷新时正在
+ *      流式输出的内容被清空导致画面闪断
+ * 运行逻辑：
+ *   1. 无历史状态或当前会话没有 activeTurnId 时，直接采用快照数据；
+ *   2. 找到当前活跃轮次对应的 activeRunId，若不存在则直接采用快照数据；
+ *   3. 否则从本地状态中筛出属于该 run、仍处于 streaming 且快照中还没有的助手消息，
+ *      将其追加到快照消息之后，保证流式内容不丢失。
+ * 出参：{ messageOrder: string[]; messagesById: Record<string, ConversationMessage> } - 合并后的消息顺序与消息表
+ */
 function mergeStreamingMessages(
   previous: ConversationState | undefined,
   snapshot: ConversationSnapshot
@@ -83,6 +143,15 @@ function mergeStreamingMessages(
   }
 }
 
+/**
+ * 函数名：nextTurnMessageIndex
+ * 入参：
+ *   - state (ConversationState): 当前会话状态
+ *   - turnId (string): 目标轮次 id
+ * 功能：计算指定轮次下一条消息应使用的 turnMessageIndex（轮内消息序号）
+ * 运行逻辑：遍历该轮次下所有已存在的消息，取最大 turnMessageIndex 后加 1
+ * 出参：number - 下一条消息的轮内序号
+ */
 function nextTurnMessageIndex(state: ConversationState, turnId: string): number {
   const current = Object.values(state.messagesById)
     .filter((message) => message.turnId === turnId)
@@ -90,12 +159,33 @@ function nextTurnMessageIndex(state: ConversationState, turnId: string): number 
   return current + 1
 }
 
+// 消息流式状态的终态集合：达到这些状态后消息内容不会再变化
 const TERMINAL_STREAM_STATES = new Set<ConversationStreamState>(['completed', 'failed', 'cancelled'])
 
+/**
+ * 函数名：isTerminalStreamState
+ * 入参：
+ *   - state (ConversationStreamState): 消息的流式状态
+ * 功能：判断消息流式状态是否已到达终态（不会再更新）
+ * 运行逻辑：查表 TERMINAL_STREAM_STATES
+ * 出参：boolean - 是否为终态
+ */
 function isTerminalStreamState(state: ConversationStreamState): boolean {
   return TERMINAL_STREAM_STATES.has(state)
 }
 
+/**
+ * 函数名：upsertLiveAssistantMessage
+ * 入参：
+ *   - state (ConversationState): 当前会话状态
+ *   - liveMessage (ConversationLiveMessage): 实时到达的助手消息增量（含最新全量 contentText）
+ * 功能：将实时流式消息写入/更新到本地状态中的助手消息（不落库，仅用于即时展示）
+ * 运行逻辑：
+ *   1. 若消息已存在，则用最新内容/流式状态/payload 覆盖更新，若进入终态则记录 completedAt；
+ *   2. 若消息不存在，则新建一条助手消息，turnMessageIndex 通过 nextTurnMessageIndex 计算；
+ *   3. 若为新建消息，将其 id 追加到 messageOrder 末尾。
+ * 出参：ConversationState - 更新后的会话状态
+ */
 function upsertLiveAssistantMessage(
   state: ConversationState,
   liveMessage: ConversationLiveMessage

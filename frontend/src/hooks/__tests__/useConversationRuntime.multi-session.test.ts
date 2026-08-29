@@ -1,3 +1,7 @@
+// 文件功能：useConversationRuntime 多会话并行场景的单元测试
+// 文件描述：覆盖多会话同时运行时的连接调度与事件路由是否正确，详见下方现有注释列出的用例范围
+// 核心逻辑：mock 一个支持多实例、按 sessionId 区分 handlers 的 WebSocket，配合 mock 掉的
+// conversation/workspace store，验证不同会话的连接、事件、动作互不串扰
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 
@@ -290,6 +294,34 @@ describe('useConversationRuntime（多会话并行）', () => {
     expect(evtACall?.[0]).toBe('session-1')
     const evtBCall = applyEvent.mock.calls.find((call) => call[1].id === 'evt-b')
     expect(evtBCall?.[0]).toBe('session-2')
+  })
+
+  it('两个会话的子 agent 事件按 session 隔离存储', async () => {
+    conversationStoreState.conversationsBySessionId = {
+      'session-2': activeConversation('session-2', 'run-2'),
+    }
+
+    const { useConversationRuntime } = await import('../useConversationRuntime')
+    const { useSubAgentEventsStore } = await import('../useSubAgentEvents')
+    useSubAgentEventsStore.getState().clearAll()
+    useConversationRuntime('session-1')
+
+    await flushAsyncEffects()
+
+    fireWsEvent('session-1', 'sub_agent:event', {
+      event_type: 'tool:start',
+      delegate_call_id: 'delegate-call-1',
+      payload: { tool_name: 'file' },
+    })
+    fireWsEvent('session-2', 'sub_agent:event', {
+      event_type: 'tool:start',
+      delegate_call_id: 'delegate-call-1',
+      payload: { tool_name: 'shell' },
+    })
+
+    const state = useSubAgentEventsStore.getState()
+    expect(state.stepsBySessionId.get('session-1')?.get('delegate-call-1')?.[0].payload.tool_name).toBe('file')
+    expect(state.stepsBySessionId.get('session-2')?.get('delegate-call-1')?.[0].payload.tool_name).toBe('shell')
   })
 
   it('活跃会话数超过上限（5）时，多出来的会话不建立连接（降级补拉）', async () => {

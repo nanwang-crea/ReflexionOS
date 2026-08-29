@@ -1,3 +1,5 @@
+# FastAPI 应用入口：注册所有路由、中间件、全局异常处理器，并管理应用生命周期（插件/技能扫描、Agent 服务启停）。
+
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -30,6 +32,12 @@ logger = logging.getLogger("app")
 
 
 class RequestLoggingMiddleware:
+    """
+    HTTP 请求日志中间件。
+    记录每个请求的方法、路径、响应状态码和耗时（ms）。
+    仅处理 HTTP scope，WebSocket 等其他 scope 直接透传。
+    """
+
     def __init__(self, app):
         self.app = app
 
@@ -54,6 +62,11 @@ class RequestLoggingMiddleware:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """
+    FastAPI 应用生命周期管理。
+    启动时：启动 Agent 后台任务，加载本地已缓存的插件（不触发网络操作），扫描技能目录。
+    关闭时：关闭 Agent 服务，停止后台任务。
+    """
     agent_service.start_background_tasks()
 
     try:
@@ -91,8 +104,28 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    """
+    全局兜底异常处理器。
+    捕获所有未被其他 handler 处理的异常，记录完整 traceback 到日志，
+    并返回 JSON 格式的 500 响应（包含 detail 和 type 字段），便于前端和调试定位根因。
+    """
+    import traceback
+    logger.error("未捕获异常: %s\n%s", exc, traceback.format_exc())
+    return JSONResponse(status_code=500, content={"detail": str(exc), "type": type(exc).__name__})
+
+
 @app.exception_handler(AppError)
 async def app_error_handler(_request: Request, exc: AppError):
+    """
+    AppError 业务异常处理器。
+    将应用层错误映射到对应 HTTP 状态码：
+    - not_found → 404
+    - security_error → 403
+    - 其他 → 400
+    """
     status_code = 400
     if exc.code == "not_found":
         status_code = 404
@@ -102,6 +135,7 @@ async def app_error_handler(_request: Request, exc: AppError):
         status_code=status_code,
         content=exc.to_dict(),
     )
+
 
 app.add_middleware(RequestLoggingMiddleware)
 
@@ -128,6 +162,7 @@ app.include_router(upload.router)
 
 @app.get("/")
 async def root():
+    """返回服务基本信息，用于健康探测和版本确认。"""
     return {
         "name": "ReflexionOS",
         "version": "0.1.0",
@@ -138,12 +173,16 @@ async def root():
 
 @app.get("/health")
 async def health_check():
+    """健康检查端点，供 Electron 主进程探测后端是否就绪。"""
     return {"status": "healthy"}
 
 
 @app.get("/api/logs/info")
 async def logs_info():
-    """返回日志文件路径和配置信息，方便前端定位日志"""
+    """
+    返回日志文件路径和所在目录，便于前端或运维人员定位日志文件。
+    输出：log_file（完整路径）、log_dir（所在目录）。
+    """
     log_path = get_log_file_path()
     return {
         "log_file": str(log_path) if log_path else None,

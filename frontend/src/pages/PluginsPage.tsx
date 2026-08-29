@@ -1,3 +1,10 @@
+/**
+ * 文件功能：插件工作台页面
+ * 文件描述：展示和管理已安装的插件，支持安装新插件（从 Git 仓库/URL）、卸载、更新单个/全部插件、
+ *          刷新插件列表，以及展开查看每个插件下注册的技能列表
+ * 核心逻辑：插件列表通过 pluginApi 全量加载（非分页）；安装时支持在标识符后拼接可选分支/标签；
+ *          展开插件卡片时按需懒加载该插件的技能列表并缓存到 pluginSkills 中，避免重复请求
+ */
 import { useEffect, useState, useCallback } from 'react'
 import {
   Puzzle,
@@ -16,6 +23,7 @@ import { pluginApi } from '@/features/plugins/api/plugin.api'
 import { useToastStore } from '@/shared/stores/toast.store'
 import type { Plugin, InstallPluginRequest } from '@/types/plugin'
 
+/** 插件下单个技能的展示数据结构 */
 interface PluginSkill {
   name: string
   description: string
@@ -23,6 +31,21 @@ interface PluginSkill {
   enabled: boolean
 }
 
+/**
+ * 函数名：PluginsPage
+ * 入参：无
+ * 功能：渲染插件工作台页面，提供插件的浏览、安装、卸载、更新、展开查看技能等完整交互
+ * 运行逻辑：
+ *   1. 维护插件列表、各类加载/操作中状态（安装/卸载/更新/批量更新/刷新）、当前展开的插件、
+ *      各插件的技能缓存、安装弹窗的输入状态等本地 state
+ *   2. 挂载时通过 loadPlugins 加载插件列表
+ *   3. handleInstall 根据标识符和可选分支拼接安装参数并调用后端安装接口
+ *   4. handleUninstall/handleUpdate/handleUpdateAll/handleRefresh 分别处理卸载、单个更新、
+ *      批量更新、刷新列表，均调用 pluginApi 对应接口并通过 toast 反馈结果
+ *   5. handleToggleExpand 控制插件卡片的展开/收起，展开时若技能数据未缓存则发起请求加载
+ *   6. 渲染顶部工具栏、安装弹窗、插件卡片列表（含展开后的技能面板）
+ * 出参：JSX.Element - 插件工作台页面的 DOM 结构
+ */
 export default function PluginsPage() {
   const [plugins, setPlugins] = useState<Plugin[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,6 +61,14 @@ export default function PluginsPage() {
   const [installSpecifier, setInstallSpecifier] = useState('')
   const [installBranch, setInstallBranch] = useState('')
 
+  /**
+   * 函数名：loadPlugins
+   * 入参：无
+   * 功能：从后端加载已安装插件的完整列表
+   * 运行逻辑：设置 loading 为 true，调用 pluginApi.list() 请求列表接口，成功写入 plugins state；
+   *          失败则打印错误并弹出警告 toast；结束后重置 loading
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新 state）
+   */
   const loadPlugins = useCallback(async () => {
     setLoading(true)
     try {
@@ -51,10 +82,33 @@ export default function PluginsPage() {
     }
   }, [])
 
+  /**
+   * 函数名：useEffect（挂载时加载插件列表）
+   * 入参：依赖 [loadPlugins]
+   * 功能：组件挂载时触发一次插件列表加载
+   * 运行逻辑：调用 loadPlugins 发起请求
+   * 出参：无（副作用型 hook）
+   */
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
 
+  /**
+   * 函数名：handleInstall
+   * 入参：无（从组件 state 中读取 installSpecifier 标识符和可选的 installBranch 分支名）
+   * 功能：根据用户输入的插件标识符（及可选分支/标签）安装新插件
+   * 运行逻辑：
+   *   1. 去除标识符首尾空格，为空则直接返回
+   *   2. 若用户填写了分支，根据标识符的格式（已有 @ 版本号 / URL / 短格式）拼接分支信息：
+   *      - 已含 @ 但非 @git+ 前缀：替换 @ 之后的版本部分为新分支
+   *      - http(s) URL：去掉原有 # 片段后追加 #分支
+   *      - 短格式（owner/repo）：直接追加 @分支
+   *   3. 调用 pluginApi.install 提交安装请求
+   *   4. 成功后弹出提示 toast，清空输入框、关闭安装弹窗，并重新加载插件列表
+   *   5. 失败时从错误响应中提取 detail 信息（或降级为 Error.message / 默认文案）展示为警告 toast
+   *   6. 结束后重置 installing 状态
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleInstall = async () => {
     let specifier = installSpecifier.trim()
     if (!specifier) return
@@ -91,6 +145,20 @@ export default function PluginsPage() {
     }
   }
 
+  /**
+   * 函数名：handleUninstall
+   * 入参：
+   *   - name (string): 待卸载的插件名称
+   * 功能：卸载指定插件
+   * 运行逻辑：
+   *   1. 记录当前正在卸载的插件名（用于按钮 loading 态）
+   *   2. 调用 pluginApi.uninstall 提交卸载请求
+   *   3. 成功后弹出提示 toast；若该插件当前正处于展开状态，则收起展开面板
+   *   4. 重新加载插件列表
+   *   5. 失败时从错误响应中提取 detail 信息（或降级处理）展示为警告 toast
+   *   6. 结束后清除 uninstalling 标记
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleUninstall = async (name: string) => {
     setUninstalling(name)
     try {
@@ -108,6 +176,19 @@ export default function PluginsPage() {
     }
   }
 
+  /**
+   * 函数名：handleUpdate
+   * 入参：
+   *   - name (string): 待更新的插件名称
+   * 功能：将指定插件更新到最新版本
+   * 运行逻辑：
+   *   1. 记录当前正在更新的插件名（用于按钮 loading/旋转动画）
+   *   2. 调用 pluginApi.update 提交更新请求
+   *   3. 成功后弹出提示 toast，重新加载插件列表
+   *   4. 失败时从错误响应中提取 detail 信息（或降级处理）展示为警告 toast
+   *   5. 结束后清除 updating 标记
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleUpdate = async (name: string) => {
     setUpdating(name)
     try {
@@ -122,6 +203,19 @@ export default function PluginsPage() {
     }
   }
 
+  /**
+   * 函数名：handleUpdateAll
+   * 入参：无
+   * 功能：批量更新所有已安装插件到最新版本
+   * 运行逻辑：
+   *   1. 设置 updatingAll 为 true（用于按钮 loading 态）
+   *   2. 调用 pluginApi.updateAll() 提交批量更新请求，返回成功更新和失败的插件列表
+   *   3. 根据 updated/errors 数量分别弹出对应的提示或警告 toast；两者都为空时提示“已是最新版本”
+   *   4. 重新加载插件列表
+   *   5. 请求本身失败（非部分失败）时打印错误并弹出警告 toast
+   *   6. 结束后重置 updatingAll 状态
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleUpdateAll = async () => {
     setUpdatingAll(true)
     try {
@@ -145,6 +239,14 @@ export default function PluginsPage() {
     }
   }
 
+  /**
+   * 函数名：handleRefresh
+   * 入参：无
+   * 功能：手动刷新插件列表
+   * 运行逻辑：设置 refreshing 为 true，调用 loadPlugins 重新加载列表，成功后弹出提示 toast，
+   *          结束后重置 refreshing 状态（无论成功失败）
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
@@ -155,6 +257,19 @@ export default function PluginsPage() {
     }
   }
 
+  /**
+   * 函数名：handleToggleExpand
+   * 入参：
+   *   - name (string): 要展开/收起的插件名称
+   * 功能：切换指定插件卡片的展开/收起状态，展开时按需懒加载该插件的技能列表
+   * 运行逻辑：
+   *   1. 若当前已展开的插件正是该插件，则收起（设为 null）并直接返回
+   *   2. 否则设置该插件为展开状态
+   *   3. 若该插件的技能数据尚未缓存（pluginSkills 中没有对应 key），则发起请求加载：
+   *      记录 skillsLoading 状态，调用 pluginApi.skills 获取数据后写入缓存；
+   *      失败则打印错误并弹出警告 toast；结束后清除 skillsLoading
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新展开状态和技能缓存）
+   */
   const handleToggleExpand = async (name: string) => {
     if (expandedPlugin === name) {
       setExpandedPlugin(null)

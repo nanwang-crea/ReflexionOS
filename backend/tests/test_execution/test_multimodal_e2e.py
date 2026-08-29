@@ -89,7 +89,7 @@ def test_end_to_end_multimodal_flow():
     # 验证：用户的原始图片消息依然在历史中（如果在窗口内）
     user_msgs_r5 = [m for m in messages_r5 if m.role == MessageRole.USER]
     # 由于 max_context_groups=3，第 1 轮的消息可能已经移出窗口，但如果在，应该保留图片
-    multimodal_msgs_r5 = [m for m in user_msgs_r5 if isinstance(m.content, list)]
+    [m for m in user_msgs_r5 if isinstance(m.content, list)]
     # 不强制要求图片还在，因为可能已经超出窗口
 
 

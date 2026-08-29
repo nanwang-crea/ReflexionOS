@@ -1,3 +1,10 @@
+/**
+ * 文件功能：技能配置页面
+ * 文件描述：展示和管理 Agent 可用的技能列表，支持按分类/插件筛选、搜索、启用/禁用、
+ *          从 Git 仓库或本地路径安装新技能、删除技能、刷新技能列表等操作
+ * 核心逻辑：技能列表数据通过 useSkillList hook 分页加载（支持分类/插件/搜索条件），
+ *          分类数据单独通过 skillApi.categories 获取；搜索输入做 300ms 防抖后才触发查询
+ */
 import { useEffect, useState, useMemo } from 'react'
 import { Sparkles, Search, BookOpen, RefreshCw, Code2, Globe, Plus, Trash2 } from 'lucide-react'
 import { skillApi } from '@/features/skills/api/skill.api'
@@ -15,6 +22,7 @@ import {
   getPluginDisplayName,
 } from '@/features/skills/utils/skillHelpers'
 
+/** 技能分类 key 到中文展示文案的映射表 */
 const CATEGORY_LABELS: Record<string, string> = {
   discipline: '规范',
   technique: '技法',
@@ -23,6 +31,21 @@ const CATEGORY_LABELS: Record<string, string> = {
   uncategorized: '未分类',
 }
 
+/**
+ * 函数名：SkillsPage
+ * 入参：无
+ * 功能：渲染技能配置页面，提供技能的浏览、筛选、搜索、启用/禁用、安装、删除等完整交互
+ * 运行逻辑：
+ *   1. 维护分类数据、当前选中分类/插件、搜索关键字（含防抖后的值）、各类加载态等本地 state
+ *   2. 通过 useSkillList hook 按当前筛选条件（分类/插件/防抖后的搜索词）分页加载技能列表
+ *   3. 搜索框输入后延迟 300ms 才更新 debouncedSearch，避免频繁请求
+ *   4. 挂载时调用 loadCategories 加载分类数据
+ *   5. 用 useMemo 派生插件列表、常用插件列表、分类 Tab 列表，避免重复计算
+ *   6. handleToggle/handleRefresh/handleInstall/handleDelete 分别处理技能启用禁用、刷新列表、
+ *      安装新技能、删除技能，均通过 skillApi 调用后端接口并用 toast 提示结果
+ *   7. 渲染分类筛选、插件筛选、搜索框、安装弹窗、技能卡片列表（含加载更多按钮）
+ * 出参：JSX.Element - 技能配置页面的 DOM 结构
+ */
 export default function SkillsPage() {
   const [categories, setCategories] = useState<SkillCategories>({})
   const [activeCategory, setActiveCategory] = useState<string>('全部')
@@ -39,6 +62,7 @@ export default function SkillsPage() {
   const openFile = useCodeTabStore((s) => s.openFile)
 
   // 使用 useSkillList hook 获取技能列表
+  // 根据当前分类/插件/防抖后的搜索词作为查询条件，hook 内部负责分页加载
   const {
     skills,
     loading,
@@ -52,7 +76,14 @@ export default function SkillsPage() {
     search: debouncedSearch,
   })
 
-  // 搜索防抖
+  /**
+   * 函数名：useEffect（搜索防抖）
+   * 入参：依赖 [searchQuery]
+   * 功能：对搜索输入做 300ms 防抖，避免用户每次按键都触发一次列表查询
+   * 运行逻辑：searchQuery 变化后启动一个 300ms 的定时器，到期后才把值同步到 debouncedSearch；
+   *          若在 300ms 内 searchQuery 再次变化，则清除旧定时器重新计时
+   * 出参：无（副作用型 hook）
+   */
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchQuery)
@@ -60,7 +91,14 @@ export default function SkillsPage() {
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  // 加载分类数据
+  /**
+   * 函数名：loadCategories
+   * 入参：无
+   * 功能：从后端加载技能分类数据，用于渲染分类 Tab
+   * 运行逻辑：调用 skillApi.categories() 请求分类接口，成功后写入 categories state；
+   *          失败时仅在控制台打印错误，不影响页面其他功能
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新 state）
+   */
   const loadCategories = async () => {
     try {
       const categoriesRes = await skillApi.categories()
@@ -70,6 +108,13 @@ export default function SkillsPage() {
     }
   }
 
+  /**
+   * 函数名：useEffect（挂载时加载分类）
+   * 入参：依赖 []（仅挂载时执行一次）
+   * 功能：组件首次挂载时触发分类数据加载
+   * 运行逻辑：调用 loadCategories 发起一次分类请求
+   * 出参：无（副作用型 hook）
+   */
   useEffect(() => {
     loadCategories()
   }, [])
@@ -89,6 +134,19 @@ export default function SkillsPage() {
     return tabs
   }, [categories, skills])
 
+  /**
+   * 函数名：handleToggle
+   * 入参：
+   *   - name (string): 技能名称
+   *   - enabled (boolean): 技能当前是否已启用
+   * 功能：切换指定技能的启用/禁用状态
+   * 运行逻辑：
+   *   1. 记录当前正在切换的技能名（用于按钮 loading 态）
+   *   2. 若当前已启用则调用 skillApi.disable，否则调用 skillApi.enable
+   *   3. 成功后刷新技能列表；失败则打印错误并弹出警告 toast
+   *   4. 结束后清除 toggling 标记
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleToggle = async (name: string, enabled: boolean) => {
     setToggling(name)
     try {
@@ -106,6 +164,18 @@ export default function SkillsPage() {
     }
   }
 
+  /**
+   * 函数名：handleRefresh
+   * 入参：无
+   * 功能：刷新技能列表和分类数据（重新扫描技能目录）
+   * 运行逻辑：
+   *   1. 设置 refreshing 为 true（用于刷新按钮的旋转动画）
+   *   2. 调用 skillApi.refresh() 触发后端重新扫描技能
+   *   3. 刷新本地技能列表和分类数据，成功后弹出提示 toast
+   *   4. 失败则打印错误并弹出警告 toast
+   *   5. 结束后重置 refreshing 状态
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleRefresh = async () => {
     setRefreshing(true)
     try {
@@ -121,6 +191,18 @@ export default function SkillsPage() {
     }
   }
 
+  /**
+   * 函数名：handleInstall
+   * 入参：无（从组件 state 中读取 installSpecifier 作为安装标识符）
+   * 功能：根据用户输入的标识符（GitHub 短格式/URL/Git 完整格式/本地路径等）安装新技能
+   * 运行逻辑：
+   *   1. 去除输入首尾空格，若为空则直接返回不处理
+   *   2. 调用 skillApi.install 提交安装请求
+   *   3. 成功后弹出提示 toast，清空输入框并关闭安装弹窗，刷新技能列表和分类数据
+   *   4. 失败时从错误响应中提取后端返回的 detail 信息（或降级为 Error.message / 默认文案）展示为警告 toast
+   *   5. 结束后重置 installing 状态
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleInstall = async () => {
     const specifier = installSpecifier.trim()
     if (!specifier) return
@@ -140,6 +222,19 @@ export default function SkillsPage() {
     }
   }
 
+  /**
+   * 函数名：handleDelete
+   * 入参：
+   *   - name (string): 待删除的技能名称
+   * 功能：删除指定技能
+   * 运行逻辑：
+   *   1. 记录当前正在删除的技能名（用于按钮 loading 态）
+   *   2. 调用 skillApi.remove 提交删除请求
+   *   3. 成功后弹出提示 toast，刷新技能列表和分类数据
+   *   4. 失败时从错误响应中提取 detail 信息（或降级处理）展示为警告 toast
+   *   5. 结束后清除 deleting 标记
+   * 出参：Promise<void>（异步函数，无返回值，通过副作用更新列表和提示）
+   */
   const handleDelete = async (name: string) => {
     setDeleting(name)
     try {

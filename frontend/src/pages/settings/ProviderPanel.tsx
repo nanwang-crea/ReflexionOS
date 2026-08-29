@@ -1,12 +1,33 @@
+/**
+ * 文件功能：设置页“供应商实例”管理面板组件
+ * 文件描述：提供 LLM 供应商实例的新增/编辑/删除/测试连接功能，并管理每个供应商下的模型列表
+ *          （新增/删除模型、编辑模型显示名/模型名/启用状态/视觉能力）以及默认模型选择
+ * 核心逻辑：状态与业务逻辑集中在 useSettingsPageController 这个 hook 中，本组件只负责渲染 UI
+ *          布局（左侧供应商列表 + 右侧编辑表单）并转发用户交互事件到 hook 提供的回调
+ */
 import { useSettingsPageController } from '@/features/llm/useSettingsPageController'
 import type { ProviderType } from '@/types/llm'
 
+/** 供应商协议类型下拉选项列表：值与后端 ProviderType 对应，标签为界面展示文案 */
 const providerTypeOptions: Array<{ value: ProviderType; label: string }> = [
   { value: 'openai_compatible', label: 'OpenAI Compatible' },
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'ollama', label: 'Ollama' },
 ]
 
+/**
+ * 函数名：ProviderPanel
+ * 入参：无
+ * 功能：渲染供应商实例管理面板，包括左侧供应商列表和右侧新建/编辑表单
+ * 运行逻辑：
+ *   1. 通过 useSettingsPageController 获取供应商列表、当前选中项、草稿数据、各类加载/保存/测试状态及操作回调
+ *   2. 左侧栏渲染供应商列表，支持点击切换选中项、新增供应商按钮
+ *   3. 右侧栏渲染草稿供应商的表单字段（名称、协议类型、Base URL、API Key）
+ *   4. 右侧栏渲染该供应商下的模型列表，支持新增/删除模型、编辑模型字段（显示名、模型名、启用状态），
+ *      并展示每个模型的视觉能力（Vision）标识
+ *   5. 渲染默认模型下拉框、连接测试结果提示，以及测试连接/保存供应商/删除供应商（或清空草稿）按钮
+ * 出参：JSX.Element - 供应商管理面板的 DOM 结构
+ */
 export function ProviderPanel() {
   const {
     providers,

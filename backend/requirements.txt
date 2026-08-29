@@ -7,12 +7,13 @@ python-dotenv==1.0.1
 httpx==0.28.1
 openai==1.109.1
 aiofiles==24.1.0
+python-multipart==0.0.20
 sqlalchemy==2.0.37
 alembic==1.14.1
-tiktoken
-gitpython
-pyyaml
-requests
+tiktoken==0.13.0
+gitpython==3.1.50
+pyyaml==6.0.2
+requests==2.34.2
 pywin32==308; sys_platform == "win32"
 
 # Test dependencies

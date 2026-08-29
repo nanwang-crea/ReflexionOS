@@ -1,6 +1,12 @@
+/**
+ * project.loader 单元测试：覆盖并发加载去重、已加载时跳过网络请求、
+ * 加载后为每个项目预加载会话（session）等核心行为。
+ */
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Project } from '@/types/project'
 
+/** 构造测试用的 Project 对象。入参：id（项目 id，同时用作 name）。出参：Project 对象 */
 function createProject(id: string): Project {
   return {
     id,

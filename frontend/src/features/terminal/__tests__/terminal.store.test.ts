@@ -1,3 +1,8 @@
+/**
+ * terminal.store 单元测试：覆盖终端创建/关闭、多终端标题递增、
+ * 面板显示与高度 clamp、激活终端切换、标记退出等核心行为。
+ */
+
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useTerminalStore, _resetForTesting } from '../stores/terminal.store'
 

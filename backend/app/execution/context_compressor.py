@@ -94,6 +94,10 @@ class ContextCompressor:
             content: 消息内容（支持纯文本或多模态 list）
             tool_calls: 工具调用列表
             tool_call_id: 工具调用 ID
+
+        Returns:
+            None（消息直接追加到内部 `_messages` 列表，并同步更新
+            `_total_tokens` 和 `_group_count`，无返回值）
         """
         message: dict = {"role": role, "timestamp": datetime.now().isoformat()}
 
@@ -120,15 +124,15 @@ class ContextCompressor:
             self._group_count += 1
 
     def get_messages(self) -> list[dict]:
-        """获取所有消息（深拷贝副本）"""
+        """获取所有消息（深拷贝副本，无参数；修改返回值不会影响内部状态）"""
         return copy.deepcopy(self._messages)
 
     def get_message_count(self) -> int:
-        """获取消息总数"""
+        """获取消息总数（无参数；返回内部 `_messages` 的长度）"""
         return len(self._messages)
 
     def clear_messages(self) -> None:
-        """清空所有消息（用于测试或重置）"""
+        """清空所有消息（用于测试或重置；无参数无返回值；同步清零 token 数、分组计数并清空 Tier 3 摘要）"""
         self._messages.clear()
         self._total_tokens = 0
         self._group_count = 0
@@ -181,17 +185,25 @@ class ContextCompressor:
         return grouped
 
     def get_groups(self) -> list[MessageGroup]:
-        """获取当前消息的分组（包含 token 预计算）"""
+        """获取当前消息的分组（无参数；内部消息 -> group_messages 分组，含 token 预计算）"""
         return self.group_messages(self._messages)
 
     def get_group_count(self) -> int:
-        """获取当前分组数"""
+        """获取当前分组数（无参数；返回内部计数器 `_group_count`）"""
         return self._group_count
 
     # ========== Token 管理 ==========
 
     def calculate_tokens(self, messages: list[dict]) -> int:
-        """计算消息列表的 token 数"""
+        """
+        计算消息列表的 token 数。
+
+        Args:
+            messages: 待计算的消息列表
+
+        Returns:
+            该消息列表对应的 token 总数（委托 count_messages_tokens 计算）
+        """
         return count_messages_tokens(messages)
 
     def recalculate_tokens(self) -> None:
@@ -372,6 +384,11 @@ class ContextCompressor:
         - 压缩失败时静默跳过，不中断 run
         - 摘要包含 [可 session_recall 取回] 标记
         - DB 中的原始消息不受影响
+
+        Returns:
+            None。压缩结果通过内部状态体现：成功时更新 `_compacted_summary`、
+            `_messages`（仅保留最近 N 组）、`_group_count` 和 `_total_tokens`；
+            若分组数未超窗口、摘要为空或压缩过程抛异常，则直接返回，内部状态不变。
         """
         try:
             grouped = self.group_messages(self._messages)
@@ -433,11 +450,16 @@ class ContextCompressor:
             logger.exception("Tier 3 compaction failed: %s, skipping", e)
 
     def get_compacted_summary(self) -> str | None:
-        """获取 Tier 3 压缩摘要"""
+        """获取 Tier 3 压缩摘要（无参数；尚未压缩过时返回 None）"""
         return self._compacted_summary
 
     def set_compacted_summary(self, summary: str | None) -> None:
-        """设置 Tier 3 压缩摘要（用于测试或手动设置）"""
+        """设置 Tier 3 压缩摘要（用于测试或手动设置）
+
+        Args:
+            summary: 要写入的摘要文本，传 None 表示清空摘要
+        无返回值，直接覆盖内部 `_compacted_summary` 字段。
+        """
         self._compacted_summary = summary
 
     # ========== 轻量裁剪 ==========

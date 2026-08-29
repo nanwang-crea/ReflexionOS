@@ -1,3 +1,5 @@
+// Markdown 渲染组件：把 AI 回复等 Markdown 文本渲染为带样式的 HTML（代码块高亮容器、标题、列表、
+// 链接、引用、表格等），并支持流式输出时的未闭合代码块修补和光标闪烁效果。
 import ReactMarkdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -10,6 +12,10 @@ interface MarkdownRendererProps {
   isStreaming?: boolean
 }
 
+// 参数：content - 原始 Markdown 文本；isStreaming - 是否处于流式输出中（内容可能还没结束）。
+// 作用：统一换行符为 \n；若正在流式输出且代码块围栏（```）数量为奇数（说明有一个未闭合的代码块），
+// 则在末尾补一个 ``` 闭合，避免流式渲染过程中样式错乱。
+// 返回：处理后的 Markdown 字符串。
 function normalizeStreamingMarkdown(content: string, isStreaming: boolean) {
   const normalized = content.replace(/\r\n/g, '\n')
 
@@ -25,6 +31,8 @@ function normalizeStreamingMarkdown(content: string, isStreaming: boolean) {
   return normalized
 }
 
+// react-markdown 的自定义渲染组件映射：为代码块（含复制按钮与语言标签）、标题、列表、链接、
+// 引用、表格等元素指定统一的 Tailwind 样式，替代默认的原生标签渲染。
 const markdownComponents: Components = {
   code({ className, children, ...props }) {
     const match = /language-(\w+)/.exec(className || '')
@@ -118,6 +126,12 @@ const markdownComponents: Components = {
   ),
 }
 
+// 参数：content - 要渲染的 Markdown 文本；className - 外层容器额外样式类名；
+// variant - 'prose' 使用 Tailwind Typography 排版样式，'plain' 不套用；
+// isStreaming - 是否处于流式输出中，为 true 时会在末尾显示光标闪烁效果并修补未闭合代码块。
+// 作用：对内容做流式修补后交给 ReactMarkdown 渲染（remark-gfm 支持表格/删除线等 GFM 语法），
+// 用 useMemo 缓存修补结果和渲染结果，减少流式更新时的重复计算。
+// 返回：包裹渲染结果的 div；流式状态下额外渲染一个闪烁光标 span。
 export function MarkdownRenderer({
   content,
   className = '',
