@@ -133,6 +133,35 @@ def test_delete_session_removes_existing_resource(client):
     assert session_id not in session_ids
 
 
+def test_delete_session_cleans_agent_session_state(client, monkeypatch):
+    import app.api.routes.sessions as sessions_route_module
+
+    cleanup_calls: list[tuple[str, str]] = []
+
+    class FakeAgentService:
+        async def cleanup_browser_for_session(self, session_id: str) -> None:
+            cleanup_calls.append(("browser", session_id))
+
+        def cleanup_session_security_state(self, session_id: str) -> None:
+            cleanup_calls.append(("security", session_id))
+
+    monkeypatch.setattr(sessions_route_module, "agent_service", FakeAgentService())
+
+    create_response = client.post(
+        "/api/projects/project-1/sessions",
+        json={"title": "需求讨论"},
+    )
+    session_id = create_response.json()["id"]
+
+    delete_response = client.delete(f"/api/sessions/{session_id}")
+
+    assert delete_response.status_code == 200
+    assert cleanup_calls == [
+        ("browser", session_id),
+        ("security", session_id),
+    ]
+
+
 def test_delete_session_returns_404_for_missing_resource(client):
     response = client.delete("/api/sessions/missing-session")
 

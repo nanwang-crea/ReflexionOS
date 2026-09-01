@@ -1,5 +1,18 @@
+/**
+ * 文件功能：自动化任务页面（占位/预留页）
+ * 文件描述：展示自动化任务功能的入口页面，当前仅作为占位说明，尚未接入真实的任务列表、
+ *          运行历史、调度规则等功能
+ * 核心逻辑：纯静态渲染，无状态、无副作用、无数据请求
+ */
 import { Clock3, Workflow } from 'lucide-react'
 
+/**
+ * 函数名：AutomationPage
+ * 入参：无
+ * 功能：渲染自动化任务页面的静态占位内容，说明后续将承载的功能
+ * 运行逻辑：直接返回固定的标题、说明文案和提示卡片 JSX 结构，无任何交互逻辑
+ * 出参：JSX.Element - 自动化任务页面的 DOM 结构
+ */
 export default function AutomationPage() {
   return (
     <div className="h-full overflow-y-auto bg-surface-primary">

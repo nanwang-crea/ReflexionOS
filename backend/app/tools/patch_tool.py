@@ -1,3 +1,6 @@
+# Patch 工具：将 Unified Diff 或 Codex-style patch 文本应用到单个文件上。
+# 支持三种 Codex 操作（add/update/delete）及标准 unified diff 的 hunk 应用，
+# 依赖 diff_parser.py 中的 DiffParser / CodexPatchParser 完成文本解析。
 import logging
 import os
 from typing import Any
@@ -11,9 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 class PatchTool(BaseTool):
-    """Patch 工具 - 应用代码补丁"""
+    """Patch 工具 - 应用代码补丁
+
+    能力边界：仅支持单文件补丁（Unified Diff 一次只能改一个文件；Codex-style
+    支持 add/update/delete 三种单文件操作），不支持一次调用修改多个文件。
+    """
 
     def __init__(self, security: PathSecurity):
+        """初始化 PatchTool。
+
+        入参：security (PathSecurity) - 路径安全校验器，写入前用于校验目标文件路径合法。
+        """
         self.security = security
         self.parser = DiffParser()
         self.codex_parser = CodexPatchParser()
@@ -24,6 +35,7 @@ class PatchTool(BaseTool):
 
     @property
     def description(self) -> str:
+        # 面向 LLM 的工具功能说明，保留英文原文
         return "Apply single-file code patches, supports Unified Diff and Codex-style patch"
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
@@ -51,6 +63,16 @@ class PatchTool(BaseTool):
             return ToolResult(success=False, error=str(e))
 
     async def _execute_unified_diff(self, patch_text: str) -> ToolResult:
+        """解析并应用标准 Unified Diff 格式的补丁。
+
+        入参：patch_text (str) - 完整的 unified diff 文本（含 ---/+++/@@ hunk header）。
+        功能：
+          1. 提取文件路径，若涉及多个文件则拒绝（仅支持单文件）；
+          2. 解析出 hunks，解析失败时返回具体的错误提示；
+          3. 校验目标路径安全性，读取原文件内容（不存在则视为新建文件）；
+          4. 调用 _apply_hunks 逐个应用 hunk，全部成功才写回文件。
+        出参：ToolResult - 成功时包含应用的 hunk 数；存在冲突时返回失败及已应用/被拒绝的数量。
+        """
         file_paths = self.parser.extract_file_paths(patch_text)
         unique_file_paths = list(dict.fromkeys(file_paths))
         if len(unique_file_paths) > 1:
@@ -104,6 +126,16 @@ class PatchTool(BaseTool):
         )
 
     async def _execute_codex_patch(self, patch_text: str) -> ToolResult:
+        """解析并应用 Codex-style patch（*** Begin Patch / Add|Update|Delete File / *** End Patch）。
+
+        入参：patch_text (str) - Codex-style patch 文本。
+        功能：解析出单个文件操作（action 为 add/update/delete 之一），按类型分别处理：
+          - add: 目标文件必须不存在，将 diff 中的 "+" 行内容写为新文件；
+          - delete: 目标文件必须存在且不是目录，直接删除；
+          - update: 读取原文件，依次应用每个 hunk（借助 _apply_codex_hunk 做上下文匹配），
+            任一 hunk 应用失败则整体失败，不写回文件。
+        出参：ToolResult - 各分支返回对应的成功/失败结果及 file/action/hunks_applied 等信息。
+        """
         try:
             parsed = self.codex_parser.parse(patch_text)
         except ValidationError as e:
@@ -201,6 +233,12 @@ class PatchTool(BaseTool):
         return result_lines, applied, rejected
 
     def _diff_lines_to_file_lines(self, diff_lines: list[str]) -> list[str]:
+        """将 diff 格式的 "+"前缀行转换为真实文件行内容。
+
+        入参：diff_lines (list[str]) - Codex-style Add File 中每行都以 "+" 开头的 diff 行列表。
+        功能：去掉每行首字符（"+"标记）并补回换行符，还原为可直接写入文件的行列表。
+        出参：list[str] - 可直接 writelines 的文件行内容。
+        """
         return [line[1:] + "\n" for line in diff_lines]
 
     def _apply_hunk(self, lines: list[str], hunk: Hunk) -> bool:
@@ -267,6 +305,18 @@ class PatchTool(BaseTool):
             return False
 
     def _apply_codex_hunk(self, lines: list[str], hunk_lines: list[str]) -> tuple[bool, str]:
+        """在文件行列表中定位并应用一个 Codex-style hunk（无行号，靠上下文内容匹配）。
+
+        入参：
+          - lines (list[str]): 当前文件行列表（会被原地修改）
+          - hunk_lines (list[str]): 该 hunk 内的 diff 行，" "=上下文，"-"=删除，"+"=新增
+        功能：
+          1. 分别构造 old_block（上下文+删除行，代表补丁前应存在的内容）和
+             new_block（上下文+新增行，代表替换后的内容）；
+          2. 在 lines 中滑动窗口查找与 old_block 完全一致的位置；
+          3. 要求唯一匹配：找不到或匹配到多处均视为冲突，拒绝应用。
+        出参：tuple[bool, str] - (是否成功, 失败时的错误说明)。
+        """
         old_block: list[str] = []
         new_block: list[str] = []
 
@@ -298,6 +348,13 @@ class PatchTool(BaseTool):
         return True, ""
 
     def _describe_unified_parse_error(self, patch_text: str) -> str:
+        """当 Unified Diff 解析失败（hunks 为空）时，生成更具体的错误提示辅助定位问题。
+
+        入参：patch_text (str) - 解析失败的原始 patch 文本。
+        功能：通过关键字特征（是否含 Codex 标记、---/+++/@@ 等）推断用户大致输错了哪部分格式，
+        给出针对性的提示信息，而不是笼统的"解析失败"。
+        出参：str - 展示给调用方的具体错误描述文本。
+        """
         if "*** Begin Patch" in patch_text:
             return (
                 "检测到 Codex-style patch，但格式不完整；"

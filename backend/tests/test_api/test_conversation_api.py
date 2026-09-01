@@ -9,7 +9,6 @@ from app.models.session import Session
 from app.services.conversation_service import ConversationService
 from app.services.session_service import SessionService
 from app.storage.database import Database
-from app.storage.repositories.message_search_document_repo import MessageSearchDocumentRepository
 from app.storage.repositories.project_repo import ProjectRepository
 from app.storage.repositories.session_repo import SessionRepository
 

@@ -1,3 +1,7 @@
+# 数据库连接与生命周期管理模块
+# 负责 SQLite 引擎创建、Alembic 增量迁移驱动、旧版 schema 兼容迁移（备份重建/补列/外键级联重建），
+# 并对外提供 Session 上下文管理器（Database.get_session）。
+
 import logging
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,6 +16,8 @@ from app.storage.models import Base
 
 logger = logging.getLogger(__name__)
 
+# 需要保证与 sessions 表存在级联删除外键（ON DELETE CASCADE）的表名列表，
+# 用于 _migrate_session_cascade_schema_if_needed 检测并原地重建 schema
 SESSION_CASCADE_TABLES = (
     "turns",
     "runs",
@@ -25,6 +31,18 @@ class Database:
     """SQLite 数据库管理"""
 
     def __init__(self, db_path: str | None = None):
+        """初始化数据库连接。
+
+        入参：
+          db_path - 指定的数据库文件路径；为 None 时按顺序尝试
+            ~/.reflexion/reflexion.db 和 ./.reflexion/reflexion.db 两个候选路径。
+        功能/工作流程：
+          依次尝试候选路径，对每个路径创建 SQLite engine，
+          配置 PRAGMA、处理旧版 schema、跑 Alembic 迁移、补齐历史列/外键，
+          全部成功后创建 SessionLocal 工厂；某个路径失败（OperationalError）则换下一个候选路径。
+        出参：无返回值（构造函数），成功后在 self 上设置 db_path/engine/SessionLocal；
+          若所有候选路径都失败，抛出最后一次捕获到的异常。
+        """
         candidate_paths = (
             [Path(db_path)]
             if db_path
@@ -65,6 +83,14 @@ class Database:
             raise last_error
 
     def _configure_sqlite(self) -> None:
+        """为 SQLite 连接注册事件监听：每次新建连接时开启外键约束（PRAGMA foreign_keys=ON）。
+
+        入参：无（使用 self.engine）
+        功能：SQLite 默认不强制外键约束，这里通过 connect 事件确保每条连接都开启，
+          保证 ON DELETE CASCADE 等外键行为生效。
+        出参：无返回值
+        """
+
         @event.listens_for(self.engine, "connect")
         def _set_sqlite_pragma(dbapi_connection, _connection_record):
             cursor = dbapi_connection.cursor()
@@ -72,7 +98,16 @@ class Database:
             cursor.close()
 
     def _handle_legacy_schema_if_needed(self) -> None:
-        """检测并处理旧版不兼容 schema：备份后重建，避免静默丢数据"""
+        """检测并处理旧版不兼容 schema：备份后重建，避免静默丢数据。
+
+        入参：无（使用 self.engine / self.db_path）
+        功能/工作流程：
+          1. 检查是否存在旧表 executions/conversations，或 messages 表缺少
+             turn_message_index 相关唯一索引 —— 命中任一条件即判定为不兼容 schema。
+          2. 命中则先把数据库文件备份为 *.db.legacy_backup（已存在则跳过备份）。
+          3. 反射当前 schema 并 drop 所有表，交由后续 _run_alembic_migrations 重建。
+        出参：无返回值；不兼容则直接原地清空表结构（数据已提前备份到文件）。
+        """
         inspector = inspect(self.engine)
         table_names = set(inspector.get_table_names())
 
@@ -109,7 +144,20 @@ class Database:
             logger.warning("旧版数据库当前不可写，跳过自动重建，等待显式清理后再初始化")
 
     def _run_alembic_migrations(self) -> None:
-        """运行 Alembic 增量迁移，替代 Base.metadata.create_all 的粗暴方式"""
+        """运行 Alembic 增量迁移，替代 Base.metadata.create_all 的粗暴方式。
+
+        入参：无（使用 self.engine / self.db_path）
+        功能/工作流程：
+          1. 若项目未配置 alembic.ini，直接用 create_all 建表（兼容无迁移环境）。
+          2. 否则加载 alembic 配置并绑定当前数据库 URL；
+             若数据库已有表但没有 alembic_version 记录（老库），先 stamp 到
+             initial_schema 版本号，避免重复建表报错。
+          3. 执行 command.upgrade 到 head，应用所有未执行的迁移脚本。
+          4. 迁移失败则记录警告并回退到 create_all。
+          5. 迁移过程中 Alembic 会篡改 root logger 的 handlers，
+             这里在 try/finally 中保存并恢复原有的日志 handler 配置，避免日志丢失。
+        出参：无返回值；直接修改数据库 schema 到最新版本。
+        """
         alembic_cfg_path = Path(__file__).resolve().parent.parent.parent / "alembic.ini"
         if not alembic_cfg_path.exists():
             logger.info("未找到 alembic.ini，使用 create_all 初始化表结构")
@@ -153,6 +201,13 @@ class Database:
             root_logger.setLevel(saved_level)
 
     def _has_turn_message_index_schema(self) -> bool:
+        """检查 messages 表是否已是新版 turn_message_index schema。
+
+        入参：无（使用 self.engine）
+        功能：读取 messages 表列信息，确认存在 turn_message_index 列；
+          再读取表的唯一索引，确认存在覆盖 (turn_id, turn_message_index) 的唯一约束。
+        出参：bool —— True 表示 schema 已是新版（含该唯一约束），否则 False（需要重建）。
+        """
         with self.engine.connect() as connection:
             message_columns = {
                 row["name"]
@@ -221,6 +276,15 @@ class Database:
                 connection.exec_driver_sql(statement)
 
     def _migrate_session_cascade_schema_if_needed(self) -> None:
+        """检测并修复缺失 session 级联外键的历史 schema。
+
+        入参：无（使用 self.engine）
+        功能/工作流程：
+          遍历 SESSION_CASCADE_TABLES 中已存在的表，用 _has_session_cascade_fk 逐个检测
+          是否具备指向 sessions.id 且 ON DELETE CASCADE 的外键；
+          缺失的表收集后交给 _rebuild_tables_with_session_cascade 原地重建。
+        出参：无返回值；无需迁移的表不受影响。
+        """
         inspector = inspect(self.engine)
         existing_tables = set(inspector.get_table_names())
         tables_to_rebuild = [
@@ -235,6 +299,13 @@ class Database:
         self._rebuild_tables_with_session_cascade(tables_to_rebuild)
 
     def _has_session_cascade_fk(self, table_name: str) -> bool:
+        """检查指定表是否已具备指向 sessions.id 的级联删除外键。
+
+        入参：table_name - 要检查的表名
+        功能：通过 PRAGMA foreign_key_list 读取该表全部外键定义，
+          判断是否存在 from=session_id、指向 sessions 表、且 on_delete=CASCADE 的外键。
+        出参：bool —— True 表示已具备级联外键，False 表示需要迁移重建。
+        """
         with self.engine.connect() as connection:
             foreign_keys = (
                 connection.exec_driver_sql(f'PRAGMA foreign_key_list("{table_name}")')
@@ -249,6 +320,16 @@ class Database:
         )
 
     def _rebuild_tables_with_session_cascade(self, table_names: list[str]) -> None:
+        """原地重建表结构以补齐 session 级联外键（SQLite 不支持直接 ALTER 外键）。
+
+        入参：table_names - 需要重建的表名列表
+        功能/工作流程：
+          对每张表：先把旧表 RENAME 为 "{table}__legacy_no_session_fk"，
+          再按 ORM 中最新的表定义（Base.metadata.tables[table_name]）创建新表，
+          将旧表数据按列名整列 INSERT 迁移过去，最后 DROP 掉旧表。
+          全部表处理完后执行 PRAGMA foreign_key_check，若发现外键违规则抛出 RuntimeError 回滚整个事务。
+        出参：无返回值；成功则新表已具备级联外键且数据保留，失败则抛异常并回滚。
+        """
         with self.engine.begin() as connection:
             for table_name in table_names:
                 legacy_table_name = f"{table_name}__legacy_no_session_fk"
@@ -275,7 +356,13 @@ class Database:
 
     @contextmanager
     def get_session(self) -> Session:
-        """获取数据库会话 (上下文管理器)"""
+        """获取数据库会话（上下文管理器）。
+
+        入参：无
+        功能：从 SessionLocal 工厂创建一个新 Session；with 块内代码正常结束则自动 commit，
+          抛出异常则 rollback 并向外重新抛出；无论成功失败最终都会 close 会话。
+        出参：yield 一个 sqlalchemy.orm.Session 供 with 块内使用。
+        """
         session = self.SessionLocal()
         try:
             yield session

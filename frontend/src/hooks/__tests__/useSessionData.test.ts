@@ -1,3 +1,9 @@
+// 文件功能：useSessionData 及其辅助函数的单元测试
+// 文件描述：验证 shouldClearStaleCurrentSessionId 在“会话列表未加载完成”“加载完成但找不到会话”
+// “加载完成且会话仍存在”三种情况下的判定结果；以及 useSessionData 整体在会话仍存在时
+// 不会误触发清空、且只加载一次 LLM 设置
+// 核心逻辑：mock 掉 react（useEffect 立即执行、useMemo 直接求值）以及 project/workspace/session
+// 三个 store，用 vi.hoisted 出的可变状态对象模拟不同的 store 数据
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionSummary } from '@/types/workspace'
 import {

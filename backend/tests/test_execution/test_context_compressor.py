@@ -2,7 +2,6 @@
 
 import pytest
 from app.execution.context_compressor import ContextCompressor, MessageGroup
-from app.llm.base import MessageRole
 
 
 def test_add_message_updates_tokens():

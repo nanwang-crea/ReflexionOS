@@ -72,6 +72,16 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 测试
 
+推荐始终使用满足 `backend/requirements.txt` 的虚拟环境运行测试，不要直接用系统 Python。否则可能因为 `fastapi / starlette / httpx` 版本组合不一致，出现 `TestClient` 初始化失败这类“假基线红”。
+
+Windows（仓库根目录）推荐命令：
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend/tests -q
+```
+
+如果已经在 `backend/` 目录内激活了正确的虚拟环境，也可以直接运行：
+
 ```bash
-PYTHONPATH=. pytest
+python -m pytest
 ```

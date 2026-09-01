@@ -1,3 +1,8 @@
+// 文件功能：useConversationData 的单元测试
+// 文件描述：验证会话尚未加载快照时的默认值（hasMore/oldestLoadedTurnId/messages），
+// 以及快照已存在时能正确读出分页标志（hasMore/nextBeforeTurnId）
+// 核心逻辑：mock 掉 react 的 useMemo（直接执行 factory）和 conversation.store，
+// 通过 conversationStoreState 手动构造不同的 store 状态来驱动被测 hook
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationSession, ConversationState } from '@/types/conversation'
 

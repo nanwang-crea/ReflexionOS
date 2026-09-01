@@ -1,7 +1,23 @@
+/**
+ * 文件功能：sessionSelection.ts 单元测试
+ * 文件描述：验证 resolveSessionSelection 在“会话偏好有效”“偏好供应商不可用回退默认”
+ *           “偏好模型缺失回退首个可用模型”等场景下的解析结果是否正确。
+ * 核心逻辑：用 createProvider 辅助函数构造测试用供应商数据，对 resolveSessionSelection 的返回值做断言。
+ */
 import { describe, expect, it } from 'vitest'
 import type { ProviderInstance } from '@/types/llm'
 import { resolveSessionSelection } from '../sessionSelection'
 
+/**
+ * 函数名：createProvider
+ * 入参：
+ *   - id (string): 供应商 ID
+ *   - modelIds (string[]): 该供应商下的模型 ID 列表
+ *   - options ({ enabled?, defaultModelId? }): 可选配置，enabled 默认 true，defaultModelId 默认取 modelIds 第一项
+ * 功能：构造测试用的 ProviderInstance 对象
+ * 运行逻辑：按传入参数拼装供应商对象，models 字段由 modelIds 映射为启用状态的模型对象数组
+ * 出参：ProviderInstance - 测试用供应商实例
+ */
 function createProvider(
   id: string,
   modelIds: string[],

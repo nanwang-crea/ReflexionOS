@@ -1,4 +1,8 @@
 # backend/app/security/command_effect_registry.py
+# 命令效果注册表：维护"命令名 -> 效果分类（EffectCategory）"的静态映射表，
+# 是 command_policy.py 判断一条命令"允许/需审批/拒绝"的知识库来源。
+# 收录约 80+ 常见命令（git/npm/pip/docker/shell 解释器等），并支持按子命令、
+# 具体 flag、平台差异对基础分类做精细化覆盖（override），避免"一个命令名只能对应一种危险级别"的粗粒度问题。
 import logging
 
 from pydantic import BaseModel
@@ -9,18 +13,42 @@ logger = logging.getLogger(__name__)
 
 
 class CommandEffectEntry(BaseModel):
-    """Registry entry describing a command's effect category and overrides."""
+    """注册表条目：描述一个命令的基础效果分类及各类覆盖规则。
 
-    category: EffectCategory                          # Base effect category
-    allow_subcommands: bool = False                   # Whether subcommands are allowed
-    subcommand_overrides: dict[str, EffectCategory] = {}  # Subcommand effect overrides
-    flag_overrides: dict[str, EffectCategory] = {}        # Specific flag overrides
-    platform_overrides: dict[str, str | EffectCategory] = {}  # Platform-specific overrides
+    字段说明：
+        category: 该命令的基础效果分类（如 READ_ONLY/WRITE_PROJECT/ESCALATE 等）。
+        allow_subcommands: 是否按第二个 token（子命令，如 git 的 commit/push）
+            查 subcommand_overrides 做精细化覆盖；False 时忽略子命令，只用 category。
+        subcommand_overrides: 子命令名 -> 效果分类，仅当 allow_subcommands=True 时生效
+            （如 git push 覆盖为 NETWORK_OUT，比基础的 READ_ONLY 更危险）。
+        flag_overrides: 具体 flag（如 -c、--eval）-> 效果分类，命中优先级高于子命令覆盖
+            （如 python -c 覆盖为 CODE_GEN，因为内联代码无法静态审查）。
+        platform_overrides: 平台特定覆盖（当前字段存在但 lookup 从不消费，仅作预留/文档用途）。
+        often_needs_network: 标记该命令通常需要联网（用于展示提示，不参与危险等级判断）。
+    """
+
+    category: EffectCategory                          # 基础效果分类
+    allow_subcommands: bool = False                   # 是否启用子命令覆盖
+    subcommand_overrides: dict[str, EffectCategory] = {}  # 子命令效果覆盖
+    flag_overrides: dict[str, EffectCategory] = {}        # 具体 flag 效果覆盖
+    platform_overrides: dict[str, str | EffectCategory] = {}  # 平台特定覆盖（预留，未被 lookup 使用）
     often_needs_network: bool = False
 
 
 def _normalize_command_name(command: str) -> str:
-    """Normalize a command name: strip path prefix, remove .exe/.cmd/.bat/.com suffix."""
+    """归一化命令名：去掉路径前缀、去掉 Windows 可执行后缀、转小写。
+
+    参数：
+        command: 原始命令名，可能带路径（如 "/usr/bin/git" 或 "C:\\...\\python.exe"）。
+
+    逻辑：
+        统一反斜杠为正斜杠后按 "/" 取最后一段（去路径前缀），转小写后
+        再剥离 .exe/.cmd/.bat/.com 后缀，使得 "git"、"/usr/bin/git"、
+        "C:\\Git\\git.exe" 都能归一到同一个注册表 key "git"。
+
+    返回：
+        归一化后的命令名（全小写、无路径、无可执行后缀）。
+    """
     normalized = command.replace("\\", "/").split("/")[-1].lower()
     for suffix in (".exe", ".cmd", ".bat", ".com"):
         if normalized.endswith(suffix):
@@ -29,24 +57,56 @@ def _normalize_command_name(command: str) -> str:
 
 
 class CommandEffectRegistry:
-    """Registry mapping command names to their effect categories."""
+    """命令名 -> 效果分类条目 的注册表，供 CommandPolicy 查询命令危险等级。"""
 
     def __init__(self):
+        """初始化空注册表，并立即调用 _register_defaults 灌入内置命令集。"""
         self._entries: dict[str, CommandEffectEntry] = {}
         self._register_defaults()
 
     def register(self, command_name: str, entry: CommandEffectEntry) -> None:
-        """Register or override a command entry."""
+        """注册或覆盖一条命令条目。
+
+        参数：
+            command_name: 命令名（会先归一化，因此传入带路径/后缀的形式也可以）。
+            entry: 对应的 CommandEffectEntry（基础分类 + 各类覆盖规则）。
+
+        逻辑：
+            归一化命令名后直接写入 _entries，若该 key 已存在则整体覆盖旧条目
+            （不做合并，后注册的完全替换先注册的）。
+
+        返回：
+            无返回值。
+        """
         normalized = _normalize_command_name(command_name)
         self._entries[normalized] = entry
 
     def lookup(self, command_name: str) -> CommandEffectEntry | None:
-        """Look up a command by name. Returns None if not registered."""
+        """按命令名查条目。
+
+        参数：
+            command_name: 命令名（原始形式，内部会归一化）。
+
+        返回：
+            命中的 CommandEffectEntry；未注册过的命令返回 None
+            （调用方——command_policy._classify_argv_command——会将 None 视为 UNKNOWN 效果分类，
+            未知命令默认走"需审批"而不是"直接放行"，避免遗漏危险命令）。
+        """
         normalized = _normalize_command_name(command_name)
         return self._entries.get(normalized)
 
     def _register_defaults(self) -> None:
-        """Register the default command set (~80+ commands)."""
+        """注册内置默认命令集（约 80+ 个），按效果分类分组批量 register。
+
+        分组依据（从低危到高危）：
+            READ_ONLY（只读，如 ls/cat/grep）→ WRITE_PROJECT（改动项目内文件，如 mkdir/npm/pip）
+            → WRITE_SYSTEM（改动系统状态，如 apt-get/systemctl）→ DESTRUCTIVE（删除/覆盖，如 rm/chmod）
+            → ESCALATE（提权/任意代码执行，如 sudo/bash -c）→ NETWORK_OUT（对外网络请求，如 curl/ssh）。
+            另外为 git/npm/pip/cargo/go/docker 等常用工具单独配置了子命令覆盖
+            （如 git push 比 git status 更危险），以及为解释器类命令（python/node/bash/powershell 等）
+            配置了 flag 覆盖（-c/-e/-Command 等内联执行参数 → CODE_GEN，因为内联代码内容无法静态审查）。
+            无返回值，方法执行完毕后 self._entries 即包含全部默认注册。
+        """
 
         # ── READ_ONLY ──────────────────────────────────────────────
         read_only_commands = [

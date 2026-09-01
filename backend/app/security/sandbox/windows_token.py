@@ -33,6 +33,20 @@ def create_restricted_token() -> int | None:
     - 已禁用 SeTakeOwnershipPrivilege / SeDebugPrivilege
     - 可配合 CreateProcessAsUserW 使用
 
+    Args:
+        无入参，直接对当前进程令牌进行降权处理。
+
+    运行逻辑：
+        1. 打开当前进程的访问令牌（需要 QUERY/DUPLICATE/ASSIGN_PRIMARY/ADJUST_DEFAULT 权限）；
+        2. 逐个查找高危权限（SeDebugPrivilege 等）对应的 LUID，当前令牌若不含某权限则跳过；
+        3. 查找内置 Administrators 组的 Well-Known SID；
+        4. 调用 CreateRestrictedToken：在 SidsToDisable 中禁用 Administrators SID，
+           在 DeletePrivilegeArray 中删除上一步收集到的高危权限 LUID，
+           不使用 RestrictedSids（不做额外限制性 SID），Flags 传 0（不整体禁用最大权限，
+           而是精确指定要删除的权限），从而得到一个降权后的新令牌；
+        5. 该新令牌保留基本读取权限，可正常执行 dir/cd 等操作，但已不具备管理员身份
+           和高危系统权限，用于后续 CreateProcessAsUser 以受限身份启动子进程。
+
     Returns:
         int | None: 令牌句柄（HANDLE），失败返回 None
     """

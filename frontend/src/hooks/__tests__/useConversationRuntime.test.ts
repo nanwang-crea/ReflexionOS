@@ -1,3 +1,10 @@
+// 文件功能：useConversationRuntime 单会话场景的单元测试
+// 文件描述：覆盖快照加载、WebSocket 连接与同步、事件/实时增量/实时状态写入 store、
+// 实时增量的节流合并、startTurn/cancelRun/approveTool/denyTool 等操作路由、
+// 加载更多历史、按会话隔离的快照刷新排队、resync 请求补拉、reset 对话的成功与失败分支
+// 核心逻辑：mock 掉 react（去除 hook 依赖追踪副作用）、conversation.api、conversation.store、
+// session.store、workspace.store、toast.store、SessionConversationWebSocket，
+// 用可控的 mock 实例逐条触发事件并断言写入 store 的数据是否符合预期
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 
@@ -22,12 +29,14 @@ const {
   conversationStoreState,
   resetSessionActionMock,
   resetSessionSeenMock,
+  subAgentClearSessionMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (data: unknown) => void>()
 
   return {
     resetSessionActionMock: vi.fn(),
     resetSessionSeenMock: vi.fn(),
+    subAgentClearSessionMock: vi.fn(),
     getConversationMock: vi.fn(),
     setSnapshotMock: vi.fn(),
     applyEventMock: vi.fn(),
@@ -137,6 +146,16 @@ vi.mock('@/features/workspace/stores/workspace.store', () => ({
   },
 }))
 
+vi.mock('@/hooks/useSubAgentEvents', () => ({
+  useSubAgentEventsStore: {
+    getState: () => ({
+      addEvent: vi.fn(),
+      clearSession: subAgentClearSessionMock,
+      clearAll: vi.fn(),
+    }),
+  },
+}))
+
 vi.mock('@/services/sessionConversationWebSocket', () => ({
   SessionConversationWebSocket: vi.fn(() => ({
     connect: wsConnectMock,
@@ -226,6 +245,7 @@ describe('useConversationRuntime', () => {
     wsOnMock.mockClear()
     resetSessionActionMock.mockReset()
     resetSessionSeenMock.mockReset()
+    subAgentClearSessionMock.mockReset()
     wsHandlers.clear()
 
     conversationStoreState.conversationsBySessionId = {}
@@ -617,6 +637,7 @@ describe('useConversationRuntime', () => {
 
     expect(resetSessionActionMock).toHaveBeenCalledWith('session-1')
     expect(clearConversationMock).toHaveBeenCalledWith('session-1')
+    expect(subAgentClearSessionMock).toHaveBeenCalledWith('session-1')
     expect(resetSessionSeenMock).toHaveBeenCalledWith('session-1')
   })
 

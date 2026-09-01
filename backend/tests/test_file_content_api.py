@@ -1,3 +1,4 @@
+import contextlib
 import os
 import subprocess
 import tempfile
@@ -60,10 +61,9 @@ def _create_project(client, path):
 
 
 def _delete_project(client, project_id):
-    try:
+    # 测试清理：删除项目失败可忽略（如已被其他用例清理）
+    with contextlib.suppress(Exception):
         client.delete(f"/api/projects/{project_id}")
-    except Exception:
-        pass
 
 
 class TestFileContentAPI:

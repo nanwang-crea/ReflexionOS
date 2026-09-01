@@ -1,3 +1,10 @@
+/**
+ * 文件功能：session.actions.ts 单元测试
+ * 文件描述：验证创建/重命名/写偏好/重置/删除会话等动作是否正确调用 sessionApi，
+ *           并正确将结果同步到 session.store 缓存中。
+ * 核心逻辑：对 ../api/session.api 做 mock，用 vi.fn 断言调用参数，
+ *           再读取 useSessionStore 的状态断言缓存内容是否符合预期。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessionStore } from '@/features/sessions/stores/session.store'
 

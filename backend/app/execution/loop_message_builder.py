@@ -1,3 +1,11 @@
+"""
+Loop 消息构建器：把 LoopContext 中的三级压缩上下文组装成最终发给 LLM 的消息列表。
+
+负责按固定顺序拼装 system prompt、记忆注入（SessionTracker/WorkingMemory）、
+Tier3 摘要、Tier2 截断消息、Tier1 最近消息、计划状态、Task Anchor 等各个
+组成部分，是任务执行引擎中"上下文 -> LLM 请求消息"的最后一道装配环节。
+"""
+
 import os
 import sys
 
@@ -25,16 +33,46 @@ class LoopMessageBuilder:
         tool_output_max_chars: int = 2_400,
         task_anchor_interval: int = 0,
     ):
+        """
+        初始化消息构建器。
+
+        参数：
+            prompt_manager：负责生成 system prompt（含 AGENTS.md、Skills 等
+                静态上下文）的 PromptManager 实例。
+            max_context_groups：Tier 1 保留的最大分组数（透传给下游逻辑参考，
+                实际分组由 ContextCompressor 完成）。
+            tool_output_max_chars：工具输出的最大保留字符数（同上，供参考）。
+            task_anchor_interval：Task Anchor 周期性注入的分组间隔，0 表示
+                不做周期性注入（仅首轮由消息本身承载任务内容）。
+        无返回值，仅保存配置供 build/build_final_summary 使用。
+        """
         self.prompt_manager = prompt_manager
         self.max_context_groups = max_context_groups
         self.tool_output_max_chars = tool_output_max_chars
         self.task_anchor_interval = task_anchor_interval
 
     def build(self, context: LoopContext) -> list[LLMMessage]:
-        """构建完整的三级上下文消息列表，供 LLM 调用使用
+        """构建完整的三级上下文消息列表，供 LLM 调用使用。
 
-        注意：system_sections（AGENTS.md、Skills 等）已合并到 PromptManager.get_system_prompt() 中，
-        不再在此处单独注入。
+        参数：context：当前运行的 LoopContext，提供任务信息、消息压缩器、
+            计划状态、记忆组件等。
+
+        工作流程（按最终消息顺序装配）：
+        1. 根据 agent_mode 选择 plan 模式或普通模式的 system prompt。
+        2. 注入双层记忆（SessionTracker + WorkingMemory）。
+        3. 若存在 Tier 3 压缩摘要，注入摘要内容；且当分组数变化时追加一条
+           "继续任务"的提示消息，避免 LLM 在压缩后不知道该做什么。
+        4. 注入 Tier 2（截断但可见）消息。
+        5. 注入 Tier 1（完整保真的最近 N 组）消息。
+        6. 若存在已恢复但未激活的旧计划，注入提示供 LLM 决定是否继续。
+        7. 若当前有激活计划，注入轻量计划状态。
+        8. 按 task_anchor_interval 周期性注入 Task Anchor（首轮不注入，
+           因为首轮用户消息已在上下文中）。
+
+        注意：system_sections（AGENTS.md、Skills 等）已合并到
+        PromptManager.get_system_prompt() 中，不再在此处单独注入。
+
+        返回值：按上述顺序组装好的 LLMMessage 列表，可直接传给 LLM 调用。
         """
         if context.agent_mode == "plan":
             system_prompt = self.prompt_manager.get_plan_mode_prompt(
@@ -152,7 +190,16 @@ class LoopMessageBuilder:
         return messages
 
     def build_final_summary(self, context: LoopContext) -> list[LLMMessage]:
-        """构建不暴露工具列表的最终总结消息。"""
+        """构建不暴露工具列表的最终总结消息。
+
+        参数：context：当前运行的 LoopContext。
+        工作流程：与 `build` 类似地拼装 system prompt（固定为"直接给出最终
+        答案、不要调用工具"的指令）、记忆注入、Tier3 摘要、Tier2/Tier1 消息，
+        但会把 tool 消息中控制流相关字段简化处理（只保留有内容的 tool 消息，
+        assistant 消息按是否带 tool_calls 分支处理），最后重新注入原始任务
+        （task_content，支持多模态）作为 Task Anchor，确保回答紧扣用户需求。
+        返回值：适用于"生成最终总结"场景的 LLMMessage 列表。
+        """
         messages = [
             LLMMessage(
                 role=MessageRole.SYSTEM,
@@ -214,11 +261,18 @@ class LoopMessageBuilder:
         return messages
 
     def _build_memory_injection(self, context: LoopContext) -> list[LLMMessage]:
-        """构建双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）
+        """构建双层记忆注入：SessionTracker（跟踪）+ WorkingMemory（语义）。
 
+        参数：context：当前运行的 LoopContext，提供 session_tracker 和
+            working_memory 两个组件。
+        工作流程：先取 SessionTracker 的极简跟踪文本（若非空则追加"不要
+        重复读取已知文件"的行为指令一并作为一条 system 消息）；再取
+        WorkingMemory 的语义化内容（若非空追加一条 system 消息）。
         返回的 messages 按顺序插入到 system prompt 之后。
         SessionTracker 在前，提供极简的文件/工具跟踪列表（高注意力）。
         WorkingMemory 在后，提供决策、变量、错误等语义内容。
+
+        返回值：0~2 条 LLMMessage 组成的列表（两层均为空时返回空列表）。
         """
         messages: list[LLMMessage] = []
 
@@ -254,7 +308,15 @@ class LoopMessageBuilder:
 
     @staticmethod
     def _build_plan_status(plan) -> str:
-        """构建轻量级计划状态注入，每轮调用，~50 tokens"""
+        """构建轻量级计划状态注入，每轮调用，~50 tokens。
+
+        参数：plan：当前激活的 Plan 对象，需包含 current_step 与 steps 列表
+            （每个 step 有 status/content）。
+        逻辑：统计总步骤数、已完成步骤数，定位当前 in_progress 步骤的序号，
+        拼装成一行提示文本，提醒 LLM 当前进度和下一步该做什么。
+        返回值：单行状态提示字符串，形如
+        "[Plan ► Step 2/5: xxx] (1/5 completed) → work on this step, ..."。
+        """
         current = plan.current_step
         total = len(plan.steps)
         completed = sum(1 for s in plan.steps if s.status == "completed")

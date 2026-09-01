@@ -1,3 +1,11 @@
+/**
+ * 文件功能：conversation.reducer.ts 中各纯函数的单元测试
+ * 文件描述：覆盖快照应用（普通/分页保留历史）、实时流式消息合并、事件驱动状态更新
+ *          （消息创建/更新、run 状态机、轮次创建、子 agent 事件前缀处理）、以及
+ *          messages.truncated 截断/编辑场景下的状态清理逻辑。
+ * 核心逻辑：每个测试通过构造符合类型定义的快照/事件对象，调用 reducer 纯函数，
+ *          断言返回的新状态是否符合预期，验证状态转换的正确性和幂等性。
+ */
 import { describe, expect, it } from 'vitest'
 import type { ConversationSnapshot } from '@/types/conversation'
 import {
@@ -8,6 +16,14 @@ import {
   createEmptyConversationState,
 } from '../conversation.reducer'
 
+/**
+ * 函数名：buildSnapshot
+ * 入参：无
+ * 功能：构造一个包含单个 session/turn/run 及两条消息（一条用户消息、一条流式中的助手消息）
+ *      的标准会话快照，供多个测试用例复用作为基础数据
+ * 运行逻辑：直接返回硬编码的固定测试数据对象
+ * 出参：ConversationSnapshot - 测试用的标准快照对象
+ */
 function buildSnapshot(): ConversationSnapshot {
   return {
     session: {
@@ -631,6 +647,14 @@ describe('conversationReducer', () => {
   })
 
   describe('messages.truncated', () => {
+    /**
+     * 函数名：buildTwoTurnSnapshot
+     * 入参：无
+     * 功能：构造一个包含两个轮次（turn-1 已完成、turn-2 进行中）的快照，
+     *      用于测试 messages.truncated 事件对多轮次数据的清理效果
+     * 运行逻辑：直接返回硬编码的固定测试数据对象
+     * 出参：ConversationSnapshot - 测试用的双轮次快照对象
+     */
     function buildTwoTurnSnapshot(): ConversationSnapshot {
       return {
         session: {

@@ -158,7 +158,7 @@ try {
   run('electron-builder --win');
   console.log('\n✅ Windows 打包成功！');
   process.exit(0);
-} catch (e) {
+} catch {
   console.log('\n⚠ 首次打包失败，尝试修复 winCodeSign 缓存...');
 
   // 修复缓存
@@ -170,7 +170,7 @@ try {
     run('electron-builder --win');
     console.log('\n✅ Windows 打包成功！（修复缓存后重试）');
     process.exit(0);
-  } catch (e2) {
+  } catch {
     console.error('\n❌ 重试仍然失败，请检查上方错误信息');
     process.exit(1);
   }

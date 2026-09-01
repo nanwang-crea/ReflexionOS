@@ -1,3 +1,11 @@
+/**
+ * 文件功能：工作区 UI 级状态管理（zustand store，带本地持久化）
+ * 文件描述：管理当前选中会话、项目/会话列表展开状态、搜索框状态、
+ *           会话已读基线（未读活动派生依据）、会话同步健康状态等跨组件共享的 UI 状态，
+ *           并将其中的展示相关状态持久化到 localStorage，刷新页面后可恢复。
+ * 核心逻辑：用 zustand 的 persist 中间件配合 partialize 只持久化 WorkspaceUiState 定义的字段（不持久化方法）；
+ *           markSessionSeen 保证已读序号单调递增，resetSessionSeen 是唯一允许其回退的入口。
+ */
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 
@@ -39,6 +47,14 @@ interface WorkspaceState extends WorkspaceUiState {
   clearSessionSyncHealth: (sessionId: string) => void
 }
 
+/**
+ * 函数名：partializeWorkspaceUiState
+ * 入参：
+ *   - state (WorkspaceState): 完整的 store 状态（含数据字段与方法）
+ * 功能：从完整 store 状态中提取出需要持久化到 localStorage 的子集（仅数据字段，不含方法）
+ * 运行逻辑：逐字段挑选出 WorkspaceUiState 中声明的字段并返回
+ * 出参：WorkspaceUiState - 用于持久化的状态子集
+ */
 function partializeWorkspaceUiState(state: WorkspaceState): WorkspaceUiState {
   return {
     currentSessionId: state.currentSessionId,
@@ -61,6 +77,16 @@ const defaultWorkspaceUiState: WorkspaceUiState = {
   sessionSyncHealthBySessionId: {},
 }
 
+/**
+ * 函数名：upsertExpanded
+ * 入参：
+ *   - list (string[]): 当前展开项 ID 列表
+ *   - value (string): 待增删的目标 ID
+ *   - expanded (boolean): 目标最终应处于展开（true）还是收起（false）状态
+ * 功能：根据期望的展开状态，将目标 ID 添加到列表或从列表移除
+ * 运行逻辑：expanded 为 true 时，若列表中不存在该 ID 则追加；为 false 时，从列表中过滤掉该 ID
+ * 出参：string[] - 更新后的展开项 ID 列表（新数组，不修改原数组）
+ */
 function upsertExpanded(list: string[], value: string, expanded: boolean) {
   if (expanded) {
     return list.includes(value) ? list : [...list, value]
@@ -74,25 +100,31 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     (set) => ({
       ...defaultWorkspaceUiState,
 
+      // 设置当前选中的会话 ID（null 表示未选中任何会话）
       setCurrentSessionId: (sessionId) => set({ currentSessionId: sessionId }),
 
+      // 切换指定项目在侧边栏的展开/收起状态
       toggleProjectExpanded: (projectId) => set((state) => ({
         expandedProjectIds: state.expandedProjectIds.includes(projectId)
           ? state.expandedProjectIds.filter(id => id !== projectId)
           : [...state.expandedProjectIds, projectId]
       })),
 
+      // 显式设置指定项目的展开/收起状态（区别于 toggle，这里直接指定目标状态）
       setProjectExpanded: (projectId, expanded) => set((state) => ({
         expandedProjectIds: upsertExpanded(state.expandedProjectIds, projectId, expanded)
       })),
 
+      // 切换指定项目下“会话列表是否展开显示全部”的状态
       toggleProjectShowAll: (projectId) => set((state) => ({
         expandedSessionProjectIds: state.expandedSessionProjectIds.includes(projectId)
           ? state.expandedSessionProjectIds.filter(id => id !== projectId)
           : [...state.expandedSessionProjectIds, projectId]
       })),
 
+      // 设置搜索框的查询关键字
       setSearchQuery: (query) => set({ searchQuery: query }),
+      // 设置搜索框的展开/收起状态
       setSearchOpen: (open) => set({ searchOpen: open }),
 
       markSessionSeen: (sessionId, lastEventSeq) => set((state) => {

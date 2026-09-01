@@ -1,3 +1,10 @@
+/**
+ * 文件功能：用户消息展示组件
+ * 文件描述：展示单条用户消息，包括附件缩略图（图片预览/文件图标）、消息内容（支持编辑态输入框）、
+ *          以及悬浮显示的复制/编辑操作按钮
+ * 核心逻辑：非编辑态下右键消息可触发复制整条消息全文的上下文菜单；编辑态展示可编辑文本域与取消/发送按钮；
+ *          附件路径按约定格式解析出 session_id 以拼装访问 URL，最多展示 4 个附件缩略图，超出部分显示数量角标
+ */
 import { memo } from 'react'
 import { Copy, Pencil } from 'lucide-react'
 import { useToastStore } from '@/shared/stores/toast.store'
@@ -25,6 +32,25 @@ interface UserMessageItemProps {
   attachments?: MessageAttachment[]
 }
 
+/**
+ * 组件名：UserMessageItem
+ * 入参（props，UserMessageItemProps）：
+ *   - messageId (string): 消息唯一标识
+ *   - contentText (string): 消息文本内容
+ *   - onEdit ((messageId, contentText) => void): 点击编辑按钮时的回调
+ *   - isEditing (boolean): 当前消息是否处于编辑态
+ *   - editContent (string): 编辑态下文本框的内容
+ *   - onEditContentChange ((content: string) => void): 编辑内容变化时的回调
+ *   - onEditCancel (() => void): 取消编辑时的回调
+ *   - onEditSubmit (() => void): 提交编辑（发送）时的回调
+ *   - showActions (boolean): 是否显示悬浮操作按钮（复制/编辑）
+ *   - attachments (MessageAttachment[]，可选): 消息携带的附件列表
+ * 作用/渲染逻辑：
+ *   1. 附件区：最多展示 4 个缩略图，图片类型直接预览，其余类型展示占位图标；超出 4 个展示 “+N” 角标
+ *   2. 非编辑态：以气泡样式展示消息文本，支持右键复制全文；编辑态：展示可编辑文本域及取消/发送按钮
+ *   3. 悬浮操作区（showActions 且非编辑态时展示）：复制按钮（写入剪贴板并 toast 提示）、编辑按钮
+ * 返回值：JSX.Element - 用户消息气泡（含附件、内容、操作按钮）
+ */
 export const UserMessageItem = memo(function UserMessageItem({
   messageId,
   contentText,

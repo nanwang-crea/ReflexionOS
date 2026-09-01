@@ -1,3 +1,5 @@
+// 图片附件预览条组件：在聊天输入框上方展示待发送的图片附件缩略图列表，支持逐个移除。
+// 用 memo 包裹以避免输入框内容变化时不必要的重渲染。
 import { memo } from 'react'
 import { X } from 'lucide-react'
 import type { PendingAttachment } from '@/features/conversation/hooks/useImageUpload'
@@ -7,6 +9,9 @@ interface ImagePreviewProps {
   onRemove: (id: string) => void
 }
 
+// 参数：attachments - 待发送的图片附件列表（含预览 URL）；onRemove - 点击移除按钮时的回调，传入附件 id。
+// 作用：横向滚动展示每个附件的缩略图，悬停时显示右上角的删除按钮；附件列表为空时不渲染任何内容。
+// 返回：附件列表为空时返回 null；否则返回横向滚动的缩略图列表 JSX。
 export const ImagePreview = memo(function ImagePreview({
   attachments,
   onRemove,

@@ -67,6 +67,9 @@ async def lifespan(_app: FastAPI):
     启动时：启动 Agent 后台任务，加载本地已缓存的插件（不触发网络操作），扫描技能目录。
     关闭时：关闭 Agent 服务，停止后台任务。
     """
+    # 清理上次进程退出前遗留在"等待审批"状态的孤儿 Run，避免前端展示一张
+    # 永远无法响应的审批卡片（PendingApprovalStore/执行循环均为内存态，随进程重启清空）
+    await agent_service.recover_orphaned_approvals()
     agent_service.start_background_tasks()
 
     try:

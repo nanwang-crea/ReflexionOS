@@ -1,3 +1,10 @@
+"""LLM 适配层入口模块。
+
+统一导出 LLM 相关的核心类型（消息/响应/工具调用等数据结构、统一接口）
+以及具体适配器实现，并提供 LLMAdapterFactory 根据配置动态创建对应的
+LLM 适配器实例（目前仅实现了 OpenAI 兼容适配器，Claude/Ollama 待第二阶段实现）。
+"""
+
 import asyncio
 import logging
 

@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "reflexion-os"
 version = "0.1.0"
 description = "Local execution agent desktop application"
-requires-python = ">=3.11"
+# 统一最低 Python 版本为 3.12：README、CI(release-desktop.yml)、
+# conda/venv 创建命令及本地开发环境均使用 3.12，此处原为 >=3.11 与实际不一致
+requires-python = ">=3.12"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -15,7 +17,7 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]

@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { useCodeTabStore } from '../stores/codeTab.store'
 
+// 多文件管理相关测试：打开/关闭文件、切换视图模式、dirty 状态、面板开关与宽度 clamp
 describe('codeTabStore multi-file', () => {
   beforeEach(() => {
     useCodeTabStore.setState({
@@ -170,6 +171,7 @@ describe('codeTabStore multi-file', () => {
   })
 })
 
+// localStorage 持久化相关测试：验证只持久化 codePanelWidth，其余字段不落盘
 describe('codeTabStore persistence', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -191,6 +193,7 @@ describe('codeTabStore persistence', () => {
   })
 })
 
+// 窗口 resize 触发的宽度 clamp 测试：窗口缩小后代码面板宽度应自动收敛
 describe('codeTabStore window resize clamp', () => {
   beforeEach(() => {
     useCodeTabStore.setState({ codePanelWidth: 900, sidebarOpen: false, sidebarWidth: 240 })
@@ -207,6 +210,7 @@ describe('codeTabStore window resize clamp', () => {
   })
 })
 
+// 侧边栏（文件树）展开/收起及宽度变化触发的代码面板宽度 clamp 测试
 describe('codeTabStore sidebar-triggered clamp', () => {
   beforeEach(() => {
     const original = window.innerWidth

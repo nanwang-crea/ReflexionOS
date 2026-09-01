@@ -75,12 +75,28 @@ class WorkingMemory:
     # ---- 写入接口 ----
 
     def _next_id(self, prefix: str) -> str:
-        """生成唯一 ID（单调递增，不受删除影响）"""
+        """
+        生成唯一 ID（单调递增，不受删除影响）
+
+        参数：prefix - ID 前缀（如 "decision"、"error"）
+        逻辑：内部计数器自增 1，与前缀拼接
+        返回：形如 "prefix:序号" 的字符串
+        """
         self._id_counter += 1
         return f"{prefix}:{self._id_counter}"
 
     def add_decision(self, decision: str, rationale: str = "", source: str = "model") -> None:
-        """记录关键决策（upsert：相同 key 的决策会被更新，而非重复追加）"""
+        """
+        记录关键决策（upsert：相同 key 的决策会被更新，而非重复追加）
+
+        参数：
+            decision: 决策内容，作为去重 key。
+            rationale: 决策理由/说明，作为条目的 value。
+            source: 来源标记，"model"（模型主动记录）或 "auto"（系统自动记录）。
+        逻辑：先遍历已有 decisions 查找同 key 条目，命中则原地更新 value/source；
+              未命中则追加一条新的 MemoryEntry。
+        返回：无（原地修改 self.decisions）。
+        """
         for entry in self.decisions:
             if entry.key == decision:
                 # 同 key 已存在，更新 rationale 和 source
@@ -96,7 +112,16 @@ class WorkingMemory:
         ))
 
     def set_variable(self, name: str, value: str, source: str = "auto") -> None:
-        """设置变量/配置"""
+        """
+        设置变量/配置
+
+        参数：
+            name: 变量名，作为 variables 字典的 key，同时决定 MemoryEntry.id（"var:name"）。
+            value: 变量值（字符串形式）。
+            source: 来源标记，默认 "auto"。
+        逻辑：直接覆盖写入 self.variables[name]（天然 upsert，无需查重）。
+        返回：无。
+        """
         self.variables[name] = MemoryEntry(
             id=f"var:{name}",
             entry_type=MemoryEntryType.VARIABLE,
@@ -106,7 +131,17 @@ class WorkingMemory:
         )
 
     def add_error(self, error_type: str, detail: str, source: str = "auto") -> None:
-        """记录遇到的错误（upsert：相同 key 的错误会被更新，而非重复追加）"""
+        """
+        记录遇到的错误（upsert：相同 key 的错误会被更新，而非重复追加）
+
+        参数：
+            error_type: 错误类型/标识，作为去重 key。
+            detail: 错误详情描述，作为条目的 value。
+            source: 来源标记，默认 "auto"。
+        逻辑：先遍历已有 errors 查找同 key 条目，命中则原地更新 value/source；
+              未命中则追加一条新的 MemoryEntry。
+        返回：无（原地修改 self.errors）。
+        """
         for entry in self.errors:
             if entry.key == error_type:
                 # 同 key 已存在，更新 detail 和 source
@@ -127,10 +162,15 @@ class WorkingMemory:
         """
         将 Working Memory 格式化为 system prompt 注入段
 
-        格式紧凑、信息密度高，控制在 ~2000 tokens 以内
-        如果超过预算，按优先级淘汰：errors > variables > decisions
-
-        注入时包含行为指令，提醒模型利用已有信息、避免重复工作。
+        参数：无（读取 self.decisions/variables/errors）。
+        逻辑：
+            按"决策 → 变量 → 错误（仅最近5条）"顺序拼接为带 emoji 标题的分段文本；
+            全部为空则返回空字符串；
+            格式紧凑、信息密度高，控制在 ~2000 tokens 以内，若超过预算（按
+            max_tokens*1.5 估算的字符数上限）则调用 _evict_to_fit 按优先级
+            （errors > variables > decisions）淘汰内容；
+            最终附加固定的行为指令 header，提醒模型利用已有信息、避免重复工作。
+        返回：拼接好的 prompt 文本；无内容时返回空字符串 ""。
         """
         sections = []
 
@@ -175,10 +215,18 @@ class WorkingMemory:
         return f"{header}\n\n{content}"
 
     def _evict_to_fit(self, content: str, max_chars: int) -> str:
-        """超预算时按优先级淘汰（只作用于副本，不修改 self）
+        """
+        超预算时按优先级淘汰（只作用于副本，不修改 self）
 
-        淘汰顺序：errors → variables（decisions 不淘汰，始终保留）
-        每步淘汰后用副本重建内容，重新检查是否超预算。
+        参数：
+            content: 当前已拼接好的完整 prompt 内容。
+            max_chars: 允许的最大字符数上限。
+        逻辑：
+            淘汰顺序：errors → variables（decisions 不淘汰，始终保留）；
+            每步淘汰后用副本重建内容（_rebuild_content），重新检查是否超预算；
+            errors 只保留最近 2 条，variables 只保留最近 10 个；
+            仍超预算则最终硬截断并附加 "...[truncated]" 标记。
+        返回：裁剪后不超过 max_chars 的内容字符串。
         """
         # 使用副本做截断，避免修改原始数据
         errors_copy = list(self.errors)
@@ -204,7 +252,16 @@ class WorkingMemory:
         errors: list[MemoryEntry] | None = None,
         variables: dict[str, MemoryEntry] | None = None,
     ) -> str:
-        """用指定数据重建 prompt 内容（不影响 self 原始数据）"""
+        """
+        用指定数据重建 prompt 内容（不影响 self 原始数据）
+
+        参数：
+            errors: 用于重建的错误列表；为 None 时回退到 self.errors。
+            variables: 用于重建的变量字典；为 None 时回退到 self.variables。
+        逻辑：decisions 始终用 self.decisions（不参与淘汰）；errors 展示时只取最后 2 条；
+              按 决策/变量/错误 顺序拼接非空分段。
+        返回：拼接后的文本（可能为空字符串）。
+        """
         errors = errors if errors is not None else self.errors
         variables = variables if variables is not None else self.variables
 
@@ -228,17 +285,24 @@ class WorkingMemory:
         return "\n\n".join(sections)
 
     def is_empty(self) -> bool:
-        """Working Memory 是否为空"""
+        """Working Memory 是否为空。参数：无；返回：decisions/variables/errors 全为空时 True。"""
         return not self.decisions and not self.variables and not self.errors
 
     def clear(self) -> None:
-        """清空所有数据（Turn 结束时调用）"""
+        """清空所有数据（Turn 结束时调用）。参数：无；返回：无（原地清空三个容器）。"""
         self.decisions.clear()
         self.variables.clear()
         self.errors.clear()
 
     def to_dict(self) -> dict:
-        """序列化为 dict"""
+        """
+        序列化为 dict
+
+        参数：无。
+        逻辑：将 decisions/variables/errors 分别转换为可 JSON 化的基础类型
+              （list/dict 嵌套 str），丢弃各条目的 id/entry_type，只保留 key/value/source。
+        返回：形如 {"decisions": [...], "variables": {...}, "errors": [...]} 的 dict。
+        """
         return {
             "decisions": [
                 {"key": d.key, "value": d.value, "source": d.source}
@@ -256,7 +320,14 @@ class WorkingMemory:
 
     @classmethod
     def from_dict(cls, data: dict) -> "WorkingMemory":
-        """从 dict 反序列化"""
+        """
+        从 dict 反序列化
+
+        参数：data - 与 to_dict() 输出结构一致的 dict（decisions/variables/errors）。
+        逻辑：新建空 WorkingMemory 实例，依次调用 add_decision/set_variable/add_error
+              回填数据（复用写入接口的 upsert 逻辑，而非直接构造 MemoryEntry）。
+        返回：还原后的 WorkingMemory 实例。
+        """
         wm = cls()
         for d in data.get("decisions", []):
             wm.add_decision(d["key"], d.get("value", ""), d.get("source", "model"))

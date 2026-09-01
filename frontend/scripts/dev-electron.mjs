@@ -74,7 +74,20 @@ function waitForServer(url, timeoutMs = 30000) {
  * 输出：URL 字符串，未匹配到时返回 null
  */
 function parseViteUrl(output) {
-  const stripped = output.replace(/\x1b\[[0-9;]*m/g, '')
+  let stripped = ''
+  let i = 0
+  while (i < output.length) {
+    if (output.charCodeAt(i) === 27 && output[i + 1] === '[') {
+      i += 2
+      while (i < output.length && output[i] !== 'm') {
+        i += 1
+      }
+      i += 1
+      continue
+    }
+    stripped += output[i]
+    i += 1
+  }
   const match = stripped.match(/Local:\s+(https?:\/\/[^\s]+)/)
   return match ? match[1] : null
 }
@@ -175,7 +188,8 @@ async function main() {
   }
 
   // ELECTRON_RUN_AS_NODE 会让 Electron 以纯 Node.js 模式运行（不显示 GUI），需从环境中移除
-  const { ELECTRON_RUN_AS_NODE, ...childEnv } = process.env
+  const childEnv = { ...process.env }
+  delete childEnv.ELECTRON_RUN_AS_NODE
 
   electronProcess = spawn(electronBinary, ['./electron/main.cjs'], {
     cwd: frontendDir,

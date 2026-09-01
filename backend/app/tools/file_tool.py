@@ -1,3 +1,10 @@
+"""
+FileTool — 文件读取/搜索/目录列表工具（BaseTool 子类）。
+
+提供三种操作：read（支持按行号范围或目标行+上下文的分块读取，含缓存和字节上限截断）、
+search（在单文件或整个目录中做大小写不敏感的关键词搜索）、list（列出目录条目）。
+所有路径访问都经过 PathSecurity 校验，越权访问项目外路径时转换为审批请求。
+"""
 import logging
 import os
 from typing import Any
@@ -44,6 +51,13 @@ class FileTool(BaseTool):
     LINE_TRUNCATION_SUFFIX = "... (line truncated to 2000 chars)"
 
     def __init__(self, security: PathSecurity):
+        """
+        初始化文件工具。
+
+        入参：security - 路径安全校验器
+        逻辑：设置读取行数上下限（min/default/max_read_limit），初始化基于
+            文件 mtime 的按行缓存（_read_cache），避免同一文件短时间内重复整读。
+        """
         self.security = security
         self.min_read_limit = 30
         self.default_read_limit = 500
@@ -53,14 +67,22 @@ class FileTool(BaseTool):
 
     @property
     def name(self) -> str:
+        """工具名称，固定为 'file'，用于 LLM 的 tool_calls 识别"""
         return "file"
 
     @property
     def description(self) -> str:
+        """工具描述，告知 LLM 支持分块读取大文件"""
         return "File read/write and directory operations tool, supports chunked reading of large files"
 
     def get_schema(self) -> dict[str, Any]:
-        """返回工具的 JSON Schema"""
+        """
+        返回工具的 JSON Schema，传递给 LLM 的 tools 参数。
+
+        出参：dict，定义 action（枚举 read/search/list）、path 及各 action 专属参数
+            （read 的 start_line/limit/line/context，search 的 query）。
+            注：properties 中的 description 是面向 LLM 的功能说明，保持英文原文不译。
+        """
         return {
             "name": self.name,
             "description": self.description,
@@ -124,7 +146,9 @@ class FileTool(BaseTool):
         }
 
     async def execute(self, args: dict[str, Any]) -> ToolResult:
-        """执行文件操作"""
+        """执行文件操作。入参：args 需含 action（read/list/search）及各 action 所需参数（见 get_schema）。
+        逻辑：按 action 分发到 _read_file/_list_directory/_search_in_file，统一捕获异常。
+        返回：ToolResult，失败时 error 说明缺参或异常原因。"""
         action = args.get("action")
 
         if not action:
@@ -153,6 +177,7 @@ class FileTool(BaseTool):
             return ToolResult(success=False, error=str(e))
 
     def _get_cached_lines(self, path: str) -> list[str] | None:
+        """按文件 mtime 校验缓存是否仍然有效；有效则返回缓存的行列表，否则返回 None（需要重新读取）"""
         try:
             mtime = os.path.getmtime(path)
         except OSError:
@@ -163,6 +188,7 @@ class FileTool(BaseTool):
         return None
 
     def _set_cached_lines(self, path: str, lines: list[str]) -> None:
+        """将文件行列表写入缓存（以当前 mtime 为 key 校验依据），超过容量上限时淘汰最早的一条（简单 FIFO）"""
         try:
             mtime = os.path.getmtime(path)
         except OSError:
@@ -173,6 +199,18 @@ class FileTool(BaseTool):
         self._read_cache[path] = (mtime, lines)
 
     async def _read_file(self, args: dict[str, Any]) -> ToolResult:
+        """
+        read 动作实现：分块读取文件内容。
+
+        入参：args 需含 path；可选 start_line+limit（或 end_line）按行号范围读取，
+            或 line+context 读取目标行及其上下文，两者都不给则从头读取默认行数
+        逻辑：校验路径与文件存在性 -> 超过 200KB 直接拒绝（建议改用 grep）->
+            优先读缓存，未命中则整读文件并按 mtime 缓存 -> 截断超长行 ->
+            根据参数计算实际读取的 [start_line, end_line] 区间 -> 拼接带行号的输出 ->
+            若输出字节数超过 MAX_READ_BYTES 上限则逐步收窄 end_line 直至满足限制
+        返回：ToolResult，output 含元信息（总行数/显示范围/是否还有更多）与内容，
+            data 中包含结构化字段供程序化使用
+        """
         try:
             path = self.security.validate_path(args["path"])
         except ExternalPathError as exc:
@@ -282,6 +320,7 @@ class FileTool(BaseTool):
         )
 
     def _positive_int(self, value: Any) -> int | None:
+        """将输入值安全转换为正整数：None/空字符串/布尔值/非法数值/非正数均返回 None"""
         if value in (None, "") or isinstance(value, bool):
             return None
         try:
@@ -291,12 +330,21 @@ class FileTool(BaseTool):
         return parsed if parsed > 0 else None
 
     def _read_limit(self, value: Any) -> int | None:
+        """解析 limit 参数并夹取到 [min_read_limit, max_read_limit] 范围内；无效输入返回 None"""
         parsed = self._positive_int(value)
         if parsed is None:
             return None
         return max(self.min_read_limit, min(self.max_read_limit, parsed))
 
     async def _search_in_file(self, args: dict[str, Any]) -> ToolResult:
+        """
+        search 动作实现：在单文件或整个目录中做大小写不敏感的关键词搜索。
+
+        入参：args 需含 path、query（搜索关键词）
+        逻辑：path 为目录时委托给 _search_in_directory；为文件时逐行做子串匹配，
+            命中行附带上下文（_get_context），最多展示 MAX_FILE_SEARCH_OUTPUT 条
+        返回：ToolResult，data 中包含全部匹配（matches）与匹配总数（count）
+        """
         try:
             path = self.security.validate_path(args["path"])
         except ExternalPathError as exc:
@@ -359,7 +407,16 @@ class FileTool(BaseTool):
         return "\n".join(context_lines)
 
     async def _search_in_directory(self, dir_path: str, query: str) -> ToolResult:
-        """在目录下搜索"""
+        """
+        目录级搜索：递归遍历目录下的可搜索文本文件，做关键词匹配。
+
+        入参：dir_path - 目标目录（已校验）；query - 搜索关键词
+        逻辑：os.walk 遍历，跳过隐藏目录/EXCLUDED_SEARCH_DIRS（如 node_modules）和隐藏文件，
+            仅搜索 SEARCHABLE_EXTENSIONS 白名单后缀的文件；单文件读取/解码失败则跳过该文件；
+            达到 MAX_DIRECTORY_SEARCH_MATCHES 上限即提前终止遍历
+        返回：ToolResult，output 展示相对路径:行号:内容，超出 MAX_DIRECTORY_SEARCH_OUTPUT 提示还有更多；
+            data 中包含全部匹配（matches，内容截断至 100 字符）与匹配总数
+        """
         if not query:
             return ToolResult(success=False, error="缺少 query 参数")
 
@@ -422,6 +479,14 @@ class FileTool(BaseTool):
 
 
     async def _list_directory(self, args: dict[str, Any]) -> ToolResult:
+        """
+        list 动作实现：列出目录下的一级条目（不递归）。
+
+        入参：args 可含 path（默认为项目根 "."）
+        逻辑：校验路径存在且为目录 -> 排序后遍历，跳过隐藏项 -> 标注每项是文件还是目录
+        返回：ToolResult，output 为摘要文本（最多展示 MAX_LIST_DISPLAY_ITEMS 项），
+            data 中包含完整的 files 列表与总数
+        """
         try:
             path = self.security.validate_path(args.get("path", "."))
         except ExternalPathError as exc:

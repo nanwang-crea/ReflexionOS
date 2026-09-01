@@ -1,3 +1,5 @@
+// 派生 sidebar 会话项展示状态的工具模块：根据会话/run/未读信息计算出每个会话应展示的状态徽标，
+// 并提供按状态优先级对会话列表排序的函数，供 WorkspaceSidebar 组件使用。
 import type { ConversationRunStatus, ConversationState } from '@/types/conversation'
 import type { SessionSummary } from '@/types/workspace'
 import type { SessionSyncHealth } from '@/features/workspace/stores/workspace.store'

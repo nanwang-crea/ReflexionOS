@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class GitService:
+    """Git 操作服务类：封装项目仓库的状态查询、暂存区管理、提交、分支、远端同步等操作。"""
 
     def _get_project_path(self, project_id: str) -> str:
         """

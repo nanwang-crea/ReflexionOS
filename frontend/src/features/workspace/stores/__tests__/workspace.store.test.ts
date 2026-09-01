@@ -1,7 +1,21 @@
+/**
+ * 文件功能：workspace.store.ts 中“会话级状态”相关行为的单元测试
+ * 文件描述：验证已读基线（lastSeenEventSeqBySessionId）的单调前进/重置逻辑，
+ *           以及同步健康标记（sessionSyncHealthBySessionId）的设置/清除逻辑，并确认状态会正确持久化到 localStorage。
+ * 核心逻辑：node 测试环境无 localStorage，需要先安装内存版 mock；每个用例前 resetModules 保证 store 状态互不污染。
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // node 测试环境没有 localStorage，store 用 persist + createJSONStorage(localStorage)。
 // 这里提供一个最小内存版 localStorage，保证 store 能正常加载与读写。
+/**
+ * 函数名：installMemoryLocalStorage
+ * 入参：无
+ * 功能：在测试环境中安装一个基于内存 Map 实现的 localStorage 替身
+ * 运行逻辑：用 Map 存储键值对，实现 getItem/setItem/removeItem/clear/key/length，
+ *          再通过 vi.stubGlobal 挂载为全局 localStorage
+ * 出参：Map<string, string> - 底层存储的 Map 实例，供测试用例直接读取持久化内容
+ */
 function installMemoryLocalStorage() {
   const store = new Map<string, string>()
   const mock = {

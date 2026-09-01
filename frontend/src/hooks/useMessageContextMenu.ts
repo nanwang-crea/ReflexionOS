@@ -6,6 +6,16 @@ import type { MouseEvent } from 'react'
 import { useContextMenuStore } from '@/shared/stores/contextMenu.store'
 import { showToast } from './useToast'
 
+// 函数名：useMessageContextMenu
+// 入参：
+//   - getFullText (() => string): 调用方提供的取全文回调，按消息类型返回全文或原始 Markdown
+// 功能：生成消息右键菜单的事件处理函数，菜单项仅含“复制”
+// 运行逻辑：
+//   1. 阻止浏览器默认右键菜单
+//   2. 若当前有非空选区，复制选区可见文本；否则调用 getFullText() 取全文
+//   3. 通过 contextMenu.store 在鼠标位置弹出自定义菜单
+//   4. 点击“复制”后写入系统剪贴板并弹出成功/失败提示
+// 出参：(event: MouseEvent) => void - 可直接绑定到 onContextMenu 的事件处理函数
 export function useMessageContextMenu(getFullText: () => string) {
   return (event: MouseEvent) => {
     event.preventDefault()

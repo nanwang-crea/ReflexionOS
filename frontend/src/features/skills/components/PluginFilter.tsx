@@ -1,3 +1,10 @@
+/**
+ * 文件功能：技能列表的插件筛选栏组件
+ * 文件描述：展示“所有插件”按钮、常用插件快捷按钮，以及其余插件的“更多”下拉菜单，
+ *           用于按插件来源筛选技能列表。
+ * 核心逻辑：topPlugins 直接以按钮形式展示；不在 topPlugins 中的插件归入 morePlugins，
+ *           通过下拉菜单展示；点击外部区域会自动收起下拉菜单。
+ */
 import { ChevronDown } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import type { PluginInfo } from '@/features/skills/utils/skillHelpers'
@@ -9,6 +16,20 @@ interface PluginFilterProps {
   onPluginChange: (plugin: string) => void
 }
 
+/**
+ * 函数名：PluginFilter
+ * 入参：
+ *   - plugins (PluginInfo[]): 全部插件信息列表
+ *   - topPlugins (PluginInfo[]): 优先展示的常用插件列表（作为独立按钮展示）
+ *   - activePlugin (string): 当前选中的插件名（'all' 表示不筛选）
+ *   - onPluginChange ((plugin: string) => void): 切换插件筛选时触发的回调
+ * 功能：渲染插件筛选栏，包含“所有插件”按钮、常用插件按钮组，以及其余插件的“更多”下拉菜单
+ * 运行逻辑：
+ *   1. 用 useState 维护下拉菜单展开状态，useRef + useEffect 监听全局 mousedown 实现点击外部自动收起
+ *   2. 用 plugins 过滤掉已在 topPlugins 中出现的插件，得到 morePlugins
+ *   3. 渲染时根据 activePlugin 是否匹配来高亮对应按钮，点击按钮调用 onPluginChange 通知外部切换筛选
+ * 出参：JSX.Element - 插件筛选栏
+ */
 export default function PluginFilter({
   plugins,
   topPlugins,

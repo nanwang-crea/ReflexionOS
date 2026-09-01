@@ -5,6 +5,93 @@
 
 ---
 
+## [2026-08-28] [测试基线] 稳定前端 timeout 敏感用例并固定后端 pytest 环境
+
+- **类型**: 测试基线
+- **提交**: 当前提交（`test: stabilize frontend timeout-prone tests`）
+- **涉及文件**: frontend/src/features/llm/__tests__/llmSettings.loader.test.ts, frontend/src/hooks/__tests__/useConversationRuntime.multi-session.test.ts, backend/README.md
+- **关联**: 前端测试稳定性 / 后端本地验证环境
+
+### 问题/需求
+在继续清理测试基线时，出现了两类容易误判的问题：
+1. 前端整套 Vitest 并发跑时，有两个用例会在 Windows 或高负载机器上偶发超过默认 5 秒，导致非功能性超时报红。
+2. 先前看到的后端 API “collection error” 不是代码回归，而是错误地使用了系统 Python，触发了与仓库依赖不匹配的 `FastAPI + Starlette + httpx` 组合。
+
+### 原因
+1. `ensureLLMSettingsLoaded` 的并发去重测试会叠加动态 import 与 `resetModules` 成本；`useConversationRuntime` 的多会话测试会同时等待多条连接与 effect / 微任务链排空，整套并发执行时都容易逼近默认超时。
+2. 当前机器的系统 Python 安装了 `fastapi==0.104.0`、`starlette==0.27.0`、`httpx==0.28.1`，而仓库实际验证通过的是根目录 `.venv` 中的 `fastapi==0.115.6`、`starlette==0.41.3`、`httpx==0.28.1`；前者会让 `TestClient` 在收集阶段就抛 `TypeError: Client.__init__() got an unexpected keyword argument 'app'`。
+
+### 修复/实现方法
+1. 仅对两个已确认的慢用例单独放宽到 `20s`，并在测试旁补充注释说明触发条件，避免把随机调度波动误当成真实回归。
+2. 在 `backend/README.md` 明确补充“优先使用仓库根目录 `.venv` 运行 pytest”的命令示例，避免后续再次用系统 Python 复现假失败。
+3. 同步把本次基线修复记录进 devlog，和上一条启动恢复修复一起形成连续可追溯的验证链路。
+
+### 过程
+1. 复核未提交改动，确认只包含两个前端测试文件。
+2. 检查用例内容，确认超时来自测试装配与并发调度成本，而非业务断言本身不稳定。
+3. 将多会话测试也补齐显式 `20s` 超时，使注释与真实执行参数保持一致。
+4. 回填后端 README 的推荐测试命令，固定正确的本地验证入口。
+
+### 测试验证及结果
+- `pnpm --dir frontend exec vitest run src/features/llm/__tests__/llmSettings.loader.test.ts --reporter=verbose`
+  - 结果：**8 passed**
+- `pnpm --dir frontend exec vitest run src/hooks/__tests__/useConversationRuntime.multi-session.test.ts --reporter=verbose`
+  - 结果：**6 passed**
+- `pnpm --dir frontend test`
+  - 结果：**41 passed files / 248 passed tests**
+- `& .venv\Scripts\python.exe -m pytest backend/tests/test_api/test_plugins_api.py -q`
+  - 结果：**6 passed**
+- `& .venv\Scripts\python.exe -m pytest backend/tests/test_api/test_sessions_api.py -q`
+  - 结果：**10 passed**
+- `& .venv\Scripts\python.exe -m pytest backend/tests --collect-only -q`
+  - 结果：**1135 tests collected**
+- 结论：前端整套基线已恢复稳定；后端先前的 collection error 已确认是环境漂移，不是代码失败。
+
+### 经验教训/待办
+- 经验：测试默认超时应服务于“识别真实卡死”，不应把 Windows 调度抖动或模块装配开销当成产品 bug；放宽超时要局部、可解释、可回溯。
+- 经验：本地验证脚本一旦没有把“必须使用哪个解释器”写清楚，团队很容易把环境兼容问题误判为代码回归。
+- 待办：继续补齐项目主 README / 文档中的测试与状态说明，清理仍然可能误导当前基线判断的文档漂移。
+
+---
+
+## [2026-08-28] [Bug修复] 启动时清理跨进程遗留的等待审批 Run
+
+- **类型**: Bug修复
+- **提交**: `0600cafe` (`fix: recover orphaned approval runs on startup`)
+- **涉及文件**: backend/app/main.py, backend/app/services/agent_service.py, backend/app/storage/repositories/run_repo.py, backend/tests/test_services/test_agent_service.py
+- **关联**: 启动恢复 / 审批状态一致性
+
+### 问题/需求
+桌面端或后端进程在“等待审批”阶段退出后，数据库里的 Run 状态会停留在 `WAITING_FOR_APPROVAL`，但真正承载审批请求的 `PendingApprovalStore` 与执行循环都只存在于进程内存。应用重启后，前端仍会从历史快照中读到一张“审批中”卡片，用户点击允许/拒绝时却只会命中“审批不存在”，形成无法恢复的假活跃状态。
+
+### 原因
+1. Run 的状态会持久化到数据库，因此进程退出后仍保留 `WAITING_FOR_APPROVAL`。
+2. 审批记录和等待中的执行上下文是内存态，进程重启后必然丢失。
+3. 启动流程缺少“孤儿审批 Run”恢复逻辑，导致 UI 展示与真实可执行状态不一致。
+
+### 修复/实现方法
+1. 在 `AgentService` 新增 `recover_orphaned_approvals()`：启动时扫描所有 `WAITING_FOR_APPROVAL` 的 Run，并复用现有 `cancel_run()` 路径把它们收敛为 `CANCELLED`，单条失败仅记录日志、不阻断后续清理。
+2. 在 `RunRepository` 新增 `list_by_status()`，用于跨会话查询指定状态的 Run，支撑启动恢复扫描。
+3. 在 `backend/app/main.py` 的 FastAPI lifespan 启动阶段优先执行该恢复逻辑，再启动后台任务，避免前端连上来后先看到“僵尸审批卡片”。
+4. 补充回归测试，模拟“旧进程写入等待审批状态 -> 进程重启 -> 新实例恢复”的完整链路，验证 Run 会被取消且恢复逻辑幂等。
+
+### 过程
+1. 复查当前未提交改动，确认修复集中在启动恢复与审批状态一致性。
+2. 通读 `cancel_run()` 的退化路径，确认在执行循环与 pending approval 已丢失时仍可安全落库 `run:cancelled`。
+3. 增加仓储查询接口与服务层恢复方法，并把入口挂到应用启动生命周期。
+4. 运行针对性测试验证“跨进程孤儿审批”场景。
+
+### 测试验证及结果
+- `python -m pytest backend/tests/test_services/test_agent_service.py -q`
+- 结果：**23 passed**
+- 结论：孤儿审批 Run 会在启动时被正确收敛为取消状态，相关服务层回归测试通过。
+
+### 经验教训/待办
+- 经验：凡是“数据库持久化 + 内存态协作”混合建模的流程，都要补启动恢复逻辑，否则重启后很容易出现假状态。
+- 待办：继续修复当前测试基线中的 collection error 与前端 timeout，用稳定基线承接后续优化。
+
+---
+
 ## [2026-08-04] [????] ?????????????????
 
 - **??**: ????

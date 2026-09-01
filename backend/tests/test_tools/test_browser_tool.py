@@ -8,7 +8,7 @@ test_browser_tool — BrowserTool 单元测试。
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, patch
 
 from app.browser.models import BrowserActionResult
 from app.tools.browser_tool import BrowserTool

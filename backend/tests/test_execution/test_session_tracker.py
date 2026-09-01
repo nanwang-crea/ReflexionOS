@@ -1,6 +1,5 @@
 """SessionTracker 单元测试 — 轻量会话跟踪器"""
 
-import pytest
 from app.memory.session_tracker import SessionTracker, AccessType
 
 

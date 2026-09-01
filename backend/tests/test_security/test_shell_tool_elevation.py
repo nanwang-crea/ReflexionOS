@@ -12,7 +12,6 @@ def shell_tool():
     from app.tools.shell_tool import ShellTool
     from app.security.shell_security import ShellSecurity
     from app.security.path_security import PathSecurity
-    from app.security.command_effect_registry import CommandEffectRegistry
     from app.security.sandbox.factory import NullSandbox
     from app.security.session_trust_store import SessionTrustStore
 
