@@ -10,7 +10,9 @@
 
 ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一个本地项目后，Agent 可读取文件、运行命令、应用补丁——每一步都实时可见。
 
-**代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 57 个 | 前端测试 17 个
+**代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 60 个 | 前端测试 17 个
+
+**测试基线**（2026-09-02）：后端 1125/1131 通过（99.5%），6 个 browser 测试因缺 chromium 跳过 | 前端测试需重建环境
 
 **技术栈**：
 | 层 | 技术 |
@@ -65,6 +67,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | plan（执行计划管理） | ✅ 完成 | 262 行，支持 create / step_done / block / adjust 四种操作 |
 | memory（策展记忆） | ✅ 完成 | 123 行，add / replace / remove 操作，渲染到 memory.md |
 | session_recall（会话回溯） | ✅ 完成 | 91 行，从 DB 按关键词取回当前 session 的历史消息完整内容 |
+| browser（浏览器控制） | ✅ 完成 | Playwright 控制 Chromium，支持导航/点击/填写/截图/读取/JS 执行，BrowserManager + 3 个测试文件 |
 | 工具注册中心（ToolRegistry） | ✅ 完成 | 66 行，注册/查询/Schema 生成/定义导出 |
 | 工具基类（BaseTool + ToolResult + ToolApprovalRequest） | ✅ 完成 | 70 行，ABC 基类，含审批请求模型 |
 | Diff 解析器（DiffParser + CodexPatchParser） | ✅ 完成 | 220 行，支持 Unified Diff 和 Codex-style 补丁解析 |
@@ -356,6 +359,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 服务层 | ✅ 完成 | 8 | agent_service / cleanup / conversation_broadcaster / conversation_projection / conversation_runtime_adapter / conversation_service / llm_provider_service / session_service |
 | 存储层 | ✅ 完成 | 2 | conversation_repositories / project_repository |
 | 工具层 | ✅ 完成 | 9 | edit / file / glob / grep / memory / patch / plan / registry / session_recall / shell |
+| Browser 层 | ✅ 完成 | 3 | browser_integration / browser_manager / browser_tool（需 chromium，当前 6/6 跳过）|
 | 编排层 | ✅ 完成 | 2 | mcp_manager / skill_registry |
 | 前端 | ✅ 完成 | 17 | ChatInput / ToolTraceCard / transcriptItems / sidebar 系列 / conversation 系列 / session 系列 / codeTabStore / terminalStore / autoScroll / sessionSelection / useSendMessage / useConversationRuntime / useSessionData / useSessionSelection 等 |
 
@@ -404,7 +408,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 分类 | 总项 | ✅ 完成 | 🔶 部分完成 | ⬜ 未完成 |
 |------|------|---------|------------|----------|
 | 核心执行引擎 | 11 | 11 | 0 | 0 |
-| 工具系统 | 13 | 13 | 0 | 0 |
+| 工具系统 | 14 | 14 | 0 | 0 |
 | LLM 接入层 | 7 | 7 | 0 | 0 |
 | 安全层 | 11 | 11 | 0 | 0 |
 | 记忆系统 | 10 | 8 | 1 | 1 |
@@ -428,10 +432,10 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 打包与分发 | 6 | 6 | 0 | 0 |
 | 配置管理 | 4 | 4 | 0 | 0 |
 | 错误处理 | 2 | 2 | 0 | 0 |
-| 测试覆盖 | 10 | 10 | 0 | 0 |
+| 测试覆盖 | 11 | 11 | 0 | 0 |
 | 开发辅助 | 3 | 3 | 0 | 0 |
-| **合计** | **199** | **194** | **4** | **1** |
+| **合计** | **200** | **195** | **4** | **1** |
 
-> **整体完成度：97.5%**（194/199 项已完成，4 项部分完成，1 项未完成）
+> **整体完成度：97.5%**（195/200 项已完成，4 项部分完成，1 项未完成）
 > 
 > 核心功能链（执行引擎 → 工具系统 → LLM 接入 → 安全层 → 会话管理 → 前端 UI → 打包分发）已全部打通，可正常运行。未完成项集中在扩展能力（MCP / 跨会话记忆 / 插件 / 自动化），不影响核心使用。
