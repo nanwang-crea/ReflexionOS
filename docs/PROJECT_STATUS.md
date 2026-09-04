@@ -10,9 +10,11 @@
 
 ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一个本地项目后，Agent 可读取文件、运行命令、应用补丁——每一步都实时可见。
 
-**代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 60 个 | 前端测试 17 个
+**代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 60 个 | 前端测试 41 个
 
-**测试基线**（2026-09-02）：后端 1125/1131 通过（99.5%），6 个 browser 测试因缺 chromium 跳过 | 前端测试需重建环境
+**测试基线**（2026-09-04）：
+- 后端：1124/1131 通过（99.4%），**7 个失败**（6 个 browser 测试因缺 chromium，1 个 shell_tool 测试），4 个跳过，47 个警告
+- 前端：41/41 文件通过，248/248 测试通过（100%）
 
 **技术栈**：
 | 层 | 技术 |
@@ -359,9 +361,9 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 服务层 | ✅ 完成 | 8 | agent_service / cleanup / conversation_broadcaster / conversation_projection / conversation_runtime_adapter / conversation_service / llm_provider_service / session_service |
 | 存储层 | ✅ 完成 | 2 | conversation_repositories / project_repository |
 | 工具层 | ✅ 完成 | 9 | edit / file / glob / grep / memory / patch / plan / registry / session_recall / shell |
-| Browser 层 | ✅ 完成 | 3 | browser_integration / browser_manager / browser_tool（需 chromium，当前 6/6 跳过）|
+| Browser 层 | ✅ 完成 | 3 | browser_integration / browser_manager / browser_tool（需 chromium，当前 6/6 失败）|
 | 编排层 | ✅ 完成 | 2 | mcp_manager / skill_registry |
-| 前端 | ✅ 完成 | 17 | ChatInput / ToolTraceCard / transcriptItems / sidebar 系列 / conversation 系列 / session 系列 / codeTabStore / terminalStore / autoScroll / sessionSelection / useSendMessage / useConversationRuntime / useSessionData / useSessionSelection 等 |
+| 前端 | ✅ 完成 | 41 | ChatInput / ToolTraceCard / transcriptItems / sidebar 系列 / conversation 系列 / session 系列 / codeTabStore / terminalStore / autoScroll / sessionSelection / useSendMessage / useConversationRuntime / useSessionData / useSessionSelection / llmSettings / projects / workspace / backendManager / runtimeConfig / dialogService 等 |
 
 ### 2.27 开发辅助
 
