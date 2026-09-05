@@ -76,7 +76,10 @@ class TestShellTool:
 
     @pytest.mark.asyncio
     async def test_execute_common_command(self, shell_tool):
-        result = await shell_tool.execute({"command": "which python"})
+        # 跨平台兼容：Windows 用 where，Unix/Linux/macOS 用 which
+        import platform
+        command = "where python" if platform.system() == "Windows" else "which python"
+        result = await shell_tool.execute({"command": command})
 
         assert result.success is True
         assert "python" in result.output.lower()
