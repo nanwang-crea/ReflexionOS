@@ -7,6 +7,7 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-09-06 | Bug修复 | 测试环境重建与 chromium 手动安装（后端测试基线全绿） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-08-28 | 测试基线 | 稳定前端 timeout 敏感用例并固定后端 pytest 环境 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-08-28 | Bug修复 | 启动时清理跨进程遗留的等待审批 Run | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-08-04 | ???? | ????????????????????????????? | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |

@@ -670,3 +670,48 @@ macOS 使用 kqueue-based 默认事件循环，天然支持子进程，故不受
 - 经验：`uvicorn --reload` 在 Windows 下会切 `WindowsSelectorEventLoopPolicy`，任何在请求处理链路里调用 `asyncio.create_subprocess_exec` 的代码都会炸——必须全局改用 `run_in_executor` + 同步 `subprocess.run`。这是 Windows 平台必须统一处理的坑，不能仅修一处。
 - 经验：同类问题在 `shell_tool.py` 已踩过并留下测试文件，但 `file_content_service.py` 新增 git 子进程调用时没有参照，说明跨文件的模式一致性需要 review checklist 显式覆盖。
 - 待办：项目里其他地方是否还有直接用 `asyncio.create_subprocess_exec` 的调用值得做一次全局 grep 排查，避免留下同类隐患。
+
+## [2026-09-06] [Bug修复] 测试环境重建与 chromium 手动安装（后端测试基线全绿）
+
+- **类型**: Bug修复
+- **涉及文件**: `docs/PROJECT_STATUS.md`、`backend/tests/test_browser/test_browser_integration.py`、`backend/app/tools/shell_tool.py`、`frontend/pnpm-lock.yaml`、`docs/observability-platform-phase-summary.md`、`docs/observability-platform-design.md`
+- **关联**: commit cb9cffe0 / 75950bb6
+
+### 问题/需求
+项目测试基线长期不完整：后端 7 个测试失败（6 个 browser + 1 个 shell_tool），前端测试环境完全跑不起来（`node_modules` 损坏、vitest 缺失）。需要重建测试环境，把测试基线拉到全绿，为后续开发提供可靠基线。另外监控平台设计文档称 Phase1-4 已完成，但仓库里零监控代码，文档与代码不一致会误导。
+
+### 原因
+1. **前端环境失效**：`pnpm-lock.yaml` 是 lockfileVersion 6.0（旧 pnpm 生成），本机 pnpm 10.30.3 不兼容，`node_modules` 状态损坏；且本机网络无法访问 `registry.npmjs.org`（被屏蔽到 198.18.0.89）。
+2. **chromium 下载失败**：Playwright 需要 `chrome-headless-shell` 二进制，但 `cdn.playwright.dev` 被屏蔽到 198.18.0.110，`python -m playwright install chromium` 直接超时；淘宝镜像 `npmmirror.com` 没有该版本（404 NoSuchKey）。
+3. **shell_tool 测试失败**：`test_execute_common_command` 用 `which python` 找命令，Windows 上没有 `which` 命令，应该用 `where`。
+4. **监控平台文档虚标**：`observability-platform-phase-summary.md` 和 `observability-platform-design.md` 称 Phase1-4 完成、9 个 API 端点，但 `backend/app/monitoring/` 目录不存在，`/api/monitoring/*` 路由未注册。
+
+### 修复/实现方法
+1. 前端：配置 pnpm 淘宝镜像 `https://registry.npmmirror.com`，删除损坏的 `node_modules`，重新 `pnpm install`（640 个包），`pnpm test` 跑 vitest。
+2. chromium：手动下载两个 ZIP（`chrome-win64.zip` + `chrome-headless-shell-win64.zip`，版本 147.0.7727.15 / playwright v1217），解压到 Playwright 缓存目录的指定子目录。
+3. shell_tool：Windows 上用 `where` 代替 `which` 查找命令。
+4. 监控平台文档：在两份设计文档顶部加"当前状态：设计文档，Phase 1-4 尚未实现代码"的免责声明。
+
+### 过程
+1. 先跑后端测试确认基线：1124/1131 通过，7 个失败（6 browser + 1 shell_tool）。
+2. 前端 `pnpm install` 先因 `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` 失败，删除 `node_modules` 后重试，又因 npm registry 网络超时失败；配置 `pnpm config set registry https://registry.npmmirror.com` 后重试成功（5 分 26 秒，640 个包）。
+3. `pnpm test`：41 个文件 248 个测试全部通过，但有 `useLayoutEffect` SSR 警告（framer-motion 引起，不影响测试）。
+4. shell_tool 修复后后端基线升到 1125/1131。
+5. chromium 下载尝试了 4 种方法全失败（直连、淘宝镜像、微软备用 CDN、本机 Chrome 代替），最后走手动下载 ZIP 路线。
+6. 手动下载 ZIP 后解压：`chrome-win64.zip` 解压到 `chromium-1217/` 成功；`chrome-headless-shell-win64.zip` 解压后多套了一层 `chrome-headless-shell-win64\` 子目录，Playwright 找不到 exe，把内层文件上移一级后修复。
+7. 跑完整后端测试套件：1131 passed, 4 skipped，全绿。
+8. 更新 PROJECT_STATUS.md 测试基线、Browser 层测试覆盖说明、前端测试文件数（17→41）。
+9. 监控平台两份设计文档加免责声明并提交。
+10. 所有修复提交并推送到 `origin/feature/chat-message-context-menu`。
+
+### 测试验证及结果
+- 后端单测 `python -m pytest`：1131 passed, 4 skipped, 47 warnings ✅
+- 前端单测 `pnpm test`：41 文件 248 测试全通过 ✅
+- browser 集成测试单独跑：6/6 通过 ✅
+- **结论**: 已解决，测试基线全绿（后端 1131 + 前端 248 = 1379 全通过）
+
+### 经验教训/待办
+- 经验：Playwright 的 `chromium` 和 `chromium-headless-shell` 是两个独立组件，headless 模式必须用后者，不能用普通 chrome.exe 或系统 Chrome 代替；headless-shell 的 ZIP 解压后会多套一层目录，必须把内层文件上移到 `chromium_headless_shell-1217\chrome-headless-shell-win64\` 下直接放 exe。
+- 经验：本机网络对 `cdn.playwright.dev`、`registry.npmjs.org`、`pypi.org` 都有系统性屏蔽（都解析到 198.18.x.x），npm/pnpm 可以用淘宝镜像绕过，但 Playwright 不走 pip 镜像，只能手动下载 ZIP。
+- 经验：监控平台这种"文档领先于代码"的状态要在文档里显式标注，避免后续维护者把设计稿当成已实现功能。
+- 待办：`docs/next.txt` 里列了并行工具执行、文件去重、prompt 优化等待办，测试基线全绿后可以推进。
