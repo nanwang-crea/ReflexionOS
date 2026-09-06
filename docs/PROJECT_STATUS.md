@@ -12,8 +12,8 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 
 **代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 60 个 | 前端测试 41 个
 
-**测试基线**（2026-09-04）：
-- 后端：1125/1131 通过（99.6%），**6 个失败**（browser 测试因缺 chromium），4 个跳过，47 个警告
+**测试基线**（2026-09-06）：
+- 后端：**1131/1131 通过（100%）**，4 个跳过，47 个警告（chromium 已手动安装）
 - 前端：41/41 文件通过，248/248 测试通过（100%）
 
 **技术栈**：
@@ -361,7 +361,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 服务层 | ✅ 完成 | 8 | agent_service / cleanup / conversation_broadcaster / conversation_projection / conversation_runtime_adapter / conversation_service / llm_provider_service / session_service |
 | 存储层 | ✅ 完成 | 2 | conversation_repositories / project_repository |
 | 工具层 | ✅ 完成 | 9 | edit / file / glob / grep / memory / patch / plan / registry / session_recall / shell |
-| Browser 层 | ✅ 完成 | 3 | browser_integration / browser_manager / browser_tool（需 chromium，当前 6/6 失败）|
+| Browser 层 | ✅ 完成 | 3 | browser_integration / browser_manager / browser_tool（chromium 已手动安装，6/6 通过）|
 | 编排层 | ✅ 完成 | 2 | mcp_manager / skill_registry |
 | 前端 | ✅ 完成 | 41 | ChatInput / ToolTraceCard / transcriptItems / sidebar 系列 / conversation 系列 / session 系列 / codeTabStore / terminalStore / autoScroll / sessionSelection / useSendMessage / useConversationRuntime / useSessionData / useSessionSelection / llmSettings / projects / workspace / backendManager / runtimeConfig / dialogService 等 |
 
