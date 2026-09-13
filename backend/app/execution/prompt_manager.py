@@ -1,13 +1,14 @@
 """
 文件功能：Prompt 模板的加载、组装与渲染管理
-文件描述：从 prompts/ 目录读取 .txt 模板文件（system/plan_mode/error/final_response/
-         midrun_compress 等），支持按模型族（默认 / GLM）加载不同版本的模板；同时负责
-         组装最终 system prompt——拼接基础模板、全局与项目级的人格/行为/记忆 overlay
+文件描述：从 prompts/ 目录读取 .md 模板文件（system/plan_mode/error/final_response/
+         midrun_compress 等），模板统一使用中文，适配 GLM/DeepSeek/Qwen 等中文模型；
+         同时负责组装最终 system prompt——拼接基础模板、全局与项目级的人格/行为/记忆 overlay
          （soul.md / agent.md / memory.md）、编码模式附录、以及可用 Skills 元数据。
 核心逻辑：模板清单（TEMPLATES_MANIFEST）声明式描述每个模板文件名和所需变量，加载时
          若模板标记为 family_specific 且当前模型族非默认，优先尝试加载模型族子目录下的
-         同名文件，找不到再回退默认版本。system prompt 的最终文本由多个 section 按固定
-         顺序拼接而成：基础模板 → overlay（全局在前、项目级在后，同层内 soul→agent→memory）
+         同名文件，找不到再回退默认版本（当前已统一为中文单版本，glm/ 子目录已移除，
+         family_specific 字段保留用于后续按需扩展）。system prompt 的最终文本由多个 section
+         按固定顺序拼接而成：基础模板 → overlay（全局在前、项目级在后，同层内 soul→agent→memory）
          → 编码模式附录 → Skills 元数据；overlay 文件不存在时静默跳过，不影响主流程。
 """
 
@@ -41,7 +42,7 @@ PROMPTS_DIR = (
 
 
 class PromptFamily(str, Enum):
-    """Prompt 模板所属的模型族：DEFAULT 为通用模板，GLM 为智谱 GLM 系列专用模板"""
+    """Prompt 模板所属的模型族：DEFAULT 为通用模板（当前统一中文），GLM 枚举保留用于向后兼容"""
 
     DEFAULT = "default"
     GLM = "glm"
@@ -54,7 +55,8 @@ def classify_prompt_family(model_name: str) -> PromptFamily:
       - model_name (str)：当前使用的模型名称
     功能：根据模型名称判断应使用哪个 Prompt 模型族的模板
     运行逻辑：将模型名转小写后匹配关键字（"glm-"、"chatglm"），命中则归为 GLM 族，
-             否则归为默认族
+             否则归为默认族。当前所有模板已统一为中文单版本，glm/ 子目录已移除，
+             故 GLM 族命中后也会回退到默认中文版，仅保留枚举用于向后兼容与后续扩展。
     出参：PromptFamily - 识别出的模型族枚举值
     """
     lower = (model_name or "").lower()
@@ -96,31 +98,31 @@ class PromptTemplate:
 TEMPLATES_MANIFEST: list[dict] = [
     {
         "name": "system",
-        "file": "system.txt",
+        "file": "system.md",
         "variables": ["working_directory", "platform", "date", "is_git_repo"],
         "family_specific": True,
     },
     {
         "name": "coding_appendix",
-        "file": "coding_appendix.txt",
+        "file": "coding_appendix.md",
         "variables": [],
         "family_specific": True,
     },
     {
         "name": "plan_mode",
-        "file": "plan_mode.txt",
+        "file": "plan_mode.md",
         "variables": ["working_directory", "platform", "date", "is_git_repo"],
         "family_specific": True,
     },
     {
         "name": "final_response",
-        "file": "final_response.txt",
+        "file": "final_response.md",
         "variables": ["task"],
         "family_specific": True,
     },
     {
         "name": "error",
-        "file": "error.txt",
+        "file": "error.md",
         "variables": [
             "tool",
             "error",
@@ -130,14 +132,25 @@ TEMPLATES_MANIFEST: list[dict] = [
         "family_specific": True,
     },
     {
+        "name": "approval_rejected",
+        "file": "approval_rejected.md",
+        "variables": [
+            "tool",
+            "original_args_section",
+            "reason_section",
+            "risk_level_section",
+        ],
+        "family_specific": True,
+    },
+    {
         "name": "midrun_compress_system",
-        "file": "midrun_compress_system.txt",
+        "file": "midrun_compress_system.md",
         "variables": [],
         "family_specific": True,
     },
     {
         "name": "midrun_compress_input",
-        "file": "midrun_compress_input.txt",
+        "file": "midrun_compress_input.md",
         "variables": ["task", "transcript", "existing_summary_block"],
         "family_specific": True,
     },
@@ -148,7 +161,7 @@ def _read_prompt_file(filename: str) -> str:
     """
     函数名：_read_prompt_file
     入参：
-      - filename (str)：相对于 PROMPTS_DIR 的模板文件名（可含子目录，如 "glm/system.txt"）
+      - filename (str)：相对于 PROMPTS_DIR 的模板文件名（可含子目录，如 "glm/system.md"）
     功能：读取指定的 Prompt 模板文件内容
     运行逻辑：拼出完整路径，文件不存在则抛出 FileNotFoundError；存在则读取全文并去除首尾空白
     出参：str - 模板文件的文本内容
@@ -160,7 +173,7 @@ def _read_prompt_file(filename: str) -> str:
 
 
 class PromptManager:
-    """Prompt 管理器 — 从 prompts/ 目录加载 .txt 模板文件，支持模型族子目录"""
+    """Prompt 管理器 — 从 prompts/ 目录加载 .md 模板文件，支持模型族子目录"""
 
     def __init__(self, model_name: str = "", skill_registry: SkillRegistry | None = None):
         """
@@ -225,81 +238,81 @@ class PromptManager:
 
     _DEFAULT_SOUL_MD = textwrap.dedent(
         """\
-        ## Identity
+        ## 身份
 
-        You are a pragmatic workspace agent collaborating with the user in the same project.
+        你是一个务实的协作型智能体，与用户在同一个项目中共同推进工作。
 
-        ## Working Style
+        ## 工作风格
 
-        - Be direct and evidence-based.
-        - Prefer understanding the codebase before acting.
-        - Do not pretend work is complete when it is not.
+        - 直接、基于证据。
+        - 动手前先理解代码库。
+        - 工作未真正完成时，不要假装已完成。
 
-        ## Communication
+        ## 沟通
 
-        - Keep updates brief and useful.
-        - Answer the real question once enough evidence exists.
-        - Progress updates should inform, not turn obvious next actions into permission-seeking questions.
+        - 更新简短、有用。
+        - 证据充分时，直接回答真正的问题。
+        - 进度更新应当传递信息，而不是把显而易见的下一步动作变成征求许可的提问。
 
-        ## Quality Taste
+        ## 质量品味
 
-        - Prefer the smallest correct change.
-        - Respect existing patterns unless they block the task.
+        - 优先选择最小且正确的改动。
+        - 尊重既有代码模式，除非它们阻碍了任务。
     """
     )
 
     _DEFAULT_AGENT_MD = textwrap.dedent(
         """\
-        ## Instruction Priority
+        ## 指令优先级
 
-        - Follow the user's explicit instructions first.
-        - Then follow built-in safety and runtime protocol.
-        - Then follow any active runtime mode rules.
-        - Then follow project-level overlays.
-        - Then follow global overlays.
-        - Use the remaining system rules as defaults.
+        - 首先遵循用户的明确指令。
+        - 其次遵循内置安全与运行时协议。
+        - 再次遵循当前运行时模式规则。
+        - 然后遵循项目级 overlay。
+        - 然后遵循全局 overlay。
+        - 其余系统规则作为默认值。
 
-        ## Evidence First
+        ## 证据优先
 
-        - If code, tests, or repository state can answer the question, inspect them first.
-        - Being unsure is not a blocker. Investigate first.
+        - 如果代码、测试或仓库状态能回答问题，先去查看它们。
+        - 不确定不是阻塞项。先调查。
 
-        ## Skill And Mode Selection
+        ## 技能与模式选择
 
-        - Load a relevant skill before acting when one plausibly applies.
-        - Treat code-editing work as coding mode and keep executing until complete or truly blocked.
+        - 当某个技能可能适用时，先加载它再行动。
+        - 把代码编辑工作视为编码模式，持续执行直到完成或真正被阻塞。
 
-        ## Clarification Gate
+        ## 澄清门
 
-        - Default to action, not confirmation.
-        - If the answer can be obtained by reading code, searching files, checking tests, or using available tools, do that first.
-        - Only ask the user when the missing information can only come from user intent, business preference, credentials, approval, or unavailable external context.
-        - When repo patterns make one option the obvious default, follow that default and state the assumption briefly instead of stopping to ask.
+        - 默认行动，而非确认。
+        - 如果答案可以通过读代码、搜文件、查测试或使用可用工具获得，先去做这些。
+        - 只有当缺失的信息只能来自用户意图、业务偏好、凭据、审批或不可获得的外部上下文时，才询问用户。
+        - 当仓库模式已经给出明显的默认方案时，遵循该默认并简述假设，而不是停下来询问。
 
-        ## Completion Rules
+        ## 完成规则
 
-        - A progress report is not completion.
-        - If work remains and no real blocker exists, continue.
+        - 进度汇报不是完成。
+        - 如果还有工作且没有真正的阻塞，继续执行。
 
-        ## Stopping Rules
+        ## 停止规则
 
-        - When a plan is active and has unfinished steps, continue executing until the plan is fully complete, unless the current step is blocked by information only the user can provide.
-        - When a plan is active, update the plan before stopping.
-        - Avoid repeated tool calls that do not produce new information.
-        - After 2 failed attempts on the same action, explain the issue and ask the user instead of retrying indefinitely.
-        - If the last tool batch produced no new facts, stop exploring and answer or ask for clarification.
+        - 当计划处于活动状态且有未完成步骤时，继续执行直到计划完全完成，除非当前步骤被仅用户能提供的信息阻塞。
+        - 当计划处于活动状态时，停止前先更新计划。
+        - 避免重复不产生新信息的工具调用。
+        - 对同一动作失败 2 次后，解释问题并询问用户，而不是无限重试。
+        - 如果上一批工具调用没有产生新事实，停止探索，直接回答或请求澄清。
 
-        ## Error Handling
+        ## 错误处理
 
-        - If a tool call fails, first diagnose WHY it failed before retrying.
-        - Continue the current plan step after fixing the specific failure unless the failure proves the step is blocked.
-        - Do not switch approaches solely because one tool call failed.
-        - Do not make speculative large changes without evidence.
-        - Do not blindly retry with the same parameters.
+        - 工具调用失败时，先诊断为什么失败，再重试。
+        - 修复具体失败后，继续当前计划步骤，除非该失败已证明步骤被阻塞。
+        - 不要因为一次工具调用失败就切换实现路径。
+        - 不要在没有证据的情况下做投机性的大改动。
+        - 不要用相同参数盲目重试。
 
-        ## Override Semantics
+        ## 覆盖语义
 
-        - Project-level `.reflexion` rules override global defaults for this repository.
+        - 项目级 `.reflexion` 规则在本仓库中覆盖全局默认值。
     """
     )
 
@@ -605,6 +618,51 @@ When a skill clearly matches your current task, load it first using the 'skill' 
             error=error,
             original_args_section=original_args_section,
             available_actions_section=available_actions_section,
+        )
+
+    def get_approval_rejected_prompt(
+        self,
+        tool: str,
+        original_args: dict | None = None,
+        reason: str | None = None,
+        risk_level: str | None = None,
+    ) -> str:
+        """
+        函数名：get_approval_rejected_prompt
+        入参：
+          - tool (str)：被拒绝审批的工具名
+          - original_args (dict | None)：本次调用使用的原始参数，用于回显给 LLM 参考
+          - reason (str | None)：用户拒绝原因（来自 ApprovalResult.error；
+            拒绝路径 set_approval_result(None) 会让 error 为 None，调用方需归一化兜底）
+          - risk_level (str | None)：风险分级（本期不填，预留接口给
+            EFFECT_DANGER_LEVEL 后续接入）
+        功能：生成审批被拒后注入对话的提示词，引导 LLM 换路或降级重试
+        运行逻辑：
+          1. 若提供了 original_args，过滤掉值为 None 的参数后逐行格式化为"参数: 值"列表文本
+          2. 若提供了 reason，格式化为"拒绝原因"提示行
+          3. 若提供了 risk_level，格式化为"风险分级"提示行（本期预留，默认不填）
+          4. 三个均为可选 section，缺失则渲染为空字符串
+          5. 渲染 approval_rejected 模板，注入 tool/三个可选 section
+        出参：str - 审批拒绝提示词文本
+        """
+        if original_args:
+            args_lines = [
+                f"  - {k}: {v!r}" for k, v in original_args.items() if v is not None
+            ]
+            original_args_section = (
+                "- Arguments you used:\n" + "\n".join(args_lines) if args_lines else ""
+            )
+        else:
+            original_args_section = ""
+
+        reason_section = f"- Rejection reason: {reason}" if reason else ""
+        risk_level_section = f"- Risk level: {risk_level}" if risk_level else ""
+
+        return self.get_template("approval_rejected").render(
+            tool=tool,
+            original_args_section=original_args_section,
+            reason_section=reason_section,
+            risk_level_section=risk_level_section,
         )
 
     def get_final_response_prompt(self, task: str) -> str:

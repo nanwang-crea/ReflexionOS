@@ -715,9 +715,12 @@ class RapidExecutionLoop:
           3. 若审批通过：把工具的实际输出/错误回填进对话上下文和步骤记录，更新步骤状态
              为 SUCCESS/FAILED，发送 tool:result 和 run:resuming 事件，标记已执行过工具，
              回到 PLANNING 阶段继续决策
-          4. 若审批被拒绝：将步骤标记为 FAILED，发送 tool:error 和 run:cancelled 事件，
-             整体运行状态置为 CANCELLED，转入 DONE 结束
-        出参：LoopPhase - 状态机下一阶段（PLANNING 或 DONE）
+          4. 若审批被拒绝：将步骤标记为 FAILED，发送 tool:error 事件让 runtime adapter
+             关闭等待审批的 tool_trace（streamState → failed）；随后注入 approval_rejected
+             提示词引导 LLM 换路重试，重置 consecutive_failures、累加 turn_retries；
+             超过 MAX_TURN_RETRIES 则转入 FINAL_SUMMARY 强制总结，否则发送
+             run:resuming（approval_rejected=True）事件回到 PLANNING 换路重试。
+        出参：LoopPhase - 状态机下一阶段（PLANNING / FINAL_SUMMARY / DONE）
         """
         logger.info("[_handle_approval] Entering: tool=%s, step_number=%s", step.tool, step.step_number)
         result.status = LoopStatus.WAITING_FOR_APPROVAL
@@ -790,8 +793,8 @@ class RapidExecutionLoop:
             step.status = StepStatus.FAILED
             step.error = "审批被拒绝"
 
-            # Emit tool:error so the runtime adapter closes the
-            # waiting-for-approval tool_trace (streamState → failed).
+            # 保留 tool:error：让 runtime adapter 关闭等待审批的 tool_trace
+            # （streamState → failed），前端据此关掉审批卡。
             await self._emit(
                 "tool:error",
                 {
@@ -804,21 +807,42 @@ class RapidExecutionLoop:
                 },
             )
 
-            # Emit run:cancelled so the runtime adapter and
-            # projection transition the run to CANCELLED and
-            # close any open messages.
+            # 注入换路提示词（对称于 _handle_error_recovery 的 error prompt 注入）：
+            # 告诉 LLM 用户拒绝了哪个工具调用，引导其换一条不触发审批的路径或降级方案。
+            # reason 取 approval.error，拒绝路径下该字段通常为 None，需归一化兜底，
+            # 否则模板会渲染出裸 None。
+            reason = approval.error or "用户拒绝（未提供原因）"
+            reject_prompt = self.prompt_manager.get_approval_rejected_prompt(
+                tool=step.tool,
+                original_args=step.args if step.args else None,
+                reason=reason,
+            )
+            context.add_message(MessageRole.USER, reject_prompt)
+
+            # 复用 turn_retries 预算（与错误恢复共享 MAX_TURN_RETRIES）：
+            # 连续拒绝/连续报错都该收敛到 FINAL_SUMMARY 而非各自无限重试。
+            rt.consecutive_failures = 0
+            rt.turn_retries += 1
+
+            if rt.turn_retries > self.MAX_TURN_RETRIES:
+                # 超过重试预算，强制总结收尾（不再换路重试）
+                return LoopPhase.FINAL_SUMMARY
+
+            # 不再 emit run:cancelled——那会把 run 置为 CANCELLED 终态，与
+            # "回 PLANNING 继续"矛盾。改发 run:resuming + approval_rejected=True，
+            # 让前端关审批卡、把 run 状态从 WAITING_FOR_APPROVAL 切回 RUNNING。
+            result.status = LoopStatus.RESUMING
+            result.result = None
             await self._emit(
-                "run:cancelled",
+                "run:resuming",
                 {
-                    "status": LoopStatus.CANCELLED.value,
-                    "result": "审批被拒绝",
-                    "total_steps": len(result.steps),
+                    "run_id": result.id,
+                    "approval_id": step.approval_id,
+                    "execution_success": False,
+                    "approval_rejected": True,
                 },
             )
-
-            result.status = LoopStatus.CANCELLED
-            result.result = "审批被拒绝"
-            return LoopPhase.DONE
+            return LoopPhase.PLANNING
 
     async def _handle_error_recovery(
         self,

@@ -888,15 +888,26 @@ class TestRapidExecutionLoop:
         )
 
         tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+        call_count = [0]
 
         async def mock_stream(messages, tools=None):
             captured_calls.append(messages)
-            async for chunk in self._stream_response(
-                content="需要先审批",
-                tool_calls=[tool_call],
-                finish_reason="tool_calls",
-            ):
-                yield chunk
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # 第一轮：发起需要审批的工具调用，随后会被拒绝
+                async for chunk in self._stream_response(
+                    content="需要先审批",
+                    tool_calls=[tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+            else:
+                # 第二轮：收到拒绝换路提示词后，放弃该操作给最终文本
+                async for chunk in self._stream_response(
+                    content="已跳过审批操作",
+                    finish_reason="stop",
+                ):
+                    yield chunk
 
         mock_llm.stream_complete = mock_stream
 
@@ -909,9 +920,9 @@ class TestRapidExecutionLoop:
             deny_later(),
         )
 
-        assert result.status == LoopStatus.CANCELLED
-        assert result.result == "审批被拒绝"
-        waiting_step = result.steps[-1]
+        # 拒绝后换路重试并最终完成，而非 CANCELLED
+        assert result.status == LoopStatus.COMPLETED
+        waiting_step = result.steps[0]
         assert waiting_step.status == StepStatus.FAILED
         assert waiting_step.error == "审批被拒绝"
         assert waiting_step.tool_call_id == tool_call.id
@@ -920,11 +931,14 @@ class TestRapidExecutionLoop:
         event_types = [event["type"] for event in events]
         assert "approval:required" in event_types
         assert "run:waiting_for_approval" in event_types
-        # Deny now emits tool:error and run:cancelled to properly terminate
+        # 拒绝保留 tool:error 关闭审批卡，但不再发 run:cancelled
         assert "tool:error" in event_types
-        assert "run:cancelled" in event_types
-        assert "run:complete" not in event_types
-        assert len(captured_calls) == 1
+        assert "run:cancelled" not in event_types
+        # 改发 run:resuming(approval_rejected=True) 切回 RUNNING 换路
+        resuming_events = [e for e in events if e["type"] == "run:resuming"]
+        assert any(e["data"].get("approval_rejected") is True for e in resuming_events)
+        # 拒绝后又调了一次 LLM（换路重试）
+        assert len(captured_calls) == 2
 
         tool_start_event = next(
             event for event in events if event["type"] == "tool:start"
@@ -1386,14 +1400,25 @@ class TestRapidExecutionLoop:
             tool_call = LLMToolCall(
                 name="shell", arguments={"command": "rm -rf build/"}
             )
+            call_count = [0]
 
             async def mock_stream(messages, tools=None):
-                async for chunk in self._stream_response(
-                    content="执行删除命令",
-                    tool_calls=[tool_call],
-                    finish_reason="tool_calls",
-                ):
-                    yield chunk
+                call_count[0] += 1
+                if call_count[0] == 1:
+                    # 第一轮：发起 rm -rf，触发审批，随后被拒
+                    async for chunk in self._stream_response(
+                        content="执行删除命令",
+                        tool_calls=[tool_call],
+                        finish_reason="tool_calls",
+                    ):
+                        yield chunk
+                else:
+                    # 第二轮：收到拒绝换路提示词后，放弃删除给最终文本
+                    async for chunk in self._stream_response(
+                        content="已放弃删除操作",
+                        finish_reason="stop",
+                    ):
+                        yield chunk
 
         mock_llm.stream_complete = mock_stream
 
@@ -1406,15 +1431,18 @@ class TestRapidExecutionLoop:
             deny_later(),
         )
 
-        assert result.status == LoopStatus.CANCELLED
-        assert result.result == "审批被拒绝"
+        # 拒绝后换路重试并最终完成，而非 CANCELLED
+        assert result.status == LoopStatus.COMPLETED
         waiting_step = result.steps[-1]
         assert waiting_step.status == StepStatus.FAILED
+        assert waiting_step.error == "审批被拒绝"
         assert waiting_step.tool == "shell"
 
         event_types = [event["type"] for event in events]
         assert "approval:required" in event_types
-        assert "run:complete" not in event_types
+        # 拒绝不再发 run:cancelled，改发 run:resuming(approval_rejected=True)
+        assert "run:cancelled" not in event_types
+        assert "tool:error" in event_types
 
     @pytest.mark.asyncio
     async def test_approval_resume_continues_loop_execution(self, mock_llm):
@@ -1489,8 +1517,8 @@ class TestRapidExecutionLoop:
         assert "run:complete" in event_types
 
     @pytest.mark.asyncio
-    async def test_approval_deny_cancels_loop_execution(self, mock_llm):
-        """When approval is denied, the loop cancels."""
+    async def test_approval_deny_resumes_loop_with_reject_prompt(self, mock_llm):
+        """审批被拒后不再直接取消，而是注入换路提示词回到 PLANNING 让 LLM 换路收尾。"""
         registry = ToolRegistry()
         registry.register(ApprovalTool())
         events = []
@@ -1506,14 +1534,25 @@ class TestRapidExecutionLoop:
         )
 
         approval_tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+        call_count = [0]
 
         async def mock_stream(messages, tools=None):
-            async for chunk in self._stream_response(
-                content="需要审批",
-                tool_calls=[approval_tool_call],
-                finish_reason="tool_calls",
-            ):
-                yield chunk
+            call_count[0] += 1
+            if call_count[0] == 1:
+                # 第一轮：发起需要审批的工具调用，随后会被拒绝
+                async for chunk in self._stream_response(
+                    content="需要审批",
+                    tool_calls=[approval_tool_call],
+                    finish_reason="tool_calls",
+                ):
+                    yield chunk
+            else:
+                # 第二轮：LLM 收到拒绝提示词后换路，直接给最终文本收尾
+                async for chunk in self._stream_response(
+                    content="已跳过该操作，任务结束",
+                    finish_reason="stop",
+                ):
+                    yield chunk
 
         mock_llm.stream_complete = mock_stream
 
@@ -1525,14 +1564,77 @@ class TestRapidExecutionLoop:
 
         result = await execution_loop.run("需要审批的任务")
 
-        assert result.status == LoopStatus.CANCELLED
-        assert result.result == "审批被拒绝"
+        # 拒绝后换路重试并最终完成，而非 CANCELLED
+        assert result.status == LoopStatus.COMPLETED
+        waiting_step = result.steps[0]
+        assert waiting_step.status == StepStatus.FAILED
+        assert waiting_step.error == "审批被拒绝"
+        assert waiting_step.tool == "approval_tool"
 
         event_types = [event["type"] for event in events]
         assert "run:waiting_for_approval" in event_types
-        # Deny emits run:cancelled to properly terminate the run
-        assert "run:cancelled" in event_types
-        assert "run:complete" not in event_types
+        # 不再发 run:cancelled——改为换路重试
+        assert "run:cancelled" not in event_types
+        # 发 tool:error 关闭审批卡，发 run:resuming(approval_rejected=True) 切回 RUNNING
+        assert "tool:error" in event_types
+        resuming_events = [e for e in events if e["type"] == "run:resuming"]
+        assert any(e["data"].get("approval_rejected") is True for e in resuming_events)
+        # 第二轮 LLM 被调用了（换路重试）
+        assert call_count[0] >= 2
+
+    @pytest.mark.asyncio
+    async def test_approval_rejected_exceeds_max_turn_retries(self, mock_llm):
+        """连续拒绝超过 MAX_TURN_RETRIES 后转 FINAL_SUMMARY 强制总结，而非无限换路。"""
+        registry = ToolRegistry()
+        registry.register(ApprovalTool())
+        events = []
+
+        async def callback(event_type, data):
+            events.append({"type": event_type, "data": data})
+
+        execution_loop = RapidExecutionLoop(
+            llm=mock_llm,
+            tool_registry=registry,
+            max_steps=20,
+            event_callback=callback,
+        )
+
+        approval_tool_call = LLMToolCall(name="approval_tool", arguments={"value": 1})
+
+        async def mock_stream(messages, tools=None):
+            # LLM 始终顽固地发起同一个需要审批的工具调用，每次都被拒
+            async for chunk in self._stream_response(
+                content="需要审批",
+                tool_calls=[approval_tool_call],
+                finish_reason="tool_calls",
+            ):
+                yield chunk
+
+        mock_llm.stream_complete = mock_stream
+
+        async def deny_loop():
+            # 主 run 连拒超过 MAX_TURN_RETRIES(=5) 后会进入 FINAL_SUMMARY
+            # 自行收尾；此处只需保证每次进入 WAITING_FOR_APPROVAL 都能
+            # 被尽快拒绝即可。通过 asyncio.gather 与 run 并发，run 结束后
+            # gather 会自动取消本协程，避免后台 task 空转。
+            for _ in range(30):
+                await asyncio.sleep(0.02)
+                try:
+                    execution_loop.set_approval_result(None)
+                except Exception:
+                    break
+
+        result, _ = await asyncio.gather(
+            execution_loop.run("需要审批的任务"),
+            deny_loop(),
+        )
+
+        # 连续拒绝超过 MAX_TURN_RETRIES(=5) 后强制 FINAL_SUMMARY 收尾
+        assert result.status == LoopStatus.COMPLETED
+        # 不应出现 run:cancelled（拒绝不再直接取消）
+        event_types = [event["type"] for event in events]
+        assert "run:cancelled" not in event_types
+        assert "run:complete" in event_types
 
     @pytest.mark.asyncio
     async def test_tool_failure_recovery(self, execution_loop, mock_llm):
