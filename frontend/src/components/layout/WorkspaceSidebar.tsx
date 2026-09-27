@@ -12,6 +12,7 @@ import {
   Moon,
   PanelLeftClose,
   Pencil,
+  Plus,
   Puzzle,
   Search,
   Settings,
@@ -315,6 +316,7 @@ export function WorkspaceSidebar() {
 
   const {
     handleCreateSession,
+    handleCreateSessionForProject,
     handleRenameSession,
     handleDeleteSession,
   } = useSidebarSessionActions({
@@ -499,6 +501,15 @@ export function WorkspaceSidebar() {
                       >
                          <Folder className="h-5 w-5 shrink-0 text-content-muted" />
                         <span className="truncate text-[17px]">{project.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCreateSessionForProject(project)}
+                        disabled={busy}
+                        className="rounded-lg p-1 text-content-muted opacity-0 transition hover:bg-surface-tertiary hover:text-content-primary group-hover:opacity-100 disabled:cursor-default disabled:opacity-0"
+                        title="在此项目新建聊天"
+                      >
+                        <Plus className="h-4 w-4" />
                       </button>
                       <button
                         type="button"

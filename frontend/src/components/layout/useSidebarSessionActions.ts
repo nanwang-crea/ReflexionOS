@@ -93,12 +93,24 @@ export function useSidebarSessionActions({
       return
     }
 
-    setCurrentProject(targetProject)
-    setProjectExpanded(targetProject.id, true)
+    // 复用 handleCreateSessionForProject，避免逻辑重复
+    await handleCreateSessionForProject(targetProject)
+  }
+
+  // 在指定项目下新建会话：供文件夹行内"添加会话"按钮调用，
+  // 直接用传入的 project 作为目标，跳过 currentProject || projects[0] 的兜底。
+  // 修改说明：抽出此函数以支持每行单独新建，与全局 handleCreateSession 共用底层逻辑。
+  const handleCreateSessionForProject = async (project: Project) => {
+    if (busy) {
+      return
+    }
+
+    setCurrentProject(project)
+    setProjectExpanded(project.id, true)
 
     try {
       const session = await createSidebarSession({
-        projectId: targetProject.id,
+        projectId: project.id,
         defaultProviderId,
         defaultModelId,
       })
@@ -152,6 +164,7 @@ export function useSidebarSessionActions({
 
   return {
     handleCreateSession,
+    handleCreateSessionForProject,
     handleRenameSession,
     handleDeleteSession,
   }
