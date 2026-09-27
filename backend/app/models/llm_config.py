@@ -138,3 +138,24 @@ class ProviderConnectionTestResult(BaseModel):
     # Capability probe results
     # 能力探测结果
     supports_vision: bool | None = None
+
+
+class RemoteModel(BaseModel):
+    """远端 API 站点返回的单个模型信息：模型 ID（即 model_name，如 "glm-4-flash"）
+    与归属（如 "zhipu"），owned_by 可能为空。"""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    id: str
+    owned_by: str | None = None
+
+
+class RemoteModelsResult(BaseModel):
+    """拉取远端可用模型列表的结果：远端站点返回的模型集合。
+    provider_id 在草稿拉取（供应商未保存）时为 None。"""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    provider_id: str | None = None
+    models: list[RemoteModel] = Field(default_factory=list)
+    message: str = "获取成功"

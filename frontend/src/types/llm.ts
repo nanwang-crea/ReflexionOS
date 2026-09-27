@@ -54,3 +54,16 @@ export interface ProviderConnectionTestResult {
   message: string // 测试结果说明（成功提示或失败原因）
   supports_vision?: boolean | null // 测试过程中探测到的视觉能力支持情况
 }
+
+// 远端 API 站点返回的单个模型信息（来自 GET /v1/models）
+export interface RemoteModel {
+  id: string // 模型 ID（即 model_name，如 "glm-4-flash"）
+  owned_by?: string | null // 归属（如 "zhipu"），可能为空
+}
+
+// 拉取远端可用模型列表的结果
+export interface RemoteModelsResult {
+  provider_id: string | null // 草稿拉取（供应商未保存）时为 null
+  models: RemoteModel[]
+  message: string
+}

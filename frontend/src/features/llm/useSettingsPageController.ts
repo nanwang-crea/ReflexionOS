@@ -12,7 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nativeDialogService, type DialogService } from '@/services/dialogService'
 import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import { useToastStore } from '@/shared/stores/toast.store'
-import type { DefaultLLMSelection, ProviderInstance, ProviderModel } from '@/types/llm'
+import type { DefaultLLMSelection, ProviderInstance, ProviderModel, RemoteModel } from '@/types/llm'
 import { createEmptySelection, getEnabledModels } from '@/utils/llmHelpers'
 import {
   applyProviderToDefaultSelection,
@@ -25,6 +25,7 @@ import {
   resetLLMSettingsStore,
 } from './llmSettings.loader'
 import { createSettingsPageActions } from './provider.actions'
+import { llmApi } from './api/llm.api'
 
 type TestResult = { type: 'success' | 'error'; message: string } | null
 
@@ -67,6 +68,11 @@ export function useSettingsPageController(options?: {
   const [testing, setTesting] = useState(false)
   const [savedMessage, setSavedMessage] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<TestResult>(null)
+  // 远端模型拉取相关状态：fetching 表示正在请求远端 /v1/models；
+  // remoteModels 存拉取结果供导入对话框展示；showImportModal 控制导入对话框显隐
+  const [fetchingRemoteModels, setFetchingRemoteModels] = useState(false)
+  const [remoteModels, setRemoteModels] = useState<RemoteModel[]>([])
+  const [showImportModal, setShowImportModal] = useState(false)
 
   const storeSelectionSeqRef = useRef(0)
 
@@ -271,6 +277,86 @@ export function useSettingsPageController(options?: {
     }
   }, [draftProvider, providerActions])
 
+  /**
+   * 函数名：handleFetchRemoteModels
+   * 功能：用当前草稿里的 base_url + api_key + provider_type 调后端拉取远端可用模型列表
+   * 运行逻辑：校验 provider_type 必须为 openai_compatible 且 base_url/api_key 非空；
+   *          调 llmApi.listRemoteModels 拉取；成功后存入 remoteModels 并打开导入对话框；
+   *          失败弹 toast 提示，不阻塞手填输入框
+   * 出参：Promise<void>
+   */
+  const handleFetchRemoteModels = useCallback(async () => {
+    // 第一阶段仅支持 OpenAI 兼容供应商拉取（与后端 list_remote_models 约束一致）
+    if (draftProvider.provider_type !== 'openai_compatible') {
+      useToastStore.getState().addToast('error', '当前仅支持 OpenAI 兼容供应商的模型拉取')
+      return
+    }
+    if (!draftProvider.base_url || !draftProvider.api_key) {
+      useToastStore.getState().addToast('error', '请先填写 Base URL 和 API Key')
+      return
+    }
+
+    setFetchingRemoteModels(true)
+    try {
+      const result = await llmApi.listRemoteModels(draftProvider)
+      setRemoteModels(result.models)
+      setShowImportModal(true)
+    } catch (error) {
+      console.error('Failed to fetch remote models:', error)
+      useToastStore.getState().addToast('error', '获取模型列表失败，请检查 Base URL/API Key 或站点是否支持 /v1/models')
+    } finally {
+      setFetchingRemoteModels(false)
+    }
+  }, [draftProvider])
+
+  /**
+   * 函数名：handleImportRemoteModels
+   * 入参：selectedModels (RemoteModel[]) - 用户在导入对话框里勾选要导入的远端模型
+   * 功能：把勾选的远端模型批量导入到当前草稿的 models 列表，按 model_name 去重
+   * 运行逻辑：构造新 ProviderModel（model_name = 远端 id，display_name = 远端 id），
+   *          过滤掉草稿里已存在相同 model_name 的，append 到 models；若草稿无默认模型则设首个为默认
+   * 出参：void
+   */
+  const handleImportRemoteModels = useCallback((selectedModels: RemoteModel[]) => {
+    if (selectedModels.length === 0) {
+      setShowImportModal(false)
+      return
+    }
+
+    setDraftProvider((current) => {
+      // 按 model_name 去重：已存在同名模型不重复添加
+      const existingNames = new Set(current.models.map((m) => m.model_name))
+      const toAdd: ProviderModel[] = selectedModels
+        .filter((m) => !existingNames.has(m.id))
+        .map((m) => ({
+          id: crypto.randomUUID(),
+          display_name: m.id,
+          model_name: m.id,
+          enabled: true,
+          supports_vision: null,
+          supports_tools: true,
+          supports_reasoning: true,
+        }))
+
+      const nextModels = [...current.models, ...toAdd]
+      return {
+        ...current,
+        models: nextModels,
+        default_model_id: current.default_model_id || nextModels[0]?.id,
+      }
+    })
+
+    setShowImportModal(false)
+    setRemoteModels([])
+    useToastStore.getState().addToast('info', `已导入 ${selectedModels.length} 个模型`)
+  }, [])
+
+  // 关闭导入对话框：清空远端模型列表与显隐状态
+  const handleCloseImportModal = useCallback(() => {
+    setShowImportModal(false)
+    setRemoteModels([])
+  }, [])
+
   // 切换默认供应商：联动计算出对应的默认模型（见 providerDraft.applyProviderToDefaultSelection）
   const handleDefaultProviderChange = useCallback((providerId: string) => {
     setDefaultSelection((current) => applyProviderToDefaultSelection(providers, providerId, current))
@@ -307,6 +393,13 @@ export function useSettingsPageController(options?: {
     testing,
     savedMessage,
     testResult,
+    // 远端模型拉取相关状态与回调
+    fetchingRemoteModels,
+    remoteModels,
+    showImportModal,
+    handleFetchRemoteModels,
+    handleImportRemoteModels,
+    handleCloseImportModal,
     selectedSavedProvider,
     defaultProviderModels,
     handleSelectProvider,

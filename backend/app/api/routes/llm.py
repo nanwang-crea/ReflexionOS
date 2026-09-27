@@ -11,6 +11,7 @@ from app.models.llm_config import (
     ProviderConnectionTestRequest,
     ProviderConnectionTestResult,
     ProviderInstanceConfig,
+    RemoteModelsResult,
 )
 from app.services.llm_provider_service import llm_provider_service
 
@@ -89,6 +90,23 @@ async def test_provider_connection(request: ProviderConnectionTestRequest):
         raise ValidationError(message=str(exc)) from exc
     except Exception as exc:
         raise ValidationError(message=f"连接测试失败: {exc}") from exc
+
+
+@router.post("/providers/models", response_model=RemoteModelsResult)
+async def list_remote_models(provider: ProviderInstanceConfig):
+    """
+    POST /api/llm/providers/models：拉取远端 API 站点的可用模型列表。
+    入参：provider（请求体，供应商配置草稿，用其中的 base_url/api_key/provider_type）。
+    逻辑：调用 llm_provider_service.list_remote_models 调远端 GET /v1/models；
+          ValueError 转为参数校验错误，其他异常统一包装为"获取模型列表失败"提示。
+    出参：RemoteModelsResult（远端模型列表）。
+    """
+    try:
+        return await llm_provider_service.list_remote_models(provider)
+    except ValueError as exc:
+        raise ValidationError(message=str(exc)) from exc
+    except Exception as exc:
+        raise ValidationError(message=f"获取模型列表失败: {exc}") from exc
 
 
 @router.get("/default", response_model=DefaultLLMSelection)

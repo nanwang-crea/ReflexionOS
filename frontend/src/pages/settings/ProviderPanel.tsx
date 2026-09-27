@@ -5,6 +5,7 @@
  * 核心逻辑：状态与业务逻辑集中在 useSettingsPageController 这个 hook 中，本组件只负责渲染 UI
  *          布局（左侧供应商列表 + 右侧编辑表单）并转发用户交互事件到 hook 提供的回调
  */
+import { useState } from 'react'
 import { useSettingsPageController } from '@/features/llm/useSettingsPageController'
 import type { ProviderType } from '@/types/llm'
 
@@ -39,6 +40,9 @@ export function ProviderPanel() {
     savedMessage,
     testResult,
     selectedSavedProvider,
+    fetchingRemoteModels,
+    remoteModels,
+    showImportModal,
     handleSelectProvider,
     handleCreateProvider,
     handleDraftFieldChange,
@@ -48,7 +52,42 @@ export function ProviderPanel() {
     handleSaveProvider,
     handleDeleteProvider,
     handleTestConnection,
+    handleFetchRemoteModels,
+    handleImportRemoteModels,
+    handleCloseImportModal,
   } = useSettingsPageController()
+
+  // 导入对话框内勾选的远端模型 id 集合（本地 UI 状态，关闭时清空）
+  const [selectedRemoteIds, setSelectedRemoteIds] = useState<Set<string>>(new Set())
+
+  // 切换某行勾选；支持全选/取消全选
+  const toggleRemoteId = (id: string) => {
+    setSelectedRemoteIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) {
+        next.delete(id)
+      } else {
+        next.add(id)
+      }
+      return next
+    })
+  }
+  const toggleAllRemote = () => {
+    setSelectedRemoteIds((prev) =>
+      prev.size === remoteModels.length ? new Set() : new Set(remoteModels.map((m) => m.id))
+    )
+  }
+  // 导入对话框关闭时清空勾选
+  const closeImportModal = () => {
+    setSelectedRemoteIds(new Set())
+    handleCloseImportModal()
+  }
+  // 确认导入：把勾选的远端模型交给 controller 去重导入
+  const confirmImport = () => {
+    const selected = remoteModels.filter((m) => selectedRemoteIds.has(m.id))
+    handleImportRemoteModels(selected)
+    setSelectedRemoteIds(new Set())
+  }
 
   return (
     <div className="space-y-6">
@@ -168,13 +207,37 @@ export function ProviderPanel() {
           <div className="mt-6">
             <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h4 className="text-sm font-semibold text-content-primary">模型列表</h4>
-              <button
-                type="button"
-                onClick={handleAddModel}
-                className="rounded-lg border border-edge px-3 py-2 text-sm text-content-secondary hover:bg-surface-tertiary"
-              >
-                新增模型
-              </button>
+              <div className="flex flex-wrap gap-2">
+                {/* 获取远端可用模型：调后端 GET /v1/models，拉回后弹出导入对话框。
+                    仅 OpenAI 兼容供应商可用；需先填好 base_url + api_key */}
+                <button
+                  type="button"
+                  onClick={() => { void handleFetchRemoteModels() }}
+                  disabled={
+                    fetchingRemoteModels
+                    || draftProvider.provider_type !== 'openai_compatible'
+                    || !draftProvider.base_url
+                    || !draftProvider.api_key
+                  }
+                  className="rounded-lg border border-edge px-3 py-2 text-sm text-content-secondary hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:text-content-muted"
+                  title={
+                    draftProvider.provider_type !== 'openai_compatible'
+                      ? '当前仅支持 OpenAI 兼容供应商'
+                      : !draftProvider.base_url || !draftProvider.api_key
+                        ? '请先填写 Base URL 和 API Key'
+                        : '从 API 站点拉取可用模型列表'
+                  }
+                >
+                  {fetchingRemoteModels ? '获取中...' : '获取可用模型'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAddModel}
+                  className="rounded-lg border border-edge px-3 py-2 text-sm text-content-secondary hover:bg-surface-tertiary"
+                >
+                  新增模型
+                </button>
+              </div>
             </div>
 
             <div className="max-h-[50vh] space-y-3 overflow-y-auto">
@@ -295,6 +358,80 @@ export function ProviderPanel() {
           </div>
         </div>
       </div>
+
+      {/* 导入远端模型对话框：多选列表 + 导入选中按钮。
+          已存在的模型导入时按 model_name 去重（见 controller handleImportRemoteModels） */}
+      {showImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-lg border border-edge bg-surface-primary shadow-lg">
+            <div className="flex items-center justify-between border-b border-edge px-4 py-3">
+              <h3 className="text-base font-semibold text-content-primary">
+                可用模型（共 {remoteModels.length} 个）
+              </h3>
+              <button
+                type="button"
+                onClick={closeImportModal}
+                className="text-content-muted hover:text-content-primary"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-[55vh] overflow-y-auto px-4 py-2">
+              {remoteModels.length === 0 ? (
+                <div className="px-3 py-6 text-sm text-content-muted">
+                  站点未返回任何模型
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <label className="flex items-center gap-2 border-b border-edge py-2 text-sm text-content-secondary">
+                    <input
+                      type="checkbox"
+                      checked={selectedRemoteIds.size === remoteModels.length && remoteModels.length > 0}
+                      onChange={toggleAllRemote}
+                    />
+                    全选 / 取消全选
+                  </label>
+                  {remoteModels.map((model) => (
+                    <label
+                      key={model.id}
+                      className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-content-secondary hover:bg-surface-tertiary"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedRemoteIds.has(model.id)}
+                        onChange={() => toggleRemoteId(model.id)}
+                      />
+                      <span className="font-mono">{model.id}</span>
+                      {model.owned_by && (
+                        <span className="text-xs text-content-muted">（{model.owned_by}）</span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t border-edge px-4 py-3">
+              <button
+                type="button"
+                onClick={closeImportModal}
+                className="rounded-lg border border-edge px-4 py-2 text-sm text-content-secondary hover:bg-surface-tertiary"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmImport}
+                disabled={selectedRemoteIds.size === 0}
+                className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                导入选中（{selectedRemoteIds.size}）
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

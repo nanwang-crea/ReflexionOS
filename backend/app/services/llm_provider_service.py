@@ -15,6 +15,8 @@ from app.models.llm_config import (
     ProviderInstanceConfig,
     ProviderModelConfig,
     ProviderType,
+    RemoteModel,
+    RemoteModelsResult,
     ResolvedLLMConfig,
 )
 
@@ -393,11 +395,7 @@ class LLMProviderService:
         if resolved.provider_type != ProviderType.OPENAI_COMPATIBLE:
             raise ValueError("当前第一阶段仅支持 OpenAI-compatible 供应商的连接测试")
 
-        client = AsyncOpenAI(
-            api_key=resolved.api_key or "reflexion-placeholder-key",
-            base_url=resolved.base_url if resolved.base_url else None,
-            default_headers=browser_like_default_headers(),
-        )
+        client = self._build_openai_client(resolved.api_key, resolved.base_url)
 
         # Text-only request test
         await client.chat.completions.create(
@@ -425,6 +423,63 @@ class LLMProviderService:
             model=resolved.model,
             message="连接测试成功",
             supports_vision=supports_vision,
+        )
+
+    def _build_openai_client(
+        self, api_key: str | None, base_url: str | None
+    ) -> AsyncOpenAI:
+        """构造 OpenAI 兼容客户端：统一处理 api_key 占位、base_url 透传、浏览器伪装请求头、
+        以及拉取/测试场景需要的较短超时（避免前端长时间卡住）。
+        输入：api_key（可为空，空时用占位符以兼容 Ollama 等无鉴权场景）、base_url（可为空）
+        输出：AsyncOpenAI 客户端实例
+        """
+        # 修改说明：从 test_provider_connection 抽出公共构造逻辑，连接测试与模型拉取共用；
+        #           新增 timeout=10.0 避免站点无响应时前端长时间卡住（SDK 默认 600s 太长）。
+        return AsyncOpenAI(
+            api_key=api_key or "reflexion-placeholder-key",
+            base_url=base_url if base_url else None,
+            default_headers=browser_like_default_headers(),
+            timeout=10.0,
+        )
+
+    async def list_remote_models(
+        self, provider: ProviderInstanceConfig
+    ) -> RemoteModelsResult:
+        """拉取远端 API 站点的可用模型列表。
+        输入：provider（供应商草稿配置，用其中的 base_url/api_key/provider_type，不要求已保存或已有模型）
+        逻辑：
+          1. 仅清洗 base_url/api_key 空白，不调 _normalize_provider（后者强制要求至少一个模型，
+             而拉取场景恰恰可能是 models 为空——这是用户首次拉取来填充模型的入口）；
+          2. 校验 provider_type 必须为 OpenAI-compatible（其余类型第一阶段不支持）；
+          3. 直接用 provider 的 base_url + api_key 构造客户端（不走 _resolve_provider_model，
+             因为后者依赖 provider.models 非空）；
+          4. 调 client.models.list() 取远端模型列表，提取 id 与 owned_by。
+        输出：RemoteModelsResult（远端模型列表，provider_id 为传入供应商 id 或自动生成）
+        异常：ValueError（非 OpenAI 兼容供应商）；网络/鉴权异常向上抛出，由路由层兜底转 ValidationError
+        """
+        # 修改说明：不调 _normalize_provider，因其要求 models 非空；这里只做最小清洗
+        base_url = provider.base_url.strip() if provider.base_url else None
+        api_key = provider.api_key.strip() if provider.api_key else None
+
+        if provider.provider_type != ProviderType.OPENAI_COMPATIBLE:
+            raise ValueError("当前仅支持 OpenAI-compatible 供应商的模型拉取")
+
+        client = self._build_openai_client(api_key, base_url)
+
+        # 调远端 GET /v1/models，SDK 返回 AsyncPage，取 .data 拿模型数组
+        page = await client.models.list()
+        models = [
+            RemoteModel(
+                id=model.id,
+                owned_by=getattr(model, "owned_by", None),
+            )
+            for model in page.data
+        ]
+
+        return RemoteModelsResult(
+            provider_id=provider.id or f"provider-{uuid4().hex[:8]}",
+            models=models,
+            message="获取成功",
         )
 
     async def _probe_vision_capability(self, client: AsyncOpenAI, model: str) -> bool | None:
