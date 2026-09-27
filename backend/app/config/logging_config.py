@@ -18,7 +18,7 @@ _LOG_DIR_NAME = "logs"
 _LOG_FILE_NAME = "reflexion.log"
 _MAX_BYTES = 10 * 1024 * 1024  # 单个日志文件最大 10MB
 _BACKUP_COUNT = 5  # 保留 5 个轮转备份
-_CONSOLE_FORMAT = "%(levelname)s:     %(message)s"
+_CONSOLE_FORMAT = "%(asctime)s | %(levelname)-8s | %(message)s"
 _FILE_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _FILE_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 

@@ -134,6 +134,9 @@ function shutdown(code = 0) {
  * 4. spawn electron，传入 ELECTRON_RENDERER_URL 环境变量
  */
 async function main() {
+  // Windows 上 spawn .cmd/.bat 必须带 shell: true，否则报 EINVAL
+  // （Node.js CVE-2024-27988 修复后，spawn 命令脚本文件需要 shell 解析）
+  const isWindows = process.platform === 'win32'
   viteProcess = spawn(pnpmCommand, ['dev:web'], {
     cwd: frontendDir,
     env: {
@@ -141,6 +144,7 @@ async function main() {
       BROWSER: 'none',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: isWindows,
   })
 
   let viteOutput = ''
@@ -198,6 +202,7 @@ async function main() {
       ELECTRON_RENDERER_URL: viteUrl,
     },
     stdio: 'inherit',
+    shell: isWindows,
   })
 
   electronProcess.on('exit', (code) => {
