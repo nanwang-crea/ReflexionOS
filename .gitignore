@@ -21,6 +21,9 @@ ENV/
 .ruff_cache/
 .tox/
 .nox/
+.baseline/
+.tools/
+backend/.cache/
 
 # Coverage reports
 .coverage

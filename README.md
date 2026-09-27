@@ -75,24 +75,51 @@ flowchart LR
 
 ### Recommended Desktop Development Path
 
-`requirements.txt` is the only source of truth for Python dependencies.
+Use Python **3.12.14**, Node **24.14.1**, and pnpm **10.30.3**. The runtime version
+files (`.python-version`, `.node-version`) and `frontend/package.json#packageManager`
+are authoritative. `backend/requirements.txt` declares direct Python dependencies;
+the generated `backend/requirements.lock` pins the complete dependency graph with
+platform markers. `frontend/pnpm-lock.yaml` locks the frontend dependency graph.
 
-1. Install backend dependencies:
+Create the Python environment locally at `backend/.venv`. Virtual environments
+copied from another machine are not portable. Run these commands from the repository root.
 
-```bash
-conda create -n reflexion python=3.12
-cd backend
-python -m pip install -r requirements.txt
+Windows (PowerShell, with the required Python on PATH):
+
+```powershell
+python -m venv backend/.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements.lock
 ```
 
-2. Install frontend dependencies:
+macOS (with the required Python on PATH):
 
 ```bash
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.lock
+```
+
+Install the pinned frontend dependencies, prepare the test assets, and check the baseline:
+
+```bash
+corepack enable
 cd frontend
-pnpm install
+corepack pnpm install --frozen-lockfile
+cd ..
+node scripts/check-baseline.mjs --prepare
+node scripts/check-baseline.mjs
 ```
 
-3. Start the desktop app:
+`--prepare` downloads the Chromium revision required by the installed Playwright
+package and caches the `cl100k_base` / `o200k_base` tokenizer data. It requires network
+access. Re-run it after changing Playwright or clearing `backend/.cache/`.
+
+If downloads require a proxy, set `HTTP_PROXY` and `HTTPS_PROXY` to your existing
+proxy address in the current terminal. For Corepack on Node 24, also set
+`NODE_USE_ENV_PROXY=1`; a Windows system proxy is not automatically used by every
+Node downloader. Playwright also supports the official CDN override
+`PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev/dbazure/download/playwright`.
+
+Start the desktop app:
 
 ```bash
 cd frontend
@@ -108,6 +135,44 @@ export REFLEXION_PYTHON_PATH=/path/to/python
 cd frontend
 pnpm dev
 ```
+
+### Development Baseline
+
+Run from the repository root:
+
+```bash
+node scripts/check-baseline.mjs
+```
+
+The command checks Node/Python versions, all applicable locked Python packages and
+`pip check`, then runs the complete backend suite (including real Chromium tests),
+the baseline checker tests, frontend Vitest tests, and the TypeScript/Vite build.
+It also checks that direct dependency versions and extras match the Python lock.
+It checks that the installed frontend lock matches `pnpm-lock.yaml`. Any failing
+stage makes the command exit nonzero; frontend checks still run when backend tests fail.
+
+Every run writes logs, JUnit XML, an installed Python package snapshot, and
+`summary.json` under a new `.baseline/run-*/` directory. Backend HOME, USERPROFILE,
+working directory, logs, and temporary files are isolated there so tests do not
+use the normal application profile. Test-created data is retained for diagnosis.
+Browser/tokenizer caches default to `backend/.cache/`; explicit absolute
+`PLAYWRIGHT_BROWSERS_PATH` and `TIKTOKEN_CACHE_DIR` values can reuse existing caches.
+
+The `Development Baseline` workflow runs this same command on Windows and macOS
+for pushes and pull requests and retains reports for 14 days. Desktop packaging,
+live model calls, and repository-wide lint are separate checks.
+
+To update Python dependencies, edit `backend/requirements.txt`, then regenerate
+the lock using **uv 0.8.22** from the repository root:
+
+```bash
+uv pip compile backend/requirements.txt --python backend/.venv --universal --no-strip-extras --no-annotate --no-header --output-file backend/requirements.lock
+```
+
+Install the regenerated lock in `backend/.venv` and rerun the baseline. Commit
+both the input and generated lock; do not edit the lock by hand. Existing locked
+versions are retained unless the new constraints require a change (or `--upgrade`
+is explicitly supplied). See [current verification results](docs/PROJECT_STATUS.md).
 
 ### Build And Run The Desktop App
 
@@ -133,26 +198,16 @@ pnpm dev
 Build macOS releases on macOS:
 
 ```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-
-cd ../frontend
-pnpm install
+# Complete the development setup above first.
+cd frontend
 pnpm dist:mac
 ```
 
 Build Windows releases on Windows:
 
 ```powershell
-cd backend
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-
-cd ..\frontend
-pnpm install
+# Complete the development setup above first.
+cd frontend
 pnpm dist:win
 ```
 
@@ -278,7 +333,9 @@ ReflexionOS is usable as an experimental local coding agent workspace, but it is
 - Streaming execution feedback works
 - Some surfaces like plugins and automation are still scaffolded for future work
 
-Backend test snapshot: **95 tests passing**
+The latest test counts, failures, and environment limitations are recorded in
+[Project Status](docs/PROJECT_STATUS.md). Run the development baseline above to
+verify your checkout.
 
 ## Roadmap
 

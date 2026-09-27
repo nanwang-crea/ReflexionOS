@@ -136,11 +136,11 @@ def test_prune_tool_outputs_protects_recent_groups():
 def test_midrun_compress_system_prompt():
     pm = PromptManager()
     prompt = pm.get_midrun_compression_system_prompt()
-    assert "User's original intent" in prompt
-    assert "Operations performed" in prompt
-    assert "session_recall can retrieve" in prompt
-    assert "Active plan constraints" in prompt
-    assert "Decisions already made" in prompt
+    assert "用户原始意图" in prompt
+    assert "已执行操作" in prompt
+    assert "session_recall 可取回完整内容" in prompt
+    assert "活动计划约束" in prompt
+    assert "已做决定" in prompt
 
 
 def test_glm_midrun_compress_system_prompt_preserves_plan_anchor():

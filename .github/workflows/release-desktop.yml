@@ -29,21 +29,30 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: .node-version
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10.30.3
+          package_json_file: frontend/package.json
           run_install: false
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version-file: .python-version
 
+      # 与开发基线使用同一虚拟环境路径，确保 PyInstaller 不读取全局 Python 包。
       - name: Install backend dependencies
-        run: python -m pip install -r backend/requirements.txt
+        shell: python {0}
+        run: |
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+          subprocess.run([sys.executable, "-m", "venv", "backend/.venv"], check=True)
+          python = Path("backend/.venv") / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+          subprocess.run([str(python), "-m", "pip", "install", "-r", "backend/requirements.lock"], check=True)
 
       - name: Install frontend dependencies
         working-directory: frontend

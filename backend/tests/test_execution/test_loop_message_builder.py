@@ -145,12 +145,9 @@ def test_system_prompt_uses_runtime_tool_definitions():
     system_messages = [message for message in messages if message.role == "system"]
     assert len(system_messages) >= 1
     assert "autonomous coding agent" not in system_messages[0].content
-    assert (
-        "shared workspace" in system_messages[0].content.lower()
-        or "same project" in system_messages[0].content.lower()
-    )
-    assert "Tool and shell rules" in system_messages[0].content
-    assert "Plan rules" in system_messages[0].content
+    assert "同一个项目中协作" in system_messages[0].content
+    assert "工具和 shell 规则" in system_messages[0].content
+    assert "计划契约" in system_messages[0].content
 
 
 def test_build_system_prompt_not_autonomous_coding_agent():

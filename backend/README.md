@@ -4,13 +4,30 @@ FastAPI 后端服务,提供 Agent 执行引擎和 API 接口。
 
 ## 依赖来源
 
-Python 依赖统一以 `requirements.txt` 为准。`pyproject.toml` 不再声明依赖。
+Python 直接依赖统一以 `requirements.txt` 为准，`pyproject.toml` 不重复声明依赖。
+运行时版本以仓库根目录的 `.python-version` 为准（当前 3.12.14），虚拟环境统一使用 `backend/.venv`。
+`requirements.lock` 由 uv 生成，固定直接及间接依赖，并保留 Windows/macOS 平台条件。
+安装时使用锁文件；修改依赖时同步重新生成锁，命令见[根 README](../README.md#development-baseline)。
 
 ## 安装依赖
 
-```bash
-python -m pip install -r requirements.txt
+从仓库根目录执行，先确认所用 Python 版本符合 `.python-version`。
+
+Windows（PowerShell）：
+
+```powershell
+python -m venv backend/.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements.lock
 ```
+
+macOS：
+
+```bash
+python3.12 -m venv backend/.venv
+backend/.venv/bin/python -m pip install -r backend/requirements.lock
+```
+
+不要从其他机器复制 `.venv`。前端安装和 Chromium/分词缓存准备见[根 README](../README.md#recommended-desktop-development-path)。
 
 ## 配置
 
@@ -31,6 +48,7 @@ export REFLEXION_PYTHON_PATH=/path/to/python
 ## 备用 Web / 后端单独调试
 
 ```bash
+# 在 backend/ 目录中激活 .venv 后执行。
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
@@ -72,16 +90,17 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 测试
 
-推荐始终使用满足 `backend/requirements.txt` 的虚拟环境运行测试，不要直接用系统 Python。否则可能因为 `fastapi / starlette / httpx` 版本组合不一致，出现 `TestClient` 初始化失败这类“假基线红”。
-
-Windows（仓库根目录）推荐命令：
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest backend/tests -q
-```
-
-如果已经在 `backend/` 目录内激活了正确的虚拟环境，也可以直接运行：
+从仓库根目录使用统一入口，无需激活虚拟环境：
 
 ```bash
-python -m pytest
+node scripts/check-baseline.mjs --prepare
+node scripts/check-baseline.mjs
 ```
+
+首次运行和更新 Playwright 后需要 `--prepare`，它会下载匹配版本的 Chromium 和分词数据。
+普通检查会验证 Python/Node 版本、完整锁定依赖、直接声明与锁文件的一致性及 `pip check`，隔离 HOME/USERPROFILE、工作目录和临时目录，然后执行所有后端测试、前端测试与构建。
+
+日志、JUnit 报告、Python 包快照和整体状态写入 `.baseline/run-*/`。任一阶段失败都会返回非零退出码，缺少浏览器不会自动跳过集成测试。
+
+后端单独调试时可以使用 `.venv` 的 Python 运行指定 pytest 文件，但直接调用 pytest 不具备上述用户数据隔离，不作为完整基线结果。
+当前复核结果和未验证项见[项目状态](../docs/PROJECT_STATUS.md)。

@@ -73,22 +73,15 @@ ReflexionOS/
 │   │   │   ├── 📄 prompt_manager.py  # Prompt 模板管理器
 │   │   │   ├── 📄 runtime_tool_definitions.py # 运行时工具定义（注册可用工具）
 │   │   │   ├── 📄 tool_registry.py   # 工具注册表
-│   │   │   └── 📂 prompts/           # 📝 Prompt 模板文件
-│   │   │       ├── 📄 system.txt              # 系统 prompt（默认）
-│   │   │       ├── 📄 coding_appendix.txt     # 编码附录 prompt
-│   │   │       ├── 📄 error.txt               # 错误处理 prompt
-│   │   │       ├── 📄 final_response.txt      # 最终回复 prompt
-│   │   │       ├── 📄 midrun_compress_input.txt   # 中途压缩-输入 prompt
-│   │   │       ├── 📄 midrun_compress_system.txt  # 中途压缩-系统 prompt
-│   │   │       ├── 📄 plan_mode.txt           # 计划模式 prompt
-│   │   │       └── 📂 glm/                    # GLM 模型专用 prompt 变体
-│   │   │           ├── 📄 system.txt
-│   │   │           ├── 📄 coding_appendix.txt
-│   │   │           ├── 📄 error.txt
-│   │   │           ├── 📄 final_response.txt
-│   │   │           ├── 📄 midrun_compress_input.txt
-│   │   │           ├── 📄 midrun_compress_system.txt
-│   │   │           └── 📄 plan_mode.txt
+│   │   │   └── 📂 prompts/           # 📝 Prompt 模板文件（统一中文）
+│   │   │       ├── 📄 system.md              # 系统 prompt
+│   │   │       ├── 📄 coding_appendix.md     # 编码附录 prompt
+│   │   │       ├── 📄 error.md               # 错误处理 prompt
+│   │   │       ├── 📄 final_response.md      # 最终回复 prompt
+│   │   │       ├── 📄 midrun_compress_input.md   # 中途压缩-输入 prompt
+│   │   │       ├── 📄 midrun_compress_system.md  # 中途压缩-系统 prompt
+│   │   │       ├── 📄 plan_mode.md           # 计划模式 prompt
+│   │   │       └── 📄 approval_rejected.md   # 审批拒绝换路 prompt
 │   │   │
 │   │   ├── 📂 llm/                   # 🧠 LLM 客户端层
 │   │   │   ├── 📄 __init__.py

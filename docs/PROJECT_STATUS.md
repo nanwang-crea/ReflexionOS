@@ -12,9 +12,19 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 
 **代码规模**：后端 112 个 Python 源文件 | 前端 129 个 TS/TSX 源文件 | 后端测试 60 个 | 前端测试 41 个
 
-**测试基线**（2026-09-06）：
-- 后端：**1131/1131 通过（100%）**，4 个跳过，47 个警告（chromium 已手动安装）
-- 前端：41/41 文件通过，248/248 测试通过（100%）
+**当前基线复核**（2026-09-09，Windows，Python 3.12.14 / Node 24.14.1 / pnpm 10.30.3）：
+
+- 统一命令：仓库根目录执行 `node scripts/check-baseline.mjs`，安装和资源准备见[根 README](../README.md#development-baseline)。
+- 后端：**1131 通过、0 失败、4 跳过**，包含全部 6 个真实浏览器集成测试。4 个跳过均为已有平台差异，未新增跳过规则。
+- 前端：**41/41 文件、248/248 测试通过**；TypeScript 检查和 Vite 构建通过。仍有已有的 React SSR 警告和构建包体积警告。
+- 基线工具：3 个隔离/失败处理检查、4 个依赖锁检查通过；完整锁定依赖版本校验和 `pip check` 通过。
+- 依赖安装：后端在新建的 `backend/.venv` 中按 `requirements.lock` 从零安装成功；前端用 pnpm 10.30.3 完成 `install --frozen-lockfile`，安装锁与仓库锁一致。
+- 测试资源：已联网安装 Playwright 1.49.1 所需的 Chromium 1148、Headless Shell 1148、FFmpeg 1010，以及 `cl100k_base` / `o200k_base` 分词缓存，统一放在 `backend/.cache/`。
+- Python 依赖锁：uv 0.8.22 生成的 `requirements.lock` 固定 58 个跨平台依赖条目，保留平台条件和 extras；本地检查、CI 和发布安装使用同一份锁。
+- Windows/macOS push、PR 检查工作流已配置；**远程 CI、macOS 实机和桌面安装包尚未验证**。
+- 本机报告：`.baseline/run-B159Eh/summary.json`，整体 `passed: true`；各阶段日志和 JUnit 报告保留在同一目录。前一次完整检查 `.baseline/run-GA6h6a/` 结果一致。
+
+**环境问题复核**：早前 12 个失败已消除。6 个浏览器测试因缺少匹配的 Headless Shell 失败；另 6 个 Windows 沙箱/令牌测试受执行进程限制影响，恢复普通进程权限后相关 17 项测试及全量检查通过，未修改产品安全代码。
 
 **技术栈**：
 | 层 | 技术 |
