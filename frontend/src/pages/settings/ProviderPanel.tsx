@@ -5,7 +5,7 @@
  * 核心逻辑：状态与业务逻辑集中在 useSettingsPageController 这个 hook 中，本组件只负责渲染 UI
  *          布局（左侧供应商列表 + 右侧编辑表单）并转发用户交互事件到 hook 提供的回调
  */
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSettingsPageController } from '@/features/llm/useSettingsPageController'
 import type { ProviderType } from '@/types/llm'
 
@@ -60,8 +60,20 @@ export function ProviderPanel() {
   // 导入对话框内勾选的远端模型 id 集合（本地 UI 状态，关闭时清空）
   const [selectedRemoteIds, setSelectedRemoteIds] = useState<Set<string>>(new Set())
 
+  // 当前草稿已有模型的 model_name 集合：用于在导入对话框里标记"已存在"并禁用勾选
+  const existingModelNames = useMemo(
+    () => new Set(draftProvider.models.map((m) => m.model_name)),
+    [draftProvider.models]
+  )
+  // 判断某个远端模型是否已在草稿中存在（按 model_name 去重）
+  const isRemoteModelExisting = (id: string) => existingModelNames.has(id)
+
   // 切换某行勾选；支持全选/取消全选
   const toggleRemoteId = (id: string) => {
+    // 已存在的模型不允许勾选（禁用项直接忽略，防止重复导入）
+    if (isRemoteModelExisting(id)) {
+      return
+    }
     setSelectedRemoteIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) {
@@ -72,9 +84,15 @@ export function ProviderPanel() {
       return next
     })
   }
+  // 全选/取消全选：只作用于"可导入"的模型（排除已存在的）
   const toggleAllRemote = () => {
+    const importableIds = remoteModels
+      .filter((m) => !isRemoteModelExisting(m.id))
+      .map((m) => m.id)
     setSelectedRemoteIds((prev) =>
-      prev.size === remoteModels.length ? new Set() : new Set(remoteModels.map((m) => m.id))
+      prev.size === importableIds.length && importableIds.length > 0
+        ? new Set()
+        : new Set(importableIds)
     )
   }
   // 导入对话框关闭时清空勾选
@@ -384,30 +402,56 @@ export function ProviderPanel() {
                 </div>
               ) : (
                 <div className="space-y-1">
-                  <label className="flex items-center gap-2 border-b border-edge py-2 text-sm text-content-secondary">
-                    <input
-                      type="checkbox"
-                      checked={selectedRemoteIds.size === remoteModels.length && remoteModels.length > 0}
-                      onChange={toggleAllRemote}
-                    />
-                    全选 / 取消全选
-                  </label>
-                  {remoteModels.map((model) => (
-                    <label
-                      key={model.id}
-                      className="flex items-center gap-2 rounded px-2 py-1.5 text-sm text-content-secondary hover:bg-surface-tertiary"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedRemoteIds.has(model.id)}
-                        onChange={() => toggleRemoteId(model.id)}
-                      />
-                      <span className="font-mono">{model.id}</span>
-                      {model.owned_by && (
-                        <span className="text-xs text-content-muted">（{model.owned_by}）</span>
-                      )}
-                    </label>
-                  ))}
+                  {(() => {
+                    // 可导入模型（排除已存在的）用于全选 checkbox 的状态计算
+                    const importableIds = remoteModels
+                      .filter((m) => !isRemoteModelExisting(m.id))
+                      .map((m) => m.id)
+                    const allImportableSelected =
+                      importableIds.length > 0
+                      && importableIds.every((id) => selectedRemoteIds.has(id))
+                    return (
+                      <>
+                        <label className="flex items-center gap-2 border-b border-edge py-2 text-sm text-content-secondary">
+                          <input
+                            type="checkbox"
+                            checked={allImportableSelected}
+                            onChange={toggleAllRemote}
+                          />
+                          全选 / 取消全选{importableIds.length < remoteModels.length ? `（可导入 ${importableIds.length}/${remoteModels.length}）` : ''}
+                        </label>
+                        {remoteModels.map((model) => {
+                          const existing = isRemoteModelExisting(model.id)
+                          return (
+                            <label
+                              key={model.id}
+                              className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${
+                                existing
+                                  ? 'text-content-muted cursor-not-allowed'
+                                  : 'text-content-secondary hover:bg-surface-tertiary cursor-pointer'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={existing ? false : selectedRemoteIds.has(model.id)}
+                                onChange={() => toggleRemoteId(model.id)}
+                                disabled={existing}
+                              />
+                              <span className="font-mono">{model.id}</span>
+                              {model.owned_by && (
+                                <span className="text-xs text-content-muted">（{model.owned_by}）</span>
+                              )}
+                              {existing && (
+                                <span className="ml-auto rounded bg-surface-tertiary px-1.5 py-0.5 text-xs">
+                                  已存在
+                                </span>
+                              )}
+                            </label>
+                          )
+                        })}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
             </div>
