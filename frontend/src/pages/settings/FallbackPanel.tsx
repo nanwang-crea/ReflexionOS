@@ -1,30 +1,30 @@
 /**
  * 文件功能：设置页"运行兜底"面板组件
- * 文件描述：配置主模型超时后切换的备用供应商/模型，以及主 run 的墙钟超时秒数。
- *           主模型超时后系统自动切换到备用模型继续完整循环；备用也失败才输出"当前无可用模型"。
+ * 文件描述：配置主模型超时后按顺序尝试的备用模型链，以及主 run 的墙钟超时秒数。
+ *           主模型超时 → 备用1 → 备用2 → ... → 全部失败输出"当前无可用模型"。
  * 核心逻辑：独立面板，直接调 llmApi.getRuntimeSettings/updateRuntimeSettings 读写，
  *          不走 useSettingsPageController（那个是供应商 CRUD 用的）；用 useSettingsStore 拿 providers 列表。
  */
 import { useCallback, useEffect, useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { llmApi } from '@/features/llm/api/llm.api'
 import { useSettingsStore } from '@/features/settings/stores/settings.store'
 import { useToastStore } from '@/shared/stores/toast.store'
-import type { RuntimeSettings } from '@/types/llm'
+import type { FallbackModelEntry, RuntimeSettings } from '@/types/llm'
 
 const DEFAULT_SETTINGS: RuntimeSettings = {
-  fallback_provider_id: null,
-  fallback_model_id: null,
+  fallback_chain: [],
   run_timeout_seconds: 600,
 }
 
 /**
  * 函数名：FallbackPanel
  * 入参：无
- * 功能：渲染运行兜底设置面板，支持选择备用供应商/模型 + 超时秒数并保存
+ * 功能：渲染运行兜底设置面板，支持增删备用模型链条目 + 超时秒数并保存
  * 运行逻辑：
  *   1. 从 useSettingsStore 取已启用供应商列表（用于下拉）
  *   2. 挂载时调 llmApi.getRuntimeSettings 加载当前兜底配置
- *   3. 供应商/模型下拉联动（选供应商后模型列表跟着变）
+ *   3. 备用链每行：供应商 select + 模型 select + 删除按钮；底部"添加备用"按钮
  *   4. 保存调 llmApi.updateRuntimeSettings，成功 toast 提示
  * 出参：JSX.Element - 运行兜底设置面板
  */
@@ -52,29 +52,45 @@ export function FallbackPanel() {
     return () => { cancelled = true }
   }, [])
 
-  // 备用供应商选中后，其下已启用的模型列表
-  const fallbackProvider = providers.find((p) => p.id === settings.fallback_provider_id) || null
-  const fallbackModels = fallbackProvider
-    ? fallbackProvider.models.filter((m) => m.enabled)
-    : []
-
-  const handleProviderChange = useCallback((providerId: string) => {
-    // 切供应商时清空模型选择
+  // 添加一个空白备用条目
+  const handleAddEntry = useCallback(() => {
     setSettings((prev) => ({
       ...prev,
-      fallback_provider_id: providerId || null,
-      fallback_model_id: null,
+      fallback_chain: [...prev.fallback_chain, { provider_id: '', model_id: '' }],
     }))
   }, [])
 
-  const handleModelChange = useCallback((modelId: string) => {
-    setSettings((prev) => ({ ...prev, fallback_model_id: modelId || null }))
+  // 删除指定索引的条目
+  const handleRemoveEntry = useCallback((index: number) => {
+    setSettings((prev) => ({
+      ...prev,
+      fallback_chain: prev.fallback_chain.filter((_, i) => i !== index),
+    }))
+  }, [])
+
+  // 修改指定条目的供应商（联动清空模型）
+  const handleEntryProviderChange = useCallback((index: number, providerId: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      fallback_chain: prev.fallback_chain.map((entry, i) =>
+        i === index ? { ...entry, provider_id: providerId, model_id: '' } : entry
+      ),
+    }))
+  }, [])
+
+  // 修改指定条目的模型
+  const handleEntryModelChange = useCallback((index: number, modelId: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      fallback_chain: prev.fallback_chain.map((entry, i) =>
+        i === index ? { ...entry, model_id: modelId } : entry
+      ),
+    }))
   }, [])
 
   const handleTimeoutChange = useCallback((value: string) => {
     const num = Number.parseInt(value, 10)
     if (Number.isNaN(num)) return
-    // 限制 60-3600
     setSettings((prev) => ({
       ...prev,
       run_timeout_seconds: Math.max(60, Math.min(3600, num)),
@@ -82,11 +98,19 @@ export function FallbackPanel() {
   }, [])
 
   const handleSave = useCallback(async () => {
+    // 过滤掉未选全的条目（provider_id 或 model_id 为空）
+    const validChain = settings.fallback_chain.filter(
+      (e) => e.provider_id && e.model_id
+    ) as FallbackModelEntry[]
+
     setSaving(true)
     try {
-      const updated = await llmApi.updateRuntimeSettings(settings)
+      const updated = await llmApi.updateRuntimeSettings({
+        fallback_chain: validChain,
+        run_timeout_seconds: settings.run_timeout_seconds,
+      })
       setSettings(updated)
-      useToastStore.getState().addToast('info', '兜底配置已保存')
+      useToastStore.getState().addToast('info', `兜底配置已保存（${updated.fallback_chain.length} 个备用）`)
     } catch (error) {
       console.error('Failed to save runtime settings:', error)
       useToastStore.getState().addToast('error', '保存兜底配置失败')
@@ -99,7 +123,7 @@ export function FallbackPanel() {
     <div className="rounded-lg border border-edge bg-surface-primary p-6">
       <h3 className="mb-2 text-lg font-semibold text-content-primary">运行兜底</h3>
       <p className="mb-4 text-sm text-content-muted">
-        主模型超过设定时间未完成时，自动切换到备用模型继续执行；备用模型也失败时输出"当前无可用模型"。
+        主模型超过设定时间未完成时，按列表顺序逐个尝试备用模型；全部失败时输出"当前无可用模型"。
       </p>
 
       {loading ? (
@@ -112,46 +136,69 @@ export function FallbackPanel() {
         </div>
       ) : (
         <>
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-content-secondary">
-                备用供应商
-              </label>
-              <select
-                value={settings.fallback_provider_id || ''}
-                onChange={(e) => handleProviderChange(e.target.value)}
-                className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none"
-              >
-                <option value="">不启用兜底</option>
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-content-secondary">
-                备用模型
-              </label>
-              <select
-                value={settings.fallback_model_id || ''}
-                onChange={(e) => handleModelChange(e.target.value)}
-                disabled={!fallbackProvider}
-                className="w-full rounded-lg border border-edge bg-surface-primary text-content-secondary px-3 py-2 focus:border-accent focus:ring-1 focus:ring-accent outline-none disabled:opacity-50"
-              >
-                <option value="">选择模型</option>
-                {fallbackModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.display_name}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* 备用模型链列表 */}
+          <div className="space-y-2">
+            {settings.fallback_chain.length === 0 && (
+              <div className="rounded-lg bg-surface-tertiary px-3 py-3 text-sm text-content-muted">
+                暂无备用模型，点击下方"添加备用"创建。
+              </div>
+            )}
+            {settings.fallback_chain.map((entry, index) => {
+              const provider = providers.find((p) => p.id === entry.provider_id)
+              const models = provider ? provider.models.filter((m) => m.enabled) : []
+              return (
+                <div
+                  key={index}
+                  className="flex items-center gap-2 rounded-lg border border-edge p-2"
+                >
+                  <span className="shrink-0 w-6 text-center text-sm text-content-muted">
+                    {index + 1}
+                  </span>
+                  <select
+                    value={entry.provider_id}
+                    onChange={(e) => handleEntryProviderChange(index, e.target.value)}
+                    className="flex-1 rounded-lg border border-edge bg-surface-primary text-content-secondary px-2 py-1.5 text-sm focus:border-accent focus:ring-1 focus:ring-accent outline-none"
+                  >
+                    <option value="">选择供应商</option>
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={entry.model_id}
+                    onChange={(e) => handleEntryModelChange(index, e.target.value)}
+                    disabled={!provider}
+                    className="flex-1 rounded-lg border border-edge bg-surface-primary text-content-secondary px-2 py-1.5 text-sm focus:border-accent focus:ring-1 focus:ring-accent outline-none disabled:opacity-50"
+                  >
+                    <option value="">选择模型</option>
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id}>{m.display_name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveEntry(index)}
+                    className="shrink-0 rounded-lg p-1.5 text-content-muted hover:bg-surface-tertiary hover:text-status-error"
+                    title="删除此备用"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              )
+            })}
           </div>
 
-          <div className="mt-4 max-w-sm">
+          <button
+            type="button"
+            onClick={handleAddEntry}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-tertiary"
+          >
+            <Plus className="h-4 w-4" />
+            添加备用
+          </button>
+
+          {/* 超时秒数 */}
+          <div className="mt-6 max-w-sm">
             <label className="mb-1 block text-sm font-medium text-content-secondary">
               超时秒数（60-3600）
             </label>
@@ -180,8 +227,10 @@ export function FallbackPanel() {
             >
               {saving ? '保存中...' : '保存兜底配置'}
             </button>
-            {settings.fallback_provider_id && settings.fallback_model_id ? (
-              <span className="ml-3 text-sm text-status-success">兜底已启用</span>
+            {settings.fallback_chain.some((e) => e.provider_id && e.model_id) ? (
+              <span className="ml-3 text-sm text-status-success">
+                兜底已启用（{settings.fallback_chain.filter((e) => e.provider_id && e.model_id).length} 个）
+              </span>
             ) : (
               <span className="ml-3 text-sm text-content-muted">未启用兜底</span>
             )}

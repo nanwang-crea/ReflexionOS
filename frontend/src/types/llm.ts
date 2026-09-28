@@ -68,9 +68,14 @@ export interface RemoteModelsResult {
   message: string
 }
 
-// 运行兜底配置：主模型超时后切换的备用模型 + 主 run 墙钟超时秒数
+// 备用模型链中的一个条目：供应商 id + 模型 id
+export interface FallbackModelEntry {
+  provider_id: string
+  model_id: string
+}
+
+// 运行兜底配置：主模型超时后按顺序尝试的备用模型链 + 主 run 墙钟超时秒数
 export interface RuntimeSettings {
-  fallback_provider_id: string | null
-  fallback_model_id: string | null
+  fallback_chain: FallbackModelEntry[]
   run_timeout_seconds: number // 60-3600，默认 600
 }

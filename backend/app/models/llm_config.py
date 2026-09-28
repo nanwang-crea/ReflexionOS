@@ -63,6 +63,16 @@ class ProviderInstanceConfig(BaseModel):
         return self
 
 
+class FallbackModelEntry(BaseModel):
+    """备用模型链中的一个条目：供应商 id + 模型 id。
+    主模型超时后按列表顺序逐个尝试，全部失败才输出兜底文案。"""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    provider_id: str
+    model_id: str
+
+
 class LLMSettings(BaseModel):
     """全局 LLM 设置：所有已配置的服务商实例、默认使用的服务商/模型，以及默认的
     生成参数（温度、最大 token 数）。"""
@@ -77,10 +87,9 @@ class LLMSettings(BaseModel):
     default_model_id: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
-    # 运行兜底配置：主模型超时后切换的备用模型，None 表示不启用兜底。
+    # 运行兜底配置：主模型超时后按顺序尝试的备用模型链，空列表表示不启用兜底。
     # 超时阈值 run_timeout_seconds 控制主 run 的墙钟时间，超时后切备用继续完整循环。
-    fallback_provider_id: str | None = None
-    fallback_model_id: str | None = None
+    fallback_chain: list[FallbackModelEntry] = Field(default_factory=list)
     run_timeout_seconds: int = Field(default=600, ge=60, le=3600)
 
 
@@ -167,11 +176,10 @@ class RemoteModelsResult(BaseModel):
 
 
 class RuntimeSettings(BaseModel):
-    """运行兜底配置：主模型超时后切换的备用模型 + 主 run 墙钟超时秒数。
+    """运行兜底配置：主模型超时后按顺序尝试的备用模型链 + 主 run 墙钟超时秒数。
     用于"运行兜底"设置面板的读写，避免直接暴露完整 LLMSettings。"""
 
     model_config = ConfigDict(protected_namespaces=())
 
-    fallback_provider_id: str | None = None
-    fallback_model_id: str | None = None
+    fallback_chain: list[FallbackModelEntry] = Field(default_factory=list)
     run_timeout_seconds: int = Field(default=600, ge=60, le=3600)

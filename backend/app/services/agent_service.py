@@ -798,20 +798,18 @@ class AgentService:
         event_callback,
         run_timeout: int,
     ) -> LoopResult:
-        """主 run 超时后切换备用模型继续完整循环。
+        """主 run 超时后按备用模型链顺序逐个尝试，继续完整循环。
         输入：原 run 的所有入参 + original_loop（取其 _last_context 复用）+ run_tool_registry（复用工具集）
         逻辑：
-          1. 读备用 provider/model；未配 → 返回兜底文案 LoopResult
-          2. resolve 备用 ResolvedLLMConfig → 新建 adapter → 新建 RapidExecutionLoop（复用原 tool_registry）
-          3. 取原 loop 的 _last_context 传给新 loop（保留已执行工具结果与计划）
-          4. asyncio.wait_for 再跑一次，超时/异常 → 返回兜底文案
-        出参：LoopResult（备用成功则其结果，否则兜底文案）
+          1. 读备用链 fallback_chain；为空 → 返回兜底文案 LoopResult
+          2. 遍历备用链：逐个 resolve → 新建 adapter → 新建 RapidExecutionLoop（复用原 tool_registry）
+             → asyncio.wait_for 跑一次，成功即返回；超时/异常继续下一个
+          3. 全部失败 → 返回兜底文案
+        出参：LoopResult（首个成功的备用结果，否则兜底文案）
         """
-        fallback_provider_id, fallback_model_id = (
-            self.llm_provider_service.get_fallback_selection()
-        )
-        if not fallback_provider_id or not fallback_model_id:
-            logger.warning("未配置备用模型，无法兜底: run_id=%s", run_id)
+        fallback_chain = self.llm_provider_service.get_fallback_chain()
+        if not fallback_chain:
+            logger.warning("未配置备用模型链，无法兜底: run_id=%s", run_id)
             return LoopResult(
                 id=run_id,
                 task=task,
@@ -819,63 +817,68 @@ class AgentService:
                 result="当前无可用模型，请检查 LLM 配置或稍后重试",
             )
 
-        try:
-            resolved_fallback = self.llm_provider_service.resolve_llm_config(
-                fallback_provider_id, fallback_model_id
-            )
-        except ValueError as exc:
-            logger.error("备用模型解析失败: %s", exc)
-            return LoopResult(
-                id=run_id,
-                task=task,
-                status=LoopStatus.COMPLETED,
-                result="当前无可用模型，请检查 LLM 配置或稍后重试",
-            )
-
-        fallback_llm = LLMAdapterFactory.create(
-            resolved_fallback, on_retry=on_llm_retry, cancel_event=cancel_event
-        )
-        fallback_loop = RapidExecutionLoop(
-            llm=fallback_llm,
-            tool_registry=run_tool_registry,
-            event_callback=event_callback,
-            context_window=resolved_fallback.context_window,
-        )
-
-        # 复用原 loop 的 context（含已执行工具结果、plan），从 PLANNING 继续
+        # 复用原 loop 的 context（含已执行工具结果、plan），每个备用都基于同一份 context
         context_override = getattr(original_loop, "_last_context", None)
 
-        try:
-            loop_result = await asyncio.wait_for(
-                fallback_loop.run(
-                    task=task,
-                    task_content=task_content,
-                    project_path=project_path,
-                    run_id=run_id,
-                    session_id=session_id,
-                    history_messages=history_messages,
-                    agent_mode=agent_mode,
-                    context_override=context_override,
-                ),
-                timeout=run_timeout,
+        for index, entry in enumerate(fallback_chain, start=1):
+            logger.info(
+                "尝试备用模型 %d/%d: provider=%s, model=%s, run_id=%s",
+                index, len(fallback_chain), entry.provider_id, entry.model_id, run_id,
             )
-            return loop_result
-        except asyncio.TimeoutError:
-            logger.warning("备用模型也超时（%ss），兜底失败: run_id=%s", run_timeout, run_id)
-            return LoopResult(
-                id=run_id,
-                task=task,
-                status=LoopStatus.COMPLETED,
-                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            try:
+                resolved_fallback = self.llm_provider_service.resolve_llm_config(
+                    entry.provider_id, entry.model_id
+                )
+            except ValueError as exc:
+                logger.warning("备用模型 %d 解析失败，跳过: %s", index, exc)
+                continue
+
+            fallback_llm = LLMAdapterFactory.create(
+                resolved_fallback, on_retry=on_llm_retry, cancel_event=cancel_event
             )
-        except Exception as exc:
-            logger.exception("备用模型执行失败: run_id=%s", run_id)
-            return LoopResult(
-                id=run_id,
-                task=task,
-                status=LoopStatus.COMPLETED,
-                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            fallback_loop = RapidExecutionLoop(
+                llm=fallback_llm,
+                tool_registry=run_tool_registry,
+                event_callback=event_callback,
+                context_window=resolved_fallback.context_window,
             )
+
+            try:
+                loop_result = await asyncio.wait_for(
+                    fallback_loop.run(
+                        task=task,
+                        task_content=task_content,
+                        project_path=project_path,
+                        run_id=run_id,
+                        session_id=session_id,
+                        history_messages=history_messages,
+                        agent_mode=agent_mode,
+                        context_override=context_override,
+                    ),
+                    timeout=run_timeout,
+                )
+                # 成功（COMPLETED 或 CANCELLED 都算有结果，CANCELLED 可能是用户主动取消）
+                return loop_result
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "备用模型 %d（%s/%s）超时（%ss），尝试下一个: run_id=%s",
+                    index, entry.provider_id, entry.model_id, run_timeout, run_id,
+                )
+                continue
+            except Exception as exc:
+                logger.exception(
+                    "备用模型 %d（%s/%s）执行失败，尝试下一个: run_id=%s",
+                    index, entry.provider_id, entry.model_id, run_id,
+                )
+                continue
+
+        logger.warning("备用模型链全部失败，兜底: run_id=%s", run_id)
+        return LoopResult(
+            id=run_id,
+            task=task,
+            status=LoopStatus.COMPLETED,
+            result="当前无可用模型，请检查 LLM 配置或稍后重试",
+        )
 
     def _register_pending_approval(
         self,

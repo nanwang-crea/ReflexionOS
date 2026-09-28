@@ -344,48 +344,53 @@ class LLMProviderService:
         """
         return self.get_llm_settings().run_timeout_seconds
 
-    def get_fallback_selection(self) -> tuple[str | None, str | None]:
-        """读取备用供应商/模型 id（主模型超时后切换的目标）。
-        输出：(fallback_provider_id, fallback_model_id)，均为 None 表示未配置兜底
+    def get_fallback_chain(self) -> list:
+        """读取备用模型链（主模型超时后按顺序尝试的备用列表）。
+        输出：list[FallbackModelEntry]，空列表表示未配置兜底
         """
-        settings = self.get_llm_settings()
-        return settings.fallback_provider_id, settings.fallback_model_id
+        return self.get_llm_settings().fallback_chain
 
     def set_runtime_settings(
         self,
         *,
-        fallback_provider_id: str | None,
-        fallback_model_id: str | None,
+        fallback_chain: list,
         run_timeout_seconds: int,
     ) -> LLMSettings:
-        """更新运行兜底配置（备用模型 + 超时秒数）并持久化。
-        输入：fallback_provider_id/fallback_model_id（None 表示不启用兜底）、run_timeout_seconds
-        逻辑：校验超时范围、备用模型若提供则必须存在且启用，写入 LLMSettings 并持久化
+        """更新运行兜底配置（备用模型链 + 超时秒数）并持久化。
+        输入：fallback_chain（备用模型条目列表，空表示不启用兜底）、run_timeout_seconds
+        逻辑：校验超时范围、备用链中每个条目的供应商/模型存在且启用，写入 LLMSettings 并持久化
         输出：更新后的 LLMSettings
-        异常：ValueError（超时越界 / 备用模型不存在或禁用）
+        异常：ValueError（超时越界 / 备用条目供应商或模型不存在/禁用）
         """
         if not (60 <= run_timeout_seconds <= 3600):
             raise ValueError("超时秒数必须在 60-3600 之间")
 
         settings = self.get_llm_settings().model_copy(deep=True)
-        # 备用模型校验：若提供了 provider_id，必须命中已启用供应商
-        if fallback_provider_id:
+
+        # 校验备用链中每个条目
+        normalized_chain = []
+        seen = set()  # 去重：(provider_id, model_id)
+        for entry in fallback_chain:
+            provider_id = getattr(entry, "provider_id", None) or (entry.get("provider_id") if isinstance(entry, dict) else None)
+            model_id = getattr(entry, "model_id", None) or (entry.get("model_id") if isinstance(entry, dict) else None)
+            if not provider_id or not model_id:
+                raise ValueError("备用链条目必须包含 provider_id 和 model_id")
+            key = (provider_id, model_id)
+            if key in seen:
+                continue  # 跳过重复
+            seen.add(key)
             provider = next(
-                (p for p in settings.providers if p.id == fallback_provider_id and p.enabled),
+                (p for p in settings.providers if p.id == provider_id and p.enabled),
                 None,
             )
             if not provider:
-                raise ValueError("备用供应商不存在或已禁用")
-            if fallback_model_id and not any(
-                m.id == fallback_model_id and m.enabled for m in provider.models
-            ):
-                raise ValueError("备用模型不存在或已禁用")
-        else:
-            # provider 为空则 model 也清空
-            fallback_model_id = None
+                raise ValueError(f"备用供应商不存在或已禁用: {provider_id}")
+            if not any(m.id == model_id and m.enabled for m in provider.models):
+                raise ValueError(f"备用模型不存在或已禁用: {model_id}")
+            from app.models.llm_config import FallbackModelEntry
+            normalized_chain.append(FallbackModelEntry(provider_id=provider_id, model_id=model_id))
 
-        settings.fallback_provider_id = fallback_provider_id or None
-        settings.fallback_model_id = fallback_model_id or None
+        settings.fallback_chain = normalized_chain
         settings.run_timeout_seconds = run_timeout_seconds
         self._persist_llm_settings(settings)
         return self.get_llm_settings()
