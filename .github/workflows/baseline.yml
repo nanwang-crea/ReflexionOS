@@ -42,9 +42,13 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Setup Python
+        # CI 不锁 patch 版本：用 "3.12" 让 runner 自动选最新可用 patch。
+        # 原因：.python-version 里写的 3.12.14 在最新 runner 镜像（macOS 26 / Windows 2025）
+        # 上可能还没有预编译包，导致 setup-python 报 "version not found"。
+        # 本地开发仍用 .python-version（3.12.14）给 pyenv；CI 与本地解耦。
         uses: actions/setup-python@v5
         with:
-          python-version-file: .python-version
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: backend/requirements.lock
 
