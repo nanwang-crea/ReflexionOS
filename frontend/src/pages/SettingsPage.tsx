@@ -5,20 +5,22 @@
  * 核心逻辑：使用本地 state 维护当前激活的 Tab，点击导航项切换 activeTab，并据此条件渲染对应的子面板组件
  */
 import { useState } from 'react'
-import { Cpu, Eye, Globe, Info, Server } from 'lucide-react'
+import { Cpu, Eye, Globe, Info, Server, Shield } from 'lucide-react'
 import { ProviderPanel } from './settings/ProviderPanel'
 import { DefaultModelPanel } from './settings/DefaultModelPanel'
 import { DisplayOptionsPanel } from './settings/DisplayOptionsPanel'
 import { AboutPanel } from './settings/AboutPanel'
 import { BrowserPanel } from './settings/BrowserPanel'
+import { FallbackPanel } from './settings/FallbackPanel'
 
 /** 设置页 Tab 的联合类型，对应左侧导航中的各个选项 */
-type SettingsTab = 'providers' | 'default-model' | 'display' | 'browser' | 'about'
+type SettingsTab = 'providers' | 'default-model' | 'fallback' | 'display' | 'browser' | 'about'
 
 /** 设置页 Tab 导航配置列表：每项包含唯一 key、显示文案和对应图标组件 */
 const tabs: Array<{ key: SettingsTab; label: string; icon: typeof Server }> = [
   { key: 'providers', label: '模型供应商', icon: Server },
   { key: 'default-model', label: '默认模型', icon: Cpu },
+  { key: 'fallback', label: '运行兜底', icon: Shield },
   { key: 'display', label: '显示选项', icon: Eye },
   { key: 'browser', label: '浏览器', icon: Globe },
   { key: 'about', label: '关于', icon: Info },
@@ -70,6 +72,7 @@ export default function SettingsPage() {
         <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
           {activeTab === 'providers' && <ProviderPanel />}
           {activeTab === 'default-model' && <DefaultModelPanel />}
+          {activeTab === 'fallback' && <FallbackPanel />}
           {activeTab === 'display' && <DisplayOptionsPanel />}
           {activeTab === 'browser' && <BrowserPanel />}
           {activeTab === 'about' && <AboutPanel />}

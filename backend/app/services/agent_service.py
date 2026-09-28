@@ -14,7 +14,7 @@ from app.config.settings import config_manager
 from app.errors import NotFoundValueError
 from app.execution.approval_flow import ApprovalFlow
 from app.execution.approval_store import PendingApprovalStore
-from app.execution.models import LoopStatus
+from app.execution.models import LoopResult, LoopStatus
 from app.execution.prompt_manager import PromptManager
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.ids import new_event_id
@@ -727,15 +727,46 @@ class AgentService:
                 if content_parts:
                     task_content = content_parts
 
-            loop_result = await execution_loop.run(
-                task=task,
-                task_content=task_content,
-                project_path=project_path,
-                run_id=run_id,
-                session_id=session_id,
-                history_messages=history_messages,
-                agent_mode=agent_mode,
-            )
+            # 主 run 包墙钟超时：超时后切备用模型继续完整循环（兜底机制）
+            # 修改说明：原 run 调用用 asyncio.wait_for 包裹，超时触发 TimeoutError 走 _run_with_fallback
+            run_timeout = self.llm_provider_service.get_run_timeout()
+            try:
+                loop_result = await asyncio.wait_for(
+                    execution_loop.run(
+                        task=task,
+                        task_content=task_content,
+                        project_path=project_path,
+                        run_id=run_id,
+                        session_id=session_id,
+                        history_messages=history_messages,
+                        agent_mode=agent_mode,
+                    ),
+                    timeout=run_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "主 run 超时（%ss），切换备用模型继续执行: run_id=%s",
+                    run_timeout, run_id,
+                )
+                # 通知前端：主模型超时，正在切换备用（避免前端误以为 run:cancelled 是终态）
+                await persist_and_broadcast("run:info", {
+                    "message": f"主模型超时（{run_timeout}s），正在切换到备用模型继续执行",
+                })
+                loop_result = await self._run_with_fallback(
+                    task=task,
+                    task_content=task_content,
+                    project_path=project_path,
+                    run_id=run_id,
+                    session_id=session_id,
+                    history_messages=history_messages,
+                    agent_mode=agent_mode,
+                    original_loop=execution_loop,
+                    run_tool_registry=run_tool_registry,
+                    cancel_event=cancel_event,
+                    on_llm_retry=on_llm_retry,
+                    event_callback=event_callback,
+                    run_timeout=run_timeout,
+                )
             if loop_result.status != LoopStatus.COMPLETED:
                 return
         except asyncio.CancelledError:
@@ -749,6 +780,102 @@ class AgentService:
             self._cancel_events.pop(run_id, None)
             if approval_flow is not None and self._session_approval_flows.get(session_id) is approval_flow:
                 self._session_approval_flows.pop(session_id, None)
+
+    async def _run_with_fallback(
+        self,
+        *,
+        task: str,
+        task_content: str | list[dict] | None,
+        project_path: str | None,
+        run_id: str,
+        session_id: str,
+        history_messages: list[dict[str, str]] | None,
+        agent_mode: str,
+        original_loop: RapidExecutionLoop,
+        run_tool_registry,
+        cancel_event: asyncio.Event,
+        on_llm_retry,
+        event_callback,
+        run_timeout: int,
+    ) -> LoopResult:
+        """主 run 超时后切换备用模型继续完整循环。
+        输入：原 run 的所有入参 + original_loop（取其 _last_context 复用）+ run_tool_registry（复用工具集）
+        逻辑：
+          1. 读备用 provider/model；未配 → 返回兜底文案 LoopResult
+          2. resolve 备用 ResolvedLLMConfig → 新建 adapter → 新建 RapidExecutionLoop（复用原 tool_registry）
+          3. 取原 loop 的 _last_context 传给新 loop（保留已执行工具结果与计划）
+          4. asyncio.wait_for 再跑一次，超时/异常 → 返回兜底文案
+        出参：LoopResult（备用成功则其结果，否则兜底文案）
+        """
+        fallback_provider_id, fallback_model_id = (
+            self.llm_provider_service.get_fallback_selection()
+        )
+        if not fallback_provider_id or not fallback_model_id:
+            logger.warning("未配置备用模型，无法兜底: run_id=%s", run_id)
+            return LoopResult(
+                id=run_id,
+                task=task,
+                status=LoopStatus.COMPLETED,
+                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            )
+
+        try:
+            resolved_fallback = self.llm_provider_service.resolve_llm_config(
+                fallback_provider_id, fallback_model_id
+            )
+        except ValueError as exc:
+            logger.error("备用模型解析失败: %s", exc)
+            return LoopResult(
+                id=run_id,
+                task=task,
+                status=LoopStatus.COMPLETED,
+                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            )
+
+        fallback_llm = LLMAdapterFactory.create(
+            resolved_fallback, on_retry=on_llm_retry, cancel_event=cancel_event
+        )
+        fallback_loop = RapidExecutionLoop(
+            llm=fallback_llm,
+            tool_registry=run_tool_registry,
+            event_callback=event_callback,
+            context_window=resolved_fallback.context_window,
+        )
+
+        # 复用原 loop 的 context（含已执行工具结果、plan），从 PLANNING 继续
+        context_override = getattr(original_loop, "_last_context", None)
+
+        try:
+            loop_result = await asyncio.wait_for(
+                fallback_loop.run(
+                    task=task,
+                    task_content=task_content,
+                    project_path=project_path,
+                    run_id=run_id,
+                    session_id=session_id,
+                    history_messages=history_messages,
+                    agent_mode=agent_mode,
+                    context_override=context_override,
+                ),
+                timeout=run_timeout,
+            )
+            return loop_result
+        except asyncio.TimeoutError:
+            logger.warning("备用模型也超时（%ss），兜底失败: run_id=%s", run_timeout, run_id)
+            return LoopResult(
+                id=run_id,
+                task=task,
+                status=LoopStatus.COMPLETED,
+                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            )
+        except Exception as exc:
+            logger.exception("备用模型执行失败: run_id=%s", run_id)
+            return LoopResult(
+                id=run_id,
+                task=task,
+                status=LoopStatus.COMPLETED,
+                result="当前无可用模型，请检查 LLM 配置或稍后重试",
+            )
 
     def _register_pending_approval(
         self,

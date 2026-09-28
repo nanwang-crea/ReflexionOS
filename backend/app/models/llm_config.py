@@ -77,6 +77,11 @@ class LLMSettings(BaseModel):
     default_model_id: str | None = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, ge=1)
+    # 运行兜底配置：主模型超时后切换的备用模型，None 表示不启用兜底。
+    # 超时阈值 run_timeout_seconds 控制主 run 的墙钟时间，超时后切备用继续完整循环。
+    fallback_provider_id: str | None = None
+    fallback_model_id: str | None = None
+    run_timeout_seconds: int = Field(default=600, ge=60, le=3600)
 
 
 class DefaultLLMSelection(BaseModel):
@@ -159,3 +164,14 @@ class RemoteModelsResult(BaseModel):
     provider_id: str | None = None
     models: list[RemoteModel] = Field(default_factory=list)
     message: str = "获取成功"
+
+
+class RuntimeSettings(BaseModel):
+    """运行兜底配置：主模型超时后切换的备用模型 + 主 run 墙钟超时秒数。
+    用于"运行兜底"设置面板的读写，避免直接暴露完整 LLMSettings。"""
+
+    model_config = ConfigDict(protected_namespaces=())
+
+    fallback_provider_id: str | None = None
+    fallback_model_id: str | None = None
+    run_timeout_seconds: int = Field(default=600, ge=60, le=3600)

@@ -3,7 +3,7 @@
  * 文件描述：提供供应商的增删改查、连接测试、以及默认模型选择的读取与设置接口。
  * 核心逻辑：纯粹的接口地址与方法封装，不做数据转换，直接透传 apiClient 的响应。
  */
-import type { DefaultLLMSelection, ProviderConnectionTestRequest, ProviderInstance, RemoteModelsResult } from '@/types/llm'
+import type { DefaultLLMSelection, ProviderConnectionTestRequest, ProviderInstance, RemoteModelsResult, RuntimeSettings } from '@/types/llm'
 import { apiClient } from '@/services/apiClient'
 
 // LLM 接口集合：供应商 CRUD、连接测试、默认模型选择的获取与设置、远端可用模型拉取
@@ -21,4 +21,9 @@ export const llmApi = {
   getDefaultSelection: () => apiClient.get<DefaultLLMSelection>('/api/llm/default'),
   setDefaultSelection: (data: { provider_id: string; model_id: string }) =>
     apiClient.put<DefaultLLMSelection>('/api/llm/default', data),
+  // 运行兜底配置：备用模型 + 超时秒数
+  getRuntimeSettings: () =>
+    apiClient.get<RuntimeSettings>('/api/llm/runtime-settings').then((r) => r.data),
+  updateRuntimeSettings: (data: RuntimeSettings) =>
+    apiClient.put<RuntimeSettings>('/api/llm/runtime-settings', data).then((r) => r.data),
 }

@@ -67,3 +67,10 @@ export interface RemoteModelsResult {
   models: RemoteModel[]
   message: string
 }
+
+// 运行兜底配置：主模型超时后切换的备用模型 + 主 run 墙钟超时秒数
+export interface RuntimeSettings {
+  fallback_provider_id: string | null
+  fallback_model_id: string | null
+  run_timeout_seconds: number // 60-3600，默认 600
+}

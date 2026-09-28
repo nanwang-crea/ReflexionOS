@@ -133,6 +133,8 @@ class RapidExecutionLoop:
         # 否则创建新的审批流实例（用于主 Agent）
         self.approval_flow = approval_flow or ApprovalFlow(emit=self._emit)
         self._runtime: RuntimeState | None = None
+        # 最后一次 run 的 LoopContext，供 agent_service 兜底切换时取用复用
+        self._last_context: "LoopContext | None" = None
         self.plan_file_sync = PlanFileSync()
 
     @property
@@ -939,6 +941,7 @@ class RapidExecutionLoop:
         history_messages: list[dict[str, str]] | None = None,
         agent_mode: str = "build",
         task_content: str | list[dict] | None = None,
+        context_override: "LoopContext | None" = None,
     ) -> LoopResult:
         """
         执行任务
@@ -968,17 +971,25 @@ class RapidExecutionLoop:
             status=LoopStatus.RUNNING,
             created_at=created_at or datetime.now(),
         )
-        # 构造LoopContext，此时已将用户的原始输入，上下文，系统提示词等注入到LoopContext中
+        # 构造LoopContext：context_override 非 None 时复用（兜底切换场景，
+        # 保留主模型已执行的工具结果与计划），否则从本次输入新建
+        if context_override is not None:
+            context = context_override
+            # 复用场景下，run_id 可能与原 context 不同，同步更新
+            context.run_id = loop_result.id
+        else:
+            context = LoopContext.from_run_input(
+                task=task,
+                project_path=project_path,
+                run_id=loop_result.id,
+                session_id=session_id,
+                agent_mode=agent_mode,
+                history_messages=history_messages,
+                task_content=task_content,
+            )
 
-        context = LoopContext.from_run_input(
-            task=task,
-            project_path=project_path,
-            run_id=loop_result.id,
-            session_id=session_id,
-            agent_mode=agent_mode,
-            history_messages=history_messages,
-            task_content=task_content,
-        )
+        # 暴露最后一次 run 的 context，供 agent_service 兜底切换时取用
+        self._last_context = context
 
         rt = RuntimeState()
         self._runtime = rt

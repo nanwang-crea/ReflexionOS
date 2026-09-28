@@ -12,6 +12,7 @@ from app.models.llm_config import (
     ProviderConnectionTestResult,
     ProviderInstanceConfig,
     RemoteModelsResult,
+    RuntimeSettings,
 )
 from app.services.llm_provider_service import llm_provider_service
 
@@ -132,3 +133,41 @@ async def set_default_selection(selection: DefaultLLMSelection):
         return llm_provider_service.set_default_selection(selection)
     except ValueError as exc:
         raise value_error_to_app_error(exc, resource="供应商") from exc
+
+
+@router.get("/runtime-settings", response_model=RuntimeSettings)
+async def get_runtime_settings():
+    """
+    GET /api/llm/runtime-settings：获取运行兜底配置（备用模型 + 超时秒数）。
+    入参：无。
+    出参：RuntimeSettings（备用 provider/model id + run_timeout_seconds）。
+    """
+    settings = llm_provider_service.get_llm_settings()
+    return RuntimeSettings(
+        fallback_provider_id=settings.fallback_provider_id,
+        fallback_model_id=settings.fallback_model_id,
+        run_timeout_seconds=settings.run_timeout_seconds,
+    )
+
+
+@router.put("/runtime-settings", response_model=RuntimeSettings)
+async def update_runtime_settings(payload: RuntimeSettings):
+    """
+    PUT /api/llm/runtime-settings：更新运行兜底配置。
+    入参：payload（备用 provider/model id + run_timeout_seconds）。
+    逻辑：调 llm_provider_service.set_runtime_settings 校验并持久化。
+    出参：RuntimeSettings（更新后的配置）。
+    """
+    try:
+        updated = llm_provider_service.set_runtime_settings(
+            fallback_provider_id=payload.fallback_provider_id,
+            fallback_model_id=payload.fallback_model_id,
+            run_timeout_seconds=payload.run_timeout_seconds,
+        )
+        return RuntimeSettings(
+            fallback_provider_id=updated.fallback_provider_id,
+            fallback_model_id=updated.fallback_model_id,
+            run_timeout_seconds=updated.run_timeout_seconds,
+        )
+    except ValueError as exc:
+        raise ValidationError(message=str(exc)) from exc
