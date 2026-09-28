@@ -64,9 +64,18 @@ def main() -> int:
     """无参数；读取仓库版本和依赖声明并逐项核对；通过返回 0，否则输出原因并返回 1。"""
     root = Path(__file__).resolve().parent.parent
     expected = (root / ".python-version").read_text(encoding="utf-8").strip()
-    errors = []
-    if platform.python_version() != expected:
-        errors.append(f"Python {expected} required; found {platform.python_version()}")
+    errors: list[str] = []
+    # 版本匹配策略：只校验主.次版本（如 3.12），不锁死 patch。
+    # 原因：GitHub Actions runner 不保证提供精确 patch（如 3.12.14），
+    # setup-python 用 "3.12" 会装 runner 上最新的 patch（如 3.12.10），
+    # 精确匹配会导致 CI 永远挂。本地 pyenv 仍可用 .python-version 锁死 patch。
+    # 兼容旧格式：.python-version 可能写 "3.12.14" 或 "3.12"，都按主.次比较。
+    expected_major_minor = ".".join(expected.split(".")[:2])
+    actual_major_minor = ".".join(platform.python_version().split(".")[:2])
+    if actual_major_minor != expected_major_minor:
+        errors.append(
+            f"Python {expected_major_minor}.x required; found {platform.python_version()}"
+        )
     if sys.prefix == sys.base_prefix:
         errors.append("Use backend/.venv; the system Python is not a baseline environment")
     try:

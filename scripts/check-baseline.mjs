@@ -90,9 +90,14 @@ function main(args) {
   // -I 会忽略 PYTHON* 环境变量，因此通过显式参数保证 Windows 日志编码并禁止源码目录字节码写入。
   const pythonArgs = ['-I', '-B', '-X', 'utf8']
   try {
-    const expectedNode = fs.readFileSync(path.join(repoRoot, '.node-version'), 'utf8').trim()
-    if (process.versions.node !== expectedNode) {
-      throw new Error(`Node ${expectedNode} required; found ${process.versions.node}`)
+    // 版本匹配策略：只校验主版本（如 24），不锁死完整版本号。
+    // 原因：GitHub Actions runner 不保证提供精确 Node patch（如 24.14.1），
+    // 精确匹配会导致 CI 在 runner 升级后挂。本地可用 .node-version 锁死完整版本。
+    const expectedNodeRaw = fs.readFileSync(path.join(repoRoot, '.node-version'), 'utf8').trim()
+    const expectedNodeMajor = expectedNodeRaw.split('.')[0]
+    const actualNodeMajor = String(process.versions.node).split('.')[0]
+    if (actualNodeMajor !== expectedNodeMajor) {
+      throw new Error(`Node ${expectedNodeMajor}.x required; found ${process.versions.node}`)
     }
     console.log(`Node ${process.versions.node}; ${process.platform}/${process.arch}`)
     const pythonReady = runStep('python-environment', python, [
