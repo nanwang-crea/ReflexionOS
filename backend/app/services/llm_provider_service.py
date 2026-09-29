@@ -365,6 +365,10 @@ class LLMProviderService:
         if not (60 <= run_timeout_seconds <= 3600):
             raise ValueError("超时秒数必须在 60-3600 之间")
 
+        # 备用链长度上限：超过 3 个无意义（主模型+3 备用已足够覆盖故障场景）
+        if len(fallback_chain) > 3:
+            raise ValueError("备用模型最多 3 个")
+
         settings = self.get_llm_settings().model_copy(deep=True)
 
         # 校验备用链中每个条目

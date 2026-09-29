@@ -123,7 +123,7 @@ export function FallbackPanel() {
     <div className="rounded-lg border border-edge bg-surface-primary p-6">
       <h3 className="mb-2 text-lg font-semibold text-content-primary">运行兜底</h3>
       <p className="mb-4 text-sm text-content-muted">
-        主模型超过设定时间未完成时，按列表顺序逐个尝试备用模型；全部失败时输出"当前无可用模型"。
+        主模型超过设定时间未完成时，按列表顺序逐个尝试备用模型；全部失败时输出"当前无可用模型"。最多 3 个备用。
       </p>
 
       {loading ? (
@@ -191,7 +191,9 @@ export function FallbackPanel() {
           <button
             type="button"
             onClick={handleAddEntry}
-            className="mt-3 inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-tertiary"
+            disabled={settings.fallback_chain.length >= 3}
+            className="mt-3 inline-flex items-center gap-1 rounded-lg border border-edge px-3 py-1.5 text-sm text-content-secondary hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:opacity-50"
+            title={settings.fallback_chain.length >= 3 ? '最多 3 个备用模型' : '添加备用'}
           >
             <Plus className="h-4 w-4" />
             添加备用
