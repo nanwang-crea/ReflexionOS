@@ -781,3 +781,33 @@ rapid_loop.py 是 1000+ 行状态机主循环，但有两个回归保障缺口�
 - 经验：异步协作机制里"以为对方已就绪"是最常见的坑——本次是事件先于槽位注册，上次是生成器被提前 aclose；对策都是显式等待/前置副作用，不赌时序。
 - 经验：回调里 create_task 的异常必须集中跟踪 + gather，否则被事件循环静默吞掉，测试假绿。
 - 待办：连续拒绝耗尽 MAX_TURN_RETRIES 转 FINAL_SUMMARY、并发多审批两个场景未覆盖（价值/成本比低，留后续）；dsh 借鉴清单 🟡3 沙箱工厂配置覆盖、🟡4 投影层容错核查待做。
+
+## [2026-10-03] [新功能] 沙箱后端配置覆盖（dsh 借鉴 🟡3 落地）+ alembic 日志禁用隐患修复
+
+- **类型**: 新功能
+- **涉及文件**: backend/app/config/settings.py, backend/app/security/sandbox/factory.py, backend/alembic/env.py, backend/tests/test_security/test_sandbox_factory_config.py, docs/superpowers/{specs,plans}/2026-10-03-sandbox-provider-config-*.md, docs/dsh-reference-opportunities.md
+- **关联**: （无，未提交）
+
+### 问题/需求
+沙箱选择逻辑硬编码在工厂里：排查"某后端误拦/漏拦"时无法在不改代码的前提下强制换后端或强制无隔离对照。dsh 对照清单列为 🟡3（低改动、排障收益）。
+
+### 原因
+工厂只按平台自动探测，没有配置入口；config.json 的 AppSettings 无 sandbox 节。
+
+### 修复/实现方法
+① settings.py 新增 SandboxSettings（provider: auto/windows/seatbelt/landlock/null，Literal 校验非法值在加载期拒绝）；② 工厂加配置分支——auto 走原探测不变，null 强制 NullSandbox（排障无隔离），指定后端可用则返回、不可用降级 NullSandbox + warning（用户已明确表达意图，不静默换其他后端误导排障）；③ 显式映射字典而非 getattr 防配置注入类名；④ 函数内局部导入 config_manager 防循环依赖，配置读取异常按 auto 兜底。
+
+### 过程
+1. 走 spec → plan 流程（2026-10-03 两份简式文档）。
+2. 单跑新测试全绿，全量回归却挂 2 条 caplog 断言——顺藤摸出**真实隐患**：alembic/env.py 的 fileConfig 用默认 disable_existing_loggers=True，任何测试（及生产启动）触发迁移后，已存在的 app.* logger 全部被永久禁用。修为 disable_existing_loggers=False。
+3. 测试侧同时加 app logger 传播 fixture（应对 logging_config.py 的 propagate=False），断言改用 getMessage()。
+
+### 测试验证及结果
+- 新增 7 条用例全绿：auto 兜底/首选、null 强制、指定后端命中、不可用降级+warning、构造异常降级、配置读取异常按 auto ✅
+- 全量回归：1170 passed, 4 skipped（较上期 +7），零回归 ✅
+- **结论**: 已解决，config.json 改 sandbox.provider 重启即可强制沙箱后端/无隔离对照
+
+### 经验教训/待办
+- 经验：caplog 断言"单跑过、联跑挂"基本是全局日志状态被污染——本次两个来源：fileConfig 的 disable_existing_loggers（禁用 logger 本体）与业务日志初始化的 propagate=False（阻断向 root 传播）。测试要免疫全局日志状态。
+- 经验：alembic 的 fileConfig 默认参数是个经典坑，生产里也会静默吞掉迁移前已 import 模块的日志，值得在别的项目里排查同款。
+- 待办：回放侧连续拒绝耗尽、并发多审批两个低优先级场景；dsh 清单剩 🟡4（已核查，加固另立 spec）与 🟢5-7（暂缓）。

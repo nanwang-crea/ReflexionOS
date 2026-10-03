@@ -7,6 +7,7 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-10-03 | 新功能 | 沙箱后端配置覆盖（dsh 借鉴 🟡3）+ alembic 日志禁用隐患修复 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-10-03 | 新功能 | 审批暂停/恢复场景回放测试（回放设施扩展） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-10-02 | 新功能 | 会话录制回放测试 + 执行事件地图（dsh 借鉴 🔴1🔴2 落地） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-09-06 | Bug修复 | 测试环境重建与 chromium 手动安装（后端测试基线全绿） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |

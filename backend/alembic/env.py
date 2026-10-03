@@ -9,7 +9,12 @@ from app.storage.models import Base
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False：fileConfig 默认 True 会把所有已存在的
+    # logger（包括迁移前已 import 的 app.* 模块 logger）永久置为 disabled，
+    # 导致迁移后这些模块的日志全部静默（生产隐患），也会让测试里 caplog
+    # 断言假阴性。alembic.ini 的 [loggers] 只管理 root/sqlalchemy/alembic，
+    # 无需禁用其他 logger。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Expand ~ in database URL
 db_url = config.get_main_option("sqlalchemy.url")

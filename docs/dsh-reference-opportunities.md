@@ -44,7 +44,7 @@ dsh 与 ReflexionOS 是同赛道竞品（本地 agent harness：任务循环 + �
 **可借鉴**（锦上添花，非刚需）：
 
 - [ ] 明确「老事件格式永不被破坏」的纪律：新字段只加不改，事件 payload 变更要配套迁移策略文档。
-- [ ] 检查投影层对「未知事件类型」的容错（重放老日志时遇到新事件应跳过而非崩溃）——需实测确认。
+- [x] 检查投影层对「未知事件类型」的容错（重放老日志时遇到新事件应跳过而非崩溃）——需实测确认。**→ 已核查 2026-10-03：① match 无 default 分支，合法但未覆盖的枚举成员（APPROVAL_*×4、MESSAGES_TRUNCATED）静默跳过，安全；② 真实风险：DB 含当前枚举没有的 event_type 字符串时，`ConversationEvent` pydantic 反序列化直接 ValidationError 会崩（场景：版本回滚或枚举成员被删/改名）。纪律：EventType 只增不删不改名；读取层容错加固另立 spec**
 
 ### 3. 三类事件域划分（持久事实 / 在途状态 / 策略挂载）— ❌ 空白
 
@@ -75,11 +75,11 @@ dsh 与 ReflexionOS 是同赛道竞品（本地 agent harness：任务循环 + �
 **ReflexionOS 现状**：
 
 - LLM：`base.py` 接口干净，但只有 `openai_adapter.py` 一个实现（OpenAI 兼容协议打天下）；provider 配置走 `llm_provider_service.py` 持久化，已是配置驱动。近期两个 commit（`8658b909`、`0988ef6c`）已加备用模型链兜底。
-- 沙箱：`security/sandbox/factory.py` 按平台自动选 Seatbelt/Landlock/Windows + NullSandbox 兜底，**但选择逻辑硬编码在工厂里，不可配置**（不能从配置指定「强制用某沙箱」或调整优先级）。
+- 沙箱：`security/sandbox/factory.py` 按平台自动选 Seatbelt/Landlock/Windows + NullSandbox 兜底，~~但选择逻辑硬编码在工厂里，不可配置~~ **已支持配置覆盖（2026-10-03）**：`config.json` 的 `sandbox.provider` 可强制指定后端或 `null`（排障无隔离模式），默认 `auto` 保持自动探测。
 
 **可借鉴**：
 
-- [ ] 沙箱工厂加配置覆盖：允许配置文件指定后端优先级/强制禁用某后端（排查问题时有价值，改动小）。
+- [x] 沙箱工厂加配置覆盖：允许配置文件指定后端优先级/强制禁用某后端（排查问题时有价值，改动小）。**→ 已完成 2026-10-03：`SandboxSettings.provider`（auto/windows/seatbelt/landlock/null）+ 工厂分支（指定后端不可用时降级 NullSandbox + warning，不静默换后端），7 条新用例；顺带修复 alembic `fileConfig` 禁用全部 app logger 的隐患**
 - [ ] 模型侧暂不需要动——OpenAI 兼容协议 + 配置驱动 provider 已够用，近期兜底链也已落地。
 
 ### 6. Profile/Bundle 多形态（同一运行时多种 launch）— ❌ 空白（暂缓）
@@ -98,7 +98,7 @@ dsh 与 ReflexionOS 是同赛道竞品（本地 agent harness：任务循环 + �
 |---|---|---|---|
 | 🔴 1 | 执行事件地图文档化（§1）**✅ 2026-10-02 完成** | 低（纯文档） | 事件契约清晰，排查/协作/面试讲述都受益 |
 | 🔴 2 | 录制回放测试 + FakeLLM（§4）**✅ 2026-10-02 完成** | 中 | 重构主循环的回归保障，当前最缺的测试能力 |
-| 🟡 3 | 沙箱工厂配置覆盖（§5） | 低 | 排查环境问题更快 |
+| 🟡 3 | 沙箱工厂配置覆盖（§5）**✅ 2026-10-03 完成** | 低 | 排查环境问题更快 |
 | 🟡 4 | 投影层未知事件容错核查（§2） | 低（核查） | 防老会话回放炸 |
 | 🟢 5 | pre-step input 拦截 hook（§1） | 中 | 审批/脱敏前置，等下次执行链路大改时做 |
 | 🟢 6 | 三类事件域划分（§3） | 高 | 架构收益，需大重构窗口 |

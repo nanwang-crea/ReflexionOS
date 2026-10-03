@@ -6,15 +6,31 @@ Seatbelt（sandbox-exec），Linux 使用 Landlock（内核 LSM，通过 bwrap �
 方式施加文件系统访问限制）。若当前主机三者都不可用（如内核版本过低、
 缺少必要工具），则退化为 NullSandbox——不做任何隔离，直接透传原始命令，
 保证上层调用逻辑无需区分“有沙盒/无沙盒”两种路径。
+
+配置覆盖（2026-10-03，排障用途）：~/.reflexion/config.json 的
+sandbox.provider 可强制指定后端（windows/seatbelt/landlock）或强制无沙箱
+（null）；默认 auto 保持上述自动探测行为。指定后端不可用时降级为无沙箱
+并打 warning——用户已明确表达意图，不静默换其他后端误导排障。
 """
 
 from __future__ import annotations
+
+import logging
 
 from app.security.sandbox.base import SandboxProvider
 from app.security.sandbox.landlock import LandlockSandbox
 from app.security.sandbox.sandbox_policy import SandboxLevel
 from app.security.sandbox.seatbelt import SeatbeltSandbox
 from app.security.sandbox.windows import WindowsSandbox
+
+logger = logging.getLogger(__name__)
+
+# 配置可强制指定的后端映射（显式字典而非 getattr，防配置注入类名）
+_NAMED_BACKENDS = {
+    "windows": WindowsSandbox,
+    "seatbelt": SeatbeltSandbox,
+    "landlock": LandlockSandbox,
+}
 
 
 class NullSandbox(SandboxProvider):
@@ -87,8 +103,14 @@ def create_sandbox(level: SandboxLevel = SandboxLevel.DEV) -> SandboxProvider:
         - level (SandboxLevel): 沙盒严格程度级别，默认 SandboxLevel.DEV。
           会传给被选中的具体 Provider 构造函数，用于推导对应的访问策略
           （如允许哪些路径、是否允许网络等）。
-    功能：按平台优先级依次探测并返回第一个可用的沙盒后端实例。
+    功能：按配置与平台探测返回沙盒后端实例。
     运行逻辑：
+        0. 先读 ~/.reflexion/config.json 的 sandbox.provider：
+           - "null"：直接返回 NullSandbox（排障用无隔离模式）；
+           - 指定后端（windows/seatbelt/landlock）：实例化并探测，可用
+             则返回；不可用则打 warning 并降级 NullSandbox——用户已明确
+             表达意图，不静默换其他后端误导排障；
+           - "auto"（默认/配置读取失败）：走下方自动探测。
         1. 依次尝试实例化 WindowsSandbox（仅 win32 生效）、SeatbeltSandbox
            （仅 macOS 生效）、LandlockSandbox（仅 Linux 生效），并调用其
            is_available() 探测当前主机是否真正支持。
@@ -98,8 +120,47 @@ def create_sandbox(level: SandboxLevel = SandboxLevel.DEV) -> SandboxProvider:
            兜底，保证调用方始终能拿到一个可用的 SandboxProvider。
     出参：SandboxProvider - 选中的具体沙盒实现，或兜底的 NullSandbox。
     """
+    provider_name = _configured_provider()
+    if provider_name == "null":
+        logger.info("配置 sandbox.provider=null：强制使用无沙箱模式（排障用途）")
+        return NullSandbox()
+    if provider_name in _NAMED_BACKENDS:
+        try:
+            provider = _NAMED_BACKENDS[provider_name](level=level)
+            if provider.is_available():
+                logger.info("使用配置指定的沙盒后端: %s", provider_name)
+                return provider
+        except Exception as exc:
+            logger.warning(
+                "配置指定的 %s 后端初始化失败（%s），降级为无沙箱",
+                provider_name, exc,
+            )
+            return NullSandbox()
+        logger.warning(
+            "配置指定的 %s 后端在当前主机不可用，降级为无沙箱", provider_name
+        )
+        return NullSandbox()
+
     for cls in (WindowsSandbox, SeatbeltSandbox, LandlockSandbox):
         provider = cls(level=level)
         if provider.is_available():
             return provider
     return NullSandbox()
+
+
+def _configured_provider() -> str:
+    """读取配置中的沙箱后端指定（config.json 的 sandbox.provider）。
+
+    入参：无。
+    功能：从全局 config_manager 读取 sandbox.provider；配置层任何异常
+         （未加载、字段缺失、读取失败）都按 "auto" 处理——沙箱创建不能
+         被配置读取失败拖垮。函数内局部导入 config_manager，避免
+         config → sandbox 方向的模块级循环依赖风险。
+    出参：str - "auto" / "windows" / "seatbelt" / "landlock" / "null"。
+    """
+    try:
+        from app.config.settings import config_manager
+
+        return config_manager.settings.sandbox.provider
+    except Exception:
+        return "auto"

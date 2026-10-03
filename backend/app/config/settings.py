@@ -10,6 +10,8 @@ import json
 import logging
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, ValidationError
 
 from app.models.llm_config import LLMSettings
@@ -96,6 +98,20 @@ class BrowserSettings(BaseModel):
     allowed_schemes: list[str] = Field(default=["http", "https"])
 
 
+class SandboxSettings(BaseModel):
+    """沙箱配置：排障用的后端强制指定。
+
+    provider 取值：
+      - "auto"（默认）：按平台自动探测可用后端，与历史行为一致；
+      - "windows" / "seatbelt" / "landlock"：强制使用指定后端，
+        不可用时降级为无沙箱并打 warning（不静默换其他后端）；
+      - "null"：强制无沙箱（无隔离模式，仅供排障对照用，
+        不进入任何默认路径，生产环境勿用）。
+    """
+
+    provider: Literal["auto", "windows", "seatbelt", "landlock", "null"] = "auto"
+
+
 class AppSettings(BaseModel):
     """应用总配置"""
 
@@ -107,6 +123,7 @@ class AppSettings(BaseModel):
     skill: SkillSettings = SkillSettings()
     plugin: PluginSettings = PluginSettings()
     browser: BrowserSettings = Field(default_factory=BrowserSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
 
 
 class ConfigManager:
