@@ -105,11 +105,24 @@ class SandboxSettings(BaseModel):
       - "auto"（默认）：按平台自动探测可用后端，与历史行为一致；
       - "windows" / "seatbelt" / "landlock"：强制使用指定后端，
         不可用时降级为无沙箱并打 warning（不静默换其他后端）；
-      - "null"：强制无沙箱（无隔离模式，仅供排障对照用，
-        不进入任何默认路径，生产环境勿用）。
+      - "null"：强制无沙箱——⚠️ 该键**等价于关闭全部命令隔离**，
+        agent 执行的所有命令直接裸奔，仅供排障对照用；排障完务必
+        改回 "auto"，不进入任何默认路径，生产环境勿用。
+        注意是字符串 "null"（配置枚举值），不是 JSON 的 null——
+        写 null（不带引号）会被 pydantic 校验直接拒绝。
+
+    provider_required：
+      - False（默认）：指定后端不可用时 fail-open 降级无沙箱
+        （排障场景下"跑不起来"比"无沙箱"更糟）；
+      - True：fail-closed——指定后端不可用/初始化失败时直接抛
+        RuntimeError 拒绝执行。用于"宁可失败也不能无隔离运行"
+        的环境（如对隔离有合规要求时配合强制后端使用）。
+      - 仅对 windows/seatbelt/landlock 三个指定后端生效；
+        "auto" 的自动探测兜底与 "null" 的显式无隔离不受影响。
     """
 
     provider: Literal["auto", "windows", "seatbelt", "landlock", "null"] = "auto"
+    provider_required: bool = False
 
 
 class AppSettings(BaseModel):

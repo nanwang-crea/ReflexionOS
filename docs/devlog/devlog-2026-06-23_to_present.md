@@ -841,3 +841,31 @@ rapid_loop.py 是 1000+ 行状态机主循环，但有两个回归保障缺口�
 - 经验：gather 并发的确定性与直觉相反——mock 的 await 全部同步完成时任务按序跑完，事件顺序是确定的；但一旦任何一环引入真实 I/O 就会交织，这类基线要留意未来的脆性。
 - 经验：测试设施遇到"无法表达的行为"时，优先扩展表达力（expect_orphaned）而不是绕过断言——把架构缺口显式化才有回归价值。
 - 待办：dsh 清单剩 🟡4 读取层容错加固（另立 spec）与 🟢5-7（暂缓）；并发孤儿审批的生产级兜底（超时清理/全部收集审批）留待未来 spec。
+
+## [2026-10-03] [重构] 提交评审修复：E-07 缺陷快照标注 + 沙箱 fail-closed 开关 + P3 清理
+
+- **类型**: 重构
+- **涉及文件**: backend/app/config/settings.py, backend/app/security/sandbox/factory.py, backend/tests/test_security/test_sandbox_factory_config.py, backend/tests/test_execution/{test_replay,test_replay_fixture}.py, backend/tests/support/replay_harness.py, backend/tests/fixtures/replay/approval-concurrent-orphan.json, 项目问题报告.md, wikis/reflexion-project/pages/审批流时序.md
+- **关联**: 评审对象 70de354d / 48c1936b / 6bb1a6b1
+
+### 问题/需求
+对近三次提交的评审提出 1 个 P1（E-07 把产品缺陷当架构特性钉死，缺缺陷标注与立项）、2 个 P2（沙箱指定后端不可用 fail-open 无用户可见兜底；"null" 配置面缺防护说明）、4 个 P3 小瑕疵。
+
+### 原因
+E-07 钉死孤儿审批时只写了"架构现状"，没有明示这是缺陷快照——未来有人修好反而测试红，容易被误回滚；fail-open 降级只靠 warning 日志，打包后几乎不可见，存在"以为有隔离实际裸奔"的风险。
+
+### 修复/实现方法
+① P1：E-07 用例 docstring 与夹具 description 显式标注【缺陷快照 / characterization-of-bug】，并在 项目问题报告.md 立项「并发只读批次孤儿审批」（🟡 #8：位置/触发面/修复建议——批次内审批排队或孤儿超时清理），wiki 同步改为缺陷快照口径。② P2a：SandboxSettings 新增 provider_required（默认 False 保持 fail-open 排障语义），True 时指定后端不可用/初始化失败抛 RuntimeError 拒绝执行（链式保留原异常）；仅对三个指定后端生效，auto/null 不受影响。③ P2b+P3c：SandboxSettings 注释写明"null" 等价于关闭全部命令隔离、排障后务必改回 auto、且是字符串枚举值不是 JSON null。④ P3：test_replay_fixture.py 三处函数体 import json 挪到文件头；replay_harness 捕获回调的 raise 补注释说明"依赖 _emit await 重抛"的隐式契约。
+
+### 过程
+1. 评审选项经用户确认：P2a 采用 fail-closed 开关（②），UI banner 方案缓做。
+2. provider_required 五个测试维度：不可用抛错/初始化失败抛错（__cause__ 链）/可用不受影响/默认 False 保持 fail-open/配置读取异常按 False。
+
+### 测试验证及结果
+- 新增 5 条 provider_required 用例全绿；E-07 标注改动后回放套件 40 条全绿 ✅
+- 全量回归：1179 passed, 4 skipped（较上期 +5），零回归 ✅
+- **结论**: 已解决，评审 P1/P2/P3 全部闭环
+
+### 经验教训/待办
+- 经验：characterization 测试必须显式标注"这是缺陷快照"并立项跟踪，否则钉死会变成默许、修 bug 的人会被测试红误导成回滚。
+- 待办：沙箱"无隔离生效中"的 UI 状态栏提示（评审①方案）未做，需要时另立 spec；孤儿审批的生产级修复见 项目问题报告.md #8。

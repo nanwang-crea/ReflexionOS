@@ -1,6 +1,6 @@
 {
   "scenario": "approval-concurrent-orphan",
-  "description": "并发只读批次多审批：一次响应请求两个只读工具调用（gather 并行执行），两者都触发审批——主循环只处理第一个等待步（rapid_loop.py:475-477 遇首个 WAITING_FOR_APPROVAL 即 return _handle_approval），第二个审批请求发出 approval:required 后永远没有槽位注册、步骤永远停在 WAITING（孤儿审批，当前架构无兜底）。推导依据：rapid_loop.py:443 只读批次 asyncio.gather 并行、tool_call_executor.py:83 grep 在只读白名单（故测试替身为其挂名以进入 gather 路径）、:549-550 写路径串行不会产生并发审批。核对要点：approval:required 恰好 2 次；run:waiting_for_approval / tool:result / run:resuming 各恰好 1 次（只对应首个审批）；第二个决策标记 expect_orphaned 不创建注入任务。",
+  "description": "【缺陷快照 / characterization-of-bug】并发只读批次多审批：一次响应请求两个只读工具调用（gather 并行执行），两者都触发审批——主循环只处理第一个等待步（rapid_loop.py:475-477 遇首个 WAITING_FOR_APPROVAL 即 return _handle_approval），第二个审批请求发出 approval:required 后永远没有槽位注册、步骤永远停在 WAITING（孤儿审批，当前架构无兜底）。⚠️ 这是已确认缺陷的快照（真实场景下前端可能弹出永远无法响应的审批框），不是被认可的行为；立项跟踪见 项目问题报告.md「并发只读批次孤儿审批」，修复时本基线须改写为期望行为。推导依据：rapid_loop.py:443 只读批次 asyncio.gather 并行、tool_call_executor.py:83 grep 在只读白名单（故测试替身为其挂名以进入 gather 路径）、:549-550 写路径串行不会产生并发审批。核对要点：approval:required 恰好 2 次；run:waiting_for_approval / tool:result / run:resuming 各恰好 1 次（只对应首个审批）；第二个决策标记 expect_orphaned 不创建注入任务。",
   "recorded_at": "2026-10-03",
   "model": "deepseek-chat",
   "task": "同时执行两个需要审批的只读查询",

@@ -11,6 +11,9 @@ Seatbelt（sandbox-exec），Linux 使用 Landlock（内核 LSM，通过 bwrap �
 sandbox.provider 可强制指定后端（windows/seatbelt/landlock）或强制无沙箱
 （null）；默认 auto 保持上述自动探测行为。指定后端不可用时降级为无沙箱
 并打 warning——用户已明确表达意图，不静默换其他后端误导排障。
+配套开关 sandbox.provider_required（默认 false）：置 true 后指定后端
+不可用/初始化失败改为 fail-closed 抛 RuntimeError 拒绝执行，防止
+"以为有隔离实际裸奔"（2026-10-03 提交评审 P2 修复）。
 """
 
 from __future__ import annotations
@@ -125,17 +128,31 @@ def create_sandbox(level: SandboxLevel = SandboxLevel.DEV) -> SandboxProvider:
         logger.info("配置 sandbox.provider=null：强制使用无沙箱模式（排障用途）")
         return NullSandbox()
     if provider_name in _NAMED_BACKENDS:
+        # fail-closed 开关（2026-10-03 评审 P2 修复）：provider_required=True
+        # 时指定后端不可用/初始化失败直接抛错拒绝执行，不降级无沙箱——
+        # 防止"用户以为有隔离实际裸奔"。默认 False 保持 fail-open 排障语义。
+        required = _provider_required()
         try:
             provider = _NAMED_BACKENDS[provider_name](level=level)
             if provider.is_available():
                 logger.info("使用配置指定的沙盒后端: %s", provider_name)
                 return provider
         except Exception as exc:
+            if required:
+                raise RuntimeError(
+                    f"配置强制指定的沙箱后端 {provider_name} 初始化失败（{exc}），"
+                    "且 sandbox.provider_required=true，拒绝在无隔离环境下执行"
+                ) from exc
             logger.warning(
                 "配置指定的 %s 后端初始化失败（%s），降级为无沙箱",
                 provider_name, exc,
             )
             return NullSandbox()
+        if required:
+            raise RuntimeError(
+                f"配置强制指定的沙箱后端 {provider_name} 在当前主机不可用，"
+                "且 sandbox.provider_required=true，拒绝在无隔离环境下执行"
+            )
         logger.warning(
             "配置指定的 %s 后端在当前主机不可用，降级为无沙箱", provider_name
         )
@@ -164,3 +181,21 @@ def _configured_provider() -> str:
         return config_manager.settings.sandbox.provider
     except Exception:
         return "auto"
+
+
+def _provider_required() -> bool:
+    """读取配置中的 fail-closed 开关（config.json 的 sandbox.provider_required）。
+
+    入参：无。
+    功能：从全局 config_manager 读取 sandbox.provider_required；配置层任何
+         异常都按 False 处理——与 _configured_provider 同理，配置读取失败
+         不应改变沙箱创建的默认（fail-open）行为。函数内局部导入
+         config_manager，避免模块级循环依赖风险。
+    出参：bool - True 表示指定后端不可用时 fail-closed 拒绝执行。
+    """
+    try:
+        from app.config.settings import config_manager
+
+        return config_manager.settings.sandbox.provider_required
+    except Exception:
+        return False

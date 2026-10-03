@@ -4,6 +4,8 @@
          pydantic 校验行为（缺必填字段、method 枚举非法时拒绝加载）。
 """
 
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -109,8 +111,6 @@ class TestFixtureValidation:
         fixture = _build_fixture().model_dump()
         fixture["responses"][0]["method"] = "invalid"
         path = tmp_path / "bad-method.json"
-        import json
-
         path.write_text(json.dumps(fixture), encoding="utf-8")
 
         with pytest.raises(ValidationError):
@@ -136,8 +136,6 @@ class TestApprovalDecisions:
             {"tool_call_id": "call_appr_2", "action": "reject"},
         ]
         path = tmp_path / "with-decisions.json"
-        import json
-
         path.write_text(json.dumps(fixture), encoding="utf-8")
         loaded = load_fixture(path)
 
@@ -169,8 +167,6 @@ class TestApprovalDecisions:
             {"tool_call_id": "c1", "action": "maybe"}
         ]
         path = tmp_path / "bad-action.json"
-        import json
-
         path.write_text(json.dumps(fixture), encoding="utf-8")
 
         with pytest.raises(ValidationError):

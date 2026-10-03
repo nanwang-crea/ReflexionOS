@@ -113,6 +113,9 @@ def _make_approval_aware_capture(
         captured.append((event_type, payload))
         if event_type != "approval:required":
             return
+        # 中止机制是隐式契约：回调内 raise 依赖主循环 _emit 会 await 本回调
+        # 并把异常重新抛出，从而中断 run——若 _emit 未来改为吞异常/异步转发，
+        # 这里的断言失败将不再中止回放（测试会假绿或超时而非立即报错）。
         if not decision_queue:
             raise AssertionError(
                 f"审批决策脚本不足：工具 {payload.get('tool_name')} 触发审批，"

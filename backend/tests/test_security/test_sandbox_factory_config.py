@@ -42,6 +42,20 @@ def app_log_propagates(monkeypatch):
 
 
 @pytest.fixture
+def set_required(monkeypatch):
+    """把工厂的 _provider_required 钉为指定布尔值的便捷 fixture。
+
+    用法：set_required(True) 后指定后端不可用即 fail-closed 抛错。
+    """
+
+    def _set(value: bool) -> None:
+        """钉住 fail-closed 开关读取点。入参：value（模拟的配置值）。出参：无。"""
+        monkeypatch.setattr(factory, "_provider_required", lambda: value)
+
+    return _set
+
+
+@pytest.fixture
 def all_backends_unavailable(monkeypatch):
     """把三个真实后端的 is_available 全部钉为 False。
 
@@ -189,3 +203,84 @@ class TestConfigReadFailure:
 
         assert factory._configured_provider() == "auto"
         assert isinstance(create_sandbox(), NullSandbox)
+
+
+class TestProviderRequired:
+    """provider_required=true：指定后端不可用/初始化失败时 fail-closed 抛错
+    （2026-10-03 提交评审 P2 修复——防"以为有隔离实际裸奔"）"""
+
+    def test_required_unavailable_raises(
+        self, set_provider, set_required, all_backends_unavailable
+    ):
+        """required + 指定后端不可用 → RuntimeError（含后端名与拒绝原因），
+        不降级 NullSandbox。
+
+        入参：fixtures。出参：无。
+        """
+        set_provider("seatbelt")
+        set_required(True)
+
+        with pytest.raises(RuntimeError, match="seatbelt"):
+            create_sandbox()
+
+    def test_required_init_exception_raises(
+        self, set_provider, set_required, monkeypatch
+    ):
+        """required + 指定后端构造即抛异常 → RuntimeError（链式保留原异常）。
+
+        入参：fixtures。出参：无。
+        """
+        set_provider("windows")
+        set_required(True)
+
+        class _ExplodingWindows(factory.WindowsSandbox):
+            """构造即抛异常的替身后端（模拟初始化失败）。"""
+
+            def __init__(self, **kwargs):
+                """直接抛错。入参：kwargs（不消费）。出参：无。"""
+                raise RuntimeError("init boom")
+
+        monkeypatch.setitem(factory._NAMED_BACKENDS, "windows", _ExplodingWindows)
+
+        with pytest.raises(RuntimeError, match="初始化失败") as exc_info:
+            create_sandbox()
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+    def test_required_backend_available_unaffected(
+        self, set_provider, set_required, monkeypatch
+    ):
+        """required + 指定后端可用 → 正常返回该后端（开关不改变可用路径）。
+
+        入参：fixtures。出参：无。
+        """
+        set_provider("landlock")
+        set_required(True)
+        monkeypatch.setattr(
+            factory.LandlockSandbox, "is_available", lambda self: True
+        )
+
+        assert isinstance(create_sandbox(), factory.LandlockSandbox)
+
+    def test_required_default_false_keeps_fail_open(
+        self, set_provider, set_required, all_backends_unavailable
+    ):
+        """required=False（默认语义）→ 维持 fail-open 降级 NullSandbox。
+
+        入参：fixtures。出参：无。
+        """
+        set_provider("seatbelt")
+        set_required(False)
+
+        assert isinstance(create_sandbox(), NullSandbox)
+
+    def test_required_config_read_exception_defaults_false(self, monkeypatch):
+        """_provider_required 配置读取异常 → 按 False 处理（不改变默认行为）。
+
+        入参：monkeypatch。出参：无。
+        """
+        import sys
+
+        monkeypatch.setitem(sys.modules, "app.config.settings", None)
+
+        assert factory._provider_required() is False

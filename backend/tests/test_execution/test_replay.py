@@ -256,14 +256,19 @@ class TestReplayScenarios:
 
     @pytest.mark.asyncio
     async def test_approval_concurrent_orphan(self):
-        """E-07：并发只读批次多审批——主循环只处理首个等待步，
-        第二个审批成为孤儿（approval:required 已发但槽位永不注册）。
+        """E-07【缺陷快照 / characterization-of-bug】：并发只读批次多审批——
+        主循环只处理首个等待步，第二个审批成为孤儿（approval:required 已发
+        但槽位永不注册）。
+
+        ⚠️ 本用例钉死的是**已确认的产品缺陷**（真实场景下前端可能弹出永远
+        无法被响应的审批框、第二个操作无声消失），不是被认可的架构行为。
+        立项跟踪见 项目问题报告.md「并发只读批次孤儿审批」——修复落地时
+        本用例必须同步改写为期望行为（而非回滚修复）。
 
         入参：无。出参：无。
         关键断言：approval:required 恰好 2 次；run:waiting_for_approval /
         tool:result / run:resuming 各恰好 1 次（只对应首个审批）；
-        孤儿步（call_pa_2）终态仍是 WAITING_FOR_APPROVAL——把当前架构
-        无兜底的行为钉成显式基线，未来修复时此用例必须同步更新。
+        孤儿步（call_pa_2）终态仍是 WAITING_FOR_APPROVAL。
         """
         result, events, fixture = await run_scenario(
             FIXTURE_DIR / "approval-concurrent-orphan.json",

@@ -7,6 +7,7 @@
 
 | 日期 | 类型 | 标题 | 文件 |
 |------|------|------|------|
+| 2026-10-03 | 重构 | 提交评审修复：E-07 缺陷快照标注 + 沙箱 fail-closed 开关 + P3 清理 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-10-03 | 新功能 | 回放场景补齐：连续拒绝耗尽 + 并发孤儿审批（回放待办清零） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-10-03 | 新功能 | 沙箱后端配置覆盖（dsh 借鉴 🟡3）+ alembic 日志禁用隐患修复 | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
 | 2026-10-03 | 新功能 | 审批暂停/恢复场景回放测试（回放设施扩展） | [devlog-2026-06-23_to_present](devlog-2026-06-23_to_present.md) |
