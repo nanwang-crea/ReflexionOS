@@ -125,6 +125,11 @@ def _make_approval_aware_capture(
                 f"审批决策与场景错位：决策 tool_call_id={decision.tool_call_id}，"
                 f"实际 tool_call_id={actual_call_id}"
             )
+        # 孤儿审批：并发只读批次里非首个等待步的审批请求——主循环不会为其
+        # 注册槽位，只消费决策做 id 校验，不创建注入任务（创建了也只会
+        # 轮询超时）。该标记把"孤儿"从静默行为变成显式基线。
+        if decision.expect_orphaned:
+            return
         task = asyncio.create_task(
             _inject_when_slot_ready(
                 flow_getter(), payload.get("approval_id"), decision

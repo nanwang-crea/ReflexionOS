@@ -60,6 +60,12 @@ class ApprovalDecision(BaseModel):
     error: 批准但执行失败时回填的错误信息（reject 时忽略）
     success: 批准路径的执行成功标记（对应 tool:result 的 success 与
              run:resuming 的 execution_success）
+    expect_orphaned: 标记该审批请求"发出后永远不会被主循环处理"——
+             并发只读批次（asyncio.gather）里若多个工具同时请求审批，
+             主循环只处理第一个等待步（rapid_loop.py:475-477 遇首个
+             WAITING_FOR_APPROVAL 即返回），其余步骤的审批槽位永远
+             不会注册。置 True 时决策器只校验 tool_call_id、不创建
+             注入任务；action 字段此时仅作占位，无实际效果。
     """
 
     tool_call_id: str
@@ -67,6 +73,7 @@ class ApprovalDecision(BaseModel):
     output: str | None = None
     error: str | None = None
     success: bool = True
+    expect_orphaned: bool = False
 
 
 class ExpectedOutcome(BaseModel):

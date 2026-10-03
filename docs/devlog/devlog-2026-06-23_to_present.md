@@ -811,3 +811,33 @@ rapid_loop.py 是 1000+ 行状态机主循环，但有两个回归保障缺口�
 - 经验：caplog 断言"单跑过、联跑挂"基本是全局日志状态被污染——本次两个来源：fileConfig 的 disable_existing_loggers（禁用 logger 本体）与业务日志初始化的 propagate=False（阻断向 root 传播）。测试要免疫全局日志状态。
 - 经验：alembic 的 fileConfig 默认参数是个经典坑，生产里也会静默吞掉迁移前已 import 模块的日志，值得在别的项目里排查同款。
 - 待办：回放侧连续拒绝耗尽、并发多审批两个低优先级场景；dsh 清单剩 🟡4（已核查，加固另立 spec）与 🟢5-7（暂缓）。
+
+## [2026-10-03] [新功能] 回放场景补齐：连续拒绝耗尽 + 并发孤儿审批（回放待办清零）
+
+- **类型**: 新功能
+- **涉及文件**: backend/tests/support/{replay_fixture,replay_harness}.py, backend/tests/fixtures/replay/approval-{reject-exhaustion,concurrent-orphan}.json, backend/tests/test_execution/{test_replay,test_replay_harness}.py, wikis/reflexion-project/pages/{审批流时序,会话录制回放测试}.md
+- **关联**: （无，未提交）
+
+### 问题/需求
+回放测试遗留的两个低优先级场景：① 连续拒绝耗尽 MAX_TURN_RETRIES 转 FINAL_SUMMARY；② 并发只读批次多个审批同时挂起。二者都是状态机里"平时走不到、走出来没人知道对不对"的路径。
+
+### 原因
+场景① 需要 6 连拒的决策脚本驱动，此前只覆盖单次拒绝；场景② 需要"只读工具触发审批"的组合——写路径串行凑不出并发审批，且现有决策器对"槽位永不注册的审批"无法表达（注入任务只会轮询超时）。
+
+### 修复/实现方法
+零业务代码改动：① E-06 夹具——6 条工具调用响应 + 6 条 reject 决策 + 1 条总结响应，基线从源码推导（rapid_loop.py:827 turn_retries 累加、:829 超预算直接 FINAL_SUMMARY 不发 run:resuming、:1416 总结直接调 stream_complete 故无 metrics:llm_call）；② ApprovalDecision 新增 expect_orphaned 标记——孤儿审批只校验 tool_call_id、不创建注入任务，把孤儿行为从静默现状变成显式基线；③ E-07 夹具——一次响应两个 grep 调用进 gather 并行路径（替身挂名只读白名单），断言首个审批正常走完、第二个步骤终态停在 WAITING_FOR_APPROVAL。
+
+### 过程
+1. 先读源码推导两个场景的预期事件序列（拒绝路径 :800/:838、只读批次 :443/:475-477、写路径 :549-550）。
+2. 推导确认三个关键事实：turn_retries 全程不重置（第 6 次拒绝必然收尾）；FINAL_SUMMARY 不发 metrics:llm_call；写路径 WAITING 即返回，并发审批只能来自只读 gather。
+3. E-06/E-07 首跑即与推导完全一致——第三次验证"先推导后比对"的基线纪律。
+
+### 测试验证及结果
+- 新增 4 条用例全绿：E-06（6 次 tool:error、恰好 5 次 run:resuming）、E-07（2 次 approval:required、1 次 waiting、孤儿步 WAITING 终态）+ 孤儿决策 2 条单元测试（消费不注入/id 错位照抛）✅
+- 全量回归：1174 passed, 4 skipped（较上期 +4），零回归 ✅
+- **结论**: 已解决，回放待办清零；E-07 顺带把"并发孤儿审批无兜底"这一架构现状钉成了回归基线
+
+### 经验教训/待办
+- 经验：gather 并发的确定性与直觉相反——mock 的 await 全部同步完成时任务按序跑完，事件顺序是确定的；但一旦任何一环引入真实 I/O 就会交织，这类基线要留意未来的脆性。
+- 经验：测试设施遇到"无法表达的行为"时，优先扩展表达力（expect_orphaned）而不是绕过断言——把架构缺口显式化才有回归价值。
+- 待办：dsh 清单剩 🟡4 读取层容错加固（另立 spec）与 🟢5-7（暂缓）；并发孤儿审批的生产级兜底（超时清理/全部收集审批）留待未来 spec。

@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from app.security.path_security import PathSecurity
+from app.execution.models import StepStatus
 from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.grep_tool import GrepTool
 from app.tools.registry import ToolRegistry
@@ -73,6 +74,47 @@ class ApprovalTool(BaseTool):
             approval_required=True,
             approval=ToolApprovalRequest(
                 approval_id="approval-1",
+                tool_name=self.name,
+                summary="需要审批",
+                payload=dict(args),
+            ),
+        )
+
+
+class ConcurrentApprovalTool(BaseTool):
+    """挂名只读工具（grep）的审批替身：让审批请求进入只读批次的
+    asyncio.gather 并行路径（rapid_loop.py:443），从而构造"同一批次
+    多个审批并发挂起"的场景。
+
+    为什么必须叫 grep：tool_call_executor.py:83 的只读判定走白名单
+    （grep/glob/session_recall），自定义名字会被归为写操作串行执行，
+    永远凑不出并发审批。注册表是测试内新建的空表，不遮蔽真实 GrepTool。
+
+    approval_id 从 args["pattern"] 派生（approval-a / approval-b），
+    保证同批次两个审批各占独立槽位、不与 ApprovalTool 的固定 id 混淆。
+    """
+
+    @property
+    def name(self) -> str:
+        """工具名。入参：无。出参：str - 固定为 grep（进入只读白名单）。"""
+        return "grep"
+
+    @property
+    def description(self) -> str:
+        """工具描述。入参：无。出参：str - 固定文案。"""
+        return "Read-only-named double that requires approval (test double)"
+
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
+        """不真正执行，直接返回待审批结果（approval_id 按 pattern 派生）。
+
+        入参：args (dict) - 调用参数，须含 pattern 以派生 approval_id。
+        出参：ToolResult - approval_required=True 的待审批结果。
+        """
+        return ToolResult(
+            success=False,
+            approval_required=True,
+            approval=ToolApprovalRequest(
+                approval_id=f"approval-{args.get('pattern', 'x')}",
                 tool_name=self.name,
                 summary="需要审批",
                 payload=dict(args),
@@ -187,3 +229,55 @@ class TestReplayScenarios:
         resuming = [p for t, p in events if t == "run:resuming"]
         assert len(resuming) == 1
         assert resuming[0]["approval_rejected"] is True
+
+    @pytest.mark.asyncio
+    async def test_approval_reject_exhaustion(self):
+        """E-06：连续拒绝耗尽重试预算——前 5 次拒绝换路重试，
+        第 6 次 turn_retries > MAX_TURN_RETRIES 转 FINAL_SUMMARY 强制总结。
+
+        入参：无。出参：无。
+        关键断言：run:resuming 恰好 5 次（第 6 次拒绝直接收尾，不再发
+        resuming）；tool:error 恰好 6 次；总结阶段只有 summary:token
+        没有 llm:content（_get_final_summary 直接调 stream_complete）。
+        """
+        result, events, fixture = await run_scenario(
+            FIXTURE_DIR / "approval-reject-exhaustion.json",
+            _registry_with(ApprovalTool()),
+        )
+
+        assert_replay(result, events, fixture.expected)
+        tool_errors = [p for t, p in events if t == "tool:error"]
+        assert len(tool_errors) == 6
+        assert all(p["error"] == "审批被拒绝" for p in tool_errors)
+        resuming = [p for t, p in events if t == "run:resuming"]
+        assert len(resuming) == 5
+        assert all(p["approval_rejected"] is True for p in resuming)
+        assert result.result == "多次操作均未获批准，重试预算已耗尽，任务到此为止。"
+
+    @pytest.mark.asyncio
+    async def test_approval_concurrent_orphan(self):
+        """E-07：并发只读批次多审批——主循环只处理首个等待步，
+        第二个审批成为孤儿（approval:required 已发但槽位永不注册）。
+
+        入参：无。出参：无。
+        关键断言：approval:required 恰好 2 次；run:waiting_for_approval /
+        tool:result / run:resuming 各恰好 1 次（只对应首个审批）；
+        孤儿步（call_pa_2）终态仍是 WAITING_FOR_APPROVAL——把当前架构
+        无兜底的行为钉成显式基线，未来修复时此用例必须同步更新。
+        """
+        result, events, fixture = await run_scenario(
+            FIXTURE_DIR / "approval-concurrent-orphan.json",
+            _registry_with(ConcurrentApprovalTool()),
+        )
+
+        assert_replay(result, events, fixture.expected)
+        approvals = [p for t, p in events if t == "approval:required"]
+        assert len(approvals) == 2
+        assert [p["tool_call_id"] for p in approvals] == ["call_pa_1", "call_pa_2"]
+        waiting = [p for t, p in events if t == "run:waiting_for_approval"]
+        assert len(waiting) == 1
+        orphan_steps = [
+            s for s in result.steps if s.tool_call_id == "call_pa_2"
+        ]
+        assert len(orphan_steps) == 1
+        assert orphan_steps[0].status == StepStatus.WAITING_FOR_APPROVAL

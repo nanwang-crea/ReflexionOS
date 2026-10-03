@@ -1,0 +1,145 @@
+{
+  "scenario": "approval-reject-exhaustion",
+  "description": "连续拒绝耗尽重试预算：6 次审批全部拒绝，前 5 次走 tool:error + run:resuming(approval_rejected) 换路重试，第 6 次 turn_retries(6) > MAX_TURN_RETRIES(5) 转入 FINAL_SUMMARY 强制总结收尾。推导依据：rapid_loop.py:827 拒绝时 turn_retries += 1、:829 超过预算直接 return FINAL_SUMMARY（不发 run:resuming）、:831 注释明确共享重试预算；FINAL_SUMMARY 走 _get_final_summary（:1416 直接调 stream_complete，不经 _call_llm，故无 metrics:llm_call，只发 summary:token）。核对要点：run:resuming 恰好 5 次（第 6 次拒绝不发）；tool:error 恰好 6 次；总结阶段无 llm:content 只有 summary:token。",
+  "recorded_at": "2026-10-03",
+  "model": "deepseek-chat",
+  "task": "反复执行一个会被拒绝审批的操作直到放弃",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_1",
+          "name": "approval_tool",
+          "arguments": { "value": 1 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_2",
+          "name": "approval_tool",
+          "arguments": { "value": 2 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_3",
+          "name": "approval_tool",
+          "arguments": { "value": 3 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_4",
+          "name": "approval_tool",
+          "arguments": { "value": 4 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_5",
+          "name": "approval_tool",
+          "arguments": { "value": 5 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_rej_6",
+          "name": "approval_tool",
+          "arguments": { "value": 6 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "多次操作均未获批准，重试预算已耗尽，任务到此为止。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "summary:token",
+      "run:complete"
+    ]
+  },
+  "approval_decisions": [
+    { "tool_call_id": "call_rej_1", "action": "reject" },
+    { "tool_call_id": "call_rej_2", "action": "reject" },
+    { "tool_call_id": "call_rej_3", "action": "reject" },
+    { "tool_call_id": "call_rej_4", "action": "reject" },
+    { "tool_call_id": "call_rej_5", "action": "reject" },
+    { "tool_call_id": "call_rej_6", "action": "reject" }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "scenario": "approval-concurrent-orphan",
+  "description": "并发只读批次多审批：一次响应请求两个只读工具调用（gather 并行执行），两者都触发审批——主循环只处理第一个等待步（rapid_loop.py:475-477 遇首个 WAITING_FOR_APPROVAL 即 return _handle_approval），第二个审批请求发出 approval:required 后永远没有槽位注册、步骤永远停在 WAITING（孤儿审批，当前架构无兜底）。推导依据：rapid_loop.py:443 只读批次 asyncio.gather 并行、tool_call_executor.py:83 grep 在只读白名单（故测试替身为其挂名以进入 gather 路径）、:549-550 写路径串行不会产生并发审批。核对要点：approval:required 恰好 2 次；run:waiting_for_approval / tool:result / run:resuming 各恰好 1 次（只对应首个审批）；第二个决策标记 expect_orphaned 不创建注入任务。",
+  "recorded_at": "2026-10-03",
+  "model": "deepseek-chat",
+  "task": "同时执行两个需要审批的只读查询",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_pa_1",
+          "name": "grep",
+          "arguments": { "pattern": "a" }
+        },
+        {
+          "id": "call_pa_2",
+          "name": "grep",
+          "arguments": { "pattern": "b" }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "第一个查询已获批准并完成，任务结束。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:result",
+      "run:resuming",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  },
+  "approval_decisions": [
+    {
+      "tool_call_id": "call_pa_1",
+      "action": "approve",
+      "output": "并发批次首个审批已放行的查询结果"
+    },
+    {
+      "tool_call_id": "call_pa_2",
+      "action": "approve",
+      "expect_orphaned": true
+    }
+  ]
+}

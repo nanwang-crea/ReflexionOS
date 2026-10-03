@@ -233,3 +233,49 @@ class TestApprovalDecisionInjector:
 
         assert "cX" in str(exc_info.value)
         assert "cY" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_orphaned_decision_consumed_without_injection(self):
+        """孤儿决策（expect_orphaned=True）：正常消费并校验 id，
+        但不创建注入任务（并发批次非首个审批的槽位永不注册，
+        创建注入任务只会轮询超时）。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        decisions = [
+            ApprovalDecision(
+                tool_call_id="c1", action="approve", expect_orphaned=True
+            )
+        ]
+        capture, queue, tasks = _make_approval_aware_capture(
+            [], lambda: flow, decisions
+        )
+
+        await capture(
+            "approval:required",
+            {"tool_call_id": "c1", "approval_id": "a1"},
+        )
+
+        assert not queue  # 决策已消费
+        assert not tasks  # 未创建注入任务
+        assert "a1" not in flow._pending  # 未触碰审批流
+
+    @pytest.mark.asyncio
+    async def test_orphaned_decision_still_validates_call_id(self):
+        """孤儿决策同样做 tool_call_id 校验——id 错位照常抛错。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        decisions = [
+            ApprovalDecision(
+                tool_call_id="cX", action="approve", expect_orphaned=True
+            )
+        ]
+        capture, _queue, _tasks = _make_approval_aware_capture(
+            [], lambda: flow, decisions
+        )
+
+        with pytest.raises(AssertionError, match="错位"):
+            await capture("approval:required", {"tool_call_id": "cY"})
