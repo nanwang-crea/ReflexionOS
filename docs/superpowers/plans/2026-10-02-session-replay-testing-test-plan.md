@@ -148,6 +148,38 @@ pytest backend/tests/
 - E-01/02/03 基线人工核对：2026-10-02 ✅ 基线非照抄实际输出——先从状态机源码推导预期序列（`_validate_stop_decision` 的 DONE/FINAL_SUMMARY 分支、`_call_llm` 中 llm:content 先于 metrics:llm_call、异常路径 executor 不发 tool:result 而由主循环发 tool:error），三个场景首跑即与推导完全一致；核对要点已写入各夹具 description 字段。
 - 修复记录：① `test_assert_fully_consumed_with_remainder_raises` 原断言剩余 1 条实际剩 2 条（改为先消费 1 条）；② `record_replay_fixture.py` 括号笔误（`[work_dir)]` → `[work_dir])`）。均为实现期笔误，已修并复验。
 
+---
+
+## 附录 A：审批暂停/恢复场景扩展（2026-10-03）
+
+> 对应 Spec：[2026-10-03-approval-replay-testing-design.md](../specs/2026-10-03-approval-replay-testing-design.md)
+> 对应 Plan：[2026-10-03-approval-replay-testing-implementation-plan.md](2026-10-03-approval-replay-testing-implementation-plan.md)
+
+### A.1 新增用例
+
+| 用例 ID | 名称 | 层级 | 预期 | 结果 |
+|---|---|---|---|---|
+| F-04 | approval_decisions round-trip | L1 | 决策字段保存/加载完全一致 | ✅ |
+| F-05 | 旧格式夹具兼容 | L1 | 无 approval_decisions 字段时默认空列表 | ✅ |
+| F-06 | action 枚举校验 | L1 | 非法 action 抛 ValidationError | ✅ |
+| H-05 | 槽位延迟注册等待注入（核心时序） | L3 | 决策器轮询等槽位，注册后注入批准结果 | ✅ |
+| H-06 | reject 决策写入 None | L3 | 槽位收到 None（ApprovalFlow 拒绝语义） | ✅ |
+| H-07 | 槽位未注册超时 | L3 | AssertionError 注明 approval_id | ✅ |
+| H-08 | 决策脚本耗尽 | L3 | 回调抛"决策脚本不足" | ✅ |
+| H-09 | tool_call_id 错位 | L3 | 错误消息含两个 id | ✅ |
+| E-04 | approval-approve-then-complete | L4 | 序列含 approval:required→run:waiting_for_approval→tool:result→run:resuming；tool:result.success=True、output 为决策回填值 | ✅ |
+| E-05 | approval-reject-then-recover | L4 | 序列含 tool:error→run:resuming；tool:error.error="审批被拒绝"、run:resuming.approval_rejected=True | ✅ |
+
+### A.2 执行记录
+
+| 日期 | 环境 | 范围 | 结果 | 备注 |
+|---|---|---|---|---|
+| 2026-10-03 | 本机系统 Python 3.12 | A.1 全部 10 条新用例 | ✅ 全绿 | E-04/E-05 首跑即与源码推导序列一致 |
+| 2026-10-03 | 同上 | 全量回归 | ✅ 1163 passed, 4 skipped | 较上期 +10 条，零回归 |
+
+- E-04/E-05 基线人工核对：2026-10-03 ✅ 从 `_handle_approval` 源码逐行推导（批准 :769/:783、拒绝 :800/:838 发射点），首跑全中；推导依据写入夹具 description。
+- 关键技术点：审批事件先于 `ApprovalFlow._pending` 槽位注册发射，决策器必须轮询等槽位再回填（10ms×200 次上限），否则决策命中空槽位被静默丢弃。
+
 ## 八、风险与对策
 
 | 风险 | 影响 | 对策 |

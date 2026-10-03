@@ -5,11 +5,19 @@
          test_replay.py 的端到端场景覆盖，这里不重复测。
 """
 
+import asyncio
+
 import pytest
 
+from app.execution.approval_flow import ApprovalFlow
 from app.execution.models import LoopResult, LoopStatus
-from tests.support.replay_fixture import ExpectedOutcome
-from tests.support.replay_harness import assert_replay, normalize_event_types
+from tests.support.replay_fixture import ApprovalDecision, ExpectedOutcome
+from tests.support.replay_harness import (
+    _inject_when_slot_ready,
+    _make_approval_aware_capture,
+    assert_replay,
+    normalize_event_types,
+)
 
 
 def _events(*types: str) -> list[tuple[str, dict]]:
@@ -117,3 +125,111 @@ class TestAssertReplay:
             assert_replay(_result(LoopStatus.FAILED), _events("a"), expected)
 
         assert "completed" in str(exc_info.value)
+
+
+async def _noop_emit(event_type: str, data: dict) -> None:
+    """空事件回调（ApprovalFlow 构造用）。入参：事件类型与负载。出参：无。"""
+
+
+def _register_slot(flow: ApprovalFlow, approval_id: str) -> None:
+    """模拟 wait_for_approval 注册审批槽位（测试便捷函数）。
+
+    入参：flow - 审批流实例；approval_id - 槽位 id。
+    出参：无。
+    """
+
+    flow._pending[approval_id] = (asyncio.Event(), None)
+
+
+class TestApprovalDecisionInjector:
+    """自动审批决策器：槽位等待时序 / 脚本耗尽 / id 错位"""
+
+    @pytest.mark.asyncio
+    async def test_inject_waits_for_late_slot_registration(self):
+        """核心时序：槽位延迟注册时，决策器轮询等待并成功注入批准结果。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        decision = ApprovalDecision(
+            tool_call_id="c1", action="approve", output="批准输出", success=True
+        )
+
+
+        task = asyncio.create_task(_inject_when_slot_ready(flow, "a1", decision))
+        await asyncio.sleep(0.05)  # 让决策器先轮询几轮（槽位尚不存在）
+        _register_slot(flow, "a1")  # 模拟 wait_for_approval 晚到的槽位注册
+        await task
+
+        event, result = flow._pending["a1"]
+        assert event.is_set()
+        assert result == {"output": "批准输出", "error": None, "success": True}
+
+    @pytest.mark.asyncio
+    async def test_inject_reject_writes_none(self):
+        """reject 决策向槽位写入 None（ApprovalFlow 语义：None 即拒绝）。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        _register_slot(flow, "a1")
+        decision = ApprovalDecision(tool_call_id="c1", action="reject")
+
+
+        await _inject_when_slot_ready(flow, "a1", decision)
+
+        event, result = flow._pending["a1"]
+        assert event.is_set()
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_slot_never_registered_raises(self):
+        """槽位始终不注册时，超时抛 AssertionError 并注明 approval_id。
+
+        入参：无。出参：无。
+        """
+
+        import tests.support.replay_harness as harness
+
+        flow = ApprovalFlow(emit=_noop_emit)
+        decision = ApprovalDecision(tool_call_id="c1", action="approve")
+        # 缩短超时避免测试慢（只影响本用例）
+        original = harness._SLOT_WAIT_TIMEOUT
+        harness._SLOT_WAIT_TIMEOUT = 0.05
+        try:
+            with pytest.raises(AssertionError, match="审批槽位未注册"):
+                await _inject_when_slot_ready(flow, "ghost", decision)
+        finally:
+            harness._SLOT_WAIT_TIMEOUT = original
+
+    @pytest.mark.asyncio
+    async def test_decision_script_exhausted_raises(self):
+        """决策队列空时再触发 approval:required，回调抛"决策脚本不足"。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        capture, _queue, _tasks = _make_approval_aware_capture(
+            [], lambda: flow, []
+        )
+
+        with pytest.raises(AssertionError, match="决策脚本不足"):
+            await capture("approval:required", {"tool_name": "t", "tool_call_id": "c1"})
+
+    @pytest.mark.asyncio
+    async def test_tool_call_id_mismatch_raises(self):
+        """决策的 tool_call_id 与事件负载不一致时抛错位错误，含两个 id。
+
+        入参：无。出参：无。
+        """
+        flow = ApprovalFlow(emit=_noop_emit)
+        decisions = [ApprovalDecision(tool_call_id="cX", action="approve")]
+        capture, _queue, _tasks = _make_approval_aware_capture(
+            [], lambda: flow, decisions
+        )
+
+        with pytest.raises(AssertionError, match="错位") as exc_info:
+            await capture("approval:required", {"tool_call_id": "cY"})
+
+        assert "cX" in str(exc_info.value)
+        assert "cY" in str(exc_info.value)

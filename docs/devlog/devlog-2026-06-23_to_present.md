@@ -750,3 +750,34 @@ rapid_loop.py 是 1000+ 行状态机主循环，但有两个回归保障缺口�
 - 经验：基线断言的预期值要先从源码推导再与实际比对（推导即人工核对），不能先跑再照抄实际输出，否则错误行为会被固化成基线。
 - 经验：测试设施本身必须自证可信——活性测试的负向验证（证明它能拦住坏人）和正向通过同等重要。
 - 待办：审批暂停/恢复场景（ApprovalFlow 外部决策注入）回放未覆盖，列为后续扩展；🟡3 沙箱工厂配置覆盖、🟢5 pre-step input 拦截 hook 等其余借鉴项见 dsh-reference-opportunities.md 优先级表。
+
+## [2026-10-03] [新功能] 审批暂停/恢复场景回放测试（回放设施扩展）
+
+- **类型**: 新功能
+- **涉及文件**: backend/tests/support/{replay_fixture,replay_harness}.py, backend/tests/fixtures/replay/approval-*.json, backend/tests/test_execution/{test_replay,test_replay_fixture,test_replay_harness}.py, docs/superpowers/{specs,plans}/2026-10-03-approval-replay-testing-*.md, wikis/reflexion-project/pages/审批流时序.md
+- **关联**: （无，未提交）
+
+### 问题/需求
+上一期回放测试留下待办：审批暂停/恢复——状态机时序最复杂、回归风险最高的路径——没有回放覆盖。批准/拒绝走两条不同事件序列（tool:result+run:resuming / tool:error+run:resuming(approval_rejected)），手工点审批弹窗验证成本高。
+
+### 原因
+审批决策来自外部（人），测试无法确定性地驱动；且调研发现 approval:required 与 run:waiting_for_approval 都发射在 ApprovalFlow._pending 槽位注册之前，看到事件立刻回填决策会命中空槽位被静默丢弃。
+
+### 修复/实现方法
+零业务代码改动的增量扩展：① 夹具新增可选 approval_decisions 决策脚本（approve 带 output/reject，向后兼容旧夹具）；② 回放底座加自动决策器——捕获 approval:required 时弹出决策、校验 tool_call_id 防错位、起后台任务轮询等槽位注册后回填（10ms×200 次上限）；③ 决策与 LLM 响应对称地做"恰好消费完"校验；④ 注入任务集中跟踪 + run 后 gather，防 create_task 异常被事件循环吞掉；⑤ 新增批准/拒绝两个端到端场景。
+
+### 过程
+1. 走 spec → plan 流程（2026-10-03 两份文档），调研阶段从源码确认"事件先于槽位注册"这一核心时序风险。
+2. 预期序列从 _handle_approval 源码逐行推导（批准 :769/:783、拒绝 :800/:838），两个场景首跑即与实际完全一致。
+3. 实现期清理了一处过渡设计（build_loop 里的占位赋值与未用 wrapper，改为 flow_getter 延迟解析闭包）。
+4. 时序发现摄入 llm-wiki 知识库（新建"审批流时序"页面，更新索引与回放测试页面，lint 全绿）。
+
+### 测试验证及结果
+- 新增 10 条用例全绿：夹具 3 条（round-trip/兼容/枚举）+ 决策器 5 条（槽位等待/reject写None/超时/脚本耗尽/id错位）+ 端到端 2 条（E-04 批准/E-05 拒绝）✅
+- 全量回归：1163 passed, 4 skipped（较上期 +10），零回归 ✅
+- **结论**: 已解决，状态机全部关键路径（含审批暂停/恢复）都有了一键回归网
+
+### 经验教训/待办
+- 经验：异步协作机制里"以为对方已就绪"是最常见的坑——本次是事件先于槽位注册，上次是生成器被提前 aclose；对策都是显式等待/前置副作用，不赌时序。
+- 经验：回调里 create_task 的异常必须集中跟踪 + gather，否则被事件循环静默吞掉，测试假绿。
+- 待办：连续拒绝耗尽 MAX_TURN_RETRIES 转 FINAL_SUMMARY、并发多审批两个场景未覆盖（价值/成本比低，留后续）；dsh 借鉴清单 🟡3 沙箱工厂配置覆盖、🟡4 投影层容错核查待做。

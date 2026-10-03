@@ -50,6 +50,25 @@ class RecordedResponse(BaseModel):
     usage: dict[str, int] = Field(default_factory=dict)
 
 
+class ApprovalDecision(BaseModel):
+    """一条脚本的审批决策（回放时按顺序消费，与 responses 同理）
+
+    tool_call_id: 目标工具调用 id——决策器用它与 approval:required 事件
+                  负载校验，防止决策脚本与场景错位
+    action: "approve"（批准并回填工具输出）或 "reject"（拒绝，回填 None）
+    output: 批准时回填的工具输出（reject 时忽略）
+    error: 批准但执行失败时回填的错误信息（reject 时忽略）
+    success: 批准路径的执行成功标记（对应 tool:result 的 success 与
+             run:resuming 的 execution_success）
+    """
+
+    tool_call_id: str
+    action: Literal["approve", "reject"]
+    output: str | None = None
+    error: str | None = None
+    success: bool = True
+
+
 class ExpectedOutcome(BaseModel):
     """期望的执行结果（回放断言的基线）
 
@@ -74,6 +93,8 @@ class ReplayFixture(BaseModel):
     task: 回放时提交给主循环的任务描述文本
     responses: 按调用顺序排列的 LLM 响应列表，回放时逐条消费
     expected: 期望结果基线
+    approval_decisions: 审批决策脚本（可选，缺省空列表——旧格式夹具
+                       无此字段时走默认值，向后兼容）
     """
 
     scenario: str
@@ -83,6 +104,7 @@ class ReplayFixture(BaseModel):
     task: str = "总结这个仓库"
     responses: list[RecordedResponse]
     expected: ExpectedOutcome
+    approval_decisions: list[ApprovalDecision] = Field(default_factory=list)
 
 
 def load_fixture(path: str | Path) -> ReplayFixture:

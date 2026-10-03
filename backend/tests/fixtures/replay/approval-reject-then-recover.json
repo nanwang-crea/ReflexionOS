@@ -1,0 +1,50 @@
+{
+  "scenario": "approval-reject-then-recover",
+  "description": "审批拒绝路径：工具请求审批 → 决策脚本拒绝 → tool:error（error='审批被拒绝'）+ run:resuming（approval_rejected=true）→ 注入换路提示 → 模型恢复并完成。推导依据：_handle_approval 拒绝分支（rapid_loop.py:800 发 tool:error、:838 发 run:resuming 并带 approval_rejected）。核对要点：全程无 tool:result；tool:error 负载带 arguments 变体字段。",
+  "recorded_at": "2026-10-03",
+  "model": "deepseek-chat",
+  "task": "执行一个会被拒绝审批的操作并妥善处理",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_appr_1",
+          "name": "approval_tool",
+          "arguments": { "value": 1 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "该操作未获批准，已改用只读方式确认现状，任务完成。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:error",
+      "run:resuming",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  },
+  "approval_decisions": [
+    {
+      "tool_call_id": "call_appr_1",
+      "action": "reject"
+    }
+  ]
+}

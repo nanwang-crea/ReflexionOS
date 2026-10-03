@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from app.security.path_security import PathSecurity
-from app.tools.base import BaseTool, ToolResult
+from app.tools.base import BaseTool, ToolApprovalRequest, ToolResult
 from app.tools.grep_tool import GrepTool
 from app.tools.registry import ToolRegistry
 from tests.support.replay_harness import assert_replay, run_scenario
@@ -43,6 +43,41 @@ class ExplodingTool(BaseTool):
         出参：无（永不返回，总是抛出 RuntimeError）。
         """
         raise RuntimeError("boom")
+
+
+class ApprovalTool(BaseTool):
+    """必触发审批的受控工具：返回 approval_required，把决策权交给审批流。
+
+    approval_id 固定为 "approval-1"，保证回放夹具的确定性
+    （决策脚本与 approval:required 事件负载按 approval_id 关联）。
+    """
+
+    @property
+    def name(self) -> str:
+        """工具名。入参：无。出参：str - 固定为 approval_tool。"""
+        return "approval_tool"
+
+    @property
+    def description(self) -> str:
+        """工具描述。入参：无。出参：str - 固定文案。"""
+        return "A tool that always requires approval (test double)"
+
+    async def execute(self, args: dict[str, Any]) -> ToolResult:
+        """不真正执行，直接返回待审批结果。
+
+        入参：args (dict) - 调用参数（原样记入审批 payload）。
+        出参：ToolResult - approval_required=True 的待审批结果。
+        """
+        return ToolResult(
+            success=False,
+            approval_required=True,
+            approval=ToolApprovalRequest(
+                approval_id="approval-1",
+                tool_name=self.name,
+                summary="需要审批",
+                payload=dict(args),
+            ),
+        )
 
 
 def _registry_with(*tools: BaseTool) -> ToolRegistry:
@@ -116,3 +151,39 @@ class TestReplayScenarios:
         tool_errors = [p for t, p in events if t == "tool:error"]
         assert len(tool_errors) == 1
         assert "boom" in (tool_errors[0]["error"] or "")
+
+    @pytest.mark.asyncio
+    async def test_approval_approve_then_complete(self):
+        """E-04：审批批准路径——tool:result(success=True) + run:resuming，最终完成。
+
+        入参：无。出参：无。
+        """
+        result, events, fixture = await run_scenario(
+            FIXTURE_DIR / "approval-approve-then-complete.json",
+            _registry_with(ApprovalTool()),
+        )
+
+        assert_replay(result, events, fixture.expected)
+        tool_results = [p for t, p in events if t == "tool:result"]
+        assert len(tool_results) == 1
+        assert tool_results[0]["success"] is True
+        assert tool_results[0]["output"] == "审批通过后的工具输出"
+
+    @pytest.mark.asyncio
+    async def test_approval_reject_then_recover(self):
+        """E-05：审批拒绝路径——tool:error('审批被拒绝') + run:resuming(approval_rejected)。
+
+        入参：无。出参：无。
+        """
+        result, events, fixture = await run_scenario(
+            FIXTURE_DIR / "approval-reject-then-recover.json",
+            _registry_with(ApprovalTool()),
+        )
+
+        assert_replay(result, events, fixture.expected)
+        tool_errors = [p for t, p in events if t == "tool:error"]
+        assert len(tool_errors) == 1
+        assert tool_errors[0]["error"] == "审批被拒绝"
+        resuming = [p for t, p in events if t == "run:resuming"]
+        assert len(resuming) == 1
+        assert resuming[0]["approval_rejected"] is True

@@ -16,10 +16,15 @@
 
 from pathlib import Path
 
+import asyncio
+from collections import deque
+
+from app.execution.approval_flow import ApprovalFlow
 from app.execution.models import LoopResult
 from app.execution.rapid_loop import RapidExecutionLoop
 from app.tools.registry import ToolRegistry
 from tests.support.replay_fixture import (
+    ApprovalDecision,
     ExpectedOutcome,
     ReplayFixture,
     load_fixture,
@@ -29,34 +34,144 @@ from tests.support.replay_llm import ReplayLLM
 #  captured_events 的元素类型：(事件类型, 原始负载)
 CapturedEvent = tuple[str, dict]
 
+# 自动审批决策器的槽位轮询参数：事件先于槽位注册发射（见
+# 2026-10-03-approval-replay-testing-design.md §一），必须等槽位出现再回填
+_SLOT_POLL_INTERVAL = 0.01  # 秒
+_SLOT_WAIT_TIMEOUT = 2.0  # 秒
+
+
+async def _inject_when_slot_ready(
+    approval_flow: ApprovalFlow,
+    approval_id: str,
+    decision: ApprovalDecision,
+) -> None:
+    """等审批槽位注册后，把脚本决策回填进 ApprovalFlow。
+
+    入参：approval_flow (ApprovalFlow) - 主循环使用的审批流实例；
+         approval_id (str) - 目标审批槽位（取自 approval:required 事件负载）；
+         decision (ApprovalDecision) - 脚本决策（approve 回填输出/reject 回填 None）。
+    功能：轮询 approval_flow._pending（每 10ms、上限 2 秒）直到目标槽位出现，
+         然后调用 set_approval_result——批准传 {"output","error","success"}，
+         拒绝传 None。超时说明审批路径已变更（槽位未注册），抛 AssertionError。
+    出参：无。
+    注意：_pending 是框架私有成员，测试设施合理窥探（留 TODO：未来
+         ApprovalFlow 若提供公共"有挂起审批"查询，优先换用）。
+    """
+    # TODO: ApprovalFlow 提供公共挂起查询后，替换对 _pending 的私有访问
+    deadline = asyncio.get_event_loop().time() + _SLOT_WAIT_TIMEOUT
+    while asyncio.get_event_loop().time() < deadline:
+        if approval_id in approval_flow._pending:
+            if decision.action == "approve":
+                approval_flow.set_approval_result(
+                    {
+                        "output": decision.output,
+                        "error": decision.error,
+                        "success": decision.success,
+                    },
+                    approval_id=approval_id,
+                )
+            else:
+                approval_flow.set_approval_result(None, approval_id=approval_id)
+            return
+        await asyncio.sleep(_SLOT_POLL_INTERVAL)
+    raise AssertionError(
+        f"审批槽位未注册：approval_id={approval_id}（等待 {_SLOT_WAIT_TIMEOUT}s 超时），"
+        "审批路径可能已变更"
+    )
+
+
+def _make_approval_aware_capture(
+    captured: list[CapturedEvent],
+    flow_getter,
+    approval_decisions: list[ApprovalDecision] | None,
+) -> tuple:
+    """构造带自动审批决策能力的事件捕获回调。
+
+    入参：captured - 事件捕获列表（(type, payload) 追加目标）；
+         flow_getter - 零参可调用，返回主循环的 ApprovalFlow 实例
+             （延迟解析：回调在 loop 装配完成后的 run 期间才被调用，
+             此时 getter 才能取到审批流，绕开"回调先于 loop 定义"的顺序问题）；
+         approval_decisions - 决策脚本（None/空列表表示无审批场景）。
+    功能：返回 (capture, decision_queue, decision_tasks) 三元组——
+         capture 除记录事件外，命中 approval:required 时弹出下一条决策、
+         校验 tool_call_id 匹配，并起后台任务等槽位注册后回填；
+         校验失败（脚本不足 / id 错位）在回调内直接抛 AssertionError
+         （_emit 会 await 回调并重新抛出，异常可传播到测试）；
+         注入任务统一收集到 decision_tasks，供 run 结束后 gather 防吞异常。
+    出参：tuple - (capture 回调, 决策队列 deque, 注入任务列表)。
+    """
+    decision_queue: deque = deque(approval_decisions or [])
+    decision_tasks: list[asyncio.Task] = []
+
+    async def capture(event_type: str, payload: dict) -> None:
+        """事件捕获 + 审批自动决策回调。
+
+        入参：event_type (str) - 事件类型；payload (dict) - 原始负载。
+        出参：无。
+        异常：AssertionError - 决策脚本不足或 tool_call_id 与场景错位。
+        """
+        captured.append((event_type, payload))
+        if event_type != "approval:required":
+            return
+        if not decision_queue:
+            raise AssertionError(
+                f"审批决策脚本不足：工具 {payload.get('tool_name')} 触发审批，"
+                "但夹具 approval_decisions 已全部消费"
+            )
+        decision = decision_queue.popleft()
+        actual_call_id = payload.get("tool_call_id")
+        if decision.tool_call_id != actual_call_id:
+            raise AssertionError(
+                f"审批决策与场景错位：决策 tool_call_id={decision.tool_call_id}，"
+                f"实际 tool_call_id={actual_call_id}"
+            )
+        task = asyncio.create_task(
+            _inject_when_slot_ready(
+                flow_getter(), payload.get("approval_id"), decision
+            )
+        )
+        decision_tasks.append(task)
+
+    return capture, decision_queue, decision_tasks
+
 
 def build_loop(
     fixture: ReplayFixture,
     tool_registry: ToolRegistry,
     *,
     max_steps: int = 10,
-) -> tuple[RapidExecutionLoop, ReplayLLM, list[CapturedEvent]]:
+    approval_decisions: list[ApprovalDecision] | None = None,
+) -> tuple[RapidExecutionLoop, ReplayLLM, list[CapturedEvent], deque, list]:
     """用回放夹具组装一个可捕获事件的真实主循环。
 
     入参：fixture (ReplayFixture) - 回放夹具；
          tool_registry (ToolRegistry) - 调用方按场景准备的受控工具注册表；
          max_steps (int) - 单 run 最大步数，默认 10（回放场景应远小于此值，
-                          超限即说明行为漂移成死循环，让其自然失败）。
-    功能：创建 ReplayLLM 与事件捕获列表，组装 RapidExecutionLoop；
-         捕获回调是 async 的，与生产 event_callback 签名一致。
-    出参：(loop, replay_llm, captured_events) 三元组——replay_llm 用于收尾
-          校验消费量，captured_events 在 run 后被填充。
+                          超限即说明行为漂移成死循环，让其自然失败）；
+         approval_decisions (list[ApprovalDecision] | None) - 审批决策脚本，
+                          无审批场景传 None。
+    功能：创建 ReplayLLM 与审批感知的事件捕获回调，组装 RapidExecutionLoop。
+    出参：(loop, replay_llm, captured, decision_queue, decision_tasks) 五元组——
+          replay_llm 用于校验 LLM 消费量；decision_queue / decision_tasks
+          用于收尾校验决策脚本耗尽与注入任务异常上抛。
     """
     replay_llm = ReplayLLM(fixture)
     captured: list[CapturedEvent] = []
 
-    async def capture(event_type: str, payload: dict) -> None:
-        """事件捕获回调：把主循环发射的每个事件追加到 captured 列表。
+    # 回调引用 loop 是闭包后绑定：capture 只会在 loop 装配完成后的 run 期间
+    # 被调用，此时 _flow_getter 才能取到审批流——先定义回调再装配 loop 是安全的
+    loop: RapidExecutionLoop = None  # type: ignore[assignment]
 
-        入参：event_type (str) - 事件类型；payload (dict) - 原始负载。
-        出参：无。
+    def _flow_getter() -> ApprovalFlow:
+        """取主循环的审批流实例（延迟解析，供捕获回调在 run 期间调用）。
+
+        入参：无。出参：ApprovalFlow - loop 装配完成后的审批流。
         """
-        captured.append((event_type, payload))
+        return loop.approval_flow
+
+    capture, decision_queue, decision_tasks = _make_approval_aware_capture(
+        captured, _flow_getter, approval_decisions
+    )
 
     loop = RapidExecutionLoop(
         llm=replay_llm,
@@ -64,7 +179,7 @@ def build_loop(
         max_steps=max_steps,
         event_callback=capture,
     )
-    return loop, replay_llm, captured
+    return loop, replay_llm, captured, decision_queue, decision_tasks
 
 
 async def run_scenario(
@@ -92,12 +207,25 @@ async def run_scenario(
     fixture = load_fixture(fixture_path)
     if variables:
         _substitute_variables(fixture, variables)
-    loop, replay_llm, captured = build_loop(
-        fixture, tool_registry, max_steps=max_steps
+    loop, replay_llm, captured, decision_queue, decision_tasks = build_loop(
+        fixture,
+        tool_registry,
+        max_steps=max_steps,
+        approval_decisions=fixture.approval_decisions,
     )
 
     result = await loop.run(fixture.task)
     replay_llm.assert_fully_consumed()
+
+    # 收尾两道校验：① 注入任务异常上抛（防 create_task 异常被事件循环吞掉）；
+    # ② 决策脚本恰好消费完（与 assert_fully_consumed 对称）
+    if decision_tasks:
+        await asyncio.gather(*decision_tasks)
+    if decision_queue:
+        raise AssertionError(
+            f"回放结束时仍有 {len(decision_queue)} 条审批决策未消费，"
+            "实际审批次数少于决策脚本"
+        )
 
     return result, captured, fixture
 

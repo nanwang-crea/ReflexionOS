@@ -115,3 +115,63 @@ class TestFixtureValidation:
 
         with pytest.raises(ValidationError):
             load_fixture(path)
+
+
+class TestApprovalDecisions:
+    """approval_decisions 字段：round-trip / 向后兼容 / 枚举校验"""
+
+    def test_round_trip_with_approval_decisions(self, tmp_path):
+        """带审批决策脚本的夹具保存后重新加载，决策字段完全一致。
+
+        入参：tmp_path。出参：无。
+        """
+        fixture = _build_fixture().model_dump()
+        fixture["approval_decisions"] = [
+            {
+                "tool_call_id": "call_appr_1",
+                "action": "approve",
+                "output": "审批通过后的工具输出",
+                "success": True,
+            },
+            {"tool_call_id": "call_appr_2", "action": "reject"},
+        ]
+        path = tmp_path / "with-decisions.json"
+        import json
+
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+        loaded = load_fixture(path)
+
+        assert len(loaded.approval_decisions) == 2
+        assert loaded.approval_decisions[0].action == "approve"
+        assert loaded.approval_decisions[0].output == "审批通过后的工具输出"
+        assert loaded.approval_decisions[1].action == "reject"
+        assert loaded.approval_decisions[1].success is True  # 默认值
+
+    def test_legacy_fixture_without_decisions_defaults_empty(self, tmp_path):
+        """旧格式夹具（无 approval_decisions 字段）加载后默认为空列表。
+
+        入参：tmp_path。出参：无。
+        """
+        path = tmp_path / "legacy.json"
+        save_fixture(_build_fixture(), path)  # _build_fixture 不含决策字段
+
+        loaded = load_fixture(path)
+
+        assert loaded.approval_decisions == []
+
+    def test_invalid_action_rejected(self, tmp_path):
+        """action 取值不在 approve/reject 枚举内应抛 ValidationError。
+
+        入参：tmp_path。出参：无。
+        """
+        fixture = _build_fixture().model_dump()
+        fixture["approval_decisions"] = [
+            {"tool_call_id": "c1", "action": "maybe"}
+        ]
+        path = tmp_path / "bad-action.json"
+        import json
+
+        path.write_text(json.dumps(fixture), encoding="utf-8")
+
+        with pytest.raises(ValidationError):
+            load_fixture(path)

@@ -1,0 +1,52 @@
+{
+  "scenario": "approval-approve-then-complete",
+  "description": "审批批准路径：工具请求审批 → 决策脚本批准并回填输出 → tool:result + run:resuming → 模型总结完成。推导依据：_handle_approval 批准分支（rapid_loop.py:769 发 tool:result、:783 发 run:resuming）；tool_call_executor.py:257 发 approval:required 且先于槽位注册。核对要点：run:waiting_for_approval 后无 tool:error；tool:result 的 success=true、output 为决策脚本回填值。",
+  "recorded_at": "2026-10-03",
+  "model": "deepseek-chat",
+  "task": "执行一个需要审批的操作并完成",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_appr_1",
+          "name": "approval_tool",
+          "arguments": { "value": 1 }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "审批已通过，操作执行成功，任务完成。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "approval:required",
+      "run:waiting_for_approval",
+      "tool:result",
+      "run:resuming",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  },
+  "approval_decisions": [
+    {
+      "tool_call_id": "call_appr_1",
+      "action": "approve",
+      "output": "审批通过后的工具输出",
+      "success": true
+    }
+  ]
+}
