@@ -10,6 +10,8 @@
 - `PROJECT_STATUS.md` — 项目当前状态、进度跟踪
 - `DIRECTORY_TREE.md` — 代码目录树结构说明
 - `multimodal-integration-complete.md` — 多模态集成完成情况
+- `dsh-reference-opportunities.md` — DeepSeek Harness 对照分析与借鉴清单（2026-10-02，含落地优先级）
+- `event-map.md` — 执行层事件地图（2026-10-02，由 test_event_map.py 活性保障）
 
 ### 📝 开发日志（`devlog/`）
 

@@ -1,0 +1,25 @@
+{
+  "scenario": "simple-completion",
+  "description": "纯问答：模型直接返回内容（无工具调用）→ run 正常完成。基线核对要点：全程无 tool:* 事件，llm:content 在 metrics:llm_call 之前，终态 completed。",
+  "recorded_at": "2026-10-02",
+  "model": "deepseek-chat",
+  "task": "用一句话说明这个仓库是做什么的",
+  "responses": [
+    {
+      "method": "stream",
+      "content": "ReflexionOS 是一个带审批流与跨平台沙箱的本地 Agent 执行框架。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  }
+}

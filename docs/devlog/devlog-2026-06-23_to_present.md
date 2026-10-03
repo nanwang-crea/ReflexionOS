@@ -715,3 +715,38 @@ macOS 使用 kqueue-based 默认事件循环，天然支持子进程，故不受
 - 经验：本机网络对 `cdn.playwright.dev`、`registry.npmjs.org`、`pypi.org` 都有系统性屏蔽（都解析到 198.18.x.x），npm/pnpm 可以用淘宝镜像绕过，但 Playwright 不走 pip 镜像，只能手动下载 ZIP。
 - 经验：监控平台这种"文档领先于代码"的状态要在文档里显式标注，避免后续维护者把设计稿当成已实现功能。
 - 待办：`docs/next.txt` 里列了并行工具执行、文件去重、prompt 优化等待办，测试基线全绿后可以推进。
+
+## [2026-10-02] [新功能] 会话录制回放测试 + 执行事件地图（dsh 借鉴 🔴1🔴2 落地）
+
+- **类型**: 新功能
+- **涉及文件**: docs/event-map.md, backend/tests/support/{replay_fixture,replay_llm,replay_harness,recording_llm}.py, backend/tests/fixtures/replay/*.json, backend/tests/test_execution/{test_replay_fixture,test_replay_llm,test_replay_harness,test_replay,test_recording_llm,test_record_replay_script,test_event_map}.py, backend/scripts/record_replay_fixture.py, docs/superpowers/{specs,plans}/2026-10-02-session-replay-testing-*.md
+- **关联**: （无，未提交）
+
+### 问题/需求
+rapid_loop.py 是 1000+ 行状态机主循环，但有两个回归保障缺口：① 执行层 15 种事件（run:start、tool:result 等）以字符串字面量散落代码中，无权威清单，前端 WebSocket 依赖的是隐性契约；② 没有会话级回归测试，重构状态机只能靠单测+手测。对照 DeepSeek Harness 的 test:snapshot 与 event-producer-consumer.md 确定落地方案（docs/dsh-reference-opportunities.md 的 🔴1🔴2）。
+
+### 原因
+事件契约不可见导致改字段/改事件名不会编译报错、只能全域搜索；测试缺口源于没有"假模型"——UniversalLLMInterface 只有 OpenAIAdapter 一个实现，测试无法在无 API key 环境下驱动完整主循环。
+
+### 修复/实现方法
+零业务代码改动（app/ 一行未动），全部落测试设施与文档：① docs/event-map.md 事件地图（15 种事件的生产者/消费者/负载/持久瞬态）+ AST 活性测试双向比对防地图腐化；② ReplayLLM 按夹具 JSON 顺序播放预录响应（带 method 标记校验调用入口漂移）；③ 回放底座组装真实 RapidExecutionLoop + 事件捕获 + 连续同类折叠归一化 + 分叉定位断言；④ RecordingLLM 包装真实适配器透传并录制 + 手动重录脚本；⑤ 3 个端到端场景夹具（纯问答/工具调用后完成/工具异常恢复）。
+
+### 过程
+1. 走 spec → plan → 测试计划三文档流程（docs/superpowers/ 下 2026-10-02 三份），用户确认后开工。
+2. 全量 grep + AST 扫描执行层事件发射点，逐处读负载字段，发现只有 rapid_loop.py 与 tool_call_executor.py 两个发射文件；经 conversation_runtime_adapter 翻译落库的为持久事件（契约不可破坏），metrics:llm_call/plan:updated 等不处理为瞬态。
+3. 从状态机源码推导三个场景的预期事件序列（_validate_stop_decision 的 DONE/FINAL_SUMMARY 分支、llm:content 先于 metrics:llm_call、异常路径由主循环而非 executor 发 tool:error），首跑即与实际完全一致。
+4. 抓到 RecordingLLM 一个真 bug：stream_collect 拿到终止块即 break + aclose 生成器，若录制写在 yield 终止块之后会被 GeneratorExit 跳过——改为先落录制再 yield。
+5. 活性测试做了 M-02/M-03 两个负向验证（临时放假事件/腐化条目各一次，均被成功拦截后还原）。
+
+### 测试验证及结果
+- 34 条新用例全绿（夹具 round-trip、ReplayLLM 8 条含 stream_collect 聚合校验、底座归一化/分叉定位、3 个端到端场景、录制透传+聚合、脚本无 key 降级、事件地图双向一致）✅
+- 全量回归 `pytest tests/ --ignore=tests/test_browser`：1153 passed, 4 skipped，零回归 ✅
+- 依赖零新增（requirements.txt / pyproject.toml 未动）✅
+- 附带发现：本机系统 Python 3.12 依赖齐全可直接跑 backend 测试（旧记忆"本机无法运行任何测试"已过时，记忆文件已更新）
+- **结论**: 已解决，重构主循环现在有了一键回归网
+
+### 经验教训/待办
+- 经验：异步生成器里"yield 之后的代码"在消费方提前 aclose 时不会执行——录制/清理类副作用必须放在 yield 之前。
+- 经验：基线断言的预期值要先从源码推导再与实际比对（推导即人工核对），不能先跑再照抄实际输出，否则错误行为会被固化成基线。
+- 经验：测试设施本身必须自证可信——活性测试的负向验证（证明它能拦住坏人）和正向通过同等重要。
+- 待办：审批暂停/恢复场景（ApprovalFlow 外部决策注入）回放未覆盖，列为后续扩展；🟡3 沙箱工厂配置覆盖、🟢5 pre-step input 拦截 hook 等其余借鉴项见 dsh-reference-opportunities.md 优先级表。

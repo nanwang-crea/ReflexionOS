@@ -1,0 +1,44 @@
+{
+  "scenario": "tool-call-then-complete",
+  "description": "一次只读工具调用后完成：模型先发起 grep 搜索（read-only 批处理路径），拿到结果后输出总结。基线核对要点：第一轮 LLM 调用无 content（仅 tool_calls 终止块）故有 metrics 而无 llm:content；tool:start → tool:result 成对出现；第二轮产出 llm:content 后完成。",
+  "recorded_at": "2026-10-02",
+  "model": "deepseek-chat",
+  "task": "在工作目录里搜索关键词并总结发现",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_grep_1",
+          "name": "grep",
+          "arguments": {
+            "pattern": "ReflexionOS",
+            "path": "${WORK_DIR}"
+          }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "搜索结果：在工作目录中找到了包含关键词的文件，主要内容与 Agent 执行框架相关。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "tool:result",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  }
+}

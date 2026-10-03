@@ -1,0 +1,43 @@
+{
+  "scenario": "tool-error-recovery",
+  "description": "工具错误恢复：模型调用一个执行时抛异常的工具（写操作串行路径），executor 捕获异常转为 FAILED 步骤，主循环收尾发 tool:error 并把错误注入对话历史；下一轮模型据此恢复并输出总结。基线核对要点：tool:start 后无 tool:result（异常路径不发），而是由主循环发 tool:error；循环未崩溃，终态 completed。",
+  "recorded_at": "2026-10-02",
+  "model": "deepseek-chat",
+  "task": "尝试执行一个会失败的操作并处理结果",
+  "responses": [
+    {
+      "method": "stream",
+      "content": null,
+      "reasoning_content": null,
+      "tool_calls": [
+        {
+          "id": "call_explode_1",
+          "name": "explode",
+          "arguments": {
+            "target": "anything"
+          }
+        }
+      ],
+      "finish_reason": "tool_calls"
+    },
+    {
+      "method": "stream",
+      "content": "上一步操作执行失败，错误已确认；已改用安全方案完成任务。",
+      "reasoning_content": null,
+      "tool_calls": [],
+      "finish_reason": "stop"
+    }
+  ],
+  "expected": {
+    "loop_status": "completed",
+    "event_sequence": [
+      "run:start",
+      "metrics:llm_call",
+      "tool:start",
+      "tool:error",
+      "llm:content",
+      "metrics:llm_call",
+      "run:complete"
+    ]
+  }
+}
