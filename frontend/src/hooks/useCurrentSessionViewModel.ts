@@ -152,7 +152,9 @@ export function useCurrentSessionViewModel(options: {
       onLoadMore: handleLoadMore,
     },
     inputProps: {
-      disabled: !loaded || !configured || !currentProject || options.isRunning || options.isCancelling,
+      // 运行中不禁用输入：此时发送的消息会进入后端发送队列（conversation:queue_state），
+      // 回复结束后自动按序执行；仅取消中等"不能提交"的状态仍禁用
+      disabled: !loaded || !configured || !currentProject || options.isCancelling,
       isLoading: options.isRunning || options.isCancelling,
       canCancel: options.isRunning && !options.isCancelling,
       isCancelling: options.isCancelling,

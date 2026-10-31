@@ -1,6 +1,25 @@
 # ReflexionOS 产品更新日志
 
-> 最新更新周期：2026.06.04 — 2026.06.22
+> 最新更新周期：2026.10.29（参考 reflexion-os-studio 的能力对齐改造）
+
+---
+
+## 📨 会话消息发送队列（Studio 能力对齐 P0）
+
+**上线日期：10.29**
+
+> **难度：⭐⭐⭐** — 跨后端服务/WS 协议/前端状态与 UI 的全链路功能，核心难点在"出队时机的确定性"与"取消暂停语义"。
+>
+> **设计要点**（对齐 reflexion-os-studio 的 QueueService）：
+> - 会话忙碌时发消息不再报错，而是进入按会话隔离的内存 FIFO 队列；Run 终态统一触发自动出队（挂在 `_run_turn` 的 finally）
+> - 取消运行且队列非空 → 队列自动暂停，防止已叫停的任务被排队消息重新点火；空队列不挂暂停标记（防"幽灵暂停"）
+> - 出队发起失败 → 消息放回队首并暂停，绝不静默丢弃；支持编辑/删除/立即发送/恢复
+> - 队列不落库（重启即清），每次变更经 `conversation:queue_state` 广播全量快照；运行中输入框不再禁用
+
+- **后端**：`message_queue_service.py` 队列管理器 + AgentService 出队编排 + 5 个 WS 命令 + `SessionBusyError`
+- **前端**：MessageQueueBar 队列条（行内编辑/插队/删除/恢复）+ ChatInput 运行中"排队"按钮 + store 队列切片
+- **测试**：后端 +24 例、前端 +9 例，全量套件绿（后端 1187 通过、前端 257 通过）
+- **方案文档**：[STUDIO-ALIGNMENT-PLAN](docs/STUDIO-ALIGNMENT-PLAN.md)
 
 ---
 

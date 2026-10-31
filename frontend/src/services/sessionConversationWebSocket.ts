@@ -94,6 +94,23 @@ export interface SessionPermissionModeChangedDto {
   mode: string
 }
 
+// 后端下发的排队消息 DTO（蛇形命名，字段语义见 types/conversation.ts 的 QueuedMessage）
+export interface QueuedMessageDto {
+  id: string
+  content: string
+  attachment_ids: string[]
+  provider_id: string | null
+  model_id: string | null
+  created_at: string
+}
+
+// 后端下发的会话队列全量快照 DTO
+export interface MessageQueueStateDto {
+  session_id: string
+  paused: boolean
+  items: QueuedMessageDto[]
+}
+
 // 子 agent 执行事件 DTO（后端通过 sub_agent: 前缀广播）
 export interface SubAgentEventDto {
   /** 事件类型：tool:start, tool:result, tool:error, llm:content 等 */
@@ -129,6 +146,8 @@ interface SessionConversationEvents {
   'session:title_updated': SessionTitleUpdatedDto
   'session:mode_changed': SessionModeChangedDto
   'session:permission_mode_changed': SessionPermissionModeChangedDto
+  // 消息发送队列：后端在队列任何变更后广播全量快照
+  'conversation:queue_state': MessageQueueStateDto
   // 子 agent 事件：tool:start, tool:result, tool:error, llm:content 等
   'sub_agent:event': SubAgentEventDto
 }
@@ -418,6 +437,11 @@ class SessionConversationWebSocket {
       return
     }
 
+    if (type === 'conversation:queue_state') {
+      this.emit('conversation:queue_state', data as MessageQueueStateDto)
+      return
+    }
+
     // 子 agent 事件：后端以 sub_agent:tool:start, sub_agent:tool:result 等类型发送
     // data 是扁平结构，需要映射为 SubAgentEventDto：event_type + delegate_call_id + payload
     if (type.startsWith('sub_agent:')) {
@@ -545,6 +569,59 @@ class SessionConversationWebSocket {
   editAndRerun(payload: { messageId: string; newContent?: string | null; providerId?: string | null; modelId?: string | null }): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(buildEditAndRerunMessage(payload)))
+    }
+  }
+
+  /**
+   * 函数名：queueUpdate
+   * 入参：queueId（排队消息 ID）、content（新的文本内容）
+   * 功能：编辑一条排队消息（原位更新，不改变队列顺序），结果经 conversation:queue_state 广播
+   */
+  queueUpdate(queueId: string, content: string): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'conversation:queue_update', data: { queue_id: queueId, content } }))
+    }
+  }
+
+  /**
+   * 函数名：queueRemove
+   * 入参：queueId（排队消息 ID）
+   * 功能：删除一条排队消息，结果经 conversation:queue_state 广播
+   */
+  queueRemove(queueId: string): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'conversation:queue_remove', data: { queue_id: queueId } }))
+    }
+  }
+
+  /**
+   * 函数名：queueSendNow
+   * 入参：queueId（排队消息 ID）
+   * 功能：把该消息移到队首并立即尝试发起（同时解除队列暂停），结果经 conversation:queue_state 广播
+   */
+  queueSendNow(queueId: string): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'conversation:queue_send_now', data: { queue_id: queueId } }))
+    }
+  }
+
+  /**
+   * 函数名：queueResume
+   * 功能：恢复被暂停的会话队列并立即尝试出队，结果经 conversation:queue_state 广播
+   */
+  queueResume(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'conversation:queue_resume', data: {} }))
+    }
+  }
+
+  /**
+   * 函数名：queueList
+   * 功能：向服务端请求当前队列快照（服务端只回给当前连接），结果经 conversation:queue_state 返回
+   */
+  queueList(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'conversation:queue_list', data: {} }))
     }
   }
 

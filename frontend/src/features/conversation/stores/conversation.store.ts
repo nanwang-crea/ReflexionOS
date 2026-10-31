@@ -15,6 +15,7 @@ import type {
   ConversationSnapshot,
   ConversationState,
   ConversationTurn,
+  MessageQueueState,
   Plan,
 } from '@/types/conversation'
 import {
@@ -26,12 +27,13 @@ import {
   prependMessages,
 } from '@/features/conversation/conversation.reducer'
 
-// store 状态与 action 方法的类型定义：以 sessionId 为 key 分别存储对话状态/计划/模式
+// store 状态与 action 方法的类型定义：以 sessionId 为 key 分别存储对话状态/计划/模式/消息队列
 interface ConversationStoreState {
   conversationsBySessionId: Record<string, ConversationState>
   planBySessionId: Record<string, Plan>
   agentModeBySessionId: Record<string, import('@/types/conversation').AgentMode>
   permissionModeBySessionId: Record<string, import('@/types/conversation').PermissionMode>
+  messageQueueBySessionId: Record<string, MessageQueueState>
   setSnapshot: (sessionId: string, snapshot: ConversationSnapshot) => void
   applyEvent: (sessionId: string, event: ConversationEvent) => void
   applyLiveEvent: (sessionId: string, liveMessage: ConversationLiveMessage) => void
@@ -39,6 +41,7 @@ interface ConversationStoreState {
   setPlan: (sessionId: string, plan: Plan | null) => void
   setAgentMode: (sessionId: string, mode: import('@/types/conversation').AgentMode) => void
   setPermissionMode: (sessionId: string, mode: import('@/types/conversation').PermissionMode) => void
+  setMessageQueue: (sessionId: string, queue: MessageQueueState) => void
   prependMessages: (sessionId: string, messages: ConversationMessage[], turns: ConversationTurn[], runs: ConversationRun[]) => void
   setPagination: (sessionId: string, pagination: Pick<ConversationSnapshot, 'hasMore' | 'nextBeforeTurnId'>) => void
   clearConversation: (sessionId: string) => void
@@ -64,6 +67,7 @@ export const createConversationStore = () => create<ConversationStoreState>((set
   planBySessionId: {},
   agentModeBySessionId: {},
   permissionModeBySessionId: {},
+  messageQueueBySessionId: {},
   setSnapshot: (sessionId, snapshot) => set((state) => ({
     conversationsBySessionId: {
       ...state.conversationsBySessionId,
@@ -129,6 +133,12 @@ export const createConversationStore = () => create<ConversationStoreState>((set
       [sessionId]: mode,
     },
   })),
+  setMessageQueue: (sessionId, queue) => set((state) => ({
+    messageQueueBySessionId: {
+      ...state.messageQueueBySessionId,
+      [sessionId]: queue,
+    },
+  })),
   prependMessages: (sessionId, messages, turns, runs) => set((state) => {
     const conversation = state.conversationsBySessionId[sessionId]
     if (!conversation) return state
@@ -166,6 +176,9 @@ export const createConversationStore = () => create<ConversationStoreState>((set
     ),
     permissionModeBySessionId: Object.fromEntries(
       Object.entries(state.permissionModeBySessionId).filter(([id]) => id !== sessionId)
+    ),
+    messageQueueBySessionId: Object.fromEntries(
+      Object.entries(state.messageQueueBySessionId).filter(([id]) => id !== sessionId)
     ),
   })),
 }))

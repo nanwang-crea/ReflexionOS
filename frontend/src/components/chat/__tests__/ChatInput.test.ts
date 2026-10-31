@@ -45,3 +45,37 @@ describe('ChatInput', () => {
     expect(html).toContain('正在执行工具')
   })
 })
+
+describe('ChatInput 消息队列（运行中排队发送）', () => {
+  // 参数：isLoading + canCancel（模拟会话运行中）。
+  // 验证：运行中输入框不再禁用（textarea 无 disabled 属性），并出现"排队"按钮与取消按钮。
+  it('keeps textarea enabled and shows queue button while a run is active', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatInput, {
+        onSend: () => undefined,
+        isLoading: true,
+        canCancel: true,
+      })
+    )
+
+    expect(html).not.toMatch(/<textarea[^>]*\sdisabled=/)
+    expect(html).toContain('排队')
+    expect(html).toContain('取消')
+  })
+
+  // 参数：isCancelling（取消中，不可提交）。
+  // 验证：取消中不渲染"排队"按钮，仅保留取消按钮。
+  it('hides queue button while cancelling', () => {
+    const html = renderToStaticMarkup(
+      React.createElement(ChatInput, {
+        onSend: () => undefined,
+        isLoading: true,
+        canCancel: false,
+        isCancelling: true,
+      })
+    )
+
+    expect(html).not.toContain('排队')
+    expect(html).toContain('取消中')
+  })
+})

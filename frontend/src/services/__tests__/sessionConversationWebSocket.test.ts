@@ -160,4 +160,74 @@ describe('SessionConversationWebSocket', () => {
       },
     ])
   })
+
+  // 参数：无。
+  // 验证：消息队列操作方法（queueUpdate/queueRemove/queueSendNow/queueResume/queueList）
+  // 发出的消息 type 为"冒号风格"命名，data 中 queue_id 按下划线命名转换正确。
+  it('sends colon-style queue command types with snake_case payload', async () => {
+    const ws = new SessionConversationWebSocket()
+    const connected = ws.connect('session-1')
+    webSocketInstances[0].onopen?.()
+    await connected
+
+    ws.queueUpdate('qmsg-1', '编辑后的内容')
+    ws.queueRemove('qmsg-1')
+    ws.queueSendNow('qmsg-2')
+    ws.queueResume()
+    ws.queueList()
+
+    const types = sentMessages.map((message) => JSON.parse(message).type)
+    expect(types).toEqual([
+      'conversation:queue_update',
+      'conversation:queue_remove',
+      'conversation:queue_send_now',
+      'conversation:queue_resume',
+      'conversation:queue_list',
+    ])
+
+    const updateData = JSON.parse(sentMessages[0]).data
+    expect(updateData).toEqual({ queue_id: 'qmsg-1', content: '编辑后的内容' })
+    const removeData = JSON.parse(sentMessages[1]).data
+    expect(removeData).toEqual({ queue_id: 'qmsg-1' })
+  })
+
+  // 参数：无。
+  // 验证：服务端下发的 conversation:queue_state 快照消息被路由到内部
+  // 'conversation:queue_state' 事件，data 原样透传。
+  it('routes conversation:queue_state server messages to internal events', async () => {
+    const ws = new SessionConversationWebSocket()
+    const queueStates: unknown[] = []
+    ws.on('conversation:queue_state', (data) => queueStates.push(data))
+
+    const connected = ws.connect('session-1')
+    webSocketInstances[0].onopen?.()
+    await connected
+
+    webSocketInstances[0].onmessage?.({
+      data: JSON.stringify({
+        type: 'conversation:queue_state',
+        data: {
+          session_id: 'session-1',
+          paused: true,
+          items: [
+            {
+              id: 'qmsg-1',
+              content: '排队消息',
+              attachment_ids: [],
+              provider_id: null,
+              model_id: null,
+              created_at: '2026-10-29T10:00:00Z',
+            },
+          ],
+        },
+      }),
+    })
+
+    expect(queueStates).toHaveLength(1)
+    expect(queueStates[0]).toMatchObject({
+      session_id: 'session-1',
+      paused: true,
+      items: [{ id: 'qmsg-1', content: '排队消息' }],
+    })
+  })
 })

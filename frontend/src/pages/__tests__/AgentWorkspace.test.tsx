@@ -59,6 +59,7 @@ vi.mock('@/features/conversation/stores/conversation.store', () => ({
   useConversationStore: (selector: (state: unknown) => unknown) => selector({
     agentModeBySessionId: { 'session-1': 'build' },
     conversationsBySessionId: { 'session-1': { runsById: {} } },
+    messageQueueBySessionId: {},
   }),
 }))
 

@@ -11,10 +11,11 @@ import type { ConnectionStatus } from '@/features/workspace/types'
 import type { LlmRetryDto, PlanDto } from '@/services/sessionConversationWebSocket'
 import {
   SessionConversationWebSocket,
+  type MessageQueueStateDto,
   type SessionConversationEventDto,
   type SessionConversationLiveMessageDto,
 } from '@/services/sessionConversationWebSocket'
-import type { ConversationEvent, ConversationLiveMessage } from '@/types/conversation'
+import type { ConversationEvent, ConversationLiveMessage, MessageQueueState } from '@/types/conversation'
 import { useToastStore } from '@/shared/stores/toast.store'
 import { resolveActiveRunId, resolveActiveRunStatus, ACTIVE_RUN_STATUSES } from '@/utils/activeRun'
 import { useSubAgentEventsStore } from '@/hooks/useSubAgentEvents'
@@ -177,6 +178,30 @@ function toConversationLiveMessage(message: SessionConversationLiveMessageDto): 
     streamState,
     delta: message.delta,
     payloadJson: message.payload_json,
+  }
+}
+
+// 函数名：toMessageQueueState
+// 入参：
+//   - data (MessageQueueStateDto): 后端广播的队列全量快照 DTO（蛇形命名）
+// 功能：把队列快照 DTO 转换为前端内部的 MessageQueueState（驼峰命名），并对不可信字段做兜底
+// 运行逻辑：
+//   1. items 非数组时兜底为空数组；单条消息字段做 snake_case -> camelCase 映射
+//   2. paused 兜底为 false；sessionId 以快照携带为准
+// 出参：MessageQueueState - 前端内部队列状态模型
+function toMessageQueueState(data: MessageQueueStateDto): MessageQueueState {
+  const items = Array.isArray(data.items) ? data.items : []
+  return {
+    sessionId: data.session_id,
+    paused: data.paused ?? false,
+    items: items.map((item) => ({
+      id: item.id,
+      content: item.content,
+      attachmentIds: Array.isArray(item.attachment_ids) ? item.attachment_ids : [],
+      providerId: item.provider_id ?? null,
+      modelId: item.model_id ?? null,
+      createdAt: item.created_at,
+    })),
   }
 }
 
@@ -478,6 +503,9 @@ export function useConversationRuntime(
         useConversationStore.getState().setPermissionMode(sessionId, data.mode)
       }
     })
+    ws.on('conversation:queue_state', (data) => {
+      useConversationStore.getState().setMessageQueue(sessionId, toMessageQueueState(data))
+    })
     ws.on('session:title_updated', (data) => {
       const store = useSessionStore.getState()
       const sessionsByProjectId = store.sessionsByProjectId
@@ -674,6 +702,36 @@ export function useConversationRuntime(
     ws.editAndRerun(payload)
   }, [currentSessionId])
 
+  // ---- 消息发送队列操作（编辑/删除/立即发送/恢复）：全部面向当前会话的连接 ----
+
+  const updateQueuedMessage = useCallback((queueId: string, content: string) => {
+    if (!currentSessionId) {
+      return
+    }
+    connectionsRef.current.get(currentSessionId)?.ws?.queueUpdate(queueId, content)
+  }, [currentSessionId])
+
+  const removeQueuedMessage = useCallback((queueId: string) => {
+    if (!currentSessionId) {
+      return
+    }
+    connectionsRef.current.get(currentSessionId)?.ws?.queueRemove(queueId)
+  }, [currentSessionId])
+
+  const sendQueuedMessageNow = useCallback((queueId: string) => {
+    if (!currentSessionId) {
+      return
+    }
+    connectionsRef.current.get(currentSessionId)?.ws?.queueSendNow(queueId)
+  }, [currentSessionId])
+
+  const resumeMessageQueue = useCallback(() => {
+    if (!currentSessionId) {
+      return
+    }
+    connectionsRef.current.get(currentSessionId)?.ws?.queueResume()
+  }, [currentSessionId])
+
   const setMode = useCallback((mode: 'build' | 'plan') => {
     if (!currentSessionId) {
       return
@@ -856,6 +914,10 @@ export function useConversationRuntime(
     denyTool,
     trustTool,
     editAndRerun,
+    updateQueuedMessage,
+    removeQueuedMessage,
+    sendQueuedMessageNow,
+    resumeMessageQueue,
     setMode,
     setPermissionMode,
     resetConversationRuntime,

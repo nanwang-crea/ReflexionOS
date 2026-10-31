@@ -36,6 +36,10 @@ from .conversation_projection import ConversationProjection
 logger = logging.getLogger(__name__)
 
 
+class SessionBusyError(ValueError):
+    """会话已有活跃轮次时发起新轮次的错误（ValueError 子类，兼容既有按 ValueError 捕获的调用方）。"""
+
+
 class ConversationService:
     """会话对话服务：对外提供事件追加、快照读取、轮次生命周期管理等能力。"""
 
@@ -286,7 +290,7 @@ class ConversationService:
             if session is None:
                 raise NotFoundValueError("会话不存在")
             if session.active_turn_id is not None:
-                raise ValueError("会话已有活跃轮次，不能重复创建")
+                raise SessionBusyError("会话已有活跃轮次，不能重复创建")
 
             turn_id = new_turn_id()
             run_id = new_run_id()

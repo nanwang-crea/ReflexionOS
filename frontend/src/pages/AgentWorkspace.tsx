@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChatInput } from '@/components/chat/ChatInput'
+import { MessageQueueBar } from '@/components/chat/MessageQueueBar'
 import { CodeTab } from '@/components/workspace/CodeTab'
 import { PlanMinimizedBar } from '@/components/workspace/PlanProgress'
 import { WorkspaceHeader } from '@/components/workspace/WorkspaceHeader'
@@ -66,6 +67,10 @@ export default function AgentWorkspace() {
     denyTool,
     trustTool,
     editAndRerun,
+    updateQueuedMessage,
+    removeQueuedMessage,
+    sendQueuedMessageNow,
+    resumeMessageQueue,
     setMode,
     resetConversationRuntime,
     loadMore,
@@ -78,6 +83,10 @@ export default function AgentWorkspace() {
   )
   const runsById = useConversationStore((s) =>
     currentSessionId ? s.conversationsBySessionId[currentSessionId]?.runsById : undefined
+  )
+  // 当前会话的消息发送队列快照（后端经 conversation:queue_state 广播，见 useConversationRuntime）
+  const messageQueue = useConversationStore((s) =>
+    currentSessionId ? s.messageQueueBySessionId[currentSessionId] ?? null : null
   )
   const [isPlanMinimized, setIsPlanMinimized] = useState(false)
   const codePanelOpen = useCodeTabStore((s) => s.codePanelOpen)
@@ -353,6 +362,13 @@ export default function AgentWorkspace() {
                   onExpand={() => setIsPlanMinimized(false)}
                 />
               )}
+              <MessageQueueBar
+                queue={messageQueue}
+                onUpdate={updateQueuedMessage}
+                onRemove={removeQueuedMessage}
+                onSendNow={sendQueuedMessageNow}
+                onResume={resumeMessageQueue}
+              />
               <ChatInput
                 onSend={handleSend}
                 onCancel={cancelRun}

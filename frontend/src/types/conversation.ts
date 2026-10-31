@@ -209,3 +209,26 @@ export interface ConversationState {
 }
 
 export type { Plan, PlanStep } from '@/types/plan'
+
+// ---------------------------------------------------------------------------
+// 消息发送队列（对齐 reflexion-os-studio 的 QueueEntry 语义）
+// ---------------------------------------------------------------------------
+
+// 队列中的一条待发送消息：会话忙碌（有活跃轮次）时用户提交的消息先进入队列，
+// 当前 Run 结束后由后端按序自动发起。providerId/modelId 是入队时的选择快照。
+export interface QueuedMessage {
+  id: string
+  content: string
+  attachmentIds: string[]
+  providerId: string | null
+  modelId: string | null
+  createdAt: string
+}
+
+// 会话队列的全量快照：后端每次变更都广播完整状态（前端不做增量合并）。
+// paused 表示队列被暂停（通常是用户取消了运行且队列非空），恢复前不会自动出队。
+export interface MessageQueueState {
+  sessionId: string
+  paused: boolean
+  items: QueuedMessage[]
+}

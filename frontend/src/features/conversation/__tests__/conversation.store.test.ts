@@ -254,3 +254,47 @@ describe('createConversationStore', () => {
     expect(store.getState().conversationsBySessionId).toEqual({})
   })
 })
+
+describe('conversation store 消息发送队列', () => {
+  // 参数：sessionId + 队列快照。
+  // 验证：setMessageQueue 按 sessionId 写入队列快照；同会话再次写入为整体替换（后端总是广播全量）。
+  it('stores and replaces message queue snapshots per session', () => {
+    const store = createConversationStore()
+
+    store.getState().setMessageQueue('session-1', {
+      sessionId: 'session-1',
+      paused: false,
+      items: [
+        { id: 'qmsg-1', content: 'A', attachmentIds: [], providerId: null, modelId: null, createdAt: 't1' },
+      ],
+    })
+
+    expect(store.getState().messageQueueBySessionId['session-1']?.items).toHaveLength(1)
+    expect(store.getState().messageQueueBySessionId['session-1']?.items[0]?.content).toBe('A')
+
+    store.getState().setMessageQueue('session-1', {
+      sessionId: 'session-1',
+      paused: true,
+      items: [],
+    })
+
+    expect(store.getState().messageQueueBySessionId['session-1']?.paused).toBe(true)
+    expect(store.getState().messageQueueBySessionId['session-1']?.items).toHaveLength(0)
+  })
+
+  // 参数：sessionId。
+  // 验证：clearConversation 同时清理该会话的队列快照（会话关闭/删除后不留残留状态）。
+  it('clears message queue snapshot when conversation is cleared', () => {
+    const store = createConversationStore()
+
+    store.getState().setMessageQueue('session-1', {
+      sessionId: 'session-1',
+      paused: false,
+      items: [],
+    })
+
+    store.getState().clearConversation('session-1')
+
+    expect(store.getState().messageQueueBySessionId['session-1']).toBeUndefined()
+  })
+})

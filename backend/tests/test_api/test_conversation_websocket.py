@@ -18,12 +18,17 @@ from app.storage.repositories.session_repo import SessionRepository
 
 
 def _drain_until_synced(websocket):
+    """读取消息直到 conversation:synced，并消费紧随其后的 conversation:queue_state 快照，
+    避免残留消息污染同一连接上的后续读取。"""
     messages = []
     while True:
         message = websocket.receive_json()
         messages.append(message)
         if message["type"] == "conversation:synced":
-            return messages
+            break
+    queue_state = websocket.receive_json()
+    assert queue_state["type"] == "conversation:queue_state"
+    return messages
 
 
 def _event_messages(messages):

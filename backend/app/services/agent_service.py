@@ -71,10 +71,12 @@ from .cleanup_service import CleanupService
 from .conversation_broadcaster import ConversationBroadcaster, NoopConversationBroadcaster
 from .conversation_runtime_adapter import ConversationRuntimeAdapter
 from .conversation_service import ConversationService
+from .conversation_service import SessionBusyError
 from .conversation_service import conversation_service as default_conversation_service
 from .llm_provider_service import LLMProviderService
 from .llm_provider_service import llm_provider_service as default_llm_provider_service
 from .attachment_service import convert_attachments_to_content_parts
+from .message_queue_service import QueuedMessage, SessionMessageQueueManager
 
 _CANCEL_WAIT_ATTEMPTS = 10
 _CANCEL_WAIT_INTERVAL_SECONDS = 0.01
@@ -151,6 +153,8 @@ class AgentService:
             conversation_service=self.conversation_service,
         )
         self.trust_store = SessionTrustStore()
+        # 会话级消息发送队列：会话忙碌（有活跃轮次）时新消息入队，Run 终态后自动按序发起
+        self.message_queues = SessionMessageQueueManager()
 
     def _build_run_tool_registry(
         self,
@@ -295,6 +299,164 @@ class AgentService:
             permission_mode=permission_mode,
         )
         return started
+
+    async def submit_message(
+        self,
+        *,
+        project_id: str,
+        session_id: str,
+        content: str,
+        provider_id: str | None = None,
+        model_id: str | None = None,
+        attachment_ids: list[str] | None = None,
+    ) -> StartTurnResult | QueuedMessage:
+        """提交一条用户消息：会话空闲则直接发起新轮次，忙碌则进入发送队列（消息发送队列入口）。
+
+        输入：与 start_turn 相同的参数
+        逻辑：
+          1. 校验会话存在且属于该项目（与 start_turn 同语义，空闲/排队两条路径都需要）；
+          2. 会话无活跃 Run：调用 start_turn 正常发起；若因并发窗口撞上 SessionBusyError
+             （校验和落库之间存在竞态），退化为入队；
+          3. 会话忙碌：入队（队列满抛 ValueError）；
+          4. 入队成功后广播 conversation:queue_state 全量快照，前端据此渲染队列条。
+        输出：StartTurnResult（直接发起）或 QueuedMessage（进入队列）
+        异常：NotFoundValueError（项目或会话不存在）、ValueError（会话不属于该项目/队列已满）
+        """
+        session = self.session_repo.get(session_id)
+        if not session:
+            raise NotFoundValueError("会话不存在")
+        if session.project_id != project_id:
+            raise ValueError("会话不属于当前项目")
+
+        snapshot = self.conversation_service.get_snapshot(session_id)
+        active_run_id = resolve_active_run_id_from_conversation(snapshot)
+        if active_run_id is None:
+            try:
+                return await self.start_turn(
+                    project_id=project_id,
+                    session_id=session_id,
+                    content=content,
+                    provider_id=provider_id,
+                    model_id=model_id,
+                    attachment_ids=attachment_ids,
+                )
+            except SessionBusyError:
+                # 并发窗口：快照读取时仍空闲，start_turn 落库前被其他提交占住 → 退化为入队
+                logger.info("start_turn 撞上活跃轮次（并发窗口），消息转入队列: session=%s", session_id)
+
+        queued = self.message_queues.enqueue(
+            session_id,
+            content=content,
+            provider_id=provider_id,
+            model_id=model_id,
+            attachment_ids=attachment_ids,
+        )
+        await self._broadcast_queue_state(session_id)
+        return queued
+
+    async def update_queued_message(self, session_id: str, queue_id: str, *, content: str) -> None:
+        """编辑一条排队消息的文本内容（原位更新，不影响队列顺序），并广播队列状态。
+        异常：ValueError（queue_id 不存在）
+        """
+        self.message_queues.update(session_id, queue_id, content=content)
+        await self._broadcast_queue_state(session_id)
+
+    async def remove_queued_message(self, session_id: str, queue_id: str) -> bool:
+        """删除一条排队消息并广播队列状态；queue_id 不存在时返回 False（幂等）。"""
+        removed = self.message_queues.remove(session_id, queue_id)
+        if removed:
+            await self._broadcast_queue_state(session_id)
+        return removed
+
+    async def send_queued_message_now(self, session_id: str, queue_id: str) -> None:
+        """将指定排队消息移到队首并立即尝试发起（"立即发送"）。
+
+        语义（对齐 reflexion-os-studio 的 queue.send_now）：
+          - 显式解除队列暂停（用户主动要求发送即视为恢复）；
+          - 会话忙碌时不打断当前 Run，而是等其终态后的出队触发点按新顺序消费；
+          - 会话空闲时立刻出队发起。
+        异常：ValueError（queue_id 不存在）
+        """
+        self.message_queues.move_to_front(session_id, queue_id)
+        self.message_queues.resume(session_id)
+        await self._broadcast_queue_state(session_id)
+        await self._pump_message_queue(session_id)
+
+    async def resume_message_queue(self, session_id: str) -> None:
+        """恢复被暂停的会话队列并立即尝试出队（对齐 studio 的 queue.resume）。"""
+        changed = self.message_queues.resume(session_id)
+        if changed:
+            await self._broadcast_queue_state(session_id)
+        await self._pump_message_queue(session_id)
+
+    def get_message_queue_state(self, session_id: str) -> dict:
+        """获取会话队列的全量快照（WebSocket conversation:queue_state 的 data 负载）。"""
+        snapshot = self.message_queues.get_snapshot(session_id)
+        return {
+            "session_id": session_id,
+            "paused": snapshot.paused,
+            "items": [item.to_dict() for item in snapshot.items],
+        }
+
+    async def _broadcast_queue_state(self, session_id: str) -> None:
+        """向该会话的所有 WebSocket 连接广播当前队列全量快照。"""
+        await self.conversation_broadcaster.send_event(
+            session_id,
+            "conversation:queue_state",
+            self.get_message_queue_state(session_id),
+        )
+
+    async def _pump_message_queue(self, session_id: str) -> None:
+        """尝试从会话队列出队一条消息并发起新轮次（出队触发点：Run 终态 / 立即发送 / 恢复队列）。
+
+        出队语义（对齐 studio 的 pumpQueue）：
+          1. 队列暂停或为空 → 不动；
+          2. 会话仍有活跃 Run（如另一提交抢先开始）→ 不动，等下一个终态触发点重试；
+          3. 先弹出队首再发起；发起失败（供应商配置无效等）→ 放回队首并暂停队列，
+             由用户编辑/恢复后重试，不静默丢弃消息；
+          4. 会话或项目已被删除 → 清空整个队列（残留项永远没有再发起的机会）。
+        """
+        queue = self.message_queues
+        if queue.is_paused(session_id):
+            return
+        if queue.peek(session_id) is None:
+            return
+
+        try:
+            snapshot = self.conversation_service.get_snapshot(session_id)
+        except NotFoundValueError:
+            logger.warning("消息队列出队时发现会话已不存在，清空队列: session=%s", session_id)
+            queue.clear_session(session_id)
+            await self._broadcast_queue_state(session_id)
+            return
+        if resolve_active_run_id_from_conversation(snapshot) is not None:
+            return
+
+        item = queue.pop(session_id)
+        try:
+            session = self.session_repo.get(session_id)
+            project = self.project_repo.get(session.project_id) if session else None
+            if session is None or project is None:
+                raise NotFoundValueError("会话或项目不存在")
+            await self.start_turn(
+                project_id=project.id,
+                session_id=session_id,
+                content=item.content,
+                provider_id=item.provider_id,
+                model_id=item.model_id,
+                attachment_ids=item.attachment_ids,
+            )
+        except SessionBusyError:
+            # 并发窗口内会话被占住：放回队首等待下一个终态触发点，不暂停
+            queue.push_front(session_id, item)
+        except NotFoundValueError:
+            logger.warning("消息队列出队失败：会话或项目已不存在，清空队列: session=%s", session_id)
+            queue.clear_session(session_id)
+        except Exception:
+            logger.exception("队列消息发起失败，保留并暂停队列: session=%s, queue_id=%s", session_id, item.id)
+            queue.push_front(session_id, item)
+            queue.pause(session_id)
+        await self._broadcast_queue_state(session_id)
 
     def schedule_turn(
         self,
@@ -479,9 +641,10 @@ class AgentService:
             await browser_tool.cleanup()
 
     def cleanup_session_security_state(self, session_id: str) -> None:
-        """清理与 session 绑定的审批记忆和 trust rules。"""
+        """清理与 session 绑定的审批记忆、trust rules 和消息队列（会话重置/删除时调用）。"""
         self.pending_approval_store.expire_for_session(session_id)
         self.trust_store.clear_session(session_id)
+        self.message_queues.clear_session(session_id)
 
     async def shutdown(self) -> None:
         """服务关闭时清理所有资源，包括所有 session 的浏览器实例。"""
@@ -780,6 +943,11 @@ class AgentService:
             self._cancel_events.pop(run_id, None)
             if approval_flow is not None and self._session_approval_flows.get(session_id) is approval_flow:
                 self._session_approval_flows.pop(session_id, None)
+            # Run 终态后的消息队列出队触发点：会话空闲且队列非空时自动发起下一条排队消息。
+            # 抑制 CancelledError，避免任务被取消收尾时（Run 已由 cancel_run 判定为 CANCELLED，
+            # 且队列已暂停）出队尝试的等待被再次打断而污染取消语义。
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._pump_message_queue(session_id)
 
     async def _run_with_fallback(
         self,
@@ -1021,6 +1189,11 @@ class AgentService:
         if cancelled.status == RunStatus.CANCELLED:
             self.pending_approval_store.expire_for_run(run_id)
             self.pending_approval_store.expire_for_session(run.session_id)
+            # 用户主动取消且队列非空：暂停队列，避免排队消息在用户已叫停的情况下被自动发起。
+            # 空队列不挂暂停标记，防止出现"看不见队列却被静默扣住"的幽灵暂停。
+            if not self.message_queues.is_empty(run.session_id):
+                self.message_queues.pause(run.session_id)
+                await self._broadcast_queue_state(run.session_id)
         await self._broadcast_conversation_events(
             session_id=run.session_id,
             events=persisted_events,

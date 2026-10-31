@@ -2,7 +2,7 @@
 // 点击上传）、供应商与模型选择、build/plan 模式切换、发送中取消等能力，是对话页面的核心输入控件。
 import { useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Image as ImageIcon, Loader2, Send, Square } from 'lucide-react'
+import { Image as ImageIcon, ListPlus, Loader2, Send, Square } from 'lucide-react'
 import { RunningIndicator } from '@/components/workspace/RunningIndicator'
 import { ImagePreview } from '@/components/chat/ImagePreview'
 import type { PendingAttachment } from '@/features/conversation/hooks/useImageUpload'
@@ -82,9 +82,11 @@ export function ChatInput({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`
   }, [value])
   
-  // 提交发送：有文本或有附件、且未禁用/未在加载中时才触发 onSend，并清空输入框。
+  // 提交发送：有文本或附件、且未禁用时触发 onSend。
+  // 会话运行中（isLoading 且 canCancel）发送不再被拦截：后端会把消息加入发送队列，
+  // 回复结束后自动按序执行（见 MessageQueueBar 与 conversation:queue_state 协议）。
   const handleSend = () => {
-    if ((value.trim() || attachments.length > 0) && !disabled && !isLoading) {
+    if ((value.trim() || attachments.length > 0) && !disabled && (!isLoading || canCancel)) {
       onSend(value.trim())
       setValue('')
     }
@@ -199,7 +201,7 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={attachments.length > 0 ? '添加图片说明（可选）...' : placeholder}
-          disabled={disabled || isLoading}
+          disabled={disabled}
           rows={1}
           className="min-h-[88px] w-full resize-none bg-transparent px-4 py-3 pr-4 text-[15px] leading-7 text-content-secondary outline-none disabled:cursor-not-allowed disabled:bg-surface-tertiary"
         />
@@ -280,27 +282,43 @@ export function ChatInput({
               </span>
             )}
             <span className="hidden text-xs text-content-muted sm:inline">
-              `Enter` 发送，`Shift + Enter` 换行
+              {canCancel ? '`Enter` 加入队列，`Shift + Enter` 换行' : '`Enter` 发送，`Shift + Enter` 换行'}
             </span>
           </div>
 
           <div className="flex w-full items-center justify-end gap-2 sm:w-auto sm:shrink-0">
             {canCancel || isCancelling ? (
-              <motion.button
-                type="button"
-                onClick={onCancel}
-                disabled={isCancelling}
-                className="flex items-center gap-2 rounded-xl bg-surface-tertiary px-3 py-2 text-sm font-medium text-content-secondary transition hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:text-content-muted"
-                whileHover={isCancelling ? undefined : { scale: 1.03 }}
-                whileTap={isCancelling ? undefined : { scale: 0.97 }}
-              >
-                {isCancelling ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Square className="h-4 w-4" />
+              <>
+                {canCancel && (
+                  <motion.button
+                    type="button"
+                    onClick={handleSend}
+                    disabled={(!value.trim() && attachments.length === 0) || disabled}
+                    title="加入队列（当前回复结束后自动发送）"
+                    className="flex items-center gap-1.5 rounded-xl bg-accent/15 px-3 py-2 text-sm font-medium text-accent transition hover:bg-accent/25 disabled:cursor-not-allowed disabled:bg-surface-tertiary disabled:text-content-muted"
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                  >
+                    <ListPlus className="h-4 w-4" />
+                    <span>排队</span>
+                  </motion.button>
                 )}
-                <span>{isCancelling ? '取消中' : '取消'}</span>
-              </motion.button>
+                <motion.button
+                  type="button"
+                  onClick={onCancel}
+                  disabled={isCancelling}
+                  className="flex items-center gap-2 rounded-xl bg-surface-tertiary px-3 py-2 text-sm font-medium text-content-secondary transition hover:bg-surface-tertiary disabled:cursor-not-allowed disabled:text-content-muted"
+                  whileHover={isCancelling ? undefined : { scale: 1.03 }}
+                  whileTap={isCancelling ? undefined : { scale: 0.97 }}
+                >
+                  {isCancelling ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Square className="h-4 w-4" />
+                  )}
+                  <span>{isCancelling ? '取消中' : '取消'}</span>
+                </motion.button>
+              </>
             ) : (
               <motion.button
                 type="button"

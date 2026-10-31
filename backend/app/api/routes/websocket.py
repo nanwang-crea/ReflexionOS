@@ -87,10 +87,13 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
     消息协议：客户端发送 JSON {"type": <消息类型>, "data": {...}}，服务端按 type 分支处理，
       支持的 type 包括：
         - conversation:sync           增量/全量同步事件（携带 after_seq）
-        - conversation:start_turn     发起一轮对话（携带 content/provider_id/model_id/attachment_ids）
+        - conversation:start_turn     发起一轮对话（携带 content/provider_id/model_id/attachment_ids；
+                                      会话忙碌时自动进入消息队列）
         - conversation:cancel_run     取消一次运行（携带 run_id）
         - conversation:edit_and_rerun 编辑历史消息并重跑（携带 message_id/new_content/...）
         - conversation:approve_tool / conversation:deny_tool  审批/拒绝工具调用（携带 approval_id/run_id）
+        - conversation:queue_update / queue_remove / queue_send_now / queue_resume / queue_list
+                                      消息发送队列的编辑/删除/立即发送/恢复/查询
         - session:set_mode            切换会话模式 build/plan
         - session:set_permission_mode 切换权限模式 ask/auto/yolo
         - plan:clear                  清除计划文件
@@ -148,6 +151,11 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
                 try:
                     await _send_live_state(websocket, session_id=session_id)
                     await _send_synced(websocket, session_id=session_id)
+                    # 同步收尾时补发消息队列快照：重连/新开页面的客户端据此恢复队列条 UI
+                    await send_ws_json(websocket, {
+                        "type": "conversation:queue_state",
+                        "data": agent_service.get_message_queue_state(session_id),
+                    })
                 except ValueError as exc:
                     await _send_error(websocket, code="not_found", message=str(exc))
                 continue
@@ -169,7 +177,8 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 try:
                     snapshot = conversation_service.get_snapshot(session_id)
-                    await agent_service.start_turn(
+                    # submit_message：会话空闲则直接发起新轮次，忙碌则进入消息发送队列
+                    await agent_service.submit_message(
                         project_id=snapshot.session.project_id,
                         session_id=session_id,
                         content=content,
@@ -196,6 +205,54 @@ async def websocket_conversation(websocket: WebSocket, session_id: str):
 
                 try:
                     await agent_service.cancel_run(run_id)
+                except ValueError as exc:
+                    await _send_error(websocket, code="invalid_request", message=str(exc))
+                continue
+
+            # 分支：消息发送队列操作——编辑/删除/立即发送/恢复/查询。
+            # 队列状态不落库，所有变更通过 conversation:queue_state 全量快照广播给该会话所有连接；
+            # 单发查询（queue_list）只回给当前连接。
+            if msg_type in {
+                "conversation:queue_update",
+                "conversation:queue_remove",
+                "conversation:queue_send_now",
+                "conversation:queue_resume",
+                "conversation:queue_list",
+            }:
+                queue_id = msg_data.get("queue_id")
+                if msg_type != "conversation:queue_resume" and msg_type != "conversation:queue_list":
+                    if not isinstance(queue_id, str) or not queue_id:
+                        await _send_error(
+                            websocket,
+                            code="invalid_request",
+                            message="queue_id 不能为空",
+                        )
+                        continue
+
+                try:
+                    if msg_type == "conversation:queue_update":
+                        content = msg_data.get("content")
+                        if not isinstance(content, str) or not content.strip():
+                            await _send_error(
+                                websocket,
+                                code="invalid_request",
+                                message="content 不能为空",
+                            )
+                            continue
+                        await agent_service.update_queued_message(
+                            session_id, queue_id, content=content
+                        )
+                    elif msg_type == "conversation:queue_remove":
+                        await agent_service.remove_queued_message(session_id, queue_id)
+                    elif msg_type == "conversation:queue_send_now":
+                        await agent_service.send_queued_message_now(session_id, queue_id)
+                    elif msg_type == "conversation:queue_resume":
+                        await agent_service.resume_message_queue(session_id)
+                    else:  # conversation:queue_list：仅回给当前连接
+                        await send_ws_json(websocket, {
+                            "type": "conversation:queue_state",
+                            "data": agent_service.get_message_queue_state(session_id),
+                        })
                 except ValueError as exc:
                     await _send_error(websocket, code="invalid_request", message=str(exc))
                 continue

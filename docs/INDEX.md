@@ -12,6 +12,7 @@
 - `multimodal-integration-complete.md` — 多模态集成完成情况
 - `dsh-reference-opportunities.md` — DeepSeek Harness 对照分析与借鉴清单（2026-10-02，含落地优先级）
 - `event-map.md` — 执行层事件地图（2026-10-02，由 test_event_map.py 活性保障）
+- `STUDIO-ALIGNMENT-PLAN.md` — reflexion-os-studio 能力对齐改造方案（2026-10-29，P0 消息发送队列已落地）
 
 ### 📝 开发日志（`devlog/`）
 
