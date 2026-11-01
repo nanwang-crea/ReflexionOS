@@ -32,6 +32,11 @@ class TestPromptManager:
         assert "True" in prompt
         assert "计划契约" in prompt
         assert "任务规划" in prompt
+        assert "自主决策" in prompt
+        assert "非必要不打断" in prompt
+        assert "先验证，再行动" in prompt
+        assert "长对话纪律" in prompt
+        assert "上下文被压缩后" in prompt
 
     def test_get_system_prompt_merges_global_and_project_overlays(
         self, tmp_path, monkeypatch
@@ -135,6 +140,12 @@ class TestPromptManager:
             "如果当前计划还有未完成步骤，不要输出最终答案"
             in prompt
         )
+
+    def test_final_response_prompt_bans_confirmation_question_endings(self, manager):
+        prompt = manager.get_final_response_prompt(task="实现功能 X")
+
+        assert "确认问句" in prompt
+        assert "不要用问句索取继续的许可" in prompt
 
     def test_final_response_prompt_warns_against_unverified_coding_completion(
         self, manager
