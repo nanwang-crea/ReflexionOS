@@ -118,3 +118,46 @@ export async function deleteSession(projectId: string, sessionId: string): Promi
   useSessionStore.getState().removeSession(projectId, sessionId)
   await ensureProjectSessionsLoaded(projectId)
 }
+
+/**
+ * 函数名：exportSessionArchive
+ * 入参：
+ *   - sessionId (string): 要导出的会话 ID
+ * 功能：拉取会话归档（.reflexion-chat.json）并触发浏览器下载
+ * 运行逻辑：以 blob 拉取归档内容，创建临时 objectURL 后借助隐藏锚点触发下载并立即释放；
+ *           文件名取自响应头 Content-Disposition 中的 filename*（缺省回退 reflexion-chat-<id>.json）
+ * 出参：Promise<void>
+ */
+export async function exportSessionArchive(sessionId: string): Promise<void> {
+  const response = await sessionApi.exportSessionArchive(sessionId)
+  const disposition = (response.headers?.['content-disposition'] as string | undefined) ?? ''
+  const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition)
+  const filename = encodedMatch ? decodeURIComponent(encodedMatch[1]) : `reflexion-chat-${sessionId}.json`
+
+  const url = URL.createObjectURL(response.data)
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/**
+ * 函数名：importSessionArchive
+ * 入参：
+   - projectId (string): 目标项目 ID（导入的会话将创建在该项目下）
+ *   - file (File): 用户选择的 .reflexion-chat.json 归档文件
+ * 功能：上传归档并重建为新会话，刷新项目会话列表
+ * 运行逻辑：multipart 上传 -> 后端校验并重建（新 ID，惰性工具记录）-> 重新拉取项目会话列表
+ * 出参：Promise<string> - 新建会话的 ID（供调用方选中新会话）
+ */
+export async function importSessionArchive(projectId: string, file: File): Promise<string> {
+  const response = await sessionApi.importSessionArchive(file, projectId)
+  await ensureProjectSessionsLoaded(projectId)
+  return response.data.session_id
+}

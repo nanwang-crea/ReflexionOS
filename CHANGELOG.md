@@ -4,6 +4,20 @@
 
 ---
 
+## 💾 会话归档导入导出（Studio 能力对齐 P1-2）
+
+**上线日期：11.01**
+
+> **难度：⭐⭐⭐** — 事件序列重建是核心难点：导出把事件溯源快照折叠为版本化 JSON，导入按"一条 user 消息开启一轮"反推出完整的 TURN/MESSAGE/RUN 事件序列并保证投影合法（turn_message_index 唯一、run 终态不可逆迁移）。
+>
+> 会话现在可以备份与迁移：Header 新增导出/导入按钮。导出下载 `.reflexion-chat.json`（reflexion-chat v1：消息 + 思考 + 工具只读记录，16MiB 上限，运行中会话拒绝导出）；导入上传归档后在当前项目下重建为全新只读历史会话（新 ID、工具记录为惰性投影不可重放，不恢复审批/队列/授权等运行时状态），失败自动回滚已建会话。
+
+- **后端**：`chat_archive_service.py`（build/import/dumps + ChatArchiveError）+ 2 个 REST 路由
+- **前端**：session.api/actions 增 exportSessionArchive（blob 下载）与 importSessionArchive（multipart 上传 + 列表刷新），WorkspaceHeader 导出/导入按钮
+- **测试**：后端 +7 例（导出折叠/运行中拒绝/导入重建/非法结构 400 无残留/项目缺失 404/超限 400）、前端 +2 例；全量绿（后端 1211、前端 273）
+
+---
+
 ## 📋 Changed Files 变更聚合（Studio 能力对齐 P1-1）
 
 **上线日期：11.01**

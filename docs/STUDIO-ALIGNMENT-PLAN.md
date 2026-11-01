@@ -106,11 +106,12 @@ data: { session_id, paused: bool, items: [{ id, content, attachment_ids, provide
 - **预估规模**：后端 3 文件 + 前端 3 文件 + 测试；1 个开发日。
 - **落地记录（2026-11-01）**：ToolResult 增 `changed_files` 字段（`changed_file_entry` 助手）；edit 工具 8 处成功点与 patch 工具 4 处成功点产出 created/modified/deleted；tool:result 事件与 trace payload 透传；前端 `utils/changedFiles.ts`（路径归一化 + "同路径最后一次出现胜出"折叠，moved 先移除 oldPath 键）+ `ChangedFilesBar` 折叠条挂在过程分组尾部（收起/展开两态均可见）+ 点击文件在工作区代码面板打开。测试：后端 +10 例、前端 +14 例，全量绿（后端 1204、前端 271）。
 
-### 4.2 会话导入导出
+### 4.2 会话导入导出（✅ 已落地 2026-11-01）
 
 - **语义**（对齐 Studio `ChatArchiveSchema`）：导出 `format: 'reflexion-chat'`、`version: 1`、消息（含思考与工具记录投影）、图片 base64 内联、16MiB 上限；运行中会话拒绝导出；导入先完整校验再单事务重建，失败补偿删除，**不恢复**审批/队列/授权等运行时状态。
 - **接入点**：新增 REST `GET /api/sessions/{id}/export`（流式 JSON 下载）与 `POST /api/sessions/import`（multipart 上传）；复用 `ConversationService.append_events` 重建 turn/run/message 事件序列。
 - **预估规模**：后端 2 路由 + 校验模块 + 前端设置/菜单入口；2 个开发日。
+- **落地记录（2026-11-01）**：`chat_archive_service.py`（reflexion-chat v1：导出按快照线性折叠、工具记录挂到其后第一条助手消息；导入"一条 user 消息开启一轮"重建事件序列，run 终态取该轮最后一条助手消息状态，失败补偿删除已建会话）；路由 `GET /api/sessions/{id}/export`（附件下载，运行中/空会话 400）与 `POST /api/sessions/import`（multipart，16MiB 上限，结构非法 400、项目缺失 404）；前端 Header 增导出/导入按钮（blob 下载 + 文件选择上传），导入后刷新列表并选中新会话。测试：后端 +7 例、前端 +2 例，全量绿（后端 1211、前端 273）。与 Studio 的差异：v1 不内联图片/文件附件（ReflexionOS 附件体系基于 upload ID，跨机器无对应文件），导入目标固定为当前选中项目。
 
 ### 4.3 文件式记忆（AGENTS.md / MEMORY.md 注入 + memory.remember）
 

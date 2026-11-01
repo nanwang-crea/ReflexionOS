@@ -26,6 +26,7 @@ import { useSessionUnreadState } from '@/hooks/useSessionUnreadState'
 import { useCurrentSessionViewModel } from '@/hooks/useCurrentSessionViewModel'
 import { useSendMessage } from '@/hooks/useSendMessage'
 import { useWorkspaceStore } from '@/features/workspace/stores/workspace.store'
+import { exportSessionArchive, importSessionArchive } from '@/features/sessions/session.actions'
 import { useProjectStore } from '@/features/projects/stores/project.store'
 import { useImageUpload } from '@/features/conversation/hooks/useImageUpload'
 import { supportsVision } from '@/constants/visionModels'
@@ -57,6 +58,7 @@ const CHAT_INPUT_FALLBACK_INSET_PX = 80
  */
 export default function AgentWorkspace() {
   const currentSessionId = useWorkspaceStore((state) => state.currentSessionId)
+  const setCurrentSessionId = useWorkspaceStore((state) => state.setCurrentSessionId)
   const {
     connectionStatus,
     isCancelling,
@@ -277,6 +279,53 @@ export default function AgentWorkspace() {
    *   4. 上传或发送过程中任何异常都会被捕获，转换为 error 级提示 toast
    * 出参：Promise<void>（异步回调，无返回值，通过副作用发送消息、更新附件状态或提示错误）
    */
+  /**
+   * 函数名：handleExportSession
+   * 入参：无（依赖闭包中的 currentSessionId）
+   * 功能：把当前会话导出为 .reflexion-chat.json 归档并触发浏览器下载
+   * 运行逻辑：调用 exportSessionArchive 拉取归档并下载；成功/失败均以 Toast 反馈
+   * 出参：Promise<void>
+   */
+  const handleExportSession = useCallback(async () => {
+    if (!currentSessionId) {
+      useToastStore.getState().addToast('error', '请先选择要导出的会话')
+      return
+    }
+    try {
+      await exportSessionArchive(currentSessionId)
+      useToastStore.getState().addToast('info', '会话归档已导出')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '导出失败'
+      useToastStore.getState().addToast('error', `导出会话失败: ${message}`)
+    }
+  }, [currentSessionId])
+
+  /**
+   * 函数名：handleImportSession
+   * 入参：file（用户选择的 .reflexion-chat.json 归档文件）
+   * 功能：把归档导入为当前项目下的新会话并选中新会话
+   * 运行逻辑：调用 importSessionArchive 上传重建 -> 刷新项目会话列表 -> 选中新会话；
+   *           成功/失败均以 Toast 反馈
+   * 出参：Promise<void>
+   */
+  const handleImportSession = useCallback(
+    async (file: File) => {
+      if (!currentProject) {
+        useToastStore.getState().addToast('error', '请先选择一个项目再导入')
+        return
+      }
+      try {
+        const newSessionId = await importSessionArchive(currentProject.id, file)
+        setCurrentSessionId(newSessionId)
+        useToastStore.getState().addToast('info', '会话归档导入成功')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '导入失败'
+        useToastStore.getState().addToast('error', `导入会话失败: ${message}`)
+      }
+    },
+    [currentProject, setCurrentSessionId]
+  )
+
   const handleSend = useCallback(
     async (message: string) => {
       try {
@@ -342,7 +391,11 @@ export default function AgentWorkspace() {
       <div className="flex h-full">
         {/* 对话区：常驻，flex-1 占满剩余宽度 */}
         <div className="flex h-full flex-col bg-surface-primary flex-1 min-w-0">
-          <WorkspaceHeader {...viewModel.headerProps} />
+          <WorkspaceHeader
+            {...viewModel.headerProps}
+            onExportSession={handleExportSession}
+            onImportSession={handleImportSession}
+          />
           <WorkspaceTranscript
             {...viewModel.transcriptProps}
             oldestLoadedTurnId={oldestLoadedTurnId}

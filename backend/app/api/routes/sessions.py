@@ -4,14 +4,24 @@
 # 核心逻辑：路由层多为对 session_service / conversation_service / agent_service
 #           的薄封装；删除会话时需要依次清理浏览器资源、安全状态、附件文件，
 #           各步骤独立 try/except 记录警告日志，避免某一步失败阻塞整体删除流程。
+import json
 import logging
+from urllib.parse import quote
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Form, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from app.app_services import agent_service
-from app.errors import value_error_to_app_error
+from app.errors import NotFoundError, NotFoundValueError, value_error_to_app_error
 from app.models.conversation_snapshot import ConversationSnapshot
 from app.models.session import Session, SessionCreate, SessionUpdate
+from app.services.chat_archive_service import (
+    MAX_ARCHIVE_BYTES,
+    ChatArchiveError,
+    build_chat_archive,
+    dumps_archive,
+    import_chat_archive,
+)
 from app.services.conversation_service import conversation_service
 from app.services.session_service import session_service
 
@@ -144,3 +154,65 @@ async def delete_session(session_id: str):
         return {"message": "会话已删除"}
     except ValueError as exc:
         raise value_error_to_app_error(exc, resource="会话") from exc
+
+
+@router.get("/sessions/{session_id}/export")
+async def export_session(session_id: str):
+    """
+    GET /api/sessions/{session_id}/export：把会话导出为 .reflexion-chat.json 归档下载。
+    入参：session_id（路径参数，会话 ID）。
+    逻辑：会话存在且有活跃 Run 时拒绝导出（归档只含已终态的历史）；
+          按快照折叠为 reflexion-chat v1 JSON（消息 + 思考 + 工具只读记录），
+          以附件形式下发（文件名带会话 ID，UTF-8 编码）。
+    出参：JSON 文件下载；错误以 HTTPException/400 返回（会话不存在/运行中/空会话）。
+    """
+    try:
+        snapshot = conversation_service.get_snapshot(session_id)
+        from app.services.agent_service import resolve_active_run_id_from_conversation
+        if resolve_active_run_id_from_conversation(snapshot) is not None:
+            raise ChatArchiveError("会话正在运行中，请先停止或等待运行结束后再导出")
+        session = session_service.get_session(session_id)
+        archive = build_chat_archive(snapshot, session)
+    except ValueError as exc:
+        raise value_error_to_app_error(exc, resource="会话") from exc
+
+    payload = dumps_archive(archive)
+    filename = quote(f"reflexion-chat-{session_id}.json")
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
+    )
+
+
+@router.post("/sessions/import")
+async def import_session_archive(file: UploadFile, project_id: str = Form(...)):
+    """
+    POST /api/sessions/import：上传 .reflexion-chat.json 归档，在指定项目下重建为新会话。
+    入参：file（multipart 文件，归档 JSON，上限 16MiB）；project_id（表单字段，目标项目）。
+    逻辑：读取并解析归档 → chat_archive_service.import_chat_archive 校验并在
+          单次补偿语义下重建（新会话/新 ID，工具记录为惰性只读投影，不恢复任何
+          运行时状态）；失败时已创建的会话会被回滚删除。
+    出参：dict（session_id/title/imported_messages/imported_tools）。
+    """
+    payload = await file.read()
+    if len(payload) > MAX_ARCHIVE_BYTES:
+        raise HTTPException(status_code=400, detail=f"归档文件超过 {MAX_ARCHIVE_BYTES // (1024 * 1024)}MiB 上限")
+    try:
+        archive = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail=f"归档不是有效的 UTF-8 JSON: {exc}") from exc
+
+    try:
+        return import_chat_archive(
+            conversation_service,
+            session_service,
+            project_id=project_id,
+            archive=archive,
+        )
+    except ChatArchiveError as exc:
+        # 结构/内容非法：400
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except NotFoundValueError as exc:
+        # 目标项目不存在：404
+        raise NotFoundError(resource="项目", message=str(exc)) from exc

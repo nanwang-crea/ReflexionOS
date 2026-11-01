@@ -1,9 +1,10 @@
 /**
  * 工作区顶部 Header 组件：显示项目标题、WebSocket 连接状态，
- * 并提供文件树开关、终端开关、重置对话和代码面板折叠/展开按钮。
+ * 并提供文件树开关、终端开关、重置对话、会话归档导出/导入和代码面板折叠/展开按钮。
  */
 
-import { FolderTree, PanelRightClose, PanelRightOpen, TerminalSquare } from 'lucide-react'
+import { useRef } from 'react'
+import { Download, FolderTree, PanelRightClose, PanelRightOpen, TerminalSquare, Upload } from 'lucide-react'
 import type { ConnectionStatus } from '@/features/workspace/types'
 import { useCodeTabStore } from '@/features/code/stores/codeTab.store'
 import { useTerminalStore } from '@/features/terminal/stores/terminal.store'
@@ -13,6 +14,10 @@ interface WorkspaceHeaderProps {
   projectPath?: string | null
   connectionStatus: ConnectionStatus
   onReset: () => void | Promise<void>
+  /** 导出当前会话归档（.reflexion-chat.json）回调；未提供时隐藏入口 */
+  onExportSession?: () => void | Promise<void>
+  /** 导入会话归档回调（接收用户选择的归档文件）；未提供时隐藏入口 */
+  onImportSession?: (file: File) => void | Promise<void>
 }
 
 /**
@@ -27,7 +32,10 @@ export function WorkspaceHeader({
   projectPath,
   connectionStatus,
   onReset,
+  onExportSession,
+  onImportSession,
 }: WorkspaceHeaderProps) {
+  const importInputRef = useRef<HTMLInputElement | null>(null)
   const codePanelOpen = useCodeTabStore((s) => s.codePanelOpen)
   const toggleCodePanel = useCodeTabStore((s) => s.toggleCodePanel)
   const sidebarOpen = useCodeTabStore((s) => s.sidebarOpen)
@@ -96,6 +104,39 @@ export function WorkspaceHeader({
           >
             重置对话
           </button>
+          {onExportSession && (
+            <button
+              type="button"
+              onClick={() => void onExportSession()}
+              title="导出当前会话（.reflexion-chat.json）"
+              className="rounded-md p-1.5 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          )}
+          {onImportSession && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void onImportSession(file)
+                  event.target.value = ''
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => importInputRef.current?.click()}
+                title="导入会话归档（.reflexion-chat.json）"
+                className="rounded-md p-1.5 text-content-muted transition-colors hover:bg-surface-tertiary hover:text-content-secondary"
+              >
+                <Upload className="h-4 w-4" />
+              </button>
+            </>
+          )}
           {/* 代码面板折叠开关，固定在 Header 最右侧 */}
           <button
             type="button"

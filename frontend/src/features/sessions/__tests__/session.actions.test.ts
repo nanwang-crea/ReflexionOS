@@ -13,6 +13,8 @@ const updateSessionMock = vi.fn()
 const resetSessionMock = vi.fn()
 const deleteSessionMock = vi.fn()
 const listProjectSessionsMock = vi.fn()
+const exportSessionArchiveMock = vi.fn()
+const importSessionArchiveMock = vi.fn()
 
 vi.mock('../api/session.api', () => ({
   sessionApi: {
@@ -21,6 +23,8 @@ vi.mock('../api/session.api', () => ({
     resetSession: resetSessionMock,
     deleteSession: deleteSessionMock,
     listProjectSessions: listProjectSessionsMock,
+    exportSessionArchive: exportSessionArchiveMock,
+    importSessionArchive: importSessionArchiveMock,
   },
 }))
 
@@ -32,6 +36,8 @@ describe('sessionActions', () => {
     deleteSessionMock.mockReset()
     listProjectSessionsMock.mockReset()
     listProjectSessionsMock.mockResolvedValue({ data: [] })
+    exportSessionArchiveMock.mockReset()
+    importSessionArchiveMock.mockReset()
     useSessionStore.setState({
       sessionsByProjectId: {},
     })
@@ -232,4 +238,62 @@ describe('sessionActions', () => {
     expect(useSessionStore.getState().sessionsByProjectId['project-1']).toEqual([])
   })
 
+})
+
+describe('sessionActions 会话归档导出/导入', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessionsByProjectId: {} })
+  })
+
+  it('imports an archive, refreshes sessions and returns the new session id', async () => {
+    const { importSessionArchive } = await import('../session.actions')
+    importSessionArchiveMock.mockResolvedValue({
+      data: { session_id: 'session-new', title: '导入的会话（导入）', imported_messages: 2, imported_tools: 1 },
+    })
+    listProjectSessionsMock.mockResolvedValue({
+      data: [{ id: 'session-new', projectId: 'project-1', title: '导入的会话（导入）', createdAt: '2026-11-01T10:00:00Z', updatedAt: '2026-11-01T10:00:00Z' }],
+    })
+
+    const file = new File(['{}'], 'reflexion-chat.json', { type: 'application/json' })
+    const newSessionId = await importSessionArchive('project-1', file)
+
+    expect(newSessionId).toBe('session-new')
+    expect(importSessionArchiveMock).toHaveBeenCalledTimes(1)
+    const [fileArg, projectIdArg] = importSessionArchiveMock.mock.calls[0]
+    expect(fileArg).toBe(file)
+    expect(projectIdArg).toBe('project-1')
+    // 项目会话列表被刷新且包含新会话
+    expect(useSessionStore.getState().sessionsByProjectId['project-1']).toHaveLength(1)
+  })
+
+  it('exports an archive and triggers a browser download with the backend filename', async () => {
+    const { exportSessionArchive } = await import('../session.actions')
+    const blob = new Blob(['{}'], { type: 'application/json' })
+    exportSessionArchiveMock.mockResolvedValue({
+      data: blob,
+      headers: { 'content-disposition': "attachment; filename*=UTF-8''reflexion-chat-session-1.json" },
+    })
+
+    const createdAnchors: Array<{ href: string; download: string; click: () => void; remove: () => void }> = []
+    const appendSpy = vi
+      .spyOn(document.body, 'appendChild')
+      .mockImplementation(((node: Node) => {
+        createdAnchors.push(node as unknown as (typeof createdAnchors)[number])
+        return node
+      }) as typeof document.body.appendChild)
+    const revokeSpy = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:mock', revokeObjectURL: revokeSpy })
+
+    try {
+      await exportSessionArchive('session-1')
+    } finally {
+      appendSpy.mockRestore()
+      vi.unstubAllGlobals()
+    }
+
+    expect(exportSessionArchiveMock).toHaveBeenCalledWith('session-1')
+    expect(createdAnchors).toHaveLength(1)
+    expect(createdAnchors[0].download).toBe('reflexion-chat-session-1.json')
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock')
+  })
 })

@@ -88,4 +88,19 @@ export const sessionApi = {
     mapSessionResponse(apiClient.post<ConversationSessionDto>(`/api/sessions/${sessionId}/reset`)),
   deleteSession: (sessionId: string) =>
     apiClient.delete(`/api/sessions/${sessionId}`),
+  // 导出会话归档（.reflexion-chat.json）：以 blob 接收，由调用方触发浏览器下载
+  exportSessionArchive: (sessionId: string) =>
+    apiClient.get<Blob>(`/api/sessions/${sessionId}/export`, { responseType: 'blob' }),
+  // 导入会话归档：multipart 上传，在指定项目下重建为新会话
+  importSessionArchive: (file: File, projectId: string) =>
+    apiClient.post<{ session_id: string; title: string; imported_messages: number; imported_tools: number }>(
+      '/api/sessions/import',
+      (() => {
+        const form = new FormData()
+        form.append('file', file)
+        form.append('project_id', projectId)
+        return form
+      })(),
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    ),
 }
