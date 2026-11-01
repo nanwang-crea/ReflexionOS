@@ -350,6 +350,7 @@ export default function AgentWorkspace() {
             isPlanMinimized={effectivePlanMinimized}
             onTogglePlanMinimize={() => setIsPlanMinimized((v) => !v)}
             onDetailClick={handleDetailClick}
+            onChangedFileClick={(path) => openFile(path, 'edit')}
             bottomInset={CHAT_INPUT_FALLBACK_INSET_PX}
           />
 

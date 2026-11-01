@@ -127,6 +127,42 @@ def test_maps_tool_start_and_result_to_tool_trace_message(tmp_path):
     assert traces[0].stream_state == StreamState.COMPLETED
 
 
+def test_tool_result_payload_carries_changed_files(tmp_path):
+    """变更聚合条目：tool:result 携带 changed_files 时应透传进工具轨迹 payload。"""
+    service, started = build_started_turn(tmp_path)
+    adapter = ConversationRuntimeAdapter(
+        conversation_service=service,
+        session_id="session-1",
+        turn_id=started.turn.id,
+        run_id=started.run.id,
+    )
+
+    adapter.handle_event(
+        "tool:start",
+        {"tool_name": "edit", "arguments": {"action": "str_replace"}, "step_number": 1},
+    )
+    changed = [{"path": "/tmp/x.py", "action": "modified"}]
+    adapter.handle_event(
+        "tool:result",
+        {
+            "tool_name": "edit",
+            "step_number": 1,
+            "success": True,
+            "output": "成功替换",
+            "error": None,
+            "duration": 0.01,
+            "changed_files": changed,
+        },
+    )
+
+    snapshot = service.get_snapshot("session-1")
+    traces = [
+        message for message in snapshot.messages if message.message_type == MessageType.TOOL_TRACE
+    ]
+    assert len(traces) == 1
+    assert traces[0].payload_json["changed_files"] == changed
+
+
 def test_maps_approval_required_to_waiting_tool_trace_and_run_event(tmp_path):
     service, started = build_started_turn(tmp_path)
     adapter = ConversationRuntimeAdapter(

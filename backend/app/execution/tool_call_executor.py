@@ -346,6 +346,8 @@ class ToolCallExecutor:
                     "output": result.output,
                     "error": result.error,
                     "duration": step.duration,
+                    # 文件修改类工具的变更聚合条目（详见 ToolResult.changed_files）
+                    **({"changed_files": result.changed_files} if result.changed_files else {}),
                     **(result.data or {}),
                 },
             )

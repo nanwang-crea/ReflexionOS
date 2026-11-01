@@ -17,7 +17,7 @@ import aiofiles
 
 from app.errors import ValidationError
 from app.security.path_security import PathSecurity
-from app.tools.base import BaseTool, ToolResult
+from app.tools.base import BaseTool, ToolResult, changed_file_entry
 from app.tools.diff_parser import CodexPatchParser, DiffParser
 from app.tools.replacer import replace
 
@@ -183,6 +183,7 @@ class EditTool(BaseTool):
             success=True,
             output=f"成功替换 {path}",
             data={"file": path, "action": "str_replace", "replace_all": replace_all},
+            changed_files=[changed_file_entry(path, "modified")],
         )
 
     async def _append_or_create(self, path: str, new_string: str) -> ToolResult:
@@ -220,6 +221,7 @@ class EditTool(BaseTool):
                 success=True,
                 output=f"成功追加内容到 {path}",
                 data={"file": path, "action": "str_replace"},
+                changed_files=[changed_file_entry(path, "modified")],
             )
 
         normalized_new = _normalize_to_lf(new_string)
@@ -229,6 +231,7 @@ class EditTool(BaseTool):
             success=True,
             output=f"成功创建文件 {path}",
             data={"file": path, "action": "str_replace"},
+            changed_files=[changed_file_entry(path, "created")],
         )
 
     async def _patch(self, args: dict[str, Any]) -> ToolResult:
@@ -273,6 +276,7 @@ class EditTool(BaseTool):
 
         lock = _get_lock(file_path)
         async with lock:
+            existed = os.path.exists(file_path)
             try:
                 with open(file_path, encoding="utf-8") as f:
                     original_lines = f.readlines()
@@ -295,6 +299,7 @@ class EditTool(BaseTool):
             success=True,
             output=f"成功应用 {applied} 个修改到 {file_path}",
             data={"file": file_path, "hunks_applied": applied, "hunks_rejected": rejected},
+            changed_files=[changed_file_entry(file_path, "created" if not existed else "modified")],
         )
 
     async def _execute_codex_patch(self, patch_text: str) -> ToolResult:
@@ -328,6 +333,7 @@ class EditTool(BaseTool):
                     success=True,
                     output=f"成功创建文件 {file_path}",
                     data={"file": file_path, "action": "add"},
+                    changed_files=[changed_file_entry(file_path, "created")],
                 )
 
             if parsed.action == "delete":
@@ -340,6 +346,7 @@ class EditTool(BaseTool):
                     success=True,
                     output=f"成功删除文件 {file_path}",
                     data={"file": file_path, "action": "delete"},
+                    changed_files=[changed_file_entry(file_path, "deleted")],
                 )
 
             if parsed.action == "update":
@@ -365,6 +372,7 @@ class EditTool(BaseTool):
                     success=True,
                     output=f"成功应用 {applied} 个修改到 {file_path}",
                     data={"file": file_path, "action": "update", "hunks_applied": applied},
+                    changed_files=[changed_file_entry(file_path, "modified")],
                 )
 
         return ToolResult(success=False, error="不支持的 patch 操作")
@@ -384,13 +392,19 @@ class EditTool(BaseTool):
 
         lock = _get_lock(path)
         async with lock:
+            existed = os.path.exists(path)
             dir_path = os.path.dirname(path)
             if dir_path:
                 os.makedirs(dir_path, exist_ok=True)
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
                 await f.write(content)
 
-        return ToolResult(success=True, output=f"文件已写入: {path}")
+        return ToolResult(
+            success=True,
+            output=f"文件已写入: {path}",
+            data={"file": path, "action": "write"},
+            changed_files=[changed_file_entry(path, "created" if not existed else "modified")],
+        )
 
     def _apply_hunks(self, original_lines: list[str], hunks: list) -> tuple:
         """

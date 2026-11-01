@@ -99,11 +99,12 @@ data: { session_id, paused: bool, items: [{ id, content, attachment_ids, provide
 
 ## 四、P1 规划（下一批，按价值排序）
 
-### 4.1 Changed Files 变更聚合
+### 4.1 Changed Files 变更聚合（✅ 已落地 2026-11-01）
 
 - **语义**（对齐 Studio `ToolOutput.changedFiles` + mutation receipts）：edit/patch/write 工具结果中携带 `changedFiles: [{path, action: created|modified|deleted|moved}]`；Run 终态后按 path 去重聚合（同路径"最后一次出现"胜出），前端在 Run 块尾部渲染折叠条"变更了 N 个文件"，点击项查看 Diff。
 - **接入点**：`ToolResult` 增加可选 `changed_files` 字段（edit_tool/patch_tool 生产）；`ConversationRuntimeAdapter` 落库时随 tool_trace payload 写入；前端 `transcriptItems` 在 run 组内聚合；部分失败只计成功子项。
 - **预估规模**：后端 3 文件 + 前端 3 文件 + 测试；1 个开发日。
+- **落地记录（2026-11-01）**：ToolResult 增 `changed_files` 字段（`changed_file_entry` 助手）；edit 工具 8 处成功点与 patch 工具 4 处成功点产出 created/modified/deleted；tool:result 事件与 trace payload 透传；前端 `utils/changedFiles.ts`（路径归一化 + "同路径最后一次出现胜出"折叠，moved 先移除 oldPath 键）+ `ChangedFilesBar` 折叠条挂在过程分组尾部（收起/展开两态均可见）+ 点击文件在工作区代码面板打开。测试：后端 +10 例、前端 +14 例，全量绿（后端 1204、前端 271）。
 
 ### 4.2 会话导入导出
 

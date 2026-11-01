@@ -36,6 +36,34 @@ function buildMessage(overrides: Partial<ConversationMessage> = {}): Conversatio
   }
 }
 
+describe('process_group 的变更聚合（changedFiles）', () => {
+  it('collects changed_files from tool trace messages and folds per path', () => {
+    const messages = [
+      buildMessage({ id: 'm1', payloadJson: { tool_name: 'edit', changed_files: [{ path: '/p/a.ts', action: 'created' }] } }),
+      buildMessage({ id: 'm2', payloadJson: { tool_name: 'edit', changed_files: [{ path: '/p/a.ts', action: 'modified' }] } }),
+      buildMessage({ id: 'm3', payloadJson: { tool_name: 'shell' } }),
+      buildMessage({ id: 'm4', messageType: 'assistant_message', contentText: '完成' }),
+    ]
+
+    const items = buildTranscriptItems(messages)
+    const group = items.find((item) => item.kind === 'process_group')
+    expect(group && group.kind === 'process_group' ? group.changedFiles : undefined).toEqual([
+      { path: '/p/a.ts', action: 'modified' },
+    ])
+  })
+
+  it('yields empty changedFiles when no tool message declares changes', () => {
+    const messages = [
+      buildMessage({ id: 'm1', payloadJson: { tool_name: 'shell' } }),
+      buildMessage({ id: 'm2', messageType: 'assistant_message', contentText: '完成' }),
+    ]
+
+    const items = buildTranscriptItems(messages)
+    const group = items.find((item) => item.kind === 'process_group')
+    expect(group && group.kind === 'process_group' ? group.changedFiles : undefined).toEqual([])
+  })
+})
+
 /**
  * 函数名：getProcessGroup
  * 入参：

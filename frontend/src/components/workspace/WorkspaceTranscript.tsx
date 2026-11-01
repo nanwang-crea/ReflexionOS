@@ -401,6 +401,8 @@ interface WorkspaceTranscriptProps {
   onTogglePlanMinimize?: () => void
   onApprovalAction?: ToolApprovalActionHandler
   onDetailClick?: (detail: ActionReceiptDetail) => void
+  /** 点击变更文件路径的回调（在工作区代码面板打开该文件） */
+  onChangedFileClick?: (path: string) => void
   runsById?: Record<string, ConversationRun>
   onEditMessage?: (messageId: string, contentText: string) => void
   onRegenerateMessage?: (messageId: string) => void | Promise<void>
@@ -450,6 +452,7 @@ export function WorkspaceTranscript({
   onTogglePlanMinimize,
   onApprovalAction,
   onDetailClick,
+  onChangedFileClick,
   runsById,
   onEditMessage,
   onRegenerateMessage,
@@ -666,6 +669,8 @@ export function WorkspaceTranscript({
             autoCollapse={autoCollapseProcess}
             onApprovalAction={onApprovalAction}
             onDetailClick={onDetailClick}
+            changedFiles={item.changedFiles}
+            onChangedFileClick={onChangedFileClick}
           />
         </div>
       )

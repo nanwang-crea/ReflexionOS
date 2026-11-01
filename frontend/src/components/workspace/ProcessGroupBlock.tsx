@@ -11,7 +11,9 @@ import { ChevronDown, ChevronRight, Layers } from 'lucide-react'
 import { ThinkingBlock } from './ThinkingBlock'
 import { WorkingNoteBlock } from './WorkingNoteBlock'
 import { ToolGroupItem } from './ToolGroupItem'
+import { ChangedFilesBar } from './ChangedFilesBar'
 import type { ProcessSubItem } from './transcriptItems'
+import type { ChangedFileEntry } from '@/types/conversation'
 import type { ReceiptDetailClickHandler, ToolApprovalActionHandler } from './ToolTraceCard'
 
 interface ProcessGroupBlockProps {
@@ -23,6 +25,10 @@ interface ProcessGroupBlockProps {
   autoCollapse: boolean
   onApprovalAction?: ToolApprovalActionHandler
   onDetailClick?: ReceiptDetailClickHandler
+  /** 本轮变更聚合条目（来自 transcript builder），非空时在分组尾部渲染变更清单条 */
+  changedFiles?: ChangedFileEntry[]
+  /** 点击变更文件路径的回调（如在工作区代码面板打开） */
+  onChangedFileClick?: (path: string) => void
 }
 
 const EXPAND_LABEL = '展开过程'
@@ -77,6 +83,8 @@ export function ProcessGroupBlock({
   autoCollapse,
   onApprovalAction,
   onDetailClick,
+  changedFiles,
+  onChangedFileClick,
 }: ProcessGroupBlockProps) {
   const storageKey = `process-collapsed-${runId}`
 
@@ -126,6 +134,7 @@ export function ProcessGroupBlock({
           <Layers className="h-3.5 w-3.5 shrink-0" />
           <span>{EXPAND_LABEL}</span>
         </motion.button>
+        <ChangedFilesBar files={changedFiles ?? []} onFileClick={onChangedFileClick} />
       </div>
     )
   }
@@ -176,6 +185,7 @@ export function ProcessGroupBlock({
             })}
           </div>
           <CollapseBar onClick={() => setIsCollapsed(true)} />
+          <ChangedFilesBar files={changedFiles ?? []} onFileClick={onChangedFileClick} />
         </motion.div>
       </AnimatePresence>
     </div>

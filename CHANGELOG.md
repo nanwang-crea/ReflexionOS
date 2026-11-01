@@ -1,6 +1,20 @@
 # ReflexionOS 产品更新日志
 
-> 最新更新周期：2026.10.29（参考 reflexion-os-studio 的能力对齐改造）
+> 最新更新周期：2026.11.01（参考 reflexion-os-studio 的能力对齐改造）
+
+---
+
+## 📋 Changed Files 变更聚合（Studio 能力对齐 P1-1）
+
+**上线日期：11.01**
+
+> **难度：⭐⭐** — 全链路但各环节改动小；核心语义对齐 Studio："同路径最后一次出现胜出"、moved 先移除 oldPath 键、只统计成功落盘的变更。
+>
+> Agent 每轮改了哪些文件不再需要翻工具轨迹：edit（str_replace/追加/创建/write/unified diff/codex add-delete-update）与 patch 工具的成功结果携带 `changed_files` 结构化清单，经 tool:result → 工具轨迹 payload 落库；前端在过程分组尾部渲染可折叠的"变更了 N 个文件"条（收起/展开两态均可见），展开显示动作徽标（新建/修改/删除/移动）与路径，点击直接在工作区代码面板打开该文件。
+
+- **后端**：ToolResult.changed_files + changed_file_entry 助手；edit 8 处 / patch 4 处成功点产出；executor emit 与 adapter payload 白名单各加一行透传
+- **前端**：utils/changedFiles.ts（解析/归一化/折叠）+ ChangedFilesBar 组件 + transcript 过程分组集成
+- **测试**：后端 +10 例（含失败结果不产清单、write 区分 created/modified）、前端 +14 例（聚合语义/组件渲染/构建器集成），全量绿（后端 1204、前端 271）
 
 ---
 

@@ -9,12 +9,14 @@ import { buildApprovalDetailFromPayload, buildReceiptDetail } from '@/components
 import type { ActionReceiptDetail, ActionReceiptStatus } from '@/components/execution/receiptUtils'
 import type { ConversationMessage } from '@/types/conversation'
 import { getAssistantReasoningText } from './runtimeStatus'
+import { collectChangedFilesFromMessages } from '@/utils/changedFiles'
+import type { ChangedFileEntry } from '@/types/conversation'
 
 const TOOL_GROUP_GAP_MS = 90_000
 
 export type TranscriptItem =
   | { kind: 'message'; id: string; message: ConversationMessage }
-  | { kind: 'process_group'; id: string; runId: string; subItems: ProcessSubItem[] }
+  | { kind: 'process_group'; id: string; runId: string; subItems: ProcessSubItem[]; changedFiles: ChangedFileEntry[] }
   | { kind: 'answer_message'; id: string; message: ConversationMessage }
 
 export type ProcessSubItem =
@@ -236,11 +238,13 @@ export function buildTranscriptItems(messages: ConversationMessage[]): Transcrip
     flushToolBuffer()
     if (currentRunId !== null && currentSubItems.length > 0) {
       const seq = (runGroupCounter[currentRunId] = (runGroupCounter[currentRunId] ?? 0) + 1)
+      const toolMessages = currentSubItems.flatMap((sub) => (sub.kind === 'tool_group' ? sub.messages : []))
       items.push({
         kind: 'process_group',
         id: `process-${currentRunId}-${seq}`,
         runId: currentRunId,
         subItems: currentSubItems,
+        changedFiles: collectChangedFilesFromMessages(toolMessages),
       })
     }
     currentRunId = null

@@ -33,8 +33,23 @@ class ToolResult(BaseModel):
     output: str | None = None
     error: str | None = None
     data: dict[str, Any] | None = None
+    # 变更聚合（对齐 reflexion-os-studio 的 ChangedFile 语义）：文件修改类工具在成功时
+    # 填写本次实际落盘的变更清单；path 为绝对路径，action ∈ created/modified/deleted/moved
+    changed_files: list[dict[str, str]] | None = None
     approval_required: bool = False
     approval: ToolApprovalRequest | None = None
+
+
+def changed_file_entry(path: str, action: str, old_path: str | None = None) -> dict[str, str]:
+    """构造一条变更聚合条目（changed_files 的元素）。
+    输入：path - 变更文件的路径；action - created/modified/deleted/moved 之一；
+          old_path - 仅 moved 时提供原路径
+    输出：{"path", "action"(, "old_path")} 字典
+    """
+    entry = {"path": path, "action": action}
+    if old_path:
+        entry["old_path"] = old_path
+    return entry
 
 
 def _external_path_approval(tool_name: str, exc: ExternalPathError) -> ToolResult:

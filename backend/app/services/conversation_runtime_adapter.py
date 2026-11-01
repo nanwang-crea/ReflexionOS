@@ -327,6 +327,9 @@ class ConversationRuntimeAdapter:
             payload_update["tool_call_id"] = data.get("tool_call_id")
         if data.get("arguments") is not None:
             payload_update["arguments"] = data.get("arguments")
+        # 变更聚合条目：文件修改类工具成功时携带（对齐 Studio ChangedFile 语义）
+        if data.get("changed_files"):
+            payload_update["changed_files"] = data.get("changed_files")
 
         success = bool(data.get("success"))
         payload_update["status"] = "completed" if success else "failed"

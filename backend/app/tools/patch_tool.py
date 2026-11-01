@@ -7,7 +7,7 @@ from typing import Any
 
 from app.errors import ValidationError
 from app.security.path_security import PathSecurity
-from app.tools.base import BaseTool, ToolResult
+from app.tools.base import BaseTool, ToolResult, changed_file_entry
 from app.tools.diff_parser import CodexPatchParser, DiffParser, Hunk
 
 logger = logging.getLogger(__name__)
@@ -95,7 +95,8 @@ class PatchTool(BaseTool):
         # 验证路径安全性
         file_path = self.security.validate_write_path(file_path)
 
-        # 读取原文件
+        # 读取原文件（不存在则视为新建）
+        existed = os.path.exists(file_path)
         try:
             with open(file_path, encoding="utf-8") as f:
                 original_lines = f.readlines()
@@ -116,6 +117,7 @@ class PatchTool(BaseTool):
                 success=True,
                 output=f"成功应用 {applied} 个修改到 {file_path}",
                 data={"file": file_path, "hunks_applied": applied, "hunks_rejected": rejected},
+                changed_files=[changed_file_entry(file_path, "created" if not existed else "modified")],
             )
 
         logger.warning("Patch 部分失败: %s 个 Hunk 被拒绝", rejected)
@@ -156,6 +158,7 @@ class PatchTool(BaseTool):
                 success=True,
                 output=f"成功创建文件 {file_path}",
                 data={"file": file_path, "action": "add"},
+                changed_files=[changed_file_entry(file_path, "created")],
             )
 
         if parsed.action == "delete":
@@ -173,6 +176,7 @@ class PatchTool(BaseTool):
                 success=True,
                 output=f"成功删除文件 {file_path}",
                 data={"file": file_path, "action": "delete"},
+                changed_files=[changed_file_entry(file_path, "deleted")],
             )
 
         if parsed.action == "update":
@@ -203,6 +207,7 @@ class PatchTool(BaseTool):
                 success=True,
                 output=f"成功应用 {applied} 个 Codex-style 修改到 {file_path}",
                 data={"file": file_path, "action": "update", "hunks_applied": applied},
+                changed_files=[changed_file_entry(file_path, "modified")],
             )
 
         return ToolResult(success=False, error=f"不支持的 Codex-style patch 操作: {parsed.action}")

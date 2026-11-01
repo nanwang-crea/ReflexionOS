@@ -232,3 +232,13 @@ export interface MessageQueueState {
   paused: boolean
   items: QueuedMessage[]
 }
+
+// 变更聚合（对齐 reflexion-os-studio 的 ChangedFile 语义）：文件修改类工具
+// （edit/patch）成功后随工具轨迹 payload 携带的结构化变更条目
+export type ChangedFileAction = 'created' | 'modified' | 'deleted' | 'moved'
+
+export interface ChangedFileEntry {
+  path: string
+  action: ChangedFileAction
+  oldPath?: string
+}
