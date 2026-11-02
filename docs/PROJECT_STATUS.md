@@ -394,7 +394,7 @@ ReflexionOS 是一个开源的本地优先桌面编程 Agent。用户指向一�
 | 全局级记忆 | ⬜ 未完成 | CuratedEntry.scope 仅支持 project | 低 — 前向兼容预留 |
 | Plugins 页面 | 🔶 部分完成 | 仅占位 UI，无实际插件系统 | 低 — 需先完成 MCP |
 | Automation 页面 | 🔶 部分完成 | 仅占位 UI，无任务调度 | 低 — 需先完成 MCP |
-| 并行工具执行 | ⬜ 未完成 | rapid_loop 中 tool_calls 串行执行 | 中 — next.txt 已有方案 |
+| 并行工具执行 | 🔶 部分完成 | 只读工具并行（asyncio.gather）；写操作中"独立单文件 edit 段"并发（路径互斥、上限 4，2026-11-01）；shell/patch/未知足迹/同路径保持串行（设计如此，对齐 Studio mutation coordinator 精简版） | 低 — 剩余为 patch 文本内嵌路径的解析 |
 | ripgrep 文件搜索 | 🔶 部分完成 | grep_tool 已用 rg，但 file_tool.search 仍用 os.walk | 低 — grep 已覆盖 |
 | 文件树缓存 | 🔶 部分完成 | FileContentService 有 5 秒 TTL 缓存，但无 watchdog 增量更新 | 低 |
 

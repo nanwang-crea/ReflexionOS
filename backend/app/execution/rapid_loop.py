@@ -41,6 +41,7 @@ from app.execution.runtime_tool_definitions import (
     ToolSetConfig,
 )
 from app.execution.tool_call_executor import ToolCallExecutor
+from app.execution.tool_concurrency import collect_parallel_write_run
 from app.llm.base import (
     LLMMessage,
     LLMResponse,
@@ -540,6 +541,42 @@ class RapidExecutionLoop:
             tool_call = write_calls[write_index]
 
             if tool_call.name != "delegate":
+                # 独立单文件写段并发（对齐 Studio mutation coordinator 精简版）：
+                # 连续的文件级 edit 且目标路径互不相同才并发；shell/patch/未知足迹/
+                # 同路径保持串行，工具层按路径文件锁作最后互斥兜底
+                write_run = collect_parallel_write_run(write_calls, write_index)
+                if len(write_run) > 1:
+                    start_step = rt.step_num + 1
+                    parallel_steps = await asyncio.gather(
+                        *[
+                            self.tool_executor.execute(tc, context, start_step + i)
+                            for i, tc in enumerate(write_run)
+                        ]
+                    )
+                    rt.step_num = start_step + len(write_run) - 1
+                    waiting_step = None
+                    pending_phase = None
+                    # 按提交顺序收尾（确定性）：失败计数/事件/死循环检测语义与串行一致
+                    for run_call, step in zip(write_run, parallel_steps, strict=True):
+                        self._record_tool_signature(context, run_call)
+                        result.steps.append(step)
+                        context.add_step(step)
+                        if step.status == StepStatus.WAITING_FOR_APPROVAL:
+                            waiting_step = waiting_step or step
+                            continue
+                        phase, needs_error_recovery = await self._finalize_write_step(
+                            run_call, step, context, rt
+                        )
+                        error_recovery_needed = error_recovery_needed or needs_error_recovery
+                        if phase is not None and pending_phase is None:
+                            pending_phase = phase
+                    if waiting_step is not None:
+                        return await self._handle_approval(waiting_step, context, result, rt)
+                    if pending_phase is not None:
+                        return pending_phase
+                    write_index += len(write_run)
+                    continue
+
                 self._record_tool_signature(context, tool_call)
                 rt.step_num += 1
                 step = await self.tool_executor.execute(tool_call, context, rt.step_num)
