@@ -1,6 +1,19 @@
 # ReflexionOS 产品更新日志
 
-> 最新更新周期：2026.11.03（写操作并发调度 + 提示词纪律 + Studio 能力对齐）
+> 最新更新周期：2026.11.03（跨会话召回 + 写操作并发 + 提示词纪律 + Studio 能力对齐）
+
+---
+
+## 🔁 session_recall 项目级跨会话召回（next.txt 痛点①：重复读取）
+
+**上线日期：11.03**
+
+> **难度：⭐⭐** — 盘点发现 RecallService 本就支持项目级检索（session_id=None 即全项目），只是工具把它锁死在当前会话——一次参数级扩展直接解决痛点。
+>
+> 针对 next.txt 痛点"之前读取过了，之后再问问题还是会重复读取"：session_recall 工具新增 `scope` 参数（默认 session 保持兼容；`project` 检索本项目全部历史会话），工具描述明确引导 LLM"重读文件前先用 project 范围查一下早前会话是否已经读过"。project 范围下每条结果带来源 session 标注。
+
+- **后端**：session_recall_tool 的 schema/描述/execute 三处扩展（RecallService 零改动）
+- **测试**：+4 例（项目级命中并标注来源、会话级默认兼容、非法 scope、schema 暴露）；全量绿（后端 1227）
 
 ---
 
