@@ -65,9 +65,16 @@ function resolveVirtualEnvPython() {
 function findPythonCommand(requirementsPath) {
   const moduleNames = readProbeModuleNames(requirementsPath)
   const probeCode = buildImportProbeCode(moduleNames)
+  // 优先探测仓库自带的 backend/.venv（开发者按 README 建立的标准环境），
+  // 再退回环境变量与 PATH 上的解释器——否则 macOS/Linux 下 PATH 里的
+  // python3 通常是未装依赖的系统环境，导致后端永远起不来
+  const venvPython = process.platform === 'win32'
+    ? path.join(path.dirname(requirementsPath), '.venv', 'Scripts', 'python.exe')
+    : path.join(path.dirname(requirementsPath), '.venv', 'bin', 'python')
   const candidates = [
     process.env.REFLEXION_PYTHON_PATH,
     process.env.PYTHON_PATH,
+    venvPython,
     resolveVirtualEnvPython(),
     'python',
     'python3',
