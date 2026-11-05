@@ -1,6 +1,19 @@
 # ReflexionOS 产品更新日志
 
-> 最新更新周期：2026.11.03（跨会话召回 + 写操作并发 + 提示词纪律 + Studio 能力对齐）
+> 最新更新周期：2026.11.05（memory_remember 记忆写入 + 跨会话召回 + Studio 能力对齐）
+
+---
+
+## 🧠 memory_remember 跨会话记忆写入（P1-3）
+
+**上线日期：11.05**
+
+> **难度：⭐⭐** — 盘点发现四层文件注入早已存在（prompt_manager overlay：全局/项目 × soul/agent/memory），真正缺口是**全局记忆档写不进去**：~/.reflexion 不在 PathSecurity 允许路径内，edit 工具对它无能为力。
+>
+> 新增 `memory_remember` 免审批工具：Agent 可把用户偏好、项目约定、历史教训追加写入全局（~/.reflexion/memory.md）或项目级（{project}/.reflexion/memory.md）记忆文件，下次会话自动注入 system prompt。校验从严：单条单行 ≤500 字符、追加语义不覆盖、机密启发式拒绝（记忆文件会注入每次会话，凭据一旦写入等于持续扩散）。
+
+- **后端**：tools/memory_remember_tool.py + 注册进运行工具注册中心 + system.md 记忆段更新
+- **测试**：+7 例（两档写入/追加保留/无项目失败/空·多行·超长·机密拒绝/非法 scope）；全量绿（后端 1234）
 
 ---
 

@@ -113,11 +113,12 @@ data: { session_id, paused: bool, items: [{ id, content, attachment_ids, provide
 - **预估规模**：后端 2 路由 + 校验模块 + 前端设置/菜单入口；2 个开发日。
 - **落地记录（2026-11-01）**：`chat_archive_service.py`（reflexion-chat v1：导出按快照线性折叠、工具记录挂到其后第一条助手消息；导入"一条 user 消息开启一轮"重建事件序列，run 终态取该轮最后一条助手消息状态，失败补偿删除已建会话）；路由 `GET /api/sessions/{id}/export`（附件下载，运行中/空会话 400）与 `POST /api/sessions/import`（multipart，16MiB 上限，结构非法 400、项目缺失 404）；前端 Header 增导出/导入按钮（blob 下载 + 文件选择上传），导入后刷新列表并选中新会话。测试：后端 +7 例、前端 +2 例，全量绿（后端 1211、前端 273）。与 Studio 的差异：v1 不内联图片/文件附件（ReflexionOS 附件体系基于 upload ID，跨机器无对应文件），导入目标固定为当前选中项目。
 
-### 4.3 文件式记忆（AGENTS.md / MEMORY.md 注入 + memory.remember）
+### 4.3 文件式记忆（✅ 已落地 2026-11-05，注入部分此前已存在）
 
 - **语义**：项目根 `AGENTS.md`、全局/项目 `MEMORY.md` 四层注入系统提示词；`memory_remember` 工具供 Agent 主动写入；与既有 CuratedMemoryStore 并存（文件记忆面向"人可编辑"，entry 记忆面向"机器管理"）。
 - **接入点**：`PromptManager` 注入层 + 新工具注册（`_build_run_tool_registry`）；注意 2000 token 预算截断。
 - **预估规模**：后端 2 模块 + 测试；1 个开发日。
+- **落地记录（2026-11-05）**：盘点发现**四层文件注入早已存在**（prompt_manager 的 overlay 机制：全局 ~/.reflexion/ + 项目 .reflexion/ × soul/agent/memory，AGENTS.md 已废弃统一 agent.md——比方案设计更全，soul/agent 两层是超出）。本次补齐真正缺口：**memory_remember 免审批写入工具**（全局 ~/.reflexion/memory.md 不在 PathSecurity 允许路径内，edit 工具写不了全局档）：单条单行 ≤500 字符、追加语义、机密启发式拒绝（sk-/ghp_/JWT/password= 等 8 类模式，记忆文件会注入每次会话故从严）；system.md 记忆段更新提及。测试：+7 例，全量绿（后端 1234）。
 
 ## 五、P2 规划（远期）
 

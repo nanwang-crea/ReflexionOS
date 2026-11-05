@@ -50,6 +50,7 @@ from app.tools.explore_tool import ExploreTool
 from app.tools.file_tool import FileTool
 from app.tools.glob_tool import GlobTool
 from app.tools.grep_tool import GrepTool
+from app.tools.memory_remember_tool import MemoryRememberTool
 from app.tools.plan_tool import PlanTool
 from app.tools.registry import ToolRegistry
 from app.tools.session_recall_tool import SessionRecallTool
@@ -811,6 +812,8 @@ class AgentService:
         run_tool_registry = self._build_run_tool_registry(project_path, session_id=session_id, trust_store=self.trust_store, permission_mode=permission_mode)
         run_tool_registry.register(SessionRecallTool(session_id=session_id, project_id=project_id))
         run_tool_registry.register(WorkingMemoryTool())
+        # 跨会话记忆写入：免审批工具，全局档绕开 PathSecurity（~/.reflexion 不在允许路径内）
+        run_tool_registry.register(MemoryRememberTool(project_root=project_path))
 
         # 先创建主 Agent 的 execution_loop（需要在工厂函数之前，以便获取其 approval_flow）
         execution_loop = RapidExecutionLoop(
